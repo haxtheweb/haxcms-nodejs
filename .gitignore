@@ -1,0 +1,11 @@
+.DS_Store
+node_modules
+public/sites
+public/published
+public/archived
+public/tmp
+system/config
+!build/es6/node_modules
+!build/es6/node_modules/**
+package-lock.json
+build/es6/node_modules/@polymer/.DS_Store

@@ -1,0 +1,12 @@
+{
+  "ignore": [
+    "cli.js",
+    "package.json",
+    "public/archived",
+    "public/sites",
+    "public/published",
+    "public/system",
+    "public/sites/*/**",
+    "public/sites/*/pages/**",
+    "public/sites/*/site.json"]
+}
