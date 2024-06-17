@@ -15,8 +15,18 @@ const HAXCMS = require('./lib/HAXCMS.js');
  * if it's in an existing HAXcms deploy, it should read off that _config / other multi-site directories
  * if it's a HAXSite then it needs to supply config that works relative to that one
  * This also influnces the entry index.html file
+ * 
+ * On the command running we need to generate the system directory an public as far as where things save.
+ * This will allow you to run the  npx command and just start creating sites in the folder you are in
+ * which is a bit magic. Might need a template for how the project is to be managed for site creation.
+ * 
+ * From there we can see if we can easily peal sites off or not. We might need to make individual
+ * npx commands based on context but the awesome thing is that the CLI I could pass args to without issue!
+ * 
+ * This could possibly pick up clark integration and then it asks you what you want to do and that becomes
+ * the entry way into working with the system. If that happens it'll have to move the package over to the
+ * create repo but this is still early in DX to know.
  */
-
 
 // routes with all requires
 const routesMap = require('./routesMap.js');
