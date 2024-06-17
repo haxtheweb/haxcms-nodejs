@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 // lib dependencies
 process.env.haxcms_middleware = "node-express";
 const express = require('express');

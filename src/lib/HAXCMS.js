@@ -7,8 +7,7 @@ const GitPlus = require('./GitPlus.js');
 const JSONOutlineSchema = require('./JSONOutlineSchema.js');
 const filter_var = require('./filter_var.js');
 const explode = require('locutus/php/strings/explode');
-console.log(__dirname);
-const HAXCMS_ROOT = process.env.HAXCMS_ROOT || __dirname + "/../public/";
+const HAXCMS_ROOT = process.env.HAXCMS_ROOT || __dirname + "/../../public/";
 const HAXCMS_DEFAULT_THEME = 'clean-two';
 const HAXCMS_FALLBACK_HEX = '#3f51b5';
 // HAXcms core
@@ -58,12 +57,12 @@ const HAXCMS = new class HAXCMSClass {
 
 
 
-    this.coreConfigPath = __dirname + '/../system/coreConfig/';
-    this.boilerplatePath = __dirname + '/../system/boilerplate/';
+    this.coreConfigPath = __dirname + '/../../system/coreConfig/';
+    this.boilerplatePath = __dirname + '/../../system/boilerplate/';
     this.sitesDirectory = 'sites';
     this.archivedDirectory = 'archived';
     this.publishedDirectory = 'published';
-    this.configDirectory = __dirname + '/../system/config/';
+    this.configDirectory = __dirname + '/../../system/config/';
     
     // makes it easier to request a new item from the schema factory
     this.outlineSchema = new JSONOutlineSchema();
@@ -117,12 +116,12 @@ const HAXCMS = new class HAXCMSClass {
     }
     // @todo this is VERY hacky specific placement of the theme options
     this.config.site.fields[0].properties[1].properties[0].options = themeSelect;
-
-    // @todo siteFields.json needs to be incorporated here so we have a standard set of site fields
     
     // so you can modify them via the UI
     this.userData = JSON.parse(fs.readFileSync(path.join(this.configDirectory, "userData.json"),
     {encoding:'utf8', flag:'r'}, 'utf8'));
+
+    // security related files for hashing. if they don't exist, build them on the fly
     try {
       this.salt = fs.readFileSync(path.join(this.configDirectory, "SALT.txt"),
       {encoding:'utf8', flag:'r'}, 'utf8');  

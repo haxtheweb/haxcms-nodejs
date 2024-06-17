@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 // cli bridge
 process.env.haxcms_middleware = "node-cli";
 // HAXcms core settings
