@@ -2,7 +2,6 @@
 
 // lib dependencies
 process.env.haxcms_middleware = "node-express";
-const publicDir = __dirname + "/../public";
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
@@ -10,6 +9,7 @@ const app = express();
 const mime = require('mime');
 const path = require('path');
 const server = require('http').Server(app);
+const publicDir = path.join(__dirname, '/public');
 // HAXcms core settings
 const { HAXCMS } = require('./lib/HAXCMS.js');
 /**
@@ -34,7 +34,7 @@ const { HAXCMS } = require('./lib/HAXCMS.js');
 // routes with all requires
 const { RoutesMap, OpenRoutes } = require('./lib/RoutesMap.js');
 // app settings
-const port = 3000;
+const port = 8000;
 const multer = require('multer')
 const upload = multer({ dest: path.join(HAXCMS.configDirectory, 'tmp/') })
 app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
@@ -45,7 +45,7 @@ app.use(helmet({
   },
 }));
 app.use(cookieParser());
-app.use(express.static("public"));
+app.use(express.static(publicDir));
 app.use('/', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', 'http://localhost:8080');
 	res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
@@ -201,7 +201,7 @@ server.listen(port, async (err) => {
   const openPkg = await import('open');
   const open = openPkg.default;
   // opens the url in the default browser 
-  open('http://localhost:3000');
+  open('http://localhost:8000');
 	/* eslint-disable no-console */
-	console.log('open: http://localhost:3000');
+	console.log('open: http://localhost:8000');
 });
