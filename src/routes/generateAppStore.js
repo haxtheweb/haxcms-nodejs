@@ -37,7 +37,7 @@ function generateAppStore(req, res) {
     }
     let appStore = AppStoreService.loadBaseAppStore(apikeys);
     // pull in the core one we supply, though only upload works currently
-    tmp = HAXCMS.siteConnectionJSON();
+    let tmp = HAXCMS.siteConnectionJSON();
     appStore.push(tmp);
     let staxList,bloxList,autoloaderList;
     if (HAXCMS.config.appStore && HAXCMS.config.appStore.stax) {

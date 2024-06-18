@@ -48,7 +48,7 @@ const strip_tags = require("locutus/php/strings/strip_tags");
     if (page) {
       // convert web location for loading into file location for writing
       if ((body)) {
-        bytes = 0;
+        let bytes = 0;
         // see if we have multiple pages / this page has been told to split into multiple
         let pageData = HAXCMS.pageBreakParser(body);
         for (var i in pageData) {
@@ -247,7 +247,7 @@ const strip_tags = require("locutus/php/strings/strip_tags");
               }
               // update the updated timestamp
               page.metadata.updated = Math.floor(Date.now() / 1000);
-              clean = strip_tags(body);
+              let clean = strip_tags(body);
               // auto generate a text only description from first 200 chars
               // unless we were sent one to use
               if ((data["attributes"]["description"]) && data["attributes"]["description"] != '') {

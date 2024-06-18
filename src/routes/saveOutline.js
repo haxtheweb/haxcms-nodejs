@@ -85,7 +85,7 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
       }
       // this would imply existing item, lets see if it moved or needs moved
       else {
-          moved = false;
+          let moved = false;
           for( var moveKey in original) {
             let tmpItem = original[moveKey];
               // see if this is something moving as opposed to brand new
@@ -161,9 +161,9 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
         if (!nodeToDuplicate) {
           nodeToDuplicate = site.loadNode(itemMap[item.duplicate]);
         }
-        content = await site.getPageContent(nodeToDuplicate);
+        let content = await site.getPageContent(nodeToDuplicate);
         // write it to the file system
-        bytes = await page.writeLocation(
+        let bytes = await page.writeLocation(
           content,
           HAXCMS.HAXCMS_ROOT +
           HAXCMS.sitesDirectory +
@@ -175,7 +175,7 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
       // contents that were shipped across, and not null, take priority over a dup request
       if (typeof item.contents !== 'undefined' && item.contents && item.contents != '') {
         // write it to the file system
-        bytes = await page.writeLocation(
+        let bytes = await page.writeLocation(
           item.contents,
           HAXCMS.HAXCMS_ROOT +
           HAXCMS.sitesDirectory +

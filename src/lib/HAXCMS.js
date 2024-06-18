@@ -571,7 +571,7 @@ class HAXCMSClass {
       let version = null;
       if (!version) {
         // sanity but this lives in the public directory relative to root
-        let vFile = await fs.readFileSync(path.join(HAXCMS_ROOT, "public", "VERSION.txt"),
+        let vFile = await fs.readFileSync(path.join(__dirname, "/../public", "VERSION.txt"),
         {encoding:'utf8', flag:'r'}, 'utf8');
         if (vFile) {
           return filter_var(vFile);
@@ -1874,7 +1874,7 @@ class HAXCMSSite
         // support direct HTML setting
         if (template == 'html') {
           // now this should exist if it didn't a minute ago
-          bytes = page.writeLocation(
+          let bytes = page.writeLocation(
             html,
             HAXCMS_ROOT +
             HAXCMS.sitesDirectory +
