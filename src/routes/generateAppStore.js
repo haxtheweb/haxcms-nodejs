@@ -1,4 +1,4 @@
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 const HAXAppStoreService = require('../lib/HAXAppStoreService.js');
 const AppStoreService = new HAXAppStoreService();
 /**

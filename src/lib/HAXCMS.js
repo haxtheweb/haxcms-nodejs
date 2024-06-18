@@ -5,13 +5,15 @@ const JWT = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const GitPlus = require('./GitPlus.js');
 const JSONOutlineSchema = require('./JSONOutlineSchema.js');
+const { discoverConfigPath } = require('./discoverConfigPath.js');
 const filter_var = require('./filter_var.js');
 const explode = require('locutus/php/strings/explode');
-const HAXCMS_ROOT = process.env.HAXCMS_ROOT || __dirname + "/../../public/";
+// may need to change as we get into CLI integration
+const HAXCMS_ROOT = process.env.HAXCMS_ROOT || path.join(process.cwd(), "/");
 const HAXCMS_DEFAULT_THEME = 'clean-two';
 const HAXCMS_FALLBACK_HEX = '#3f51b5';
 // HAXcms core
-const HAXCMS = new class HAXCMSClass {
+class HAXCMSClass {
   constructor() {
     this.developerMode = false;
     this.developerModeAdminOnly = false;
@@ -55,17 +57,25 @@ const HAXCMS = new class HAXCMSClass {
       "*",
     ];
 
-
-
-    this.coreConfigPath = __dirname + '/../../system/coreConfig/';
-    this.boilerplatePath = __dirname + '/../../system/boilerplate/';
-    this.sitesDirectory = 'sites';
-    this.archivedDirectory = 'archived';
-    this.publishedDirectory = 'published';
-    this.configDirectory = __dirname + '/../../system/config/';
+    this.configDirectory = discoverConfigPath;
+    // these are relative to the current path
+    this.coreConfigPath = __dirname + '/../coreConfig/';
+    this.boilerplatePath = __dirname + '/../boilerplate/';
+    // these are relative to root which is cwd
+    this.sitesDirectory = '_sites';
+    // verify sitesDirectory exists
+    if (!fs.existsSync(path.join(HAXCMS_ROOT, this.sitesDirectory))) {
+      fs.mkdirSync(path.join(HAXCMS_ROOT, this.sitesDirectory));
+    }
+    this.archivedDirectory = '_archived';
+    this.publishedDirectory = '_published';
     
     // makes it easier to request a new item from the schema factory
     this.outlineSchema = new JSONOutlineSchema();
+    // self healing if config is missing
+    if (!fs.existsSync(path.join(this.configDirectory, "config.json"))) {
+      fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/config.json'), path.join(this.configDirectory, 'config.json'));
+    }
     this.config = JSON.parse(fs.readFileSync(path.join(this.configDirectory, "config.json"),
       {encoding:'utf8', flag:'r'}, 'utf8'));
     if (!this.config.appJWTConnectionSettings) {
@@ -118,6 +128,9 @@ const HAXCMS = new class HAXCMSClass {
     this.config.site.fields[0].properties[1].properties[0].options = themeSelect;
     
     // so you can modify them via the UI
+    if (!fs.existsSync(path.join(this.configDirectory, "userData.json"))) {
+      fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/userData.json'), path.join(this.configDirectory, 'userData.json'));
+    }
     this.userData = JSON.parse(fs.readFileSync(path.join(this.configDirectory, "userData.json"),
     {encoding:'utf8', flag:'r'}, 'utf8'));
 
@@ -556,9 +569,9 @@ const HAXCMS = new class HAXCMSClass {
     async getHAXCMSVersion()
     {
       let version = null;
-      if (!(version)) {
-        // sanity
-        let vFile = await fs.readFileSync(path.join(HAXCMS_ROOT, "/VERSION.txt"),
+      if (!version) {
+        // sanity but this lives in the public directory relative to root
+        let vFile = await fs.readFileSync(path.join(HAXCMS_ROOT, "public", "VERSION.txt"),
         {encoding:'utf8', flag:'r'}, 'utf8');
         if (vFile) {
           return filter_var(vFile);
@@ -896,7 +909,7 @@ const HAXCMS = new class HAXCMSClass {
         "operations": {
           "browse": {
             "method": "GET",
-            "endPoint": "system/api/listFiles",
+            "endPoint": this.systemRequestBase + "listFiles",
             "pagination": {
               "style": "link",
               "props": {
@@ -935,7 +948,7 @@ const HAXCMS = new class HAXCMSClass {
           },
           "add": {
             "method": "POST",
-            "endPoint": "system/api/saveFile",
+            "endPoint": this.systemRequestBase + "saveFile",
             "acceptsGizmoTypes": [
               "image",
               "video",
@@ -1198,7 +1211,7 @@ const HAXCMS = new class HAXCMSClass {
       await fs.copySync(src, dst);
     }
 }
-module.exports = HAXCMS;
+const HAXCMS = new HAXCMSClass();
 // HAXCMSSite which overlaps heavily and is referenced here often
 const utf8 = require('utf8');
 const JSONOutlineSchemaItem = require('./JSONOutlineSchemaItem.js');
@@ -2736,3 +2749,5 @@ class HAXCMSSite
       return rSlug;
     }
 }
+
+module.exports = { HAXCMS, HAXCMSClass, HAXCMSSite };

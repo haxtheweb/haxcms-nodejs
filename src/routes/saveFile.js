@@ -1,5 +1,5 @@
 const path = require('path');
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 const HAXCMSFile = require('../lib/HAXCMSFile.js');
 /**
    * @OA\Post(

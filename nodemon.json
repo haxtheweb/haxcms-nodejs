@@ -1,11 +1,12 @@
 {
   "ignore": [
     "package.json",
-    "public/archived",
-    "public/sites",
-    "public/published",
-    "system",
-    "public/sites/*/**",
-    "public/sites/*/pages/**",
-    "public/sites/*/site.json"]
+    "_archived",
+    "_archived/*",
+    "_published",
+    "_published/*",
+    "_sites",
+    "_sites/*/**",
+    "_sites/*/pages/**",
+    "_sites/*/site.json"]
 }

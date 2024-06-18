@@ -3,7 +3,7 @@
 // cli bridge
 process.env.haxcms_middleware = "node-cli";
 // HAXcms core settings
-const HAXCMS = require('./lib/HAXCMS.js');
+const { HAXCMS } = require('./lib/HAXCMS.js');
 /**
  * @todo need a configuration resolver of some kind
  * if we are invoking stand alone, it'll need to install haxcms in place
@@ -12,7 +12,7 @@ const HAXCMS = require('./lib/HAXCMS.js');
  * This also influnces the entry index.html file
  */
 
-const routesMap = require('./routesMap.js');
+const RoutesMap = require('./lib/RoutesMap.js');
 
 // process arguments from commandline appropriately
 const args = process.argv;
@@ -72,8 +72,8 @@ const cli = {
 // @todo ensure that we apply the same JWT checking that we do in the PHP side
 // instead of a simple array of what to let go through we could put it into our
 // routes object above and apply JWT requirement on paths in a better way
-for (var method in routesMap) {
-  for (var route in routesMap[method]) {
+for (var method in RoutesMap) {
+  for (var route in RoutesMap[method]) {
     if (cliOp === 'listCalls') {
       console.log(route);
     }
@@ -83,7 +83,7 @@ for (var method in routesMap) {
         const rMethod = req.method.toLowerCase();
         if (HAXCMS.validateJWT(req, res)) {
           // call the method
-          routesMap[rMethod][op](req, res);
+          RoutesMap[rMethod][op](req, res);
         }
         else {
           console.error("route connection issue");

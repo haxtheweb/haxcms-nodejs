@@ -777,7 +777,7 @@ class HAXAppStoreService
      */
     loadBaseBlox()
     {
-        jsonstring = `[
+        let jsonstring = `[
     {
       "details": {
         "title": "50% columns",
@@ -971,7 +971,7 @@ class HAXAppStoreService
      */
     loadBaseStax()
     {
-        jsonstring = `[{
+      let jsonstring = `[{
       "details": {
         "title": "Example Lesson",
         "author": "ELMS:LN",

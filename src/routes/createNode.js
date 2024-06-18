@@ -1,4 +1,4 @@
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
 /**
  * @OA\Post(
@@ -94,7 +94,7 @@ async function createNode(req, res) {
         );  
       }
     }
-    await site.gitCommit(count(nodeParams['items']) + ' pages added'); 
+    await site.gitCommit(nodeParams['items'].length + ' pages added'); 
   }
   else {
     // generate a new item based on the site

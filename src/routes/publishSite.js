@@ -1,5 +1,5 @@
 const fs = require('fs-extra');
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 const explode = require('locutus/php/strings/explode');
 const base64_encode = require('locutus/php/url/base64_encode');
 const parse_url = require('locutus/php/url/parse_url');

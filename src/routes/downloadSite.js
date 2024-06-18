@@ -1,4 +1,4 @@
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 const fs = require('fs-extra');
 const archiver = require('archiver');
 /**
@@ -38,6 +38,10 @@ const archiver = require('archiver');
   async function downloadSite(req, res) {
     // load site
     let site = await HAXCMS.loadSite(req.body['site']['name']);
+    // create archived directory in this tree if it doesn't exist already
+    if (!fs.existsSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory)) {
+      fs.mkdirSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory);
+    }
     // helpful boilerplate https://stackoverflow.com/questions/29873248/how-to-zip-a-whole-directory-and-download-using-php
     let dir = HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.name;
     // form a basic name

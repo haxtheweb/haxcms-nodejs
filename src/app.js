@@ -2,13 +2,16 @@
 
 // lib dependencies
 process.env.haxcms_middleware = "node-express";
+const publicDir = __dirname + "/../public";
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const app = express();
+const mime = require('mime');
+const path = require('path');
 const server = require('http').Server(app);
 // HAXcms core settings
-const HAXCMS = require('./lib/HAXCMS.js');
+const { HAXCMS } = require('./lib/HAXCMS.js');
 /**
  * @todo need a configuration resolver of some kind
  * if we are invoking stand alone, it'll need to install haxcms in place
@@ -29,12 +32,11 @@ const HAXCMS = require('./lib/HAXCMS.js');
  */
 
 // routes with all requires
-const routesMap = require('./routesMap.js');
+const { RoutesMap, OpenRoutes } = require('./lib/RoutesMap.js');
 // app settings
 const port = 3000;
 const multer = require('multer')
-const upload = multer({ dest: './system/config/tmp/' })
-
+const upload = multer({ dest: path.join(HAXCMS.configDirectory, 'tmp/') })
 app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
 app.use(helmet({
   contentSecurityPolicy: false,
@@ -50,55 +52,116 @@ app.use('/', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
   res.setHeader('Content-Type', 'application/json');
   // dynamic step routes in HAXcms site list UI
-  if (req.url === req.url.replace(/\/createSite-step-(.*)/, "/").replace(/\/home/, "/")) {
+  if (!req.url.startsWith('/createSite-step-') && req.url !== "/home") {
     next();
   }
   else {
-    res.setHeader('Content-Type', 'text/html');
+    if (mime.getType(req.url)) {
+      res.setHeader('Content-Type', mime.getType(req.url));
+    }
+    else {
+      res.setHeader('Content-Type', 'text/html');
+    }
     res.sendFile(req.url.replace(/\/createSite-step-(.*)/, "/").replace(/\/home/, "/"),
     {
-      root: __dirname + "/public"
+      root: publicDir
     });
   }
 });
 // sites need rewriting to work with PWA routes without failing file location
 // similar to htaccess
-app.use('/sites/',(req, res, next) => {
+app.use(`/${HAXCMS.sitesDirectory}/`,(req, res, next) => {
+  if (req.url.includes('/system/api/')) {
+    next()
+  }
   // previous will catch as json, undo that
-  res.setHeader('Content-Type', 'text/html');
-  // send file for the index even tho route says it's a path not on our file system
-  // this way internal routing picks up and loads the correct content while
-  // at the same time express has delivered us SOMETHING as the path in the request
-  // url doesn't actually exist
-  res.sendFile(req.url.replace(/\/(.*?)\/(.*)/, "/sites/$1/index.html"),
+  else if (
+    !req.url.includes('/custom/build/') && 
+    (
+      req.url.includes('/build/') || 
+      req.url.includes('wc-registry.json') ||
+      req.url.includes('build.js') ||
+      req.url.includes('build-haxcms.js') ||
+      req.url.includes('VERSION.txt')
+    )
+  ) {
+    if (mime.getType(req.url.split('?')[0])) {
+      res.setHeader('Content-Type', mime.getType(req.url));
+    }
+    let cleanFilePath = req.url
+    .replace(/\/(.*?)\/build\//g, "build/")
+    .replace(/\/(.*?)\/wc-registry.json/g, "wc-registry.json")
+      .replace(/\/(.*?)\/build.js/g, "build.js")
+      .replace(/\/(.*?)\/build-haxcms.js/g, "build-haxcms.js")
+      .replace(/\/(.*?)\/VERSION.txt/g, "VERSION.txt");
+    res.sendFile(cleanFilePath,
+    {
+      root: publicDir
+    });
+  }
+  else if (
+    req.url.includes('legacy-outline.html') || 
+    req.url.includes('custom/build') || 
+    req.url.includes('/theme/') || 
+    req.url.includes('/assets/') || 
+    req.url.includes('/manifest.json') || 
+    req.url.includes('/files/') || 
+    req.url.includes('/pages/') || 
+    req.url.includes('/site.json')
+  ) {
+    if (mime.getType(req.url.split('?')[0])) {
+      res.setHeader('Content-Type', mime.getType(req.url));
+    }
+    else {
+      res.setHeader('Content-Type', 'text/html');
+    }
+    res.sendFile(req.url.split('?')[0],
+    {
+      root: process.cwd() + `/${HAXCMS.sitesDirectory}`
+    });
+  }
+  else {
+    if (mime.getType(req.url.split('?')[0])) {
+      res.setHeader('Content-Type', mime.getType(req.url));
+    }
+    else {
+      res.setHeader('Content-Type', 'text/html');
+    }
+    // send file for the index even tho route says it's a path not on our file system
+    // this way internal routing picks up and loads the correct content while
+    // at the same time express has delivered us SOMETHING as the path in the request
+    // url doesn't actually exist
+    res.sendFile(req.url.replace(/\/(.*?)\/(.*)/, `/${HAXCMS.sitesDirectory}/$1/index.html`),
+    {
+      root: process.cwd()
+    });
+  }
+});
+// published directory route if it exists
+app.use(`/${HAXCMS.publishedDirectory}/`,(req, res, next) => {
+  if (mime.getType(req.url)) {
+    res.setHeader('Content-Type', mime.getType(req.url));
+  }
+  else {
+    res.setHeader('Content-Type', 'text/html');
+  }
+  res.sendFile(req.url,
   {
-    root: __dirname + "/public"
+    root: `${__dirname}/../${HAXCMS.publishedDirectory}/`
   });
 });
+
 //pre-flight requests
 app.options('*', function(req, res, next) {
 	res.send(200);
 });
 
-// these routes need to return a response without a JWT validation
-const openRoutes = [
-  'generateAppStore',
-  'connectionSettings',
-  'getSitesList',
-  'login',
-  'logout',
-  'api',
-  'options',
-  'openapi',
-  'openapi/json',
-  'refreshAccessToken'
-];
 // loop through methods and apply the route to the file to deliver it
 // @todo ensure that we apply the same JWT checking that we do in the PHP side
 // instead of a simple array of what to let go through we could put it into our
-// routesMap object above and apply JWT requirement on paths in a better way
-for (var method in routesMap) {
-  for (var route in routesMap[method]) {
+// RoutesMap object above and apply JWT requirement on paths in a better way
+for (var method in RoutesMap) {
+  for (var route in RoutesMap[method]) {
     let extra = express.json({
       type: "*/*",
       limit: '50mb'
@@ -109,9 +172,20 @@ for (var method in routesMap) {
     app[method](`${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, extra ,(req, res, next) => {
       const op = req.route.path.replace(`${HAXCMS.basePath}${HAXCMS.systemRequestBase}`, '');
       const rMethod = req.method.toLowerCase();
-      if (openRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
+      if (OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
         // call the method
-        routesMap[rMethod][op](req, res, next);
+        RoutesMap[rMethod][op](req, res, next);
+      }
+      else {
+        res.sendStatus(403);
+      }
+    });
+    app[method](`/${HAXCMS.sitesDirectory}/*${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, extra ,(req, res, next) => {
+      const op = req.route.path.replace(`/${HAXCMS.sitesDirectory}/*${HAXCMS.basePath}${HAXCMS.systemRequestBase}`, '');
+      const rMethod = req.method.toLowerCase();
+      if (OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
+        // call the method
+        RoutesMap[rMethod][op](req, res, next);
       }
       else {
         res.sendStatus(403);

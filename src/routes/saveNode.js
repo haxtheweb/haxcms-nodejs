@@ -1,4 +1,4 @@
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 const filter_var = require('../lib/filter_var.js');
 const strip_tags = require("locutus/php/strings/strip_tags");
 /**

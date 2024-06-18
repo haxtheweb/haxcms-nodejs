@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs-extra');
-const HAXCMS = require('./HAXCMS.js');
+const { HAXCMS } = require('./HAXCMS.js');
 const mime = require('mime');
 const sharp = require('sharp');
 // a site object
@@ -13,17 +13,10 @@ class HAXCMSFile
   { 
     var returnData = {};
     // check for a file upload
-    if (tmpFile['tmp_name']) {
+    if (tmpFile['path']) {
       // get contents of the file if it was uploaded into a variable
-      let filedata = tmpFile['tmp_name'];
-      let pathPart = HAXCMS.sitesDirectory + '/' + site.name + '/files/';
-      // attempt to save the file either to site or system level
-      if (site == 'system/user/files') {
-        pathPart = HAXCMS.configDirectory.replace(HAXCMS.HAXCMS_ROOT, '') + '/user/files/';
-      }
-      else if (site == 'system/tmp') {
-        pathPart = HAXCMS.configDirectory.replace(HAXCMS.HAXCMS_ROOT, '') + '/tmp/';
-      }
+      let filedata = tmpFile['path'];
+      let pathPart = HAXCMS.sitesDirectory + '/' + site.name + '/files/';      
       let uploadPath = HAXCMS.HAXCMS_ROOT + pathPart;
       // ensure this path exists
       if (!fs.existsSync(uploadPath)) {
@@ -33,6 +26,7 @@ class HAXCMSFile
       if (await fs.existsSync(path.join(uploadPath, tmpFile.name))) {
         tmpFile.name = tmpFile.filename + '-' + tmpFile.originalname;
       }
+      tmpFile.name = tmpFile.name.replace(/[/\\?%*:|"<>\s]/g, '-');
       let fullpath = uploadPath + tmpFile['name'];
       try {
         await fs.moveSync(filedata, fullpath);

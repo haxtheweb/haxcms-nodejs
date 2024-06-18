@@ -1,4 +1,4 @@
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 /**
  * @OA\Get(
  *    path="/refreshAccessToken",

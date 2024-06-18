@@ -1,4 +1,4 @@
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 function loginRoute(req, res)  {
   // if we don't have a user and the don't answer, bail
   if (req.body && req.body.username && req.body.password) {

@@ -1,6 +1,6 @@
 const fs = require('fs-extra');
 const path = require('path');
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 const url = require('url');
 
 /**
@@ -62,7 +62,9 @@ async function connectionSettings(req, res) {
     copySite: `${baseAPIPath}cloneSite`,
     getSitesList: `${baseAPIPath}listSites`,
   });
-  res.send(`window.appSettings =${returnData};`);
+  res.send(`// force vercel calls to go from production
+    window.MicroFrontendRegistryConfig = window.MicroFrontendRegistryConfig || {};
+    window.MicroFrontendRegistryConfig.base = "https://haxapi.vercel.app";window.appSettings =${returnData};`);
 }
 
 module.exports = connectionSettings;

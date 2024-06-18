@@ -1,6 +1,6 @@
 const fs = require('fs-extra');
 const path = require('path');
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 /**
  * @OA\Get(
  *    path="/listSites",
@@ -25,10 +25,13 @@ async function listSites (req, res) {
       items: []
     };
     // Loop through all the files in the temp directory
-    const files = fs.readdirSync(HAXCMS.HAXCMS_ROOT + 'sites');
+    if (!fs.existsSync(path.join(HAXCMS.HAXCMS_ROOT, HAXCMS.sitesDirectory))) {
+      fs.mkdirSync(path.join(HAXCMS.HAXCMS_ROOT, HAXCMS.sitesDirectory));
+    }
+    const files = fs.readdirSync(path.join(HAXCMS.HAXCMS_ROOT, HAXCMS.sitesDirectory));
     // Need to use a for loop to remain syncronous
     for (const item of files) {
-      const stat = fs.statSync(HAXCMS.HAXCMS_ROOT + 'sites/' + item)
+      const stat = fs.statSync(path.join(HAXCMS.HAXCMS_ROOT, HAXCMS.sitesDirectory, item))
       if (stat.isDirectory() && item != '.git') {
         try {
           let site = JSON.parse(await fs.readFileSync(path.join(HAXCMS.HAXCMS_ROOT, `${HAXCMS.sitesDirectory}/${item}/site.json`),'utf8'));

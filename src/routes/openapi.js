@@ -1,4 +1,4 @@
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 const fs = require('fs');
 const YAML = require('yaml')
 
@@ -19,7 +19,7 @@ const YAML = require('yaml')
     let format = 'yaml';
     let formatClass = YAML;
     // default is yaml but also support JSON output
-    if (req.route.path === "/system/api/openapi/json") {
+    if (req.route.path === `/${HAXCMS.systemRequestBase}openapi/json`) {
       format = 'json';
       formatClass = JSON;
     }
@@ -28,7 +28,7 @@ const YAML = require('yaml')
     }
     let openapi = {};
     try {
-      let fileContents = fs.readFileSync(`./lib/openapi/spec.${format}`,
+      let fileContents = await fs.readFileSync(`${__dirname}/../openapi/spec.${format}`,
         {encoding:'utf8', flag:'r'}, 'utf8');
       openapi = formatClass.parse(fileContents);
     } catch (e) {

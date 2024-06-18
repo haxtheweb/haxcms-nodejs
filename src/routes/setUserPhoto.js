@@ -1,4 +1,4 @@
-const HAXCMS = require('../lib/HAXCMS.js');
+const { HAXCMS } = require('../lib/HAXCMS.js');
 // @note NOT PORTED
 /**
    * @OA\Post(
@@ -22,7 +22,7 @@ const HAXCMS = require('../lib/HAXCMS.js');
     if (($_FILES['file-upload'])) {
       upload = $_FILES['file-upload'];
       let file = new HAXCMSFile();
-      fileResult = file.save(upload, 'system/user/files', null, 'thumbnail');
+      fileResult = file.save(upload, 'config/user/files', null, 'thumbnail');
       if (fileResult['status'] == 500) {
         res.send(500);
       }
