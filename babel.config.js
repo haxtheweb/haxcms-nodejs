@@ -1,6 +1,6 @@
 module.exports = {
     plugins: ['babel-plugin-transform-dynamic-import'],
-    ignore: ['./src/templates/**/*'],
+    ignore: ['./src/boilerplate/**/*'],
     presets: [
       [
         '@babel/env',
