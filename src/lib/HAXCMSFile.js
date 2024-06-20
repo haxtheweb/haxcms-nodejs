@@ -16,18 +16,17 @@ class HAXCMSFile
     if (tmpFile['path']) {
       // get contents of the file if it was uploaded into a variable
       let filedata = tmpFile['path'];
-      let pathPart = HAXCMS.sitesDirectory + '/' + site.name + '/files/';      
-      let uploadPath = HAXCMS.HAXCMS_ROOT + pathPart;
+      let pathPart = site.siteDirectory + '/files/';
       // ensure this path exists
-      if (!fs.existsSync(uploadPath)) {
-        fs.mkdirSync(uploadPath);
+      if (!fs.existsSync(pathPart)) {
+        fs.mkdirSync(pathPart);
       }
       // ensure name does not exist already
-      if (await fs.existsSync(path.join(uploadPath, tmpFile.name))) {
+      if (await fs.existsSync(path.join(pathPart, tmpFile.name))) {
         tmpFile.name = tmpFile.filename + '-' + tmpFile.originalname;
       }
       tmpFile.name = tmpFile.name.replace(/[/\\?%*:|"<>\s]/g, '-');
-      let fullpath = uploadPath + tmpFile['name'];
+      let fullpath = pathPart + tmpFile['name'];
       try {
         await fs.moveSync(filedata, fullpath);
       }
