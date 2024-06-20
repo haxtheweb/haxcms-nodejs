@@ -96,14 +96,7 @@ const strip_tags = require("locutus/php/strings/strip_tags");
           // @todo make sure that we stripped off page-break
           // and now save WITHOUT the top level page-break
           // to avoid duplication issues
-          bytes = await page.writeLocation(
-            data['content'],
-            HAXCMS.HAXCMS_ROOT +
-            HAXCMS.sitesDirectory +
-            '/' +
-            site.manifest.metadata.site.name +
-            '/'
-          );
+          bytes = await page.writeLocation(data['content'], site.siteDirectory);
           if (bytes === false) {
             return {
               '__failed' : {

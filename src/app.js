@@ -32,7 +32,7 @@ if (process.env.NODE_ENV === "development") {
   const livereload = require("livereload");
   liveReloadServer = livereload.createServer({
     delay: 100
-  });  
+  });
   const connectLiveReload = require("connect-livereload");
   liveReloadServer.watch(__dirname);
   liveReloadServer.server.once("connection", () => {
@@ -241,7 +241,7 @@ systemStructureContext().then((site) => {
       }
       res.sendFile(req.url,
       {
-        root: `${__dirname}/../${HAXCMS.publishedDirectory}/`
+        root: process.cwd() + `/${HAXCMS.publishedDirectory}`
       });
     });
   }

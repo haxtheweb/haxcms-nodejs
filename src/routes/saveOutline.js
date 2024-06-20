@@ -162,26 +162,12 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
         }
         let content = await site.getPageContent(nodeToDuplicate);
         // write it to the file system
-        let bytes = await page.writeLocation(
-          content,
-          HAXCMS.HAXCMS_ROOT +
-          HAXCMS.sitesDirectory +
-          '/' +
-          site.manifest.metadata.site.name +
-          '/'
-        );
+        bytes = await page.writeLocation(content, site.siteDirectory);
       }
       // contents that were shipped across, and not null, take priority over a dup request
       if (typeof item.contents !== 'undefined' && item.contents && item.contents != '') {
         // write it to the file system
-        let bytes = await page.writeLocation(
-          item.contents,
-          HAXCMS.HAXCMS_ROOT +
-          HAXCMS.sitesDirectory +
-          '/' +
-          site.manifest.metadata.site.name +
-          '/'
-        );
+        bytes = await page.writeLocation(item.contents, site.siteDirectory);
       }
     }
     items = [...req.body['items']];
