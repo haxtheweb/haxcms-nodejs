@@ -10,7 +10,7 @@
     "dev:build": "npm run build && nodemon dist/app.js",
     "dev": "nodemon src/app.js",
     "start": "open http://localhost:8080 && npm run dev HAXCMS_DISABLE_JWT_CHECKS",
-    "build": "rm -rf dist && babel src --out-dir dist --copy-files --include-dotfiles && chmod 774 dist/app.js && chmod 774 dist/cli.js",
+    "build": "rm -rf dist && babel src --out-dir dist --copy-files --include-dotfiles && chmod 774 dist/local.js && chmod 774 dist/app.js && chmod 774 dist/cli.js",
     "release": "npm run build && commit-and-tag-version && git push --follow-tags origin main && npm publish"
   },
   "repository": {
