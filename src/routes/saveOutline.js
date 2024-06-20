@@ -21,7 +21,6 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
   async function saveOutline(req, res) {
     // items from the POST
     let site = await HAXCMS.loadSite(req.body['site']['name']);
-    let siteDirectory = site.directory + '/' + site.manifest.metadata.site.name;
     let original = [...site.manifest.items];
     let items = [...req.body['items']];
     let itemMap = {};
@@ -80,7 +79,7 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
       if (!tmpLoad) {
         await HAXCMS.recurseCopy(
             HAXCMS.boilerplatePath + 'page/default',
-            siteDirectory + '/' + page.location.replace('/index.html', '')
+            site.siteDirectory + '/' + page.location.replace('/index.html', '')
         );
       }
       // this would imply existing item, lets see if it moved or needs moved
@@ -108,7 +107,7 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
           // this is beyond an edge case
           if (
             !moved &&
-            !fs.existsSync(siteDirectory + '/' + page.location)
+            !fs.existsSync(site.siteDirectory + '/' + page.location)
         ) {
               pAuto = false;
               if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto) {
@@ -119,7 +118,7 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
               page.slug = tmpTitle;
               await HAXCMS.recurseCopy(
                   HAXCMS.boilerplatePath + 'page/default',
-                  siteDirectory + '/' + page.location.replace('/index.html', '')
+                  site.siteDirectory + '/' + page.location.replace('/index.html', '')
               );
           }
       }

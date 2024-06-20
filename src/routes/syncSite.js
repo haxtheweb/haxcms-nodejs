@@ -51,8 +51,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
       }
       if ((gitSettings)) {
           git = new Git();
-          siteDirectoryPath = site.directory + '/' + site.manifest.metadata.site.name;
-          repo = git.open(siteDirectoryPath, true);
+          repo = git.open(site.siteDirectory, true);
           // ensure we're on branch, most likley master
           await repo.checkout(gitSettings.branch);
           await repo.pull('origin', gitSettings.branch);

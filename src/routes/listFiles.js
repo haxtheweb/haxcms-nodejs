@@ -1,5 +1,6 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const fs = require('fs');
+const path = require('path');
 const mime = require('mime');
 /**
    * @OA\Post(
@@ -23,9 +24,9 @@ const mime = require('mime');
     let site = await HAXCMS.loadSite(req.query['siteName']);
     let search = (typeof req.query['filename'] !== 'undefined') ? req.query['filename'] : '';
     // build files directory path
-    let siteDirectoryPath = site.directory + '/' + site.manifest.metadata.site.name + '/files';
+    let siteFilePath = path.join(site.siteDirectory, 'files');
     let handle;
-    if (handle = fs.readdirSync(siteDirectoryPath)) {
+    if (handle = fs.readdirSync(siteFilePath)) {
       handle.forEach(file => {
         if (
             file != "." &&
@@ -35,19 +36,22 @@ const mime = require('mime');
         ) {
           // ensure this is a file
           if (
-            fs.lstatSync(siteDirectoryPath + '/' + file).isFile()
+            fs.lstatSync(siteFilePath + '/' + file).isFile()
           ) {
             // ensure this is a file and if we are searching for results then return only exact ones
             if (search == "" || file.indexOf(search) !== -1) {
+              let fullUrl = '/files/' + file;
+              // multiple sites then append the base url to site management area
+              if (HAXCMS.operatingContext == 'multisite') {
+                fullUrl = HAXCMS.basePath +
+                HAXCMS.sitesDirectory + '/' +
+                site.manifest.metadata.site.name + '/files/' + file
+              }
               files.push({
                 'path' : 'files/' + file,
-                'fullUrl' :
-                  HAXCMS.basePath +
-                HAXCMS.sitesDirectory + '/' +
-                site.manifest.metadata.site.name + '/files/' +
-                    file,
+                'fullUrl' : fullUrl,
                 'url' : 'files/' + file,
-                'mimetype' : mime.getType(siteDirectoryPath + '/' + file),
+                'mimetype' : mime.getType(siteFilePath + '/' + file),
                 'name' : file
               });
             }

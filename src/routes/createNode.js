@@ -1,4 +1,5 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
+const path = require('path');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
 /**
  * @OA\Post(
@@ -104,11 +105,7 @@ async function createNode(req, res) {
     // generate the boilerplate to fill this page
     HAXCMS.recurseCopy(
       HAXCMS.boilerplatePath + 'page/default',
-        site.directory +
-            '/' +
-            site.manifest.metadata.site.name +
-            '/' +
-            item.location.replace('/index.html', '')
+      path.join(site.siteDirectory, item.location.replace('/index.html', ''))
     );
     // add the item back into the outline schema
     site.manifest.addItem(item);
@@ -126,11 +123,7 @@ async function createNode(req, res) {
           // this all seems round about but it's more secure
           let bytes = await page.writeLocation(
               content,
-              HAXCMS.HAXCMS_ROOT +
-              HAXCMS.sitesDirectory +
-              '/' +
-              site.manifest.metadata.site.name +
-              '/'
+              site.siteDirectory
           );
           }
       }
@@ -144,11 +137,7 @@ async function createNode(req, res) {
           // write it to the file system
           let bytes = await page.writeLocation(
           nodeParams['node']['contents'],
-          HAXCMS.HAXCMS_ROOT +
-          HAXCMS.sitesDirectory +
-          '/' +
-          site.manifest.metadata.site.name +
-          '/'
+          site.siteDirectory
           );
       }
     }

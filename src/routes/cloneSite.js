@@ -1,4 +1,3 @@
-const fs = require('fs-extra');
 const { HAXCMS } = require('../lib/HAXCMS.js');
 
 /**
@@ -37,8 +36,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
    */
   async function cloneSite(req, res) {
     let site = await HAXCMS.loadSite(req.body['site']['name']);
-    let siteDirectoryPath = site.directory + '/' + site.manifest.metadata.site.name;
-    let originalPathForReplacement = "/sites/" + site.manifest.metadata.site.name + "/files/";
+    let originalPathForReplacement = HAXCMS.sitesDirectory + site.manifest.metadata.site.name + "/files/";
 
     let cloneName = HAXCMS.getUniqueName(site.name);
     // ensure the path to the new folder is valid

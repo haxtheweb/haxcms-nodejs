@@ -37,7 +37,6 @@ class FeedMe
             domain = site.manifest.metadata.site.domain;
         }
         let items = site.sortItems('created');
-        let siteDirectory = site.directory + '/' + site.manifest.metadata.site.name;
         for (var key in items) {
             let item = items[key];
             let tags = '';
@@ -60,7 +59,7 @@ class FeedMe
     ${domain + '/' + item.location.replace('pages/','').replace('/index.html', '')}
     </link>
     <description>
-        <![CDATA[ ${fs.readFileSync(siteDirectory + '/' + item.location,
+        <![CDATA[ ${fs.readFileSync(site.siteDirectory + '/' + item.location,
         {encoding:'utf8', flag:'r'})} ]]>
     </description>
     <category>${tags}</category>
@@ -108,7 +107,6 @@ class FeedMe
             domain = site.manifest.metadata.site.domain;
         }
         let items = site.sortItems('created');
-        let siteDirectory = site.directory + '/' + site.manifest.metadata.site.name;
         for (var key in items) {
             let item = items[key];
             let tags = '';
@@ -137,7 +135,7 @@ class FeedMe
     <link href="${domain}/${item.location.replace('pages/','').replace('/index.html', '')}"/>
     ${tags}]
     <content type="html">
-      <![CDATA[ ${fs.readFileSync(siteDirectory + '/' + item.location,
+      <![CDATA[ ${fs.readFileSync(site.siteDirectory + '/' + item.location,
       {encoding:'utf8', flag:'r'})} ]]>
     </content>
   </entry>`;

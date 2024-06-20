@@ -82,11 +82,7 @@ const strip_tags = require("locutus/php/strings/strip_tags");
             // generate the boilerplate to fill this page
             HAXCMS.recurseCopy(
               HAXCMS.boilerplatePath + 'page/default',
-                site.directory +
-                    '/' +
-                    site.manifest.metadata.site.name +
-                    '/' +
-                    item.location.replace('/index.html', '')
+              path.join(site.siteDirectory, item.location.replace('/index.html', ''))
             );
             // add the item back into the outline schema
             site.manifest.addItem(item);

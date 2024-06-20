@@ -62,9 +62,13 @@ async function connectionSettings(req, res) {
     copySite: `${baseAPIPath}cloneSite`,
     getSitesList: `${baseAPIPath}listSites`,
   });
+  let after;
+  if (HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
+    after = `window.appSettings.jwt = "${HAXCMS.getJWT(HAXCMS.superUser.name)}"`;
+  }
   res.send(`// force vercel calls to go from production
     window.MicroFrontendRegistryConfig = window.MicroFrontendRegistryConfig || {};
-    window.MicroFrontendRegistryConfig.base = "https://haxapi.vercel.app";window.appSettings =${returnData};`);
+    window.MicroFrontendRegistryConfig.base = "https://haxapi.vercel.app";window.appSettings =${returnData};${after}`);
 }
 
 module.exports = connectionSettings;

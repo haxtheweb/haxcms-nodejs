@@ -187,9 +187,9 @@ async function createSite(req, res) {
     delete schema.metadata.site.git;
 
     const git = new Git({
-        dir: site.directory + '/' + site.manifest.metadata.site.name
+        dir: site.siteDirectory
     });
-    git.setDir(site.directory + '/' + site.manifest.metadata.site.name);
+    git.setDir(site.siteDirectory);
     await git.init();
     try {
         await git.add();

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 // lib dependencies
-process.env.haxcms_middleware = "node-express";
+var argv = require('minimist')(process.argv.slice(2));
 const express = require('express');
+// load config from dot files
+require('dotenv').config()
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const app = express();
@@ -10,14 +12,36 @@ const mime = require('mime');
 const path = require('path');
 const fs = require("fs-extra");
 const server = require('http').Server(app);
+const livereload = require("livereload");
+const liveReloadServer = livereload.createServer({
+  delay: 100
+});
+const connectLiveReload = require("connect-livereload");
+
 // HAXcms core settings
-const { HAXCMS } = require('./lib/HAXCMS.js');
+process.env.haxcms_middleware = "node-express";
+const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
+// flag in local development that disables security
+// this way you launch from local and don't need a U/P relationship
+if (argv._.includes('HAXCMS_DISABLE_JWT_CHECKS')) {
+  HAXCMS.HAXCMS_DISABLE_JWT_CHECKS = true;
+}
 // routes with all requires
 const { RoutesMap, OpenRoutes } = require('./lib/RoutesMap.js');
 // app settings
-const port = 8000;
 const multer = require('multer')
 const upload = multer({ dest: path.join(HAXCMS.configDirectory, 'tmp/') })
+let publicDir = path.join(__dirname, '/public');
+// if in development, live reload
+if (process.env.NODE_ENV === "development") {
+  liveReloadServer.watch(__dirname);
+  liveReloadServer.server.once("connection", () => {
+    setTimeout(() => {
+      liveReloadServer.refresh("/");
+    }, 100);
+  });
+  app.use(connectLiveReload());
+}
 app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
 app.use(helmet({
   contentSecurityPolicy: false,
@@ -26,23 +50,23 @@ app.use(helmet({
   },
 }));
 app.use(cookieParser());
-let publicDir = path.join(__dirname, '/public');
 //pre-flight requests
 app.options('*', function(req, res, next) {
 	res.send(200);
 });
 // attempt to establish context of site vs multi-site environment
-const SITE_FILE_NAME = 'site.json';
-searchForSiteJson().then((site) => {
+const port = process.env.PORT || 8080;
+systemStructureContext().then((site) => {
+  // see if we have a single site context or if we need routes for multisite
   if (site) {
     // we have a site context, need paths to resolve to cwd instead of subsite path
     // in this configuration there is no overworld / 8-bit game to make new sites
     // this assumes a site has already been made or is being navigated to to work on
     // works great w/ CLI in stand alone mode for local developer
-    publicDir = site.directoryRoot;
+    publicDir = site.siteDirectory;
     app.use(express.static(publicDir));
     app.use('/', (req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', 'http://localhost:8080');
+      res.setHeader('Access-Control-Allow-Origin', `http://localhost:${port}`);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
@@ -117,7 +141,7 @@ searchForSiteJson().then((site) => {
   else {
     app.use(express.static(publicDir));
     app.use('/', (req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', 'http://localhost:8080');
+      res.setHeader('Access-Control-Allow-Origin', `http://localhost:${port}`);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
@@ -255,33 +279,64 @@ searchForSiteJson().then((site) => {
       });
     }
   }
-  server.listen(port, async (err) => {
-    if (err) {
-      throw err;
-    }
-    const openPkg = await import('open');
-    const open = openPkg.default;
-    // opens the url in the default browser 
-    open('http://localhost:8000');
-    /* eslint-disable no-console */
-    console.log('open: http://localhost:8000');
-  });
+  // can't do this for a site context
+  if (!site) {
+    // catch anything called on homepage that doens't match and ensure it still goes through so that it 404s correctly
+    app.get('*', function(req, res, next) {
+      if (
+        req.url !== '/' &&
+        !req.url.startsWith('/build') &&
+        !req.url.startsWith('/site.json') &&
+        !req.url.startsWith('/system') &&
+        !req.url.startsWith('/_sites') &&
+        !req.url.startsWith('/assets') &&
+        !req.url.startsWith('/wc-registry.json') &&
+        !req.url.startsWith('/favicon.ico') &&
+        !req.url.startsWith('/manifest.json') &&
+        !req.url.startsWith('/VERSION.txt')
+      ) {
+        res.sendFile('/',
+        {
+          root: `${__dirname}/public/`
+        });
+      }
+      else {
+        next();
+      }
+    });
+  }
 });
-// recursively look backwards for site.json until we find one or have none (null)
-async function searchForSiteJson(dir = null) {
-  if (!dir) {
-    dir = process.cwd();
+server.listen(port, async (err) => {
+  if (err) {
+    throw err;
   }
-  if (fs.pathExistsSync(path.join(dir, SITE_FILE_NAME))) {
-    try {
-      let response = await JSON.parse(fs.readFileSync(path.join(dir, SITE_FILE_NAME), 'utf8'));
-      response.file = path.join(dir, SITE_FILE_NAME);
-      response.directoryRoot = path.dirname(path.join(dir, SITE_FILE_NAME));
-      return response;
-    }
-    catch(e) {
-      // error parsing, so we don't have a site context
-    }
+  /* eslint-disable no-console */
+  console.log(`open: http://localhost:${port}`);  
+});
+
+
+function handleServerError(e) {
+  if (e.syscall !== "listen") throw e;
+
+  switch (e.code) {
+    case "EACCES":
+      console.error(`${port} requires elevated privileges`);
+      process.exit(1);
+      break;
+    case "EADDRINUSE":
+      console.error(`${port} is already in use`);
+      process.exit(1);
+      break;
+    default:
+      throw error;
   }
-  return null;
 }
+
+function shutdown() {
+  console.log("Shutting down Express server...");
+  server.close();
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
+server.on("error", handleServerError);

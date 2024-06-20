@@ -1,7 +1,6 @@
 const fs = require('fs-extra');
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const explode = require('locutus/php/strings/explode');
-const base64_encode = require('locutus/php/url/base64_encode');
 const parse_url = require('locutus/php/url/parse_url');
 const strtr = require('locutus/php/strings/strtr');
 
@@ -57,9 +56,7 @@ const strtr = require('locutus/php/strings/strtr');
         }
         if ((gitSettings)) {
             let git = new Git();
-            let siteDirectoryPath =
-                site.directory + '/' + site.manifest.metadata.site.name;
-            repo = git.open(siteDirectoryPath, true);
+            repo = git.open(site.siteDirectory, true);
             // ensure we're on master and everything is added
             await repo.checkout('master');
             // Try to build a reasonable "domain" value
@@ -144,37 +141,37 @@ const strtr = require('locutus/php/strings/strtr');
                 ).isFile()
             ) {
                 // move the index.html and fs.unlink the symlinks otherwise we'll get build failures
-                if (fs.lstatSync(siteDirectoryPath + '/build').isSymbolicLink()) {
-                    fs.unlink(siteDirectoryPath + '/build');
+                if (fs.lstatSync(site.siteDirectory + '/build').isSymbolicLink()) {
+                    fs.unlink(site.siteDirectory + '/build');
                 }
-                if (fs.lstatSync(siteDirectoryPath + '/dist').isSymbolicLink()) {
-                    fs.unlink(siteDirectoryPath + '/dist');
+                if (fs.lstatSync(site.siteDirectory + '/dist').isSymbolicLink()) {
+                    fs.unlink(site.siteDirectory + '/dist');
                 }
-                if (fs.lstatSync(siteDirectoryPath + '/node_modules').isSymbolicLink()) {
-                    fs.unlink(siteDirectoryPath + '/node_modules');
+                if (fs.lstatSync(site.siteDirectory + '/node_modules').isSymbolicLink()) {
+                    fs.unlink(site.siteDirectory + '/node_modules');
                 }
-                if (fs.lstatSync(siteDirectoryPath + '/wc-registry.json').isSymbolicLink()) {
-                    fs.unlink(siteDirectoryPath + '/wc-registry.json');
+                if (fs.lstatSync(site.siteDirectory + '/wc-registry.json').isSymbolicLink()) {
+                    fs.unlink(site.siteDirectory + '/wc-registry.json');
                 }
-                if (fs.lstatSync(siteDirectoryPath + '/assets/babel-top.js').isSymbolicLink()) {
-                    fs.unlink(siteDirectoryPath + '/assets/babel-top.js');
+                if (fs.lstatSync(site.siteDirectory + '/assets/babel-top.js').isSymbolicLink()) {
+                    fs.unlink(site.siteDirectory + '/assets/babel-top.js');
                 }
-                if (fs.lstatSync(siteDirectoryPath + '/assets/babel-bottom.js').isSymbolicLink()) {
-                    fs.unlink(siteDirectoryPath + '/assets/babel-bottom.js');
+                if (fs.lstatSync(site.siteDirectory + '/assets/babel-bottom.js').isSymbolicLink()) {
+                    fs.unlink(site.siteDirectory + '/assets/babel-bottom.js');
                 }
                 // copy these things because we have a local routine
                 if (cdn == 'custom') {
                     fs.copy(
                         HAXCMS.HAXCMS_ROOT + 'babel/babel-top.js',
-                        siteDirectoryPath + '/assets/babel-top.js'
+                        site.siteDirectory + '/assets/babel-top.js'
                     );
                     fs.copy(
                         HAXCMS.HAXCMS_ROOT + 'babel/babel-bottom.js',
-                        siteDirectoryPath + '/assets/babel-bottom.js'
+                        site.siteDirectory + '/assets/babel-bottom.js'
                     );
                     fs.mirror(
                         HAXCMS.HAXCMS_ROOT + 'build',
-                        siteDirectoryPath + '/build'
+                        site.siteDirectory + '/build'
                     );
                 }
                 // additional files to move to ensure we don't screw things up
@@ -182,8 +179,8 @@ const strtr = require('locutus/php/strings/strtr');
                 // support for index as that comes from a CDN defining what to do
                 // remove current index, then pull a new one
                 // this ensures that the php file won't be in the published copy while it is in master
-                fs.unlink([siteDirectoryPath + '/index.html', siteDirectoryPath + '/index.php']);
-                fs.copy(HAXCMS.boilerplatePath + 'cdns/' + cdn + '.html', siteDirectoryPath + '/index.html');
+                fs.unlink([site.siteDirectory + '/index.html', site.siteDirectory + '/index.php']);
+                fs.copy(HAXCMS.boilerplatePath + 'cdns/' + cdn + '.html', site.siteDirectory + '/index.html');
                 // process twig variables for static publishing
                 licenseData = site.getLicenseData('all');
                 licenseLink = '';
@@ -262,7 +259,7 @@ const strtr = require('locutus/php/strings/strtr');
                     '404.html',
                 ];
                 // loop through files directory so we can cache those things too
-                let handle = opendir(siteDirectoryPath + '/files');
+                let handle = opendir(site.siteDirectory + '/files');
                 if (handle) {
                     while (false !== (file = readdir(handle))) {
                         if (
@@ -273,7 +270,7 @@ const strtr = require('locutus/php/strings/strtr');
                         ) {
                             // ensure this is a file
                             if (
-                                fs.lstatSync(siteDirectoryPath + '/files/' + file).isFile()
+                                fs.lstatSync(site.siteDirectory + '/files/' + file).isFile()
                             ) {
                                 coreFiles.push('files/' + file);
                             } else {
@@ -297,13 +294,13 @@ const strtr = require('locutus/php/strings/strtr');
                         item.location === templateVars['basePath']
                     ) {
                         filesize = filesize(
-                            siteDirectoryPath + '/index.html'
+                            site.siteDirectory + '/index.html'
                         );
                     } else if (
-                        fs.lstatSync(siteDirectoryPath + '/' + item.location).isFile()
+                        fs.lstatSync(site.siteDirectory + '/' + item.location).isFile()
                     ) {
                         filesize = filesize(
-                            siteDirectoryPath + '/' + item.location
+                            site.siteDirectory + '/' + item.location
                         );
                     } else {
                         // ?? file referenced but doesn't exist
@@ -330,13 +327,13 @@ const strtr = require('locutus/php/strings/strtr');
                 }
                 // put the twig written output into the file
                 // @todo need to fix a twig library
-                /*loader = new \Twig\Loader\FilesystemLoader(siteDirectoryPath);
+                /*loader = new \Twig\Loader\FilesystemLoader(site.siteDirectory);
                 twig = new \Twig\Environment(loader);
                 for (var key in templates) {
                     let location = templates[key];
-                  if (fs.lstatSync(siteDirectoryPath + '/' + location).isFile()) {
+                  if (fs.lstatSync(site.siteDirectory + '/' + location).isFile()) {
                     fs.writeFileSync(
-                        siteDirectoryPath + '/' + location,
+                        site.siteDirectory + '/' + location,
                         twig.render(location, templateVars)
                     );
                   }
@@ -355,7 +352,7 @@ const strtr = require('locutus/php/strings/strtr');
             // that happen automatically as opposed to when the user hits publish
             // also for delivery of the "click to access site" link
             fs.mirror(
-                siteDirectoryPath,
+                site.siteDirectory,
                 HAXCMS.configDirectory + '/../_published/' + site.manifest.metadata.site.name
             );
             // remove the .git version control from this, it's not needed
@@ -405,46 +402,46 @@ const strtr = require('locutus/php/strings/strtr');
                 repo.checkout(gitSettings.branch);
             }
             // restore these silly things if we need to
-            if (!fs.lstatSync(siteDirectoryPath + '/dist').isSymbolicLink()) {
-                fs.symlink('../../dist', siteDirectoryPath + '/dist');
+            if (!fs.lstatSync(site.siteDirectory + '/dist').isSymbolicLink()) {
+                fs.symlink('../../dist', site.siteDirectory + '/dist');
             }
-            if (!fs.lstatSync(siteDirectoryPath + '/node_modules').isSymbolicLink()) {
+            if (!fs.lstatSync(site.siteDirectory + '/node_modules').isSymbolicLink()) {
                 fs.symlink(
                     '../../node_modules',
-                    siteDirectoryPath + '/node_modules'
+                    site.siteDirectory + '/node_modules'
                 );
             }
-            if (fs.lstatSync(siteDirectoryPath + '/assets/babel-top.js').isSymbolicLink()) {
-                fs.unlink(siteDirectoryPath + '/assets/babel-top.js');
+            if (fs.lstatSync(site.siteDirectory + '/assets/babel-top.js').isSymbolicLink()) {
+                fs.unlink(site.siteDirectory + '/assets/babel-top.js');
             }
-            if (fs.lstatSync(siteDirectoryPath + '/assets/babel-bottom.js').isSymbolicLink()) {
-                fs.unlink(siteDirectoryPath + '/assets/babel-bottom.js');
+            if (fs.lstatSync(site.siteDirectory + '/assets/babel-bottom.js').isSymbolicLink()) {
+                fs.unlink(site.siteDirectory + '/assets/babel-bottom.js');
             }
-            if (fs.lstatSync(siteDirectoryPath + '/wc-registry.json').isSymbolicLink()) {
-                fs.unlink(siteDirectoryPath + '/wc-registry.json');
+            if (fs.lstatSync(site.siteDirectory + '/wc-registry.json').isSymbolicLink()) {
+                fs.unlink(site.siteDirectory + '/wc-registry.json');
             }
-            if (fs.lstatSync(siteDirectoryPath + '/build').isSymbolicLink()) {
-                fs.unlink(siteDirectoryPath + '/build');
+            if (fs.lstatSync(site.siteDirectory + '/build').isSymbolicLink()) {
+                fs.unlink(site.siteDirectory + '/build');
             }
             else {
-                fs.rmdir([siteDirectoryPath + '/build']);
+                fs.rmdir([site.siteDirectory + '/build']);
             }
 
             fs.symlink(
                 '../../../babel/babel-top.js',
-                siteDirectoryPath + '/assets/babel-top.js'
+                site.siteDirectory + '/assets/babel-top.js'
             );
             fs.symlink(
                 '../../../babel/babel-bottom.js',
-                siteDirectoryPath + '/assets/babel-bottom.js'
+                site.siteDirectory + '/assets/babel-bottom.js'
             );
-            fs.symlink('../../build', siteDirectoryPath + '/build');
+            fs.symlink('../../build', site.siteDirectory + '/build');
             // reset the templated file for the index.html
             // since the "CDN" cleaned up how this worked most likely at run time
-            fs.unlink([siteDirectoryPath + '/index.html']);
-            fs.copy(HAXCMS.boilerplatePath + 'site/index.html', siteDirectoryPath + '/index.html');
+            fs.unlink([site.siteDirectory + '/index.html']);
+            fs.copy(HAXCMS.boilerplatePath + 'site/index.html', site.siteDirectory + '/index.html');
             // this ensures that the php file wasn't in version control for the published copy
-            fs.copy(HAXCMS.boilerplatePath + 'site/index.php', siteDirectoryPath + '/index.php');
+            fs.copy(HAXCMS.boilerplatePath + 'site/index.php', site.siteDirectory + '/index.php');
             res.send({
                 'status' : 200,
                 'url' : domain,

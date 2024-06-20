@@ -1,4 +1,5 @@
 const fs = require('fs-extra');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 /**
  * JSONOutlineSchemaItem - a single item without an outline of items.
@@ -23,8 +24,8 @@ class JSONOutlineSchemaItem
    * Load data from the location specified
    */
   async readLocation(basePath = '') {
-    if (fs.lstatSync(basePath + this.location).isFile()) {
-      return await fs.readFileSync(basePath + this.location,
+    if (fs.lstatSync(path.join(basePath, this.location)).isFile()) {
+      return await fs.readFileSync(path.join(basePath, this.location),
         {encoding:'utf8', flag:'r'});
     }
     return false;
@@ -38,8 +39,8 @@ class JSONOutlineSchemaItem
       body = '<p></p>';
     }
     try {
-      if (fs.lstatSync(basePath + this.location).isFile()) {
-        fs.writeFileSync(basePath + this.location, body);
+      if (fs.lstatSync(path.join(basePath, this.location)).isFile()) {
+        fs.writeFileSync(path.join(basePath, this.location), body);
       }
       return true;
     }

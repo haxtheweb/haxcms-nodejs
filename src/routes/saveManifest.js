@@ -73,21 +73,15 @@ const fs = require('fs-extra');
         site.manifest.metadata.site.settings = {};
       }
       if (typeof req.body['manifest']['site']['manifest-domain'] !== 'undefined') {
-          let domain = filter_var(
-              req.body['manifest']['site']['manifest-domain'],
-              "FILTER_SANITIZE_STRING"
-          );
-          // support updating the domain CNAME value
-          if (site.manifest.metadata.site.domain != domain) {
-              site.manifest.metadata.site.domain = domain;
-              fs.writeFileSync(
-                  site.directory +
-                      '/' +
-                      site.manifest.site.name +
-                      '/CNAME',
-                  domain
-              );
-          }
+        let domain = filter_var(
+            req.body['manifest']['site']['manifest-domain'],
+            "FILTER_SANITIZE_STRING"
+        );
+        // support updating the domain CNAME value
+        if (site.manifest.metadata.site.domain != domain) {
+          site.manifest.metadata.site.domain = domain;
+          fs.writeFileSync(site.siteDirectory + '/CNAME', domain);
+        }
       }
       let hThemes = await HAXCMS.getThemes();
       // look for a match so we can set the correct data

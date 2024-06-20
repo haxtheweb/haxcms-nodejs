@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// cli bridge
+// cli bridge which ensures calls just go through without security
 process.env.haxcms_middleware = "node-cli";
 // HAXcms core settings
 const { HAXCMS } = require('./lib/HAXCMS.js');
