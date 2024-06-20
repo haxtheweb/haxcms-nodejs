@@ -12,18 +12,13 @@ const mime = require('mime');
 const path = require('path');
 const fs = require("fs-extra");
 const server = require('http').Server(app);
-const livereload = require("livereload");
-const liveReloadServer = livereload.createServer({
-  delay: 100
-});
-const connectLiveReload = require("connect-livereload");
-
+let liveReloadServer;
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
 // flag in local development that disables security
 // this way you launch from local and don't need a U/P relationship
-if (argv._.includes('HAXCMS_DISABLE_JWT_CHECKS')) {
+if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT_CHECKS')) {
   HAXCMS.HAXCMS_DISABLE_JWT_CHECKS = true;
 }
 // routes with all requires
@@ -34,6 +29,11 @@ const upload = multer({ dest: path.join(HAXCMS.configDirectory, 'tmp/') })
 let publicDir = path.join(__dirname, '/public');
 // if in development, live reload
 if (process.env.NODE_ENV === "development") {
+  const livereload = require("livereload");
+  liveReloadServer = livereload.createServer({
+    delay: 100
+  });  
+  const connectLiveReload = require("connect-livereload");
   liveReloadServer.watch(__dirname);
   liveReloadServer.server.once("connection", () => {
     setTimeout(() => {
@@ -332,11 +332,4 @@ function handleServerError(e) {
   }
 }
 
-function shutdown() {
-  console.log("Shutting down Express server...");
-  server.close();
-}
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
 server.on("error", handleServerError);
