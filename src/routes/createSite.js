@@ -1,5 +1,3 @@
-const fs = require('fs-extra');
-const path = require('path');
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const { Git } = require('git-interface');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');

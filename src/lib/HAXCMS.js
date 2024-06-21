@@ -75,7 +75,7 @@ class HAXCMSSite
         directory,
         siteBasePath,
         name,
-        gitDetails,
+        gitDetails = null,
         domain = null,
         build = null
     ) {
@@ -1565,6 +1565,7 @@ class HAXCMSClass {
   constructor() {
     this.developerMode = false;
     this.developerModeAdminOnly = false;
+    this.cliWritePath = null;
     this.cdn = './';
     this.sessionJwt = null;
     this.protocol = 'http';
@@ -1611,7 +1612,8 @@ class HAXCMSClass {
     this.boilerplatePath = __dirname + '/../boilerplate/';
     // these are relative to root which is cwd
     this.sitesDirectory = '_sites';
-    if (!systemStructureContext()) {
+    // CLI's do not operate in multisite mode default folder creator
+    if (!systemStructureContext() && !this.isCLI()) {
       this.operatingContext = 'multisite';
       // verify exists
       if (!fs.existsSync(path.join(HAXCMS_ROOT, this.sitesDirectory))) {
@@ -1718,7 +1720,7 @@ class HAXCMSClass {
   /**
    * Load a site off the file system with option to create
    */
-  async loadSite(name, create = false, domain = null)
+  async loadSite(name, create = false, domain = null, build = null)
     {
       let tmpname = decodeURIComponent(name);
       tmpname = this.cleanTitle(tmpname, false);
@@ -1737,8 +1739,8 @@ class HAXCMSClass {
           return site;
       }
       else if (create) {
-          // attempt to create site
-          return await this.createSite(name, domain);
+        // attempt to create site
+        return await this.createSite(name, domain, null, build);
       }
       return false;
   }
@@ -1763,10 +1765,14 @@ class HAXCMSClass {
                git['url'] += '/' + name + '.git';
            }
        }
-
+       let writePath = HAXCMS_ROOT + this.sitesDirectory;
+       // allow CLI operations to overwrite write location
+       if (HAXCMS.cliWritePath && this.isCLI()) {
+        writePath = HAXCMS.cliWritePath;
+       }
        if (
            await site.newSite(
-               HAXCMS_ROOT + this.sitesDirectory,
+               writePath,
                this.basePath + this.sitesDirectory + '/',
                name,
                git,
