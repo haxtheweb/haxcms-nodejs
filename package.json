@@ -6,6 +6,7 @@
   },
   "description": "HAXcms single and multisite nodejs server, api, and administration",
   "main": "dist/index.js",
+  "icon": "./dist/favicon.ico",
   "scripts": {
     "dev:build": "npm run build && nodemon dist/app.js",
     "dev": "nodemon src/app.js",
