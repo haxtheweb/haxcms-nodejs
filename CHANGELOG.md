@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.0.17](https://github.com/haxtheweb/haxcms-nodejs/compare/v0.0.16...v0.0.17) (2024-06-28)
+
 ## [0.0.16](https://github.com/haxtheweb/haxcms-nodejs/compare/v0.0.15...v0.0.16) (2024-06-28)
 
 ## [0.0.15](https://github.com/haxtheweb/haxcms-nodejs/compare/v0.0.14...v0.0.15) (2024-06-24)
