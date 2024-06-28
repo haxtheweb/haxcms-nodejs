@@ -55,7 +55,7 @@ app.options('*', function(req, res, next) {
 	res.send(200);
 });
 // attempt to establish context of site vs multi-site environment
-const port = process.env.PORT || 8080;
+const port = process.env.PORT || 3000;
 systemStructureContext().then((site) => {
   // see if we have a single site context or if we need routes for multisite
   if (site) {

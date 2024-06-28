@@ -3,7 +3,7 @@
 // this runs when we are executing locally via npx
 // this way we don't get multiple windows opening per port update
 process.env.HAXCMS_DISABLE_JWT_CHECKS = true;
-const port = process.env.PORT || 8080;
+const port = process.env.PORT || 3000;
 require('./app.js');
 async function go() {
   const openPkg = await import('open');

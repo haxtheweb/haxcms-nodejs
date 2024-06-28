@@ -9,4 +9,4 @@ npm install
 npm start
 ```
 
-Visit http://localhost:8080 if it doesn't automatically open
+Visit http://localhost:3000 if it doesn't automatically open
