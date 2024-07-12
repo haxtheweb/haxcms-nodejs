@@ -1,6 +1,6 @@
 {
   "name": "@haxtheweb/haxcms-nodejs",
-  "version": "9.0.0-alpha.1",
+  "version": "9.0.0",
   "publishConfig": {
     "access": "public"
   },
