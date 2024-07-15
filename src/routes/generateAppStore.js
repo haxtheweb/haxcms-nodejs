@@ -53,35 +53,10 @@ function generateAppStore(req, res) {
     if (HAXCMS.config.appStore && HAXCMS.config.appStore.autoloader) {
         autoloaderList = HAXCMS.config.appStore.autoloader;
     } else {
+      // should not be possible but at least load something if they bricked their autoloader manually
         autoloaderList = 
       [
-        "video-player",
-        "meme-maker",
-        "lrn-aside",
         "grid-plate",
-        "magazine-cover",
-        "image-compare-slider",
-        "license-element",
-        "self-check",
-        "multiple-choice",
-        "oer-schema",
-        "hero-banner",
-        "task-list",
-        "lrn-table",
-        "media-image",
-        "lrndesign-blockquote",
-        "a11y-gif-player",
-        "wikipedia-query",
-        "lrn-vocab",
-        "full-width-image",
-        "person-testimonial",
-        "citation-element",
-        "stop-note",
-        "place-holder",
-        "lrn-math",
-        "q-r",
-        "lrndesign-gallery",
-        "lrndesign-timeline"
       ];
     }
     returnData = {
