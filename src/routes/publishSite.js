@@ -209,7 +209,7 @@ const strtr = require('locutus/php/strings/strtr');
                 if (cdn != 'custom') {
                   // special fallback for HAXtheWeb since it cheats in order to demo the solution
                   templateVars['cdn'] = cdn;
-                  templateVars['metadata'] = site.getSiteMetadata(null, domain, 'https://' + templateVars['cdn']);
+                  templateVars['metadata'] = await site.getSiteMetadata(null, domain, 'https://' + templateVars['cdn']);
                   // build a regex so that we can do fully offline sites and cache the cdn requests even
                   templateVars['cdnRegex'] =
                     "(https?:\/\/" +    

@@ -24,6 +24,7 @@ const array_unique = require("locutus/php/array/array_unique");
 const json_encode = require('locutus/php/json/json_encode');
 const strtr = require('locutus/php/strings/strtr');
 const usort = require('locutus/php/array/usort');
+const sharp = require('sharp');
 // a site object
 class HAXCMSSite
 {
@@ -365,19 +366,33 @@ class HAXCMSSite
      */
     getManagedTemplateFiles() {
         return {
-            'htaccess':'.htaccess', // not templated (yet) but ensures self refreshing if we tweak it
-            '404':'404.html',
-            'msbc':'browserconfig.xml',
-            'build':'build.js',
-            'buildhaxcms':'build-haxcms.js',
-            'index':'index.html',
-            'manifest':'manifest.json',
-            'package':'package.json',
-            'polymer':'polymer.json',
-            'push':'push-manifest.json',
-            'robots':'robots.txt',
-            'sw':'service-worker.js',
-            'outdated':'assets/upgrade-browser.html',
+          // HAX core / application / PWA requirements
+          'htaccess' : '.htaccess',
+          'build' : 'build.js',
+          'buildlegacy' : 'assets/build-legacy.js',
+          'buildpolyfills' : 'assets/build-polyfills.js',
+          'buildhaxcms' : 'build-haxcms.js',
+          'outdated' : 'assets/upgrade-browser.html',
+          'index' : 'index.html', // static published fallback
+          '404' : '404.html', // github / static published redirect appropriately
+          // seo / performance
+          'push' : 'push-manifest.json',
+          'robots' : 'robots.txt',
+          // pwa related files
+          'msbc' : 'browserconfig.xml',
+          'manifest' : 'manifest.json',
+          'sw' : 'service-worker.js',
+          'offline' : 'offline.html', // pwa offline page
+          // local development tooling
+          'webdevserverhaxcmsconfigcjs' : 'web-dev-server.haxcms.config.cjs',
+          'package' : 'package.json',
+          'polymer' : 'polymer.json',
+          // SCORM 1.2
+          'imsmdrootv1p2p1' : 'imsmd_rootv1p2p1.xsd',
+          'imscprootv1p1p2' : 'imscp_rootv1p1p2.xsd',
+          'adlcprootv1p2' : 'adlcp_rootv1p2.xsd',
+          'imsxml' : 'ims_xml.xsd',
+          'imsmanifest' : 'imsmanifest.xml',
         };
     }
     /**
@@ -415,27 +430,27 @@ class HAXCMSSite
           'licenseName': licenseName,
           'serviceWorkerScript': this.getServiceWorkerScript(this.basePath + this.manifest.metadata.site.name + '/'),
           'bodyAttrs': this.getSitePageAttributes(),
-          'metadata': this.getSiteMetadata(),
-          'logo512x512': this.getLogoSize('512','512'),
-          'logo256x256': this.getLogoSize('256','256'),
-          'logo192x192': this.getLogoSize('192','192'),
-          'logo144x144': this.getLogoSize('144','144'),
-          'logo96x96': this.getLogoSize('96','96'),
-          'logo72x72': this.getLogoSize('72','72'),
-          'logo48x48': this.getLogoSize('48','48'),
-          'favicon': this.getLogoSize('32','32'),
+          'metadata': await this.getSiteMetadata(),
+          'logo512x512': await this.getLogoSize('512','512'),
+          'logo256x256': await this.getLogoSize('256','256'),
+          'logo192x192': await this.getLogoSize('192','192'),
+          'logo144x144': await this.getLogoSize('144','144'),
+          'logo96x96': await this.getLogoSize('96','96'),
+          'logo72x72': await this.getLogoSize('72','72'),
+          'logo48x48': await this.getLogoSize('48','48'),
+          'favicon': await this.getLogoSize('32','32'),
       };
       let swItems = [...this.manifest.items];
       // the core files you need in every SW manifest
       let coreFiles = [
           'index.html',
-          this.getLogoSize('512','512'),
-          this.getLogoSize('256','256'),
-          this.getLogoSize('192','192'),
-          this.getLogoSize('144','144'),
-          this.getLogoSize('96','96'),
-          this.getLogoSize('72','72'),
-          this.getLogoSize('48','48'),
+          await this.getLogoSize('512','512'),
+          await this.getLogoSize('256','256'),
+          await this.getLogoSize('192','192'),
+          await this.getLogoSize('144','144'),
+          await this.getLogoSize('96','96'),
+          await this.getLogoSize('72','72'),
+          await this.getLogoSize('48','48'),
           'manifest.json',
           'site.json',
           '404.html',
@@ -1126,7 +1141,7 @@ class HAXCMSSite
      * @return string an html chunk of tags for the head section
      * @todo move this to a render function / section / engine
      */
-    getSiteMetadata(page = null, domain = null, cdn = '') {
+    async getSiteMetadata(page = null, domain = null, cdn = '') {
       if (page == null) {
         page = new JSONOutlineSchemaItem();
       }
@@ -1139,12 +1154,12 @@ class HAXCMSSite
       let preconnect = '';
       let base = './';
       if (cdn == '' && HAXCMS.cdn != './') {
-        preconnect = `<link rel="preconnect" crossorigin href="{HAXCMS.cdn}">`;
+        preconnect = `<link rel="preconnect" crossorigin href="${HAXCMS.cdn}" />`;
         cdn = HAXCMS.cdn;
       }
       if (cdn != '') {
         // preconnect for faster DNS lookup
-        preconnect = `<link rel="preconnect" crossorigin href="{cdn}">`;
+        preconnect = `<link rel="preconnect" crossorigin href="${cdn}" />`;
         // preload rewrite correctly
         base = cdn;
       }
@@ -1163,54 +1178,54 @@ class HAXCMSSite
           hexCode = this.manifest.metadata.theme.variables.hexCode;
       }
       let metadata = `<meta charset="utf-8">
-  {preconnect}
+  ${preconnect}
   <link rel="preconnect" crossorigin href="https://fonts.googleapis.com">
   <link rel="preconnect" crossorigin href="https://cdnjs.cloudflare.com">
   <link rel="preconnect" crossorigin href="https://i.creativecommons.org">
   <link rel="preconnect" crossorigin href="https://licensebuttons.net">
-  <link rel="preload" href="{base}build/es6/node_modules/mobx/dist/mobx.esm.js" as="script" crossorigin="anonymous" />
-  <link rel="preload" href="{base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-builder.js" as="script" crossorigin="anonymous" />
-  <link rel="preload" href="{base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-store.js" as="script" crossorigin="anonymous" />
-  <link rel="preload" href="{base}build/es6/dist/my-custom-elements.js" as="script" crossorigin="anonymous" />
-  <link rel="preload" href="{base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
+  <link rel="preload" href="${base}build/es6/node_modules/mobx/dist/mobx.esm.js" as="script" crossorigin="anonymous" />
+  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-builder.js" as="script" crossorigin="anonymous" />
+  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-store.js" as="script" crossorigin="anonymous" />
+  <link rel="preload" href="${base}build/es6/dist/my-custom-elements.js" as="script" crossorigin="anonymous" />
+  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
   <link rel="preload" href="./custom/build/custom.es6.js" as="script" crossorigin="anonymous" />
   <link rel="preload" href="./theme/theme.css" as="style" />  
   <meta name="generator" content="HAXcms">
   <link rel="manifest" href="manifest.json">
   <meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, user-scalable=yes">
-  <title>{siteTitle}</title>
-  <link rel="icon" href="{this.getLogoSize('16', '16')}">
-  <meta name="theme-color" content="{hexCode}">
+  <title>${siteTitle}</title>
+  <link rel="icon" href="${await this.getLogoSize('16', '16')}">
+  <meta name="theme-color" content="${hexCode}">
   <meta name="robots" content="index, follow">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="application-name" content="{title}">
+  <meta name="application-name" content="${title}">
 
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="{title}">
+  <meta name="apple-mobile-web-app-title" content="${title}">
 
-  <link rel="apple-touch-icon" sizes="48x48" href="{this.getLogoSize('48', '48')}">
-  <link rel="apple-touch-icon" sizes="72x72" href="{this.getLogoSize('72', '72')}">
-  <link rel="apple-touch-icon" sizes="96x96" href="{this.getLogoSize('96', '96')}">
-  <link rel="apple-touch-icon" sizes="144x144" href="{this.getLogoSize('144', '144')}">
-  <link rel="apple-touch-icon" sizes="192x192" href="{this.getLogoSize('192', '192')}">
+  <link rel="apple-touch-icon" sizes="48x48" href="${await this.getLogoSize('48', '48')}">
+  <link rel="apple-touch-icon" sizes="72x72" href="${await this.getLogoSize('72', '72')}">
+  <link rel="apple-touch-icon" sizes="96x96" href="${await this.getLogoSize('96', '96')}">
+  <link rel="apple-touch-icon" sizes="144x144" href="${await this.getLogoSize('144', '144')}">
+  <link rel="apple-touch-icon" sizes="192x192" href="${await this.getLogoSize('192', '192')}">
 
-  <meta name="msapplication-TileImage" content="{this.getLogoSize('144', '144')}">
-  <meta name="msapplication-TileColor" content="{hexCode}">
+  <meta name="msapplication-TileImage" content="${await this.getLogoSize('144', '144')}">
+  <meta name="msapplication-TileColor" content="${hexCode}">
   <meta name="msapplication-tap-highlight" content="no">
         
-  <meta name="description" content="{description}" />
-  <meta name="og:sitename" property="og:sitename" content="{this.manifest.title}" />
-  <meta name="og:title" property="og:title" content="{title}" />
+  <meta name="description" content="${description}" />
+  <meta name="og:sitename" property="og:sitename" content="${this.manifest.title}" />
+  <meta name="og:title" property="og:title" content="${title}" />
   <meta name="og:type" property="og:type" content="article" />
-  <meta name="og:url" property="og:url" content="{domain}" />
-  <meta name="og:description" property="og:description" content="{description}" />
-  <meta name="og:image" property="og:image" content="{this.getSocialShareImage(page)}" />
+  <meta name="og:url" property="og:url" content="${domain}" />
+  <meta name="og:description" property="og:description" content="${description}" />
+  <meta name="og:image" property="og:image" content="${this.getSocialShareImage(page)}" />
   <meta name="twitter:card" property="twitter:card" content="summary_large_image" />
-  <meta name="twitter:site" property="twitter:site" content="{domain}" />
-  <meta name="twitter:title" property="twitter:title" content="{title}" />
-  <meta name="twitter:description" property="twitter:description" content="{description}" />
-  <meta name="twitter:image" property="twitter:image" content="{this.getSocialShareImage(page)}" />`;  
+  <meta name="twitter:site" property="twitter:site" content="${domain}" />
+  <meta name="twitter:title" property="twitter:title" content="${title}" />
+  <meta name="twitter:description" property="twitter:description" content="${description}" />
+  <meta name="twitter:image" property="twitter:image" content="${this.getSocialShareImage(page)}" />`;  
       // mix in license metadata if we have it
       let licenseData = this.getLicenseData('all');
       if ((this.manifest.license) && (licenseData[this.manifest.license])) {
@@ -1249,7 +1264,7 @@ class HAXCMSSite
      * @var string width width of the icon as a string
      * @return string path to the image (web visible) that was created or pulled together
      */
-    getLogoSize(height, width) {
+    async getLogoSize(height, width) {
       let fileName;
       if (!(fileName)) {
         // if no logo, just bail with an easy standard one
@@ -1263,10 +1278,19 @@ class HAXCMSSite
           if (fs.pathExistsSync(path + this.manifest.metadata.site.logo) &&
               fs.lstatSync(path + this.manifest.metadata.site.logo).isFile() && 
               !fs.pathExistsSync(path + fileName)) {
-              fs.mkdir(path + 'files/haxcms-managed');
-              let image = new ImageResize(path + this.manifest.metadata.site.logo);
-              image.crop(height, width)
-              +save(path + fileName);
+              // make folder if doesnt exist
+              if (!fs.pathExistsSync(path + 'files/haxcms-managed')) {
+                fs.mkdirSync(path + 'files/haxcms-managed');
+              }
+              const image = await sharp(path + this.manifest.metadata.site.logo)
+              .metadata()
+              .then(({ width }) => sharp(path + this.manifest.metadata.site.logo)
+                .resize({
+                  width: parseInt(width),
+                  height: parseInt(height),
+                })
+                .toFile(path + fileName)
+              );
           }
         }
       }
