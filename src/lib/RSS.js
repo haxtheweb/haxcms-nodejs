@@ -1,4 +1,5 @@
 const fs = require('fs-extra');
+const implode = require('locutus/php/strings/implode');
 // simple RSS / Atom feed generator from a JSON outline schema object
 class FeedMe
 {
