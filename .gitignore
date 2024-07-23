@@ -4,8 +4,6 @@ _sites
 _published
 _archived
 _config
-!build/es6/node_modules
-!build/es6/node_modules/**
 package-lock.json
 build/es6/node_modules/@polymer/.DS_Store
 
@@ -139,3 +137,11 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+
+
+!src/public/build/es6/**
+!src/public/build/es6/node_modules
+!src/public/build/es6/node_modules/**
+!build/es6/node_modules
+!build/es6/node_modules/**
