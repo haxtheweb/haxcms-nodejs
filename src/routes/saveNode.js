@@ -173,8 +173,8 @@ const strip_tags = require("locutus/php/strings/strip_tags");
               else if ((page.metadata.pageType)) {
                 delete page.metadata.pageType;
               }
-              // support for defining and updating hideInMenu
-              if ((data["attributes"]["hide-in-menu"])) {
+              // support for defining and updating hideInMenu which behaves strangely on DOM side for whatever reason
+              if (typeof data["attributes"]["hide-in-menu"] !== 'undefined') {
                 page.metadata.hideInMenu = true;
               }
               else {
