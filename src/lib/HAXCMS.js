@@ -1777,7 +1777,7 @@ class HAXCMSClass {
      *
      * @return boolean true for success, false for failed
      */
-   async createSite(name, domain = null, git = null)
+   async createSite(name, domain = null, git = null, build = null)
    {
        // try and make the folder
        var site = new HAXCMSSite();
@@ -1800,7 +1800,8 @@ class HAXCMSClass {
                this.basePath + this.sitesDirectory + '/',
                name,
                git,
-               domain
+               domain,
+               build
            )
        ) {
            return site;
