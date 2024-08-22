@@ -99,7 +99,6 @@ systemStructureContext().then((site) => {
         });
       }
       else if (
-        req.url.includes('legacy-outline.html') || 
         req.url.includes('custom/build') || 
         req.url.includes('/theme/') || 
         req.url.includes('/assets/') || 
@@ -194,7 +193,6 @@ systemStructureContext().then((site) => {
         });
       }
       else if (
-        req.url.includes('legacy-outline.html') || 
         req.url.includes('custom/build') || 
         req.url.includes('/theme/') || 
         req.url.includes('/assets/') || 

@@ -783,21 +783,6 @@ class HAXCMSSite
                  generator.writeSitemap();
             }
         }*/
-        if (format == null || format == 'legacy') {
-            // now generate a static list of links. This is so we can have legacy fail-back iframe mode in tact
-            await fs.writeFileSync(
-              this.siteDirectory + '/legacy-outline.html',
-                `<!DOCTYPE html>
-                <html lang="en">
-                    <head>
-                        <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
-                        <meta content="utf-8" http-equiv="encoding">
-                        <link rel="stylesheet" type="text/css"href="assets/legacy-outline.css">
-                    </head>
-                    <body>${this.treeToNodes([...this.manifest.items])}</body>
-                </html>`
-            );
-        }
         if (format == null || format == 'search') {
             // now generate the search index
             await fs.writeFileSync(

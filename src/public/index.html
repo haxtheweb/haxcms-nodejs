@@ -8,7 +8,7 @@
     <link rel="preconnect" crossorigin href="https://fonts.googleapis.com">
     <link rel="preconnect" crossorigin href="https://cdnjs.cloudflare.com">
     <link rel="preload" href="./build.js" as="script" />
-    <link rel="preload" href="./wc-registry.json" as="fetch" crossorigin="anonymous" />
+    <link rel="preload" href="./wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
     <link rel="preload" href="./build/es6/node_modules/@haxtheweb/dynamic-import-registry/dynamic-import-registry.js" as="script" crossorigin="anonymous" />
     <link rel="modulepreload" href="./build/es6/node_modules/@haxtheweb/dynamic-import-registry/dynamic-import-registry.js" />
     <link rel="preload" href="./build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js" as="script" crossorigin="anonymous" />
@@ -276,8 +276,7 @@
     <div id="visuallist"></div>
     <app-hax base-path="/"></app-hax>
     <div class="version">V</div>
-    <noscript>Enable JavaScript to use HAX</noscript>
-    <script>document.body.removeAttribute('no-js');window.__appCDN ="./";window.HAXCMSContext="nodejs";window.__appForceUpgrade=true;</script>
+    <script>window.__appCDN ="./";window.HAXCMSContext="nodejs";</script>
     <script src="./build.js"></script>
   </body>
 </html>
