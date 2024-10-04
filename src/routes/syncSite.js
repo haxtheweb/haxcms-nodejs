@@ -1,4 +1,5 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
+const { Git } = require('git-interface');
 
 /**
    * @OA\Post(
@@ -50,13 +51,16 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
           gitSettings.url = '';
       }
       if ((gitSettings)) {
-          git = new Git();
-          repo = git.open(site.siteDirectory, true);
+        try {
+          let git = new Git();
+          let repo = git.open(site.siteDirectory, true);
           // ensure we're on branch, most likley master
           await repo.checkout(gitSettings.branch);
           await repo.pull('origin', gitSettings.branch);
-          await repo.push('origin', gitSettings.branch);
-          res.send(true);
+          await repo.push('origin', gitSettings.branch);  
+        }
+        catch(e) {}
+        res.send(true);
       }
     } else {
       res.send(500);

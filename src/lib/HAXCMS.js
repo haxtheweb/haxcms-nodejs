@@ -322,9 +322,9 @@ class HAXCMSSite
       const git = new GitPlus({
         dir: directory + '/' + tmpname
       });
-      // initalize git repo
-      await git.init();
       try {
+        // initalize git repo
+        await git.init();
         await git.add();
         await git.commit('A new journey begins: ' + this.manifest.title + ' (' + this.manifest.id + ')');
         if (

@@ -184,25 +184,25 @@ async function createSite(req, res) {
     // main site schema doesn't care about publishing settings
     delete schema.metadata.site.git;
 
-    const git = new Git({
-        dir: site.siteDirectory
-    });
-    git.setDir(site.siteDirectory);
-    await git.init();
     try {
-        await git.add();
-        await git.commit('A new journey begins: ' + site.manifest.title + ' (' + site.manifest.id + ')');
-        // make a branch but dont use it
-        if (site.manifest.metadata.site.git && site.manifest.metadata.site.git.staticBranch) {
-            await git.createBranch(
-                site.manifest.metadata.site.git.staticBranch
-            );
-        }
-        if (site.manifest.metadata.site.git && site.manifest.metadata.site.git.branch) {
-            await git.createBranch(
-                site.manifest.metadata.site.git.branch
-            );
-        }
+      const git = new Git({
+        dir: site.siteDirectory
+      });
+      git.setDir(site.siteDirectory);
+      await git.init();
+      await git.add();
+      await git.commit('A new journey begins: ' + site.manifest.title + ' (' + site.manifest.id + ')');
+      // make a branch but dont use it
+      if (site.manifest.metadata.site.git && site.manifest.metadata.site.git.staticBranch) {
+        await git.createBranch(
+          site.manifest.metadata.site.git.staticBranch
+        );
+      }
+      if (site.manifest.metadata.site.git && site.manifest.metadata.site.git.branch) {
+        await git.createBranch(
+          site.manifest.metadata.site.git.branch
+        );
+      }
     }
     catch(e) {
         console.warn(e);

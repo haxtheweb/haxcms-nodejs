@@ -1,6 +1,7 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const explode = require('locutus/php/strings/explode');
 const filter_var = require('../lib/filter_var.js');
+const { Git } = require('git-interface');
 /**
    * @OA\Post(
    *    path="/gitImportSite",
@@ -40,20 +41,23 @@ const filter_var = require('../lib/filter_var.js');
   async function gitImportSite(req, res) {
     if (HAXCMS.validateRequestToken()) {
       if ((req.body['site']['git']['url'])) {
-        repoUrl = req.body['site']['git']['url'];
+        let repoUrl = req.body['site']['git']['url'];
         // make sure there's a .git in the address
         if (filter_var(repoUrl, "FILTER_VALIDATE_URL") !== false &&
           repoUrl.indexOf('.git') !== -1
           ) {
-          ary = explode('/', repoUrl.replace('.git', ''));
-          repo_path = ary.pop();
-          git = new Git();
+          let ary = explode('/', repoUrl.replace('.git', ''));
+          let repo_path = ary.pop();
           // @todo check if this fails
           directory = HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + repo_path;
-          repo = git.create(directory);
-          repo = git.open(directory, true);
-          repo.set_remote("origin", repoUrl);
-          repo.pull('origin', 'master');
+          try {
+            let git = new Git();
+            let repo = git.create(directory);
+            repo = git.open(directory, true);
+            repo.set_remote("origin", repoUrl);
+            repo.pull('origin', 'master');  
+          }
+          catch(e) {}
           // load the site that we SHOULD have just pulled in
           if (site = await HAXCMS.loadSite(repo_path)) {
             res.send({

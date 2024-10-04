@@ -3,6 +3,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
 const explode = require('locutus/php/strings/explode');
 const parse_url = require('locutus/php/url/parse_url');
 const strtr = require('locutus/php/strings/strtr');
+const { Git } = require('git-interface');
 
 /**
    * @OA\Post(
@@ -56,7 +57,7 @@ const strtr = require('locutus/php/strings/strtr');
         }
         if ((gitSettings)) {
             let git = new Git();
-            repo = git.open(site.siteDirectory, true);
+            let repo = git.open(site.siteDirectory, true);
             // ensure we're on master and everything is added
             await repo.checkout('master');
             // Try to build a reasonable "domain" value
