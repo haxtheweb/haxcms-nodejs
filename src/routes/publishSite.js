@@ -56,10 +56,13 @@ const { Git } = require('git-interface');
             gitSettings.url = '';
         }
         if ((gitSettings)) {
-            let git = new Git();
-            let repo = git.open(site.siteDirectory, true);
-            // ensure we're on master and everything is added
-            await repo.checkout('master');
+            try {
+                let git = new Git();
+                let repo = git.open(site.siteDirectory, true);
+                // ensure we're on master and everything is added
+                await repo.checkout('master');
+            }
+            catch(e) {}
             // Try to build a reasonable "domain" value
             if (
                 (gitSettings.url) &&

@@ -133,9 +133,7 @@ class HAXCMSSite
             await fs.writeFileSync(directory + '/' + tmpname + '/CNAME', domain);
         }
       }
-      catch(e) {
-        console.warn(e);
-      }
+      catch(e) {}
     // load what we just created
     this.manifest = new JSONOutlineSchema();
     // where to save it to
@@ -318,11 +316,11 @@ class HAXCMSSite
           break;
         }
       }
-      // put this in version control :) :) :)
-      const git = new GitPlus({
-        dir: directory + '/' + tmpname
-      });
       try {
+        // put this in version control :) :) :)
+        const git = new GitPlus({
+          dir: directory + '/' + tmpname
+        });
         // initalize git repo
         await git.init();
         await git.add();
@@ -536,9 +534,7 @@ class HAXCMSSite
               let templatedHTML = template.render(templateVars);
               await fs.writeFileSync(this.siteDirectory + '/' + templates[key], templatedHTML);           
             }
-            catch(e) {
-              //console.warn(e);
-            }
+            catch(e) {}
           }
       } 
     }
@@ -566,11 +562,11 @@ class HAXCMSSite
      */
     async gitCommit(msg = 'Committed changes')
     {
-        // commit, true flag will attempt to make this a git repo if it currently isn't
-        const git = new GitPlus({
-          dir: this.siteDirectory
-        });
         try {
+          // commit, true flag will attempt to make this a git repo if it currently isn't
+          const git = new GitPlus({
+            dir: this.siteDirectory
+          });
           await git.add();
           await git.commit(msg);
           // commit should execute the automatic push flag if it's on
@@ -587,10 +583,10 @@ class HAXCMSSite
      */
     async gitRevert(count = 1)
     {
-      const git = new GitPlus({
-        dir: this.siteDirectory
-      });
       try {
+        const git = new GitPlus({
+          dir: this.siteDirectory
+        });
         await git.revert(count);
       }
       catch(e){}
@@ -601,10 +597,10 @@ class HAXCMSSite
      */
     async gitPush()
     {
-      const git = new GitPlus({
-        dir: this.siteDirectory
-      });
       try {
+        const git = new GitPlus({
+          dir: this.siteDirectory
+        });
         await git.add();
         await git.commit("commit forced");
         await git.push();
@@ -620,10 +616,10 @@ class HAXCMSSite
      */
     async gitSetRemote(gitDetails)
     {
-      const git = new GitPlus({
-        dir: this.siteDirectory
-      });
       try {
+        const git = new GitPlus({
+          dir: this.siteDirectory
+        });
         await repo.setRemote("origin", gitDetails.url);
       }
       catch(e){}
@@ -818,10 +814,7 @@ class HAXCMSSite
             "text":textData,
           });
         }
-        catch(e) {
-          // if that failed, not concerned as it's just an index
-          console.warn(e);
-        }
+        catch(e) {}
       }
       return data;
     }
@@ -2337,21 +2330,24 @@ class HAXCMSClass {
             if (response.getStatusCode() == 201) {
                 this.config.site.git.keySet = true;
                 this.saveConfigFile();
-                // set global config for username / email if we can
-                const gitRepo = new GitPlus({
-                  dir: this.siteDirectory
-                });
-                new GitPlus({});
-                gitRepo.gitExec(
-                    'config --global user.name "' +
-                        this.config.site.git.user +
-                        '"'
-                );
-                gitRepo.gitExec(
-                    'config --global user.email "' +
-                        this.config.site.git.email +
-                        '"'
-                );
+                try {
+                  // set global config for username / email if we can
+                  const gitRepo = new GitPlus({
+                    dir: this.siteDirectory
+                  });
+                  new GitPlus({});
+                  gitRepo.gitExec(
+                      'config --global user.name "' +
+                          this.config.site.git.user +
+                          '"'
+                  );
+                  gitRepo.gitExec(
+                      'config --global user.email "' +
+                          this.config.site.git.email +
+                          '"'
+                  );
+                }
+                catch(e){}
             }
 
             return response.getStatusCode();
@@ -2534,7 +2530,10 @@ class HAXCMSClass {
    * Return the active URI if it exists
    */
    getURI() {
-    return HAXCMS.request_url.href;
+    if (HAXCMS && HAXCMS.request_url && HAXCMS.request_url.href) {
+      return HAXCMS.request_url.href;
+    }
+    return '';
   }
   /**
    * Return the active domain if it exists
@@ -2781,10 +2780,7 @@ async function systemStructureContext(dir = null) {
       await site.loadSingle(dir);
       return site;
     }
-    catch(e) {
-      // error parsing, so we don't have a site context
-      console.warn(e);
-    }
+    catch(e) {}
   }
   return null;
 }

@@ -204,9 +204,7 @@ async function createSite(req, res) {
         );
       }
     }
-    catch(e) {
-        console.warn(e);
-    }
+    catch(e) {}
     
     res.send({
       "status": 200,
