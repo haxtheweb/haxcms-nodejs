@@ -10,7 +10,6 @@ async function hasGit() {
   } catch (e) {
     cliOut = false;
   }
-  console.log(cliOut);
   if (cliOut) {
     class GitPlus extends Git {
       async revert(count) {
