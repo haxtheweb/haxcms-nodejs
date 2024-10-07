@@ -1,7 +1,7 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const explode = require('locutus/php/strings/explode');
 const filter_var = require('../lib/filter_var.js');
-const { Git } = require('git-interface');
+const GitPlus = require('../lib/GitPlus.js');
 /**
    * @OA\Post(
    *    path="/gitImportSite",
@@ -51,7 +51,7 @@ const { Git } = require('git-interface');
           // @todo check if this fails
           directory = HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + repo_path;
           try {
-            let git = new Git();
+            let git = new GitPlus();
             let repo = git.create(directory);
             repo = git.open(directory, true);
             repo.set_remote("origin", repoUrl);

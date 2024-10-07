@@ -3,7 +3,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
 const explode = require('locutus/php/strings/explode');
 const parse_url = require('locutus/php/url/parse_url');
 const strtr = require('locutus/php/strings/strtr');
-const { Git } = require('git-interface');
+const GitPlus = require('../lib/GitPlus.js');
 
 /**
    * @OA\Post(
@@ -57,7 +57,7 @@ const { Git } = require('git-interface');
         }
         if ((gitSettings)) {
             try {
-                let git = new Git();
+                let git = new GitPlus();
                 let repo = git.open(site.siteDirectory, true);
                 // ensure we're on master and everything is added
                 await repo.checkout('master');

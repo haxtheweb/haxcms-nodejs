@@ -1,5 +1,5 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
-const { Git } = require('git-interface');
+const GitPlus = require('../lib/GitPlus.js');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
 
 /**
@@ -185,7 +185,7 @@ async function createSite(req, res) {
     delete schema.metadata.site.git;
 
     try {
-      const git = new Git({
+      const git = new GitPlus({
         dir: site.siteDirectory
       });
       git.setDir(site.siteDirectory);
