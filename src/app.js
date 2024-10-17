@@ -24,7 +24,8 @@ if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT
 // routes with all requires
 const { RoutesMap, OpenRoutes } = require('./lib/RoutesMap.js');
 // app settings
-const multer = require('multer')
+const multer = require('multer');
+const { crossOriginOpenerPolicy } = require('helmet');
 const upload = multer({ dest: path.join(HAXCMS.configDirectory, 'tmp/') })
 let publicDir = path.join(__dirname, '/public');
 // if in development, live reload
@@ -46,6 +47,8 @@ app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 500
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: false,
+  crossOriginEmbedderPolicy: 'require-corp',
+  crossOriginOpenerPolicy: 'same-origin',
   referrerPolicy: {
     policy: ["origin", "unsafe-url"],
   },
