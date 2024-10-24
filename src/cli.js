@@ -62,8 +62,19 @@ for (var method in RoutesMap) {
   }
 }
 
+// fake response clas so we can capture the response from the headless route as opposed to print to console
+class Res {
+  constructor() {
+    this.query = {};
+    this.data = null;
+  }
+  send(data) {
+    this.data = data;
+  }
+}
+
 // method to bridge api calls in similar manner given a site already loaded into scope
-export function cliBridge(op, body = {}) {
+export async function cliBridge(op, body = {}) {
   let req = {
     route: {
       path: `${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`
@@ -71,14 +82,13 @@ export function cliBridge(op, body = {}) {
     body: body,
     method: "post"
   };
-  let res = {
-    query: {},
-    send: (data) => console.log(data),
-  };
+
+  let res = new Res();
   const rMethod = req.method.toLowerCase();
   if (HAXCMS.validateJWT(req, res)) {
     // call the method
-    RoutesMap.RoutesMap[rMethod][op](req, res);
+    await RoutesMap.RoutesMap[rMethod][op](req, res);
+    return {req: req, res: res};
   }
   else {
     console.error("route connection issue");
