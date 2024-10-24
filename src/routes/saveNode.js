@@ -134,8 +134,8 @@ const strip_tags = require("locutus/php/strings/strip_tags");
               }
               // allow setting theme via page break
               if ((data["attributes"]["developer-theme"]) && data["attributes"]["developer-theme"] != '') {
-                themes = HAXCMS.getThemes();
-                value = filter_var(data["attributes"]["developer-theme"], "FILTER_SANITIZE_STRING");
+                let themes = HAXCMS.getThemes();
+                let value = filter_var(data["attributes"]["developer-theme"], "FILTER_SANITIZE_STRING");
                 // support for removing the custom theme or applying none
                 if (value == '_none_' || value == '' || !value || !themes[value]) {
                   delete page.metadata.theme;
