@@ -67,9 +67,18 @@ class Res {
   constructor() {
     this.query = {};
     this.data = null;
+    this.statusCode = null;
   }
   send(data) {
     this.data = data;
+    return this;
+  }
+  status(status) {
+    this.statusCode = status;
+    return this;
+  }
+  setHeader() {
+    return this;
   }
 }
 
