@@ -38,4 +38,4 @@ Visit http://localhost:3000 if it doesn't automatically open
 - [HAX + 11ty](https://github.com/haxtheweb/hax11ty)
 
 
-![HAX Traveler: World Changer](https://github.com/haxtheweb/art/blob/mawebcompoin/haxtheweb/hax-traveler-world-changer.jpg?raw=true)
+![HAX Traveler: World Changer](https://raw.githubusercontent.com/haxtheweb/art/refs/heads/main/haxtheweb/hax-traveler-world-changer.jpg)
