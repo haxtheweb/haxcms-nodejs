@@ -57,7 +57,11 @@ const GitPlus = require('../lib/GitPlus.js');
         }
         if ((gitSettings)) {
             try {
-                let git = new GitPlus();
+                let git = new GitPlus({
+                    dir: site.siteDirectory,
+                    cliVersion: await HAXCMS.gitTest()
+                  });
+                git.setDir(site.siteDirectory);
                 let repo = git.open(site.siteDirectory, true);
                 // ensure we're on master and everything is added
                 await repo.checkout('master');

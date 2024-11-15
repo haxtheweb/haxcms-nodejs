@@ -186,7 +186,8 @@ async function createSite(req, res) {
 
     try {
       const git = new GitPlus({
-        dir: site.siteDirectory
+        dir: site.siteDirectory,
+        cliVersion: await HAXCMS.gitTest()
       });
       git.setDir(site.siteDirectory);
       await git.init();

@@ -51,7 +51,11 @@ const GitPlus = require('../lib/GitPlus.js');
           // @todo check if this fails
           directory = HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + repo_path;
           try {
-            let git = new GitPlus();
+            let git = new GitPlus({
+              dir: directory,
+              cliVersion: await HAXCMS.gitTest()
+            });
+            git.setDir(directory);
             let repo = git.create(directory);
             repo = git.open(directory, true);
             repo.set_remote("origin", repoUrl);

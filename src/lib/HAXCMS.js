@@ -25,6 +25,9 @@ const json_encode = require('locutus/php/json/json_encode');
 const strtr = require('locutus/php/strings/strtr');
 const usort = require('locutus/php/array/usort');
 const sharp = require('sharp');
+const util  = require('node:util');
+const child_process  = require('child_process');
+const exec = util.promisify(child_process.exec);
 // a site object
 class HAXCMSSite
 {
@@ -324,7 +327,8 @@ class HAXCMSSite
       try {
         // put this in version control :) :) :)
         const git = new GitPlus({
-          dir: directory + '/' + tmpname
+          dir: directory + '/' + tmpname,
+          cliVersion: await this.gitTest()
         });
         // initalize git repo
         await git.init();
@@ -361,6 +365,16 @@ class HAXCMSSite
             return true;
         }
         return false;
+    }
+    async gitTest() {
+      console.log('?dfdsfsdfsfsdf');
+      try {
+        const { stdout, stderr } = await exec('git --version');
+        return stdout;
+      } catch (e) {
+        console.log(e);
+        return null;
+      }
     }
     /**
      * Return an array of files we care about rebuilding on managed file operations
@@ -566,10 +580,13 @@ class HAXCMSSite
      */
     async gitCommit(msg = 'Committed changes')
     {
+      console.log(await this.gitTest());
         try {
+          console.log(this.siteDirectory);
           // commit, true flag will attempt to make this a git repo if it currently isn't
           const git = new GitPlus({
-            dir: this.siteDirectory
+            dir: this.siteDirectory,
+            cliVersion: await this.gitTest()
           });
           await git.add();
           await git.commit(msg);
@@ -589,7 +606,8 @@ class HAXCMSSite
     {
       try {
         const git = new GitPlus({
-          dir: this.siteDirectory
+          dir: this.siteDirectory,
+          cliVersion: await this.gitTest()
         });
         await git.revert(count);
       }
@@ -603,7 +621,8 @@ class HAXCMSSite
     {
       try {
         const git = new GitPlus({
-          dir: this.siteDirectory
+          dir: this.siteDirectory,
+          cliVersion: await this.gitTest()
         });
         await git.add();
         await git.commit("commit forced");
@@ -622,7 +641,8 @@ class HAXCMSSite
     {
       try {
         const git = new GitPlus({
-          dir: this.siteDirectory
+          dir: this.siteDirectory,
+          cliVersion: await this.gitTest()
         });
         await repo.setRemote("origin", gitDetails.url);
       }
@@ -1568,6 +1588,16 @@ class HAXCMSSite
 }
 // HAXcms core
 class HAXCMSClass {
+  async gitTest() {
+    console.log("?");
+    try {
+      const { stdout, stderr } = await exec('git --version');
+      console.log(stdout);
+      return stdout;
+    } catch (e) {
+      return null;
+    }
+  }
   constructor() {
     this.developerMode = false;
     this.developerModeAdminOnly = false;
@@ -2277,7 +2307,7 @@ class HAXCMSClass {
     /**
      * Set and validate config
      */
-    setConfig(values)
+    async setConfig(values)
     {
         if ((values.apis)) {
           for (var key in values.apis) {
@@ -2337,9 +2367,9 @@ class HAXCMSClass {
                 try {
                   // set global config for username / email if we can
                   const gitRepo = new GitPlus({
-                    dir: this.siteDirectory
+                    dir: this.siteDirectory,
+                    cliVersion: await this.gitTest()
                   });
-                  new GitPlus({});
                   gitRepo.gitExec(
                       'config --global user.name "' +
                           this.config.site.git.user +
