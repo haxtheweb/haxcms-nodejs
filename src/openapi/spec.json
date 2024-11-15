@@ -400,7 +400,7 @@
             }
         },
         "/listFiles": {
-            "post": {
+            "get": {
                 "tags": [
                     "hax",
                     "authenticated",
