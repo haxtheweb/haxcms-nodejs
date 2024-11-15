@@ -367,12 +367,10 @@ class HAXCMSSite
         return false;
     }
     async gitTest() {
-      console.log('?dfdsfsdfsfsdf');
       try {
         const { stdout, stderr } = await exec('git --version');
         return stdout;
       } catch (e) {
-        console.log(e);
         return null;
       }
     }
@@ -580,9 +578,7 @@ class HAXCMSSite
      */
     async gitCommit(msg = 'Committed changes')
     {
-      console.log(await this.gitTest());
         try {
-          console.log(this.siteDirectory);
           // commit, true flag will attempt to make this a git repo if it currently isn't
           const git = new GitPlus({
             dir: this.siteDirectory,
@@ -1589,10 +1585,8 @@ class HAXCMSSite
 // HAXcms core
 class HAXCMSClass {
   async gitTest() {
-    console.log("?");
     try {
       const { stdout, stderr } = await exec('git --version');
-      console.log(stdout);
       return stdout;
     } catch (e) {
       return null;

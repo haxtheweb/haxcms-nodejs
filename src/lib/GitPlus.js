@@ -5,7 +5,6 @@ const exec = util.promisify(child_process.exec);
 class GitPlus extends Git {
   constructor(options) {
     super(options);
-    console.log(options);
     this.cliVersion = options.cliVersion || null;
     this.gitTest();
   }
@@ -30,7 +29,6 @@ class GitPlus extends Git {
     return true;
   }
   gitExec(cmd) {
-    console.log(this.cliVersion);
     if (this.cliVersion) {
       return super.gitExec(cmd);
     }
