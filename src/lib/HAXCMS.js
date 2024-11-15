@@ -317,6 +317,11 @@ class HAXCMSSite
         }
       }
       try {
+        // write the managed files to ensure we get happy copies
+        await this.rebuildManagedFiles();
+      }
+      catch(e){}
+      try {
         // put this in version control :) :) :)
         const git = new GitPlus({
           dir: directory + '/' + tmpname
@@ -331,11 +336,10 @@ class HAXCMSSite
         ) {
             await this.gitSetRemote(gitDetails);
         }
-        // write the managed files to ensure we get happy copies
-        await this.rebuildManagedFiles();
-        await this.gitCommit('Managed files updated');
       }
-      catch(e){}
+      catch(e){
+        console.warn(e);
+      }
       return this;
     }
     /**
