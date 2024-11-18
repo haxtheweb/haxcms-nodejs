@@ -209,6 +209,86 @@ class JSONOutlineSchema
         }
         return false;
     }
+
+    /**
+     * Get an item by property value
+     */
+    getItemByProperty(propName, value) {
+        for (var id in this.items) {
+        if (this.items[id][propName] === value) {
+            return this.items[id];
+        }
+        }
+        return false;
+    }
+    /**
+     * Filter based on a set of parents built recursively
+     */
+    findBranch(id) {
+        const items = this.orderTree(this.items);
+        let decendentIds = [id];
+        let children = [];
+        children.push(this.getItemById(id));
+        // walk items and find things that have parent as present id
+        for (var key in items) {
+        if (decendentIds.includes(items[key].parent)) {
+            children.push(items[key]);
+            decendentIds.push(items[key].id);
+        }
+        }
+        return children;
+    }
+    
+    findChildenRecursively(items, activeIds = []) {
+        for (var key in items) {
+        // we found a kid
+        if (activeIds.includes(items[key].parent)) {
+        
+        }
+        let child = this.items[key2];
+        if (child.parent == item.id) {
+            children.push(child);
+        }
+        }
+        for (var key in currentItems) {
+        let item = currentItems[key];
+        if (!idList.includes(item.id)) {
+            idList.push(item.id);
+            found.push(item);
+            let children = [];
+            for (var key2 in this.items) {
+            let child = this.items[key2];
+            if (child.parent == item.id) {
+                children.push(child);
+            }
+            }
+            // sort the kids
+            children.sort( function(a, b) {return a.order - b.order} );
+            // only walk deeper if there were children for this page
+            if (children.length > 0) {
+            this.orderRecurse(children, sorted, idList);
+            }
+        }
+        }
+    }
+    /**
+     * Get an item by ID
+     */
+    async getContentById(id, cache = false) {
+        const item = this.getItemById(id);
+        // @todo something is up with our page cache request engine and not returning data in prod
+        /*if (cache && process.env.OPEN_APIS_ENV !== 'development') {
+        return await fetch(`https://${process.env.VERCEL_URL}/api/apps/haxcms/pageCache?site=${this.file}&uuid=${id}&type=link`, this.__fetchOptions).then((d) => d.ok ? d.text() : '');
+        }
+        else {*/
+        let location = this.file.replace(this.__siteFileBase, item.location);
+        if (this.__siteLocationPathName) {
+            location = location.replace(this.__siteLocationPathName + '/', '');
+        }
+        return await fetch(location, this.__fetchOptions).then((d) => d.ok ? d.text() : '');
+        //}
+    }
+
     /**
      * Save data back to the file system location
      */
