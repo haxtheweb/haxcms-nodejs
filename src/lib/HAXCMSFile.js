@@ -29,7 +29,6 @@ class HAXCMSFile
       // save operations that are not bulk import need - path cleaning
       tmpFile.name = tmpFile.name.replace(/[/\\?%*:|"<>\s]/g, '-');
       let fullpath = path.join(pathPart, tmpFile.name);
-      console.log(fullpath);
       try {
         // support file saves from remote sources
         if (filedata.startsWith('https://') || filedata.startsWith('http://')) {
