@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs-extra');
+const Axios = require('axios')
 const { HAXCMS } = require('./HAXCMS.js');
 const mime = require('mime');
 const sharp = require('sharp');
@@ -22,13 +23,21 @@ class HAXCMSFile
         fs.mkdirSync(pathPart);
       }
       // ensure name does not exist already
-      if (await fs.existsSync(path.join(pathPart, tmpFile.name))) {
+      if (fs.existsSync(path.join(pathPart, tmpFile.name))) {
         tmpFile.name = tmpFile.filename + '-' + tmpFile.originalname;
       }
+      // save operations that are not bulk import need - path cleaning
       tmpFile.name = tmpFile.name.replace(/[/\\?%*:|"<>\s]/g, '-');
-      let fullpath = pathPart + tmpFile['name'];
+      let fullpath = path.join(pathPart, tmpFile.name);
+      console.log(fullpath);
       try {
-        await fs.moveSync(filedata, fullpath);
+        // support file saves from remote sources
+        if (filedata.startsWith('https://') || filedata.startsWith('http://')) {
+          downloadAndSaveFile(filedata, fullpath);
+        }
+        else {
+          fs.moveSync(filedata, fullpath);
+        }
       }
       catch(err) {
         console.warn(err);
@@ -63,7 +72,7 @@ class HAXCMSFile
         // fake the file object creation stuff from CMS land
         returnData = {
           'file': {
-            'path': path + tmpFile['name'],
+            'path': fullpath,
             'fullUrl':
                 HAXCMS.basePath +
                 pathPart +
@@ -79,7 +88,7 @@ class HAXCMSFile
         // fake the file object creation stuff from CMS land
         returnData = {
             'file':{
-                'path':path + tmpFile['name'],
+                'path': fullpath,
                 'fullUrl' :
                     HAXCMS.basePath +
                     pathPart +
@@ -124,6 +133,19 @@ class HAXCMSFile
       };
     }
   }
+}
+
+async function downloadAndSaveFile(url, filepath) {
+  const response = await Axios({
+      url,
+      method: 'GET',
+      responseType: 'stream'
+  });
+  return new Promise((resolve, reject) => {
+      response.data.pipe(fs.createWriteStream(filepath))
+          .on('error', reject)
+          .once('close', () => resolve(filepath)); 
+  });
 }
 
 module.exports = HAXCMSFile;

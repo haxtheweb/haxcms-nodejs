@@ -1,6 +1,7 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const GitPlus = require('../lib/GitPlus.js');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
+const HAXCMSFile = require('../lib/HAXCMSFile.js');
 
 /**
    * @OA\Post(
@@ -59,7 +60,7 @@ async function createSite(req, res) {
     }
     // null in the event we get hits that don't have this
     let build = null;
-    let filesToDownload = [];
+    let filesToDownload = null;
     // support for build info. the details used to actually create this site originally
     if (req.body['build']) {
       build = {};
@@ -169,15 +170,16 @@ async function createSite(req, res) {
     // save the outline into the new site
     await site.manifest.save(false);
     // walk through files if any came across and save each of them
-    if (filesToDownload && filesToDownload.isArray && filesToDownload.isArray()) {
+    if (filesToDownload && typeof filesToDownload === 'object') {
       for (var locationName in filesToDownload) {
         let downloadLocation = filesToDownload[locationName];
         let file = new HAXCMSFile();
         // check for a file upload; we block a few formats by design
-        let fileResult = file.save({
-          "name" : locationName,
-          "tmp_name" : downloadLocation,
-          "bulk-import" : true
+        await file.save({
+          "name": locationName.replace('files/',''),
+          "tmp_name": downloadLocation,
+          "path": downloadLocation,
+          "bulk-import": true
         }, site);
       }
     }
