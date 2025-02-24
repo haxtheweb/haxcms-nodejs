@@ -1,7 +1,10 @@
 const fs = require('fs-extra');
 const path = require('path');
-const homedir = require('os').homedir();
-
+let baseConfigPath = require('os').homedir();
+// support for tmp in vercel
+if (process.env.VERCEL_ENV) {
+    baseConfigPath = "/tmp/";
+}
 // discover configuration based on path
 // cascade is as follows
 // - cwd path all the way back to root looking for _config or .haxcmsconfig directories
@@ -21,8 +24,8 @@ while (!foundConfig && cwdPathAry.length > 0) {
 }
 // look in home directory if we found no project directory
 // this can use the . config look up
-if (!foundConfig && fs.pathExistsSync(path.join(homedir, '.haxcmsconfig')) && fs.pathExistsSync(path.join(homedir, '.haxcmsconfig', '.isHAXcmsConfig'))) {
-    foundConfig = path.join(homedir, '.haxcmsconfig');
+if (!foundConfig && fs.pathExistsSync(path.join(baseConfigPath, '.haxcmsconfig')) && fs.pathExistsSync(path.join(baseConfigPath, '.haxcmsconfig', '.isHAXcmsConfig'))) {
+    foundConfig = path.join(baseConfigPath, '.haxcmsconfig');
 }
 
 // found something, send it back up
@@ -31,10 +34,10 @@ if (foundConfig) {
 }
 else {
     // didn't find anything, so we have to create something on the fly
-    if (fs.pathExistsSync(homedir)) {
+    if (fs.pathExistsSync(baseConfigPath)) {
         try {
-            fs.mkdirSync(path.join(homedir, '.haxcmsconfig'));
-            const homeConfig = path.join(homedir, '.haxcmsconfig');
+            fs.mkdirSync(path.join(baseConfigPath, '.haxcmsconfig'));
+            const homeConfig = path.join(baseConfigPath, '.haxcmsconfig');
             // touch empty file for there to be a config folder definition
             fs.createFileSync(path.join(homeConfig, '.isHAXcmsConfig'));
             fs.mkdirSync(path.join(homeConfig, 'tmp'));
@@ -51,7 +54,7 @@ else {
             fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/.htaccess'), path.join(homeConfig, '.htaccess'));
             fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/user-files-htaccess'), path.join(homeConfig, 'user/files/.htaccess'));
             // now we can declare that we have a path
-            discoverConfigPath = path.join(homedir, '.haxcmsconfig');    
+            discoverConfigPath = path.join(baseConfigPath, '.haxcmsconfig');    
         }
         catch(e) {
             // epic fail
