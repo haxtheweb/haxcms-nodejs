@@ -14,6 +14,15 @@ else {
 <!DOCTYPE html>
 <html lang="<?php print $HAXSiteConfig->getLanguage(); ?>">
 <head>
+  <script type="importmap">
+    {
+      "scopes": {
+        "./custom/build/": {
+          "@haxtheweb/": "./build/es6/node_modules/@haxtheweb/"
+        }
+      }
+    }
+  </script>
   <?php print $HAXSiteConfig->getBaseTag(); ?>
   <?php print $HAXSiteConfig->getSiteMetadata($HAXSiteConfig->page); ?>
   <?php print $HAXSiteConfig->getServiceWorkerScript(null, FALSE, $HAXSiteConfig->getServiceWorkerStatus()); ?>
