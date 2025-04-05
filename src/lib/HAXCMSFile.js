@@ -28,6 +28,17 @@ class HAXCMSFile
       }
       // save operations that are not bulk import need - path cleaning
       tmpFile.name = tmpFile.name.replace(/[/\\?%*:|"<>\s]/g, '-');
+
+      // ensure file is an image, video, docx, pdf, etc. of safe file types to allow uploading
+      if (!tmpFile.name.match(/.(jpg|jpeg|png|gif|webm|webp|mp4|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|html|md)$/i)) {
+        return {
+          'status' : 500,
+          '__failed' : {
+            'status' : 500,
+            'message' : 'File type not allowed',
+          }
+        };
+      }
       let fullpath = path.join(pathPart, tmpFile.name);
       try {
         // support file saves from remote sources

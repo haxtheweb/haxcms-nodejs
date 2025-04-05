@@ -493,32 +493,6 @@
                 }
             }
         },
-        "/setUserPhoto": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "user"
-                ],
-                "operationId": "Operations::setUserPhoto",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Set the user's uploaded photo"
-                    }
-                }
-            }
-        },
         "/saveFile": {
             "post": {
                 "tags": [
