@@ -38,30 +38,6 @@ paths:
       responses:
         '200':
           description: 'API documentation in JSON'
-  /importEvolution:
-    post:
-      tags:
-        - cms
-        - authenticated
-      operationId: 'Operations::importEvolution'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-        -
-          name: upload
-          in: query
-          description: 'zip file via POST to a valid evolution zip format'
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 'array of items that are valid JSONOutlineSchemaItem with contents included'
   /rebuildManagedFiles:
     post:
       tags:
@@ -340,24 +316,6 @@ paths:
       responses:
         '200':
           description: 'User access token for refreshing JWT when it goes stale'
-  /setUserPhoto:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - user
-      operationId: 'Operations::setUserPhoto'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 'Set the user''s uploaded photo'
   /saveFile:
     post:
       tags:

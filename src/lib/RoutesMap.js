@@ -27,7 +27,6 @@ const RoutesMap = {
     getConfig: require('../routes/getConfig.js'),
     setConfig: require('../routes/setConfig.js'),
     revertCommit: require('../routes/revertCommit.js'),
-    setUserPhoto: require('../routes/setUserPhoto.js'),
     getNodeFields: require('../routes/getNodeFields.js'),
     gitImportSite: require('../routes/gitImportSite.js'),
   },

@@ -53,7 +53,6 @@ async function connectionSettings(req, res) {
     revertSitePath: `${baseAPIPath}revertCommit`,
     createNodePath: `${baseAPIPath}createNode`,
     getUserDataPath: `${baseAPIPath}getUserData`,
-    setUserPhotoPath: `${baseAPIPath}setUserPhoto`,
     deleteNodePath: `${baseAPIPath}deleteNode`,
     createSite: `${baseAPIPath}createSite`,
     gitImportSite: `${baseAPIPath}gitImportSite`,
