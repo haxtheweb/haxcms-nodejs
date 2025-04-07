@@ -46,9 +46,9 @@ if (process.env.NODE_ENV === "development") {
 app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
 app.use(helmet({
   contentSecurityPolicy: false,
-  crossOriginResourcePolicy: false,
-  crossOriginEmbedderPolicy: 'require-corp',
-  crossOriginOpenerPolicy: 'same-origin',
+//  crossOriginResourcePolicy: false,
+//  crossOriginEmbedderPolicy: 'require-corp',
+//  crossOriginOpenerPolicy: 'same-origin',
   referrerPolicy: {
     policy: ["origin", "unsafe-url"],
   },
