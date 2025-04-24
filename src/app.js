@@ -12,7 +12,6 @@ const mime = require('mime');
 const path = require('path');
 const fs = require("fs-extra");
 const server = require('http').Server(app);
-let liveReloadServer;
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
@@ -30,18 +29,22 @@ const upload = multer({ dest: path.join(HAXCMS.configDirectory, 'tmp/') })
 let publicDir = path.join(__dirname, '/public');
 // if in development, live reload
 if (process.env.NODE_ENV === "development") {
-  const livereload = require("livereload");
-  liveReloadServer = livereload.createServer({
-    delay: 100
-  });
-  const connectLiveReload = require("connect-livereload");
-  liveReloadServer.watch(__dirname);
-  liveReloadServer.server.once("connection", () => {
-    setTimeout(() => {
-      liveReloadServer.refresh("/");
-    }, 100);
-  });
-  app.use(connectLiveReload());
+  const child_process = require("child_process");
+  const util = require("util");
+  const exec = util.promisify(child_process.exec);
+  const ws = require("ws");
+  const chokidar = require("chokidar");
+
+  console.log("development build")
+  const wsServer = new ws.Server({server: server});
+  wsServer.on("connection", (ws) => {
+    chokidar.watch(`${process.cwd()}/custom/src/`).on('change', async (path, stats) => {
+      console.log(`File change: ${path}, rebuilding custom/src`)
+      await exec("cd custom && npm run build");
+      ws.send("theme reload")
+    });
+  }
+  );
 }
 app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
 app.use(helmet({
