@@ -71,7 +71,13 @@ systemStructureContext().then((site) => {
     // this assumes a site has already been made or is being navigated to to work on
     // works great w/ CLI in stand alone mode for local developer
     publicDir = site.siteDirectory;
-    app.use(express.static(publicDir));
+    if (process.env.NODE_ENV === "development") {
+      // express.static will only serve the original static index.html file
+      // so dev builds need to set this ignore option to inject any edits
+      app.use(express.static(publicDir, { index: false }));
+    } else {
+      app.use(express.static(publicDir));
+    }
     app.use('/', (req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', `http://localhost:${port}`);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
@@ -133,14 +139,33 @@ systemStructureContext().then((site) => {
         else {
           res.setHeader('Content-Type', 'text/html');
         }
-        // send file for the index even tho route says it's a path not on our file system
-        // this way internal routing picks up and loads the correct content while
-        // at the same time express has delivered us SOMETHING as the path in the request
-        // url doesn't actually exist
-        res.sendFile(`index.html`,
-        {
-          root: publicDir
-        });
+        // injects a websocket for livereload support when developing custom components
+        if (process.env.NODE_ENV === "development") {
+          let indexFile = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+          const devScript = `<script>
+            const socket = new WebSocket('ws://localhost:${port}');
+            // Connection opened
+            socket.addEventListener('open', function (event) {
+                socket.send('connected to server successfully')
+            });
+            socket.addEventListener('message', function (event) {
+              if(event.data === 'theme reload') {
+                window.location.reload();
+              }
+            });</script>`;
+
+          indexFile = indexFile.replace('<meta charset="utf-8">', `${devScript}<meta charset="utf-8">`);
+          res.send(indexFile);
+        } else {
+          // send file for the index even tho route says it's a path not on our file system
+          // this way internal routing picks up and loads the correct content while
+          // at the same time express has delivered us SOMETHING as the path in the request
+          // url doesn't actually exist
+          res.sendFile(`index.html`,
+            {
+              root: publicDir
+            });
+        }
       }
     });
   }
