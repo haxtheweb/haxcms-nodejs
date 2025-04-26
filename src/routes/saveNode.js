@@ -281,6 +281,8 @@ const strip_tags = require("locutus/php/strings/strip_tags");
                 }
               }
               await site.updateNode(page);
+              site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
+              await site.manifest.save();
               await site.gitCommit(
                 'Page details updated: ' + page.title + ' (' + page.id + ')'
               );

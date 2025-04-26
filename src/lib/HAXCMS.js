@@ -388,6 +388,7 @@ class HAXCMSSite
           'buildhaxcms' : 'build-haxcms.js',
           'outdated' : 'assets/upgrade-browser.html',
           'index' : 'index.html', // static published fallback
+          'ghpages' : 'ghpages.html', // github pages publishing for custom theme work
           '404' : '404.html', // github / static published redirect appropriately
           // seo / performance
           'push' : 'push-manifest.json',
@@ -719,6 +720,7 @@ class HAXCMSSite
             break;
         }
         this.manifest.addItem(page);
+        this.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
         await this.manifest.save();
         // support direct HTML setting
         if (template == 'html') {
