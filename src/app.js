@@ -143,19 +143,22 @@ systemStructureContext().then((site) => {
         // injects a websocket for livereload support when developing custom components
         if (process.env.NODE_ENV === "development") {
           let indexFile = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
-          const devScript = `<script>
-            const socket = new WebSocket('ws://localhost:${port}');
-            // Connection opened
-            socket.addEventListener('open', function (event) {
-                socket.send('connected to server successfully')
-            });
-            socket.addEventListener('message', function (event) {
-              if(event.data === 'theme reload') {
-                window.location.reload();
-              }
-            });</script>`;
+          const devScript = `
+  <script>
+    const socket = new WebSocket('ws://localhost:${port}');
+    // Connection opened
+    socket.addEventListener('open', function (event) {
+        socket.send('connected to server successfully')
+    });
+    socket.addEventListener('message', function (event) {
+      if(event.data === 'theme reload') {
+        window.location.reload();
+      }
+    });
+  </script>`;
 
-          indexFile = indexFile.replace('<meta charset="utf-8">', `${devScript}<meta charset="utf-8">`);
+          indexFile = indexFile.replace('</body>', `${devScript}
+</body>`);
           res.send(indexFile);
         } else {
           // send file for the index even tho route says it's a path not on our file system
