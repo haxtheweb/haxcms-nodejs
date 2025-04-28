@@ -46,6 +46,7 @@
   "dependencies": {
     "archiver": "7.0.1",
     "axios": "1.7.8",
+    "chokidar": "^4.0.3",
     "cookie-parser": "1.4.6",
     "dotenv": "16.4.5",
     "express": "4.19.2",
@@ -62,6 +63,7 @@
     "twig": "1.17.1",
     "utf8": "3.0.0",
     "uuid": "10.0.0",
+    "ws": "^8.18.1",
     "yaml": "2.4.5"
   },
   "devDependencies": {
@@ -71,8 +73,6 @@
     "@babel/register": "^7.24.6",
     "babel-plugin-transform-dynamic-import": "^2.1.0",
     "commit-and-tag-version": "12.4.1",
-    "connect-livereload": "0.6.1",
-    "livereload": "0.9.3",
     "nodemon": "3.1.4"
   }
 }

@@ -12,7 +12,6 @@ const mime = require('mime');
 const path = require('path');
 const fs = require("fs-extra");
 const server = require('http').Server(app);
-let liveReloadServer;
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
@@ -30,18 +29,23 @@ const upload = multer({ dest: path.join(HAXCMS.configDirectory, 'tmp/') })
 let publicDir = path.join(__dirname, '/public');
 // if in development, live reload
 if (process.env.NODE_ENV === "development") {
-  const livereload = require("livereload");
-  liveReloadServer = livereload.createServer({
-    delay: 100
-  });
-  const connectLiveReload = require("connect-livereload");
-  liveReloadServer.watch(__dirname);
-  liveReloadServer.server.once("connection", () => {
-    setTimeout(() => {
-      liveReloadServer.refresh("/");
-    }, 100);
-  });
-  app.use(connectLiveReload());
+  const child_process = require("child_process");
+  const util = require("util");
+  const exec = util.promisify(child_process.exec);
+  const ws = require("ws");
+  const chokidar = require("chokidar");
+
+  console.log("development")
+  const wsServer = new ws.Server({server: server});
+  wsServer.on("connection", (ws) => {
+    chokidar.watch(`${process.cwd()}/custom/src/`).on('change', async (path, stats) => {
+      path = path.replace(/.*(?=custom\/src)/, '');
+      console.log(`file change: ${path}, rebuilding`)
+      await exec("cd custom && npm run build");
+      ws.send("theme reload")
+    });
+  }
+  );
 }
 app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
 app.use(helmet({
@@ -68,7 +72,13 @@ systemStructureContext().then((site) => {
     // this assumes a site has already been made or is being navigated to to work on
     // works great w/ CLI in stand alone mode for local developer
     publicDir = site.siteDirectory;
-    app.use(express.static(publicDir));
+    if (process.env.NODE_ENV === "development") {
+      // express.static will only serve the original static index.html file
+      // so dev builds need to set this ignore option to inject any edits
+      app.use(express.static(publicDir, { index: false }));
+    } else {
+      app.use(express.static(publicDir));
+    }
     app.use('/', (req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', `http://localhost:${port}`);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
@@ -130,14 +140,36 @@ systemStructureContext().then((site) => {
         else {
           res.setHeader('Content-Type', 'text/html');
         }
-        // send file for the index even tho route says it's a path not on our file system
-        // this way internal routing picks up and loads the correct content while
-        // at the same time express has delivered us SOMETHING as the path in the request
-        // url doesn't actually exist
-        res.sendFile(`index.html`,
-        {
-          root: publicDir
-        });
+        // injects a websocket for livereload support when developing custom components
+        if (process.env.NODE_ENV === "development") {
+          let indexFile = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+          const devScript = `
+  <script>
+    const socket = new WebSocket('ws://localhost:${port}');
+    // Connection opened
+    socket.addEventListener('open', function (event) {
+        socket.send('connected to server successfully')
+    });
+    socket.addEventListener('message', function (event) {
+      if(event.data === 'theme reload') {
+        window.location.reload();
+      }
+    });
+  </script>`;
+
+          indexFile = indexFile.replace('</body>', `${devScript}
+</body>`);
+          res.send(indexFile);
+        } else {
+          // send file for the index even tho route says it's a path not on our file system
+          // this way internal routing picks up and loads the correct content while
+          // at the same time express has delivered us SOMETHING as the path in the request
+          // url doesn't actually exist
+          res.sendFile(`index.html`,
+            {
+              root: publicDir
+            });
+        }
       }
     });
   }
