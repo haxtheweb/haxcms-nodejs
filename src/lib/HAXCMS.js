@@ -92,8 +92,8 @@ class HAXCMSSite
       tmpname = HAXCMS.cleanTitle(tmpname, false);
       let loop = 0;
       let newName = tmpname;
-      if (fs.pathExistsSync(directory + "/" + newName)) {
-        while (fs.lstatSync(directory  + "/" + newName).isFile()) {
+      if (fs.existsSync(directory + "/" + newName)) {
+        while (fs.existsSync(directory  + "/" + newName)) {
             loop++;
             newName = tmpname + '-' + loop;
         }
