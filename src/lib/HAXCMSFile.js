@@ -30,7 +30,7 @@ class HAXCMSFile
       tmpFile.name = tmpFile.name.replace(/[/\\?%*:|"<>\s]/g, '-');
 
       // ensure file is an image, video, docx, pdf, etc. of safe file types to allow uploading
-      if (!tmpFile.name.match(/.(jpg|jpeg|png|gif|webm|webp|mp4|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|html|md)$/i)) {
+      if (!tmpFile.name.match(/.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|html|md)$/i)) {
         return {
           'status' : 500,
           '__failed' : {
