@@ -22,12 +22,13 @@ class HAXCMSFile
       if (!fs.existsSync(pathPart)) {
         fs.mkdirSync(pathPart);
       }
-      // ensure name does not exist already
-      if (fs.existsSync(path.join(pathPart, tmpFile.name))) {
-        tmpFile.name = tmpFile.filename + '-' + tmpFile.originalname;
+      let newFilename = tmpFile.originalname.replace(/[/\\?%*:|"<>\s]/g, '-');
+      const { name, ext } = path.parse(newFilename);
+      let counter = 1;
+      while (fs.existsSync(path.join(pathPart, newFilename))) {
+        newFilename = `${name}_${counter}${ext}`;
+        counter++;
       }
-      // save operations that are not bulk import need - path cleaning
-      tmpFile.name = tmpFile.name.replace(/[/\\?%*:|"<>\s]/g, '-');
 
       // ensure file is an image, video, docx, pdf, etc. of safe file types to allow uploading
       if (!tmpFile.name.match(/.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|html|md)$/i)) {
@@ -39,7 +40,7 @@ class HAXCMSFile
           }
         };
       }
-      let fullpath = path.join(pathPart, tmpFile.name);
+      let fullpath = path.join(pathPart, newFilename);
       try {
         // support file saves from remote sources
         if (filedata.startsWith('https://') || filedata.startsWith('http://')) {
@@ -86,10 +87,10 @@ class HAXCMSFile
             'fullUrl':
                 HAXCMS.basePath +
                 pathPart +
-                tmpFile['name'],
-            'url' : 'files/' + tmpFile['name'],
+                newFilename,
+            'url' : 'files/' + newFilename,
             'type' : mime.getType(fullpath),
-            'name' : tmpFile['name'],
+            'name' : newFilename,
             'size' : tmpFile['size']
           }
         };

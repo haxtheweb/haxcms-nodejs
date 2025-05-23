@@ -151,26 +151,6 @@ paths:
       responses:
         '200':
           description: 'Update the alternative formats surrounding a site'
-  /revertCommit:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - meta
-        - git
-        - site
-      operationId: 'Operations::revertCommit'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 'Revert the last commit to the git repo backing the site'
   /connectionSettings:
     get:
       tags:
@@ -464,38 +444,6 @@ paths:
       responses:
         '200':
           description: 'Set configuration for HAXcms'
-  /syncSite:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - git
-        - site
-      operationId: 'Operations::syncSite'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - site
-              properties:
-                site:
-                  type: object
-              type: object
-              example:
-                site:
-                  name: mynewsite
-      responses:
-        '200':
-          description: 'Sync the site using the git config settings in the site.json file'
   /cloneSite:
     post:
       tags:

@@ -11,7 +11,6 @@ const RoutesMap = {
 
     siteUpdateAlternateFormats: require('../routes/siteUpdateAlternateFormats.js'),
     createSite: require('../routes/createSite.js'),
-    publishSite: require('../routes/publishSite.js'),
     cloneSite: require('../routes/cloneSite.js'),
     archiveSite: require('../routes/archiveSite.js'),
     downloadSite: require('../routes/downloadSite.js'),
@@ -23,10 +22,8 @@ const RoutesMap = {
     deleteNode: require('../routes/deleteNode.js'),
     saveFile: require('../routes/saveFile.js'),
 
-    syncSite: require('../routes/syncSite.js'),
     getConfig: require('../routes/getConfig.js'),
     setConfig: require('../routes/setConfig.js'),
-    revertCommit: require('../routes/revertCommit.js'),
     getNodeFields: require('../routes/getNodeFields.js'),
     gitImportSite: require('../routes/gitImportSite.js'),
   },
