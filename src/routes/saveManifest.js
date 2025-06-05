@@ -173,6 +173,24 @@ const fs = require('fs-extra');
               "FILTER_SANITIZE_STRING"
           );
       }
+      if (typeof req.body['manifest']['seo']['manifest-metadata-site-settings-private'] !== 'undefined') {
+          site.manifest.metadata.site.settings.private = filter_var(
+          req.body['manifest']['seo']['manifest-metadata-site-settings-private'],
+          "FILTER_VALIDATE_BOOLEAN"
+          );
+      }
+      if (typeof req.body['manifest']['seo']['manifest-metadata-site-settings-canonical'] !== 'undefined') {
+          site.manifest.metadata.site.settings.canonical = filter_var(
+          req.body['manifest']['seo']['manifest-metadata-site-settings-canonical'],
+          "FILTER_VALIDATE_BOOLEAN"
+          );
+      }
+      if (typeof req.body['manifest']['seo']['manifest-metadata-site-settings-lang'] !== 'undefined') {
+        site.manifest.metadata.site.settings.lang = filter_var(
+        req.body['manifest']['seo']['manifest-metadata-site-settings-lang'],
+        "FILTER_SANITIZE_STRING"
+        );
+      }
       if (typeof req.body['manifest']['seo']['manifest-metadata-site-settings-pathauto'] !== 'undefined') {
           site.manifest.metadata.site.settings.pathauto = filter_var(
           req.body['manifest']['seo']['manifest-metadata-site-settings-pathauto'],

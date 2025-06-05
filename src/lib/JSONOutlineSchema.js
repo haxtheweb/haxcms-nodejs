@@ -211,6 +211,18 @@ class JSONOutlineSchema
     }
 
     /**
+     * Get a key by ID, useful to find previous and next items quickly
+     */
+    getItemKeyById(id) {
+        for (var key in this.items) {
+            if (this.items[key].id === id) {
+                return key;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Get an item by property value
      */
     getItemByProperty(propName, value) {

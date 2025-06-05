@@ -145,6 +145,7 @@ async function createSite(req, res) {
     schema.metadata.site.settings = {};
     schema.metadata.site.settings.lang = 'en-US';
     schema.metadata.site.settings.publishPagesOn = true;
+    schema.metadata.site.settings.canonical = true;
     schema.metadata.site.created = Math.floor(Date.now() / 1000);
     schema.metadata.site.updated = Math.floor(Date.now() / 1000);
     // check for publishing settings being set globally in HAXCMS

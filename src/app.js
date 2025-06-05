@@ -117,6 +117,7 @@ systemStructureContext().then((site) => {
         req.url.includes('/theme/') || 
         req.url.includes('/assets/') || 
         req.url.includes('/manifest.json') || 
+        req.url.includes('/robots.txt') ||
         req.url.includes('/files/') || 
         req.url.includes('/pages/') || 
         req.url.includes('/site.json')
@@ -233,6 +234,7 @@ systemStructureContext().then((site) => {
         req.url.includes('/theme/') || 
         req.url.includes('/assets/') || 
         req.url.includes('/manifest.json') || 
+        req.url.includes('/robots.txt') ||
         req.url.includes('/files/') || 
         req.url.includes('/pages/') || 
         req.url.includes('/site.json')
@@ -327,6 +329,7 @@ systemStructureContext().then((site) => {
         !req.url.startsWith('/wc-registry.json') &&
         !req.url.startsWith('/favicon.ico') &&
         !req.url.startsWith('/manifest.json') &&
+        !req.url.startsWith('/robots.txt') &&
         !req.url.startsWith('/VERSION.txt')
       ) {
         res.sendFile('/',

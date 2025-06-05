@@ -149,6 +149,7 @@ class HAXCMSSite
     this.manifest.metadata.site = {};
     this.manifest.metadata.site.settings = {};
     this.manifest.metadata.site.settings.lang = 'en';
+    this.manifest.metadata.site.settings.canonical = true;
     this.manifest.metadata.site.name = tmpname;
     this.manifest.metadata.site.domain = domain;
     this.manifest.metadata.site.created = Math.floor(Date.now() / 1000);
@@ -437,6 +438,7 @@ class HAXCMSSite
               this.basePath + this.manifest.metadata.site.name + '/',
           'title': this.manifest.title,
           'short': this.manifest.metadata.site.name,
+          'privateSite' : this.manifest.metadata.site.settings.private,
           'description': this.manifest.description,
           'forceUpgrade': this.getForceUpgrade(),
           'swhash': [],
@@ -1167,6 +1169,8 @@ class HAXCMSSite
       let siteTitle = this.manifest.title + ' | ' + page.title;
       let description = page.description;
       let hexCode = HAXCMS.HAXCMS_FALLBACK_HEX;
+      let robots;
+      let canonical;
       if (description == '') {
         description = this.manifest.description;
       }
@@ -1177,7 +1181,39 @@ class HAXCMSSite
       if ((this.manifest.metadata.theme.variables.hexCode)) {
           hexCode = this.manifest.metadata.theme.variables.hexCode;
       }
-      let metadata = `<meta charset="utf-8">
+      // if we have a privacy flag, then tell robots not to index this were it to be found
+      // which in HAXiam this isn't possible
+      if (this.manifest.metadata.site.settings.private) {
+        robots = '<meta name="robots" content="none" />';
+      }
+      else {
+        robots = '<meta name="robots" content="index, follow" />';
+      }
+      // canonical flag, if set we use the domain field
+      if (this.manifest.metadata.site.settings.canonical) {
+        if (this.manifest.metadata.site.domain && this.manifest.metadata.site.domain != '') {
+          canonical = '  <link name="canonical" href="' + filter_var(this.manifest.metadata.site.domain + '/' + page.slug, "FILTER_SANITIZE_URL") + '" />' + "\n";
+        }
+        else {
+          canonical = '  <link name="canonical" href="' + filter_var(domain, "FILTER_SANITIZE_URL") + '" />' + "\n";
+        }
+      }
+      else {
+        canonical = '';
+      }
+      let prevResource = '';
+      let nextResource = '';
+      // if we have a place in the array bc it's a page, then we can get next / prev
+      if (page.id && this.manifest.getItemKeyById(page.id) !== false) {
+        let currentId = this.manifest.getItemKeyById(page.id);
+        if (currentId > 0 && this.manifest.items[currentId-1] && this.manifest.items[currentId-1].slug) {
+          prevResource = '  <link rel="prev" href="' + this.manifest.items[currentId-1].slug + '" />' + "\n";
+        }
+        if (currentId < this.manifest.items.length-1 && this.manifest.items[currentId+1] && this.manifest.items[currentId+1].slug) {
+          nextResource = '  <link rel="next" href="' + this.manifest.items[currentId+1].slug + '" />' + "\n";
+        }
+      }
+      let metadata = `<meta charset="utf-8" />
   ${preconnect}
   <link rel="preconnect" crossorigin href="https://fonts.googleapis.com">
   <link rel="preconnect" crossorigin href="https://cdnjs.cloudflare.com">
@@ -1191,12 +1227,13 @@ class HAXCMSSite
   <link rel="preload" href="./custom/build/custom.es6.js" as="script" crossorigin="anonymous" />
   <link rel="preload" href="./theme/theme.css" as="style" />  
   <meta name="generator" content="HAXcms">
-  <link rel="manifest" href="manifest.json">
+  ${canonical}${prevResource}${nextResource}
+  <link rel="manifest" href="manifest.json" />
   <meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, user-scalable=yes">
   <title>${siteTitle}</title>
   <link rel="icon" href="${await this.getLogoSize('16', '16')}">
   <meta name="theme-color" content="${hexCode}">
-  <meta name="robots" content="index, follow">
+  ${robots}
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="application-name" content="${title}">
 
@@ -2054,6 +2091,8 @@ class HAXCMSClass {
             "manifest-metadata-author-socialLink": null
           },
           "seo": {
+            "manifest-metadata-site-settings-private": null,
+            "manifest-metadata-site-settings-canonical": true,
             "manifest-metadata-site-settings-lang": null,
             "manifest-metadata-site-settings-pathauto": null,
             "manifest-metadata-site-settings-publishPagesOn": true,
