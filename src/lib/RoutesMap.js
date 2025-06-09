@@ -25,7 +25,6 @@ const RoutesMap = {
     getConfig: require('../routes/getConfig.js'),
     setConfig: require('../routes/setConfig.js'),
     getNodeFields: require('../routes/getNodeFields.js'),
-    gitImportSite: require('../routes/gitImportSite.js'),
   },
   get: {
     logout: require('../routes/logout.js'),

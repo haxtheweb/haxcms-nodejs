@@ -346,37 +346,6 @@ paths:
       responses:
         '200':
           description: 'Load a list of all sites the user has created'
-  /gitImportSite:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - site
-      operationId: 'Operations::gitImportSite'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - site
-              properties:
-                site:
-                  type: object
-              type: object
-              example:
-                site:
-                  git: { url: '' }
-      responses:
-        '200':
-          description: 'Create a new site from a git repo reference'
   /getConfig:
     post:
       tags:

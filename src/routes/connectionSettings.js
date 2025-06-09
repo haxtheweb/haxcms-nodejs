@@ -52,7 +52,6 @@ async function connectionSettings(req, res) {
     getUserDataPath: `${baseAPIPath}getUserData`,
     deleteNodePath: `${baseAPIPath}deleteNode`,
     createSite: `${baseAPIPath}createSite`,
-    gitImportSite: `${baseAPIPath}gitImportSite`,
     downloadSite: `${baseAPIPath}downloadSite`,
     archiveSite: `${baseAPIPath}archiveSite`,
     copySite: `${baseAPIPath}cloneSite`,
