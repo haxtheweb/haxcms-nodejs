@@ -50,27 +50,34 @@ const HAXCMSFile = require('../lib/HAXCMSFile.js');
    * )
    */
   async function saveFile(req, res, next) {
-    if (req.file.fieldname == 'file-upload') {
+    let sendResult = 500;
+    if (
+      req.file &&
+      req.file.fieldname == 'file-upload' && 
+      req.query && 
+      req.query['siteName'] && 
+      req.query['nodeId']
+    ) {
       let site = await HAXCMS.loadSite(req.query['siteName']);
-      // update the page's content, using manifest to find it
-      // this ensures that writing is always to what the file system
-      // determines to be the correct page
-      let page = site.loadNode(req.query['nodeId']);
-      let upload = req.file;
-      upload.name = upload.originalname;
-      upload.tmp_name = path.join("./", upload.path);
-      let file = new HAXCMSFile();
-      let fileResult = await file.save(upload, site, page);
-      if (!fileResult || fileResult['status'] == 500) {
-        res.send(500);
-      }
-      else {
-        await site.gitCommit('File added: ' + upload['name']);
-        res.send(fileResult);  
+      if (site) {
+        // update the page's content, using manifest to find it
+        // this ensures that writing is always to what the file system
+        // determines to be the correct page
+        let page = site.loadNode(req.query['nodeId']);
+        let upload = req.file;
+        upload.name = upload.originalname;
+        upload.tmp_name = path.join("./", upload.path);
+        let file = new HAXCMSFile();
+        let fileResult = await file.save(upload, site, page);
+        if (!fileResult || fileResult['status'] == 500) {
+          // do nothing so we can 500
+        }
+        else {
+          await site.gitCommit('File added: ' + upload['name']);
+          sendResult = fileResult;
+        }
       }
     }
-    else {
-      res.send(500);
-    }
+    res.send(sendResult);
   }
   module.exports = saveFile;
