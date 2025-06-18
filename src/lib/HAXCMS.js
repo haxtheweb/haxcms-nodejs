@@ -2570,17 +2570,18 @@ class HAXCMSClass {
             "method": "POST",
             "endPoint": this.systemRequestBase + "saveFile",
             "acceptsGizmoTypes": [
-              "image",
-              "video",
               "audio",
+              "image",
+              "gif",
+              "video",
               "pdf",
-              "svg",
-              "document",
               "csv",
-              "archive",
+              "svg",
               "markdown",
-              "*",
-              "html"
+              "html",
+              "document",
+              "archive",
+              "*"
             ],
             "resultMap": {
               "item": "data.file",
