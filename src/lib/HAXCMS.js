@@ -2763,9 +2763,7 @@ class HAXCMSClass {
       }
       // kick back the end if its invalid
       if (endOnInvalid) {
-        res.cookie('haxcms_refresh_token', '', {
-          expires:1,
-        });
+        res.cookie('haxcms_refresh_token', '1', { maxAge: 1 });
         res.send(401);
       }
       return false;
