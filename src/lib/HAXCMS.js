@@ -1935,7 +1935,7 @@ class HAXCMSClass {
             return true;
           }
         }
-        return true;
+        return false;
     }
     getRequestToken(value = '')
     {

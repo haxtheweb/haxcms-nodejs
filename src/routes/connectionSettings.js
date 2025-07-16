@@ -33,7 +33,10 @@ async function connectionSettings(req, res) {
     token: HAXCMS.getRequestToken(),
     getFormToken: HAXCMS.getRequestToken('form'),
     appStore: {
-      url: `${baseAPIPath}generateAppStore?app-store-token=${HAXCMS.getRequestToken('appstore')}`
+      url: `${baseAPIPath}generateAppStore`,
+      params: {
+        "app-store-token": HAXCMS.getRequestToken('appstore'),
+      }
     },
     themes: themes,
     connectionSettings: `${baseAPIPath}connectionSettings`,
