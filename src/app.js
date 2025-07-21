@@ -16,7 +16,7 @@ const server = require('http').Server(app);
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
 // default helmet policies for CSP
-const helmetPolicies = {
+var helmetPolicies = {
   contentSecurityPolicy: {
     directives: {
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'", "www.youtube.com"],
