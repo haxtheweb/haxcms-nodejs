@@ -1911,7 +1911,8 @@ class HAXCMSClass {
       }
       cleanTitle = cleanTitle.replace(/ /g, '-').toLowerCase();
       cleanTitle = cleanTitle.replace('/[^\w\-\/\s]+/u', '-');
-      cleanTitle = cleanTitle.replace('/--+/u', '-');
+      cleanTitle = cleanTitle.replace('/--+/u',
+         '-');
       // ensure we don't return an empty title or it could break downstream things
       if (cleanTitle == '') {
           cleanTitle = 'blank';
@@ -2338,90 +2339,6 @@ class HAXCMSClass {
         this.userData.userPicture = values.userPicture;
       }
       this.saveUserDataFile();
-    }
-    /**
-     * Set and validate config
-     */
-    async setConfig(values)
-    {
-        if ((values.apis)) {
-          for (var key in values.apis) {
-            let val = values.apis[key];
-            this.config.appStore.apiKeys[key] = val;
-          }
-        }
-        if (!(this.config.site)) {
-          this.config.site = {};
-        }
-        if (!(this.config.site.git)) {
-          this.config.site.git = {};
-        }
-        if (values.publishing) {
-          for (var key in values.publishing) {
-            let val = values.publishing[key];
-            this.config.site.git[key] = val;
-          }
-        }
-        // test for a password in order to do the git hook up this one time
-        if (
-          (this.config.site.git.email) &&
-          (this.config.site.git.pass)
-        ) {
-          email = this.config.site.git.email;
-          pass = this.config.site.git.pass;
-          // ensure we never save the password, this is just a 1 time pass through
-          delete this.config.site.git.pass;
-        }
-        // save config to the file
-        this.saveConfigFile();
-        // see if we need to set a github key for publishing
-        // this is a one time thing that helps with the workflow
-        if (
-          (email) &&
-          (pass) &&
-          !(this.config.site.git.keySet) &&
-          (this.config.site.git.vendor) &&
-          this.config.site.git.vendor == 'github'
-        ) {
-            let json = {};
-            json.title = 'HAXCMS Publishing key';
-            json.key = this.getSSHKey();                
-            let response = fetch('https://api.github.com/user/keys',
-              {
-                method: "POST",
-                body: {
-                'auth': [email, pass],
-                'body': JSON.stringify(json)
-                },
-              }
-            );
-            // we did it, now store that it worked so we can skip all this setup in the future
-            if (response.getStatusCode() == 201) {
-                this.config.site.git.keySet = true;
-                this.saveConfigFile();
-                try {
-                  // set global config for username / email if we can
-                  const gitRepo = new GitPlus({
-                    dir: this.siteDirectory,
-                    cliVersion: await this.gitTest()
-                  });
-                  gitRepo.gitExec(
-                      'config --global user.name "' +
-                          this.config.site.git.user +
-                          '"'
-                  );
-                  gitRepo.gitExec(
-                      'config --global user.email "' +
-                          this.config.site.git.email +
-                          '"'
-                  );
-                }
-                catch(e){}
-            }
-
-            return response.getStatusCode();
-        }
-        return 'saved';
     }
     /**
      * Write configuration to the config file

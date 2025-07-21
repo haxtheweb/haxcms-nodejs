@@ -15,10 +15,35 @@ const server = require('http').Server(app);
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
+// default helmet policies for CSP
+const helmetPolicies = {
+  contentSecurityPolicy: {
+    directives: {
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'", "www.youtube.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
+      mediaSrc: ["'self'", "data:", "https:"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https:", "ws:"],
+      defaultSrc: ["'self'", "data:", "https:"],
+      objectSrc: ["'none'"],
+      fontSrc: ["'self'", "data:", "fonts.gstatic.com"],
+    },
+  },
+//  crossOriginResourcePolicy: false,
+//  crossOriginEmbedderPolicy: 'require-corp',
+//  crossOriginOpenerPolicy: 'same-origin',
+  referrerPolicy: {
+    policy: ["origin", "unsafe-url"],
+  },
+};
+
 // flag in local development that disables security
 // this way you launch from local and don't need a U/P relationship
 if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT_CHECKS')) {
   HAXCMS.HAXCMS_DISABLE_JWT_CHECKS = true;
+  // disable security policies that would otherwise block local development
+  // also enables webcontainer environments which is what our playground runs
+  helmetPolicies.contentSecurityPolicy = false;
 }
 // routes with all requires
 const { RoutesMap, OpenRoutes } = require('./lib/RoutesMap.js');
@@ -48,15 +73,7 @@ if (process.env.NODE_ENV === "development") {
   );
 }
 app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
-app.use(helmet({
-  contentSecurityPolicy: false,
-//  crossOriginResourcePolicy: false,
-//  crossOriginEmbedderPolicy: 'require-corp',
-//  crossOriginOpenerPolicy: 'same-origin',
-  referrerPolicy: {
-    policy: ["origin", "unsafe-url"],
-  },
-}));
+app.use(helmet(helmetPolicies));
 app.use(cookieParser());
 //pre-flight requests
 app.options('*', function(req, res, next) {

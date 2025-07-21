@@ -18,7 +18,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
    * )
    */
   async function formLoad(req, res) {
-    if (HAXCMS.validateRequestToken(null, 'form')) {
+    if (HAXCMS.validateRequestToken(req.body.token, 'form')) {
       let context = {
         'site':[],
         'node': [],

@@ -8,5 +8,6 @@
     "_sites",
     "_sites/*/**",
     "_sites/*/pages/**",
-    "_sites/*/site.json"]
+    "_sites/*/site.json"
+  ]
 }

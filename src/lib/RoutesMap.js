@@ -21,10 +21,6 @@ const RoutesMap = {
     saveNode: require('../routes/saveNode.js'),
     deleteNode: require('../routes/deleteNode.js'),
     saveFile: require('../routes/saveFile.js'),
-
-    getConfig: require('../routes/getConfig.js'),
-    setConfig: require('../routes/setConfig.js'),
-    getNodeFields: require('../routes/getNodeFields.js'),
   },
   get: {
     logout: require('../routes/logout.js'),
