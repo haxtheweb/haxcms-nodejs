@@ -29,9 +29,6 @@ var helmetPolicies = {
       fontSrc: ["'self'", "data:", "fonts.gstatic.com"],
     },
   },
-//  crossOriginResourcePolicy: false,
-//  crossOriginEmbedderPolicy: 'require-corp',
-//  crossOriginOpenerPolicy: 'same-origin',
   referrerPolicy: {
     policy: ["origin", "unsafe-url"],
   },
@@ -44,6 +41,9 @@ if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT
   // disable security policies that would otherwise block local development
   // also enables webcontainer environments which is what our playground runs
   helmetPolicies.contentSecurityPolicy = false;
+  helmetPolicies.crossOriginResourcePolicy = false;
+  helmetPolicies.crossOriginEmbedderPolicy = 'require-corp';
+  helmetPolicies.crossOriginOpenerPolicy = 'same-origin';
 }
 // routes with all requires
 const { RoutesMap, OpenRoutes } = require('./lib/RoutesMap.js');
