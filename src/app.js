@@ -27,6 +27,7 @@ var helmetPolicies = {
       defaultSrc: ["'self'", "data:", "https:"],
       objectSrc: ["'none'"],
       fontSrc: ["'self'", "data:", "fonts.gstatic.com"],
+      frameAncestors: ["'self'"],
     },
   },
   referrerPolicy: {
