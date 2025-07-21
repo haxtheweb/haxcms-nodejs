@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [11.0.11](https://github.com/haxtheweb/haxcms-nodejs/compare/v11.0.10...v11.0.11) (2025-07-21)
+
 ## [11.0.10](https://github.com/haxtheweb/haxcms-nodejs/compare/v11.0.9...v11.0.10) (2025-07-21)
 
 ## [11.0.9](https://github.com/haxtheweb/haxcms-nodejs/compare/v11.0.8...v11.0.9) (2025-07-21)
