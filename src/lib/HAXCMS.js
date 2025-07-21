@@ -1785,6 +1785,39 @@ class HAXCMSClass {
       this.refreshPrivateKey = uuidv4();
       fs.writeFileSync(path.join(this.configDirectory, ".rpk"), this.refreshPrivateKey);
     }
+    // allow for loading in user defined config
+    // pk/rpk test for files that can contain these
+    try {
+      this.user = JSON.parse(fs.readFileSync(path.join(this.configDirectory, ".user")),
+      {encoding:'utf8', flag:'r'}, 'utf8');
+      this.superUser = {...this.user};
+    }
+    catch (e) {
+      console.warn('***************************************************************');
+      console.warn('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
+      console.warn(`${path.join(this.configDirectory, ".user")} is being created with default credentials`);
+      console.warn("MAKE SURE YOU EDIT THIS FILE IF PUTTING IN PRODUCTION!!!!!");
+      console.warn("username: admin");
+      console.warn("password: admin");
+      console.warn("\n***************************************************************");
+      // create a default user
+      this.superUser = {
+        name: 'admin',
+        password: 'admin',
+      };
+      this.user = {
+        name: 'admin',
+        password: 'admin',
+      };
+      fs.writeFileSync(path.join(this.configDirectory, ".user"), JSON.stringify(this.user, null, 2));
+    }
+    // warn if we have default credentials
+    if (this.user.name == 'admin' && this.user.password == 'admin') {
+      console.warn('***************************************************************');
+      console.warn('\nHAXcms USER CONFIGURATION FILE HAS DEFAULT CREDENTIALS, change them!!');
+      console.warn(`\n${path.join(this.configDirectory, ".user")}`);
+      console.warn("\n***************************************************************");
+    }
   }
   /**
    * Load a site off the file system with option to create
@@ -2661,7 +2694,7 @@ class HAXCMSClass {
       let refreshToken = req.cookies['haxcms_refresh_token'];
       // if there isn't one then we have to bail hard
       if (!refreshToken) {
-       res.send(401);
+       res.sendStatus(401);
       }
       // if there is a refresh token then decode it
       let refreshTokenDecoded = this.decodeRefreshToken(refreshToken);
@@ -2681,7 +2714,7 @@ class HAXCMSClass {
       // kick back the end if its invalid
       if (endOnInvalid) {
         res.cookie('haxcms_refresh_token', '1', { maxAge: 1 });
-        res.send(401);
+        res.sendStatus(401);
       }
       return false;
     }
@@ -2701,7 +2734,7 @@ class HAXCMSClass {
             return true;
         }
         else {
-            usr = {};
+            let usr = {};
             usr.name = name;
             usr.grantAccess = false;
             // fire custom event for things to respond to as needed
@@ -2734,7 +2767,6 @@ class HAXCMSClass {
         else {
             let usr = {};
             usr.name = name;
-            usr.password = pass;
             usr.adminFallback = adminFallback;
             usr.grantAccess = false;
             // fire custom event for things to respond to as needed
