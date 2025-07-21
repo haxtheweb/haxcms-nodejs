@@ -41,7 +41,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
       });
     }
     else {
-      res.send(403);
+      res.sendStatus(403);
     }
   }
   module.exports = formProcess;

@@ -77,7 +77,7 @@ app.use(helmet(helmetPolicies));
 app.use(cookieParser());
 //pre-flight requests
 app.options('*', function(req, res, next) {
-	res.send(200);
+	res.sendStatus(200);
 });
 // attempt to establish context of site vs multi-site environment
 const port = process.env.PORT || 3000;

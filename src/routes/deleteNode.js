@@ -25,7 +25,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
     let page;
     if (page = site.loadNode(req.body['node']['id'])) {
         if (await site.deleteNode(page) === false) {
-          res.send(500);
+          res.sendStatus(500);
         } else {
           // now, we need to look for orphans if we deleted anything
           for (var key in site.manifest.items) {
@@ -51,7 +51,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
           });
         }
     } else {
-        res.send(500);
+        res.sendStatus(500);
     }
   }
   module.exports = deleteNode;

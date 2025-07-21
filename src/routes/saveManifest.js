@@ -232,7 +232,7 @@ const fs = require('fs-extra');
       res.send(site.manifest);
     }
     else {
-      res.send(403);
+      res.sendStatus(403);
     }
   }
   module.exports = saveManifest;

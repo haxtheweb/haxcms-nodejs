@@ -51,7 +51,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
       });
     }
     else {
-      res.send(500);
+      res.sendStatus(500);
     }
   }
   module.exports = archiveSite;
