@@ -1957,19 +1957,31 @@ class HAXCMSClass {
    */
   validateRequestToken(token = null, value = '', query = {})
     {
-        if (this.isCLI() || this.HAXCMS_DISABLE_JWT_CHECKS) {
-            return true;
+      if (this.isCLI() || this.HAXCMS_DISABLE_JWT_CHECKS) {
+          return true;
+      }
+      // default token is POST
+      if (token == null && query['token']) {
+        token = query['token'];
+      }
+      if (token != null) {
+        if (token == this.getRequestToken(value)) {
+          return true;
         }
-        // default token is POST
-        if (token == null && query['token']) {
-          token = query['token'];
-        }
-        if (token != null) {
-          if (token == this.getRequestToken(value)) {
-            return true;
-          }
-        }
-        return false;
+      }
+      return false;
+    }
+    /**
+     * Get the active user name based on the session
+     * or the super user if the session is not set
+     */
+    getActiveUserName() {
+      if (this.user.name != null && this.user.name != '') {
+        return this.user.name;
+      }
+      else if (this.superUser.name) {
+        return this.superUser.name;
+      }
     }
     getRequestToken(value = '')
     {
@@ -1980,7 +1992,7 @@ class HAXCMSClass {
       var buf1 = crypto.createHmac("sha256", "0").update(data).digest();
       var buf2 = Buffer.from(key);
       // generate the hash
-      return Buffer.concat([buf1, buf2]).toString('base64');
+      return Buffer.concat([buf1, buf2]).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
     /**
      * load form and spitting out HAXschema + values in our standard transmission method
@@ -2462,7 +2474,7 @@ class HAXCMSClass {
     /**
      * Generate a valid HAX App store specification schema for connecting to this site via JSON.
      */
-    siteConnectionJSON()
+    siteConnectionJSON(siteToken = '')
     {
         return {
       "details": {
@@ -2479,7 +2491,7 @@ class HAXCMSClass {
         "operations": {
           "browse": {
             "method": "GET",
-            "endPoint": this.systemRequestBase + "listFiles",
+            "endPoint": this.systemRequestBase + "listFiles?site_token=" + siteToken,
             "pagination": {
               "style": "link",
               "props": {
@@ -2518,7 +2530,7 @@ class HAXCMSClass {
           },
           "add": {
             "method": "POST",
-            "endPoint": this.systemRequestBase + "saveFile",
+            "endPoint": this.systemRequestBase + "saveFile?site_token=" + siteToken,
             "acceptsGizmoTypes": [
               "audio",
               "image",

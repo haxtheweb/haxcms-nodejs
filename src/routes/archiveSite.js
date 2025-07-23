@@ -36,22 +36,26 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
    * )
    */
   async function archiveSite(req, res) {
-    let site = await HAXCMS.loadSite(req.body['site']['name']);
-    if (site.name) {
-      // create archived directory in this tree if it doesn't exist already
-      if (!fs.existsSync(HAXCMS.HAXCMS_ROOT + HAXCMS.archivedDirectory)) {
-        fs.mkdirSync(HAXCMS.HAXCMS_ROOT + HAXCMS.archivedDirectory);
+    if (req.query['user_token'] && HAXCMS.validateRequestToken(req.query['user_token'], HAXCMS.getActiveUserName())) {
+      let site = await HAXCMS.loadSite(req.body['site']['name']);
+      if (site.name) {
+        // create archived directory in this tree if it doesn't exist already
+        if (!fs.existsSync(HAXCMS.HAXCMS_ROOT + HAXCMS.archivedDirectory)) {
+          fs.mkdirSync(HAXCMS.HAXCMS_ROOT + HAXCMS.archivedDirectory);
+        }
+        await fs.rename(
+          HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.manifest.metadata.site.name,
+          HAXCMS.HAXCMS_ROOT + HAXCMS.archivedDirectory + '/' + site.manifest.metadata.site.name);
+        res.send({
+          'name': site.name,
+          'detail': 'Site archived',
+        });
       }
-      await fs.rename(
-        HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.manifest.metadata.site.name,
-        HAXCMS.HAXCMS_ROOT + HAXCMS.archivedDirectory + '/' + site.manifest.metadata.site.name);
-      res.send({
-        'name': site.name,
-        'detail': 'Site archived',
-      });
-    }
-    else {
-      res.sendStatus(500);
+      else {
+        res.sendStatus(500);
+      }
+    } else {
+      res.sendStatus(403);
     }
   }
   module.exports = archiveSite;

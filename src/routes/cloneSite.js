@@ -35,48 +35,52 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
    * )
    */
   async function cloneSite(req, res) {
-    let site = await HAXCMS.loadSite(req.body['site']['name']);
-    let originalPathForReplacement = HAXCMS.sitesDirectory + site.manifest.metadata.site.name + "/files/";
+    if (req.query['user_token'] && HAXCMS.validateRequestToken(req.query['user_token'], HAXCMS.getActiveUserName())) {
+      let site = await HAXCMS.loadSite(req.body['site']['name']);
+      let originalPathForReplacement = HAXCMS.sitesDirectory + site.manifest.metadata.site.name + "/files/";
 
-    let cloneName = HAXCMS.getUniqueName(site.name);
-    // ensure the path to the new folder is valid
-    await HAXCMS.recurseCopy(
-        HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.name,
-        HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + cloneName
-    );
-    // we need to then load and rewrite the site name var or it will conflict given the name change
-    let newSite = await HAXCMS.loadSite(cloneName);
-    newSite.manifest.metadata.site.name = cloneName;
-    newSite.manifest.id =  HAXCMS.generateUUID();
-    // loop through all items and rewrite the path to files as we cloned it
-    for (var delta in newSite.manifest.items) {
-      let item = newSite.manifest.items[delta];
-      if (item.metadata.files) {
-        for (var delta2 in item.metadata.files) {
-          if (newSite.manifest.items[delta].metadata.files[delta2].path) {
-            newSite.manifest.items[delta].metadata.files[delta2].path = newSite.manifest.items[delta].metadata.files[delta2].path.replace(
-              originalPathForReplacement,
-              '/sites/' + cloneName + '/files/',
-            );
-          }
-          if (newSite.manifest.items[delta].metadata.files[delta2].fullUrl) {
-            newSite.manifest.items[delta].metadata.files[delta2].fullUrl = newSite.manifest.items[delta].metadata.files[delta2].fullUrl.replace(
-              originalPathForReplacement,
-              '/sites/' + cloneName + '/files/',
-            );
+      let cloneName = HAXCMS.getUniqueName(site.name);
+      // ensure the path to the new folder is valid
+      await HAXCMS.recurseCopy(
+          HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.name,
+          HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + cloneName
+      );
+      // we need to then load and rewrite the site name var or it will conflict given the name change
+      let newSite = await HAXCMS.loadSite(cloneName);
+      newSite.manifest.metadata.site.name = cloneName;
+      newSite.manifest.id =  HAXCMS.generateUUID();
+      // loop through all items and rewrite the path to files as we cloned it
+      for (var delta in newSite.manifest.items) {
+        let item = newSite.manifest.items[delta];
+        if (item.metadata.files) {
+          for (var delta2 in item.metadata.files) {
+            if (newSite.manifest.items[delta].metadata.files[delta2].path) {
+              newSite.manifest.items[delta].metadata.files[delta2].path = newSite.manifest.items[delta].metadata.files[delta2].path.replace(
+                originalPathForReplacement,
+                '/sites/' + cloneName + '/files/',
+              );
+            }
+            if (newSite.manifest.items[delta].metadata.files[delta2].fullUrl) {
+              newSite.manifest.items[delta].metadata.files[delta2].fullUrl = newSite.manifest.items[delta].metadata.files[delta2].fullUrl.replace(
+                originalPathForReplacement,
+                '/sites/' + cloneName + '/files/',
+              );
+            }
           }
         }
       }
-    }
 
-    await newSite.save();
-    res.send({
-      'link':
-        HAXCMS.basePath +
-        HAXCMS.sitesDirectory +
-        '/' +
-        cloneName,
-      'name': cloneName
-    });
+      await newSite.save();
+      res.send({
+        'link':
+          HAXCMS.basePath +
+          HAXCMS.sitesDirectory +
+          '/' +
+          cloneName,
+        'name': cloneName
+      });
+    } else {
+      res.sendStatus(403);
+    }
   }
-  module.exports = cloneSite;
+module.exports = cloneSite;

@@ -51,7 +51,18 @@ const HAXCMSFile = require('../lib/HAXCMSFile.js');
    */
   async function saveFile(req, res, next) {
     let sendResult = 500;
+    // resolve front-end parsing issue with saveFiles based on how that was structured
+    // this is a bit of a hack but site token will have the ?siteName in it as opposed to stand alone params
+    if (req.query['site_token'] && !req.query['site']) {
+      let tmp = req.query['site_token'].split('?siteName=');
+      if (tmp.length == 2) {
+        req.query['site_token'] = tmp[0];
+        req.query['siteName'] = tmp[1];
+      }
+    }
     if (
+      req.query['site_token'] && 
+      HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.query['siteName']) &&
       req.file &&
       req.file.fieldname == 'file-upload' && 
       req.query && 

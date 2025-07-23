@@ -11,7 +11,8 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
  *   )
  * )
  */
-async function listSites (req, res) {
+async function listSites(req, res) {
+  if (req.query['user_token'] && HAXCMS.validateRequestToken(req.query['user_token'], HAXCMS.getActiveUserName())) {
     // top level fake JOS
     let returnData = {
       id: '123-123-123-123',
@@ -51,5 +52,8 @@ async function listSites (req, res) {
       status: 200,
       data: returnData
     });
+  } else {
+    res.sendStatus(403);
+  }
 }
 module.exports = listSites;

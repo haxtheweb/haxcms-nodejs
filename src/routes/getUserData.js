@@ -17,11 +17,15 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
  * )
  */
   function getUserData(req, res) {
-    const returnData = {
-      status: 200,
-      data: HAXCMS.userData
-    };
-    res.send(returnData);
+    if (req.query['user_token'] && HAXCMS.validateRequestToken(req.query['user_token'], HAXCMS.getActiveUserName())) {
+      const returnData = {
+        status: 200,
+        data: HAXCMS.userData
+      };
+      res.send(returnData);
+    } else {
+      res.sendStatus(403);
+    }
   }
 
 module.exports = getUserData;

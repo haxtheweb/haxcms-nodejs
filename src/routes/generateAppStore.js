@@ -6,7 +6,7 @@ const AppStoreService = new HAXAppStoreService();
  *    path="/generateAppStore",
  *    tags={"hax","api"},
  *    @OA\Parameter(
- *         name="app-store-token",
+ *         name="appstore_token",
  *         description="security token for appstore",
  *         in="query",
  *         required=true,
@@ -22,8 +22,8 @@ function generateAppStore(req, res) {
   let returnData = {};
   // test if this is a valid user login with this specialty token that HAX looks for
   if (
-    req.query['app-store-token'] &&
-    HAXCMS.validateRequestToken(req.query['app-store-token'], 'appstore', req.query)
+    req.query['appstore_token'] &&
+    HAXCMS.validateRequestToken(req.query['appstore_token'], 'appstore', req.query)
   ) {
     let apikeys = {};
     let baseApps = AppStoreService.baseSupportedApps();
@@ -37,7 +37,7 @@ function generateAppStore(req, res) {
     }
     let appStore = AppStoreService.loadBaseAppStore(apikeys);
     // pull in the core one we supply, though only upload works currently
-    let tmp = HAXCMS.siteConnectionJSON();
+    let tmp = HAXCMS.siteConnectionJSON(req.query['site_token']);
     appStore.push(tmp);
     let staxList,bloxList,autoloaderList;
     if (HAXCMS.config.appStore && HAXCMS.config.appStore.stax) {

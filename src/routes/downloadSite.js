@@ -36,36 +36,40 @@ const archiver = require('archiver');
    * )
    */
   async function downloadSite(req, res) {
-    // load site
-    let site = await HAXCMS.loadSite(req.body['site']['name']);
-    // create archived directory in this tree if it doesn't exist already
-    if (!fs.existsSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory)) {
-      fs.mkdirSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory);
-    }
-    // helpful boilerplate https://stackoverflow.com/questions/29873248/how-to-zip-a-whole-directory-and-download-using-php
-    let dir = HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.name;
-    // form a basic name
-    let zip_file =
-      HAXCMS.HAXCMS_ROOT +
-      HAXCMS.publishedDirectory +
-      '/' +
-      site.name +
-      '.zip';
-    // Get real path for our folder
-    let rootPath = await fs.realpath(dir);
-    // Initialize archive object
-    await zipDirectory(rootPath, zip_file);
-    res.send({
-      status: 200,
-      data: {
-      'link':
-        HAXCMS.basePath +
-        HAXCMS.publishedDirectory +
-        '/' + site.name +
-        '.zip',
-      'name': site.name
+    if (req.query['user_token'] && HAXCMS.validateRequestToken(req.query['user_token'], HAXCMS.getActiveUserName())) {
+      // load site
+      let site = await HAXCMS.loadSite(req.body['site']['name']);
+      // create archived directory in this tree if it doesn't exist already
+      if (!fs.existsSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory)) {
+        fs.mkdirSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory);
       }
-    });
+      // helpful boilerplate https://stackoverflow.com/questions/29873248/how-to-zip-a-whole-directory-and-download-using-php
+      let dir = HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.name;
+      // form a basic name
+      let zip_file =
+        HAXCMS.HAXCMS_ROOT +
+        HAXCMS.publishedDirectory +
+        '/' +
+        site.name +
+        '.zip';
+      // Get real path for our folder
+      let rootPath = await fs.realpath(dir);
+      // Initialize archive object
+      await zipDirectory(rootPath, zip_file);
+      res.send({
+        status: 200,
+        data: {
+        'link':
+          HAXCMS.basePath +
+          HAXCMS.publishedDirectory +
+          '/' + site.name +
+          '.zip',
+        'name': site.name
+        }
+      });
+    } else {
+      res.sendStatus(403);
+    }
   }
 
 

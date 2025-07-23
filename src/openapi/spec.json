@@ -242,7 +242,7 @@
                 "operationId": "Operations::generateAppStore",
                 "parameters": [
                     {
-                        "name": "app-store-token",
+                        "name": "appstore_token",
                         "in": "query",
                         "description": "security token for appstore",
                         "required": true,

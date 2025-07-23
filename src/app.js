@@ -22,7 +22,7 @@ var helmetPolicies = {
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'", "www.youtube.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
       mediaSrc: ["'self'", "data:", "https:"],
-      imgSrc: ["'self'", "data:", "https:"],
+      imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
       connectSrc: ["'self'", "https:", "ws:"],
       defaultSrc: ["'self'", "data:", "https:"],
       objectSrc: ["'none'"],

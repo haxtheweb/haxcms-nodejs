@@ -52,7 +52,7 @@ const HAXCMSFile = require('../lib/HAXCMSFile.js');
    * )
    */
 async function createSite(req, res) {
-  if (HAXCMS.validateRequestToken(req.body.token)) {
+  if (HAXCMS.validateRequestToken(req.body.token) && req.query['user_token'] && HAXCMS.validateRequestToken(req.query['user_token'], HAXCMS.getActiveUserName())){
     let domain = null;
     // woohoo we can edit this thing!
     if (req.body['site']['domain'] && req.body['site']['domain'] != null && req.body['site']['domain'] != '') {
@@ -209,14 +209,13 @@ async function createSite(req, res) {
       }
     }
     catch(e) {}
-    
     res.send({
       "status": 200,
       "data": schema
     });
   }
   else {
-      res.sendStatus(403);
+    res.sendStatus(403);
   }
 }
 module.exports = createSite;
