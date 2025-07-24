@@ -1793,13 +1793,16 @@ class HAXCMSClass {
       this.superUser = {...this.user};
     }
     catch (e) {
-      console.warn('***************************************************************');
-      console.warn('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
-      console.warn(`${path.join(this.configDirectory, ".user")} is being created with default credentials`);
-      console.warn("MAKE SURE YOU EDIT THIS FILE IF PUTTING IN PRODUCTION!!!!!");
-      console.warn("username: admin");
-      console.warn("password: admin");
-      console.warn("\n***************************************************************");
+      // don't send console warnings if this is CLI
+      if (!this.isCLI()) {
+        console.warn('***************************************************************');
+        console.warn('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
+        console.warn(`${path.join(this.configDirectory, ".user")} is being created with default credentials`);
+        console.warn("MAKE SURE YOU EDIT THIS FILE IF PUTTING IN PRODUCTION!!!!!");
+        console.warn("username: admin");
+        console.warn("password: admin");
+        console.warn("\n***************************************************************");
+      }
       // create a default user
       this.superUser = {
         name: 'admin',
@@ -1811,8 +1814,8 @@ class HAXCMSClass {
       };
       fs.writeFileSync(path.join(this.configDirectory, ".user"), JSON.stringify(this.user, null, 2));
     }
-    // warn if we have default credentials
-    if (this.user.name == 'admin' && this.user.password == 'admin') {
+    // warn if we have default credentials unless CLI
+    if (this.user.name == 'admin' && this.user.password == 'admin' && !this.isCLI()) {
       console.warn('***************************************************************');
       console.warn('\nHAXcms USER CONFIGURATION FILE HAS DEFAULT CREDENTIALS, change them!!');
       console.warn(`\n${path.join(this.configDirectory, ".user")}`);
