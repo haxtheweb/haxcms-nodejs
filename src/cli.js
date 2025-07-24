@@ -84,11 +84,20 @@ class Res {
 
 // method to bridge api calls in similar manner given a site already loaded into scope
 export async function cliBridge(op, body = {}) {
+  // when CLI is detected, we assume the user is authenticated
+  // this is just to ensure that backend calls looking for tokens to exist
+  // get the data they are expecting
+  // this does not get validated bc of being a CLI
+  const fakeToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName());
   let req = {
     route: {
       path: `${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`
     },
     body: body,
+    query: {
+      user_token: fakeToken,
+      site_token: fakeToken,
+    },
     method: "post"
   };
 
