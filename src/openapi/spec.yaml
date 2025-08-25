@@ -38,30 +38,6 @@ paths:
       responses:
         '200':
           description: 'API documentation in JSON'
-  /rebuildManagedFiles:
-    post:
-      tags:
-        - cms
-        - authenticated
-      operationId: 'Operations::rebuildManagedFiles'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-        -
-          name: name
-          in: query
-          description: 'machine name of the site to rebuild managed files for'
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 'Rebuild managed files for the site'
   /saveManifest:
     post:
       tags:
@@ -231,8 +207,8 @@ paths:
       responses:
         '200':
           description: 'Process a form based on ID and input data'
-  /listFiles:
-    post:
+/listFiles:
+    get:
       tags:
         - hax
         - authenticated
@@ -346,73 +322,6 @@ paths:
       responses:
         '200':
           description: 'Load a list of all sites the user has created'
-  /getConfig:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - settings
-      operationId: 'Operations::getConfig'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 'Get configuration for HAXcms itself'
-  /haxConfigurationSelectionData:
-    get:
-      tags:
-        - editor
-        - authenticated
-        - settings
-      operationId: 'Operations::haxConfigurationSelectionData'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 'Get configuration for HAX in how appstore is constructed'
-  /setConfig:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - form
-        - settings
-      operationId: 'Operations::setConfig'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - site
-              properties:
-                values:
-                  type: object
-              type: object
-              example:
-                values: []
-      responses:
-        '200':
-          description: 'Set configuration for HAXcms'
   /cloneSite:
     post:
       tags:
@@ -444,37 +353,6 @@ paths:
       responses:
         '200':
           description: 'Clone a site by copying and renaming the folder on file system'
-  /deleteSite:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - site
-      operationId: 'Operations::deleteSite'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - site
-              properties:
-                site:
-                  type: object
-              type: object
-              example:
-                site:
-                  name: mynewsite
-      responses:
-        '200':
-          description: 'Delete a site from the file system'
   /downloadSite:
     post:
       tags:

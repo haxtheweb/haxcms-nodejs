@@ -57,40 +57,6 @@
                 }
             }
         },
-        "/rebuildManagedFiles": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated"
-                ],
-                "operationId": "Operations::rebuildManagedFiles",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "name",
-                        "in": "query",
-                        "description": "machine name of the site to rebuild managed files for",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Rebuild managed files for the site"
-                    }
-                }
-            }
-        },
         "/saveManifest": {
             "post": {
                 "tags": [
@@ -441,18 +407,27 @@
                 "operationId": "Operations::saveFile",
                 "parameters": [
                     {
-                        "name": "jwt",
+                        "name": "site_token",
                         "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
+                        "description": "Site-specific validation token",
                         "required": true,
                         "schema": {
                             "type": "string"
                         }
                     },
                     {
-                        "name": "file-upload",
-                        "in": "header",
-                        "description": "File to upload",
+                        "name": "siteName",
+                        "in": "query",
+                        "description": "Name of the site to upload the file to",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "nodeId",
+                        "in": "query",
+                        "description": "ID of the node/page to associate the file with",
                         "required": true,
                         "schema": {
                             "type": "string"
@@ -461,28 +436,19 @@
                 ],
                 "requestBody": {
                     "content": {
-                        "application/json": {
+                        "multipart/form-data": {
                             "schema": {
                                 "required": [
-                                    "site"
+                                    "file-upload"
                                 ],
                                 "properties": {
-                                    "site": {
-                                        "type": "object"
-                                    },
-                                    "node": {
-                                        "type": "object"
+                                    "file-upload": {
+                                        "type": "string",
+                                        "format": "binary",
+                                        "description": "File to upload"
                                     }
                                 },
-                                "type": "object",
-                                "example": {
-                                    "site": {
-                                        "name": "mynewsite"
-                                    },
-                                    "node": {
-                                        "id": ""
-                                    }
-                                }
+                                "type": "object"
                             }
                         }
                     }
@@ -490,6 +456,9 @@
                 "responses": {
                     "200": {
                         "description": "User is uploading a file to present in a site"
+                    },
+                    "500": {
+                        "description": "Error uploading file"
                     }
                 }
             }
@@ -503,105 +472,6 @@
                 "responses": {
                     "200": {
                         "description": "Load a list of all sites the user has created"
-                    }
-                }
-            }
-        },
-        "/getConfig": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "settings"
-                ],
-                "operationId": "Operations::getConfig",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Get configuration for HAXcms itself"
-                    }
-                }
-            }
-        },
-        "/haxConfigurationSelectionData": {
-            "get": {
-                "tags": [
-                    "editor",
-                    "authenticated",
-                    "settings"
-                ],
-                "operationId": "Operations::haxConfigurationSelectionData",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Get configuration for HAX in how appstore is constructed"
-                    }
-                }
-            }
-        },
-        "/setConfig": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "form",
-                    "settings"
-                ],
-                "operationId": "Operations::setConfig",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "site"
-                                ],
-                                "properties": {
-                                    "values": {
-                                        "type": "object"
-                                    }
-                                },
-                                "type": "object",
-                                "example": {
-                                    "values": []
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Set configuration for HAXcms"
                     }
                 }
             }
@@ -650,54 +520,6 @@
                 "responses": {
                     "200": {
                         "description": "Clone a site by copying and renaming the folder on file system"
-                    }
-                }
-            }
-        },
-        "/deleteSite": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "site"
-                ],
-                "operationId": "Operations::deleteSite",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "site"
-                                ],
-                                "properties": {
-                                    "site": {
-                                        "type": "object"
-                                    }
-                                },
-                                "type": "object",
-                                "example": {
-                                    "site": {
-                                        "name": "mynewsite"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Delete a site from the file system"
                     }
                 }
             }
@@ -795,6 +617,230 @@
                 "responses": {
                     "200": {
                         "description": "Archive a site by moving it on the file system"
+                    }
+                }
+            }
+        },
+        "/createSite": {
+            "post": {
+                "tags": [
+                    "cms",
+                    "authenticated",
+                    "site"
+                ],
+                "operationId": "Operations::createSite",
+                "parameters": [
+                    {
+                        "name": "jwt",
+                        "in": "query",
+                        "description": "JSON Web token, obtain by using  /login",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "user_token",
+                        "in": "query",
+                        "description": "User validation token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "site",
+                                    "theme"
+                                ],
+                                "properties": {
+                                    "site": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": {
+                                                "type": "string"
+                                            },
+                                            "domain": {
+                                                "type": "string"
+                                            },
+                                            "description": {
+                                                "type": "string"
+                                            },
+                                            "theme": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "theme": {
+                                        "type": "object",
+                                        "properties": {
+                                            "image": {
+                                                "type": "string"
+                                            },
+                                            "icon": {
+                                                "type": "string"
+                                            },
+                                            "hexCode": {
+                                                "type": "string"
+                                            },
+                                            "cssVariable": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "build": {
+                                        "type": "object",
+                                        "properties": {
+                                            "structure": {
+                                                "type": "string"
+                                            },
+                                            "type": {
+                                                "type": "string"
+                                            },
+                                            "items": {
+                                                "type": "array"
+                                            },
+                                            "files": {
+                                                "type": "object"
+                                            }
+                                        }
+                                    },
+                                    "token": {
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object",
+                                "example": {
+                                    "site": {
+                                        "name": "mynewsite",
+                                        "domain": "",
+                                        "description": "My new site description",
+                                        "theme": "learn-two-theme"
+                                    },
+                                    "theme": {
+                                        "image": "assets/banner.jpg",
+                                        "icon": "icons:web",
+                                        "hexCode": "#3f51b5",
+                                        "cssVariable": "--simple-colors-default-theme-light-blue-7"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Create a new site"
+                    }
+                }
+            }
+        },
+        "/createNode": {
+            "post": {
+                "tags": [
+                    "cms",
+                    "authenticated",
+                    "node"
+                ],
+                "operationId": "Operations::createNode",
+                "parameters": [
+                    {
+                        "name": "site_token",
+                        "in": "query",
+                        "description": "Site-specific validation token",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "site",
+                                    "node"
+                                ],
+                                "properties": {
+                                    "site": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "node": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {
+                                                "type": "string"
+                                            },
+                                            "title": {
+                                                "type": "string"
+                                            },
+                                            "location": {
+                                                "type": "string"
+                                            },
+                                            "duplicate": {
+                                                "type": "string"
+                                            },
+                                            "contents": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    },
+                                    "indent": {
+                                        "type": "number"
+                                    },
+                                    "order": {
+                                        "type": "number"
+                                    },
+                                    "parent": {
+                                        "type": "string"
+                                    },
+                                    "description": {
+                                        "type": "string"
+                                    },
+                                    "metadata": {
+                                        "type": "object"
+                                    },
+                                    "items": {
+                                        "type": "array",
+                                        "description": "Array of items for bulk creation (e.g., from docx import)"
+                                    }
+                                },
+                                "type": "object",
+                                "example": {
+                                    "site": {
+                                        "name": "mysite"
+                                    },
+                                    "node": {
+                                        "id": null,
+                                        "title": "Cool post",
+                                        "location": null
+                                    },
+                                    "indent": null,
+                                    "order": null,
+                                    "parent": null,
+                                    "description": "An example description for the post",
+                                    "metadata": {
+                                        "tags": "metadata,can,be,whatever,you,want",
+                                        "other": "stuff"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Create a new node/page in a site"
                     }
                 }
             }
