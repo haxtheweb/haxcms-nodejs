@@ -222,6 +222,31 @@ const fs = require('fs-extra');
           "FILTER_SANITIZE_STRING"
           );
         }
+        // Handle homepage setting - validate it exists in the site outline
+        if (typeof req.body['manifest']['site']['manifest-metadata-site-homePageId'] !== 'undefined') {
+          let homePageId = filter_var(
+            req.body['manifest']['site']['manifest-metadata-site-homePageId'],
+            "FILTER_SANITIZE_STRING"
+          );
+          console.log(homePageId);
+          // Validate that the page exists in the site manifest
+          let validPage = false;
+          if (homePageId && homePageId !== '' && site.manifest.items) {
+            for (let item of site.manifest.items) {
+              if (item.id === homePageId) {
+                validPage = true;
+                break;
+              }
+            }
+          }
+          // Only set if valid, otherwise leave as null/unset
+          if (validPage) {
+            site.manifest.metadata.site.homePageId = homePageId;
+          } else {
+            // Remove the setting if it was previously set but is now invalid
+            delete site.manifest.metadata.site.homePageId;
+          }
+        }
         site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
         // don't reorganize the structure
         await site.manifest.save(false);
