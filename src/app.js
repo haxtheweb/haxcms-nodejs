@@ -76,6 +76,14 @@ if (process.env.NODE_ENV === "development") {
 app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
 app.use(helmet(helmetPolicies));
 app.use(cookieParser());
+
+// Security: Force download of HTML files in sites' files directories to prevent XSS
+app.use((req, res, next) => {
+  if (req.url.includes('/files/') && /\.html?$/i.test(req.url.split('?')[0])) {
+    res.setHeader('Content-Disposition', 'attachment');
+  }
+  next();
+});
 //pre-flight requests
 app.options('*', function(req, res, next) {
 	res.sendStatus(200);
