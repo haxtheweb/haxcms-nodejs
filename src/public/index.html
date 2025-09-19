@@ -257,7 +257,10 @@
     }
     // remove loading text
     window.addEventListener('app-hax-loaded',() => {
-      document.querySelector("#loading").remove();
+      var loadingEl = document.querySelector("#loading");
+      if (loadingEl) {
+        loadingEl.remove();
+      }
       // make sure we load the font if we have a good device
       setTimeout(() => {
         if (!document.body.classList.contains('bad-device')) {

@@ -1620,6 +1620,116 @@ class HAXCMSSite
       }
       return rSlug;
     }
+    
+    /**
+     * Handle style guide save operation through saveNode endpoint
+     * @param object bodyParams The request body parameters
+     * @return object Response object with status and data
+     */
+    async handleStyleGuideSave(bodyParams) {
+      const styleGuideFile = path.join(this.siteDirectory, 'theme', 'style-guide.html');
+      
+      // Extract content from node body (saveNode endpoint)
+      let content = null;
+      if (bodyParams['node'] && bodyParams['node']['body']) {
+        content = bodyParams['node']['body'];
+      }
+      
+      // validate that we have content to save
+      if (!content) {
+        return {
+          '__failed': {
+            'status': 400,
+            'message': 'Content parameter is required',
+          }
+        };
+      }
+      
+      // validate content is a string and has some actual content
+      if (typeof content !== 'string') {
+        return {
+          '__failed': {
+            'status': 400,
+            'message': 'Content must be a string',
+          }
+        };
+      }
+      
+      // basic validation - ensure we have some HTML-like content
+      const cleanContent = content.trim();
+      if (!cleanContent) {
+        return {
+          '__failed': {
+            'status': 400,
+            'message': 'Content cannot be empty',
+          }
+        };
+      }
+      
+      // validate that content appears to be HTML by checking for basic HTML patterns
+      // this follows similar pattern to how saveNode validates content structure
+      if (!/<[^>]+>/.test(cleanContent)) {
+        return {
+          '__failed': {
+            'status': 400,
+            'message': 'Content must be valid HTML',
+          }
+        };
+      }
+      
+      // check if the theme directory exists, if not create it
+      const themeDirectory = path.join(this.siteDirectory, 'theme');
+      if (!fs.existsSync(themeDirectory)) {
+        try {
+          await fs.ensureDir(themeDirectory);
+        } catch (error) {
+          return {
+            '__failed': {
+              'status': 500,
+              'message': 'Failed to create theme directory',
+            }
+          };
+        }
+      }
+      
+      // ensure the site's style guide setting allows writing to the default location
+      // only allow writing to the default location (theme/style-guide.html)
+      // if user has changed the styleGuide setting to an external URL, block writes
+      if (this.manifest.metadata.theme && 
+          this.manifest.metadata.theme.styleGuide && 
+          this.manifest.metadata.theme.styleGuide !== null && 
+          this.manifest.metadata.theme.styleGuide !== '') {
+        return {
+          '__failed': {
+            'status': 403,
+            'message': 'Style guide is configured to use external source. Cannot edit through HAXcms.',
+          }
+        };
+      }
+      
+      // write the content to the style guide file
+      try {
+        await fs.writeFile(styleGuideFile, cleanContent);
+      } catch (error) {
+        return {
+          '__failed': {
+            'status': 500,
+            'message': 'Failed to write style guide file',
+          }
+        };
+      }
+      
+      // commit to git
+      await this.gitCommit('Style guide updated');
+      
+      return {
+        'status': 200,
+        'message': 'Style guide saved successfully',
+        'data': {
+          'file': 'theme/style-guide.html'
+        }
+      };
+    }
 }
 // HAXcms core
 class HAXCMSClass {

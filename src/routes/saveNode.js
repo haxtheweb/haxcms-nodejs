@@ -22,6 +22,12 @@ const strip_tags = require("locutus/php/strings/strip_tags");
     if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
       let bodyParams = req.body;
       let site = await HAXCMS.loadSite(req.body['site']['name']);
+      
+      // Special handling for style guide endpoint through saveNode
+      if (bodyParams['node']['id'] && bodyParams['node']['id'] === 'x/theme/style-guide') {
+        const result = await site.handleStyleGuideSave(bodyParams);
+        return res.send(result);
+      }
       let schema = [];
       let body;
       if (bodyParams['node']['body']) {

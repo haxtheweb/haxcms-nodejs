@@ -139,14 +139,16 @@ systemStructureContext().then((site) => {
         });
       }
       else if (
-        req.url.includes('custom/build') || 
-        req.url.includes('/theme/') || 
-        req.url.includes('/assets/') || 
-        req.url.includes('/manifest.json') || 
-        req.url.includes('/robots.txt') ||
-        req.url.includes('/files/') || 
-        req.url.includes('/pages/') || 
-        req.url.includes('/site.json')
+        !req.url.includes('/x/') && (
+          req.url.includes('custom/build') || 
+          req.url.includes('/theme/') || 
+          req.url.includes('/assets/') || 
+          req.url.includes('/manifest.json') || 
+          req.url.includes('/robots.txt') ||
+          req.url.includes('/files/') || 
+          req.url.includes('/pages/') || 
+          req.url.includes('/site.json')
+        )
       ) {
         if (mime.getType(req.url.split('?')[0])) {
           res.setHeader('Content-Type', mime.getType(req.url));
@@ -256,14 +258,16 @@ systemStructureContext().then((site) => {
         });
       }
       else if (
-        req.url.includes('custom/build') || 
-        req.url.includes('/theme/') || 
-        req.url.includes('/assets/') || 
-        req.url.includes('/manifest.json') || 
-        req.url.includes('/robots.txt') ||
-        req.url.includes('/files/') || 
-        req.url.includes('/pages/') || 
-        req.url.includes('/site.json')
+        !req.url.includes('/x/') && (
+          req.url.includes('custom/build') || 
+          req.url.includes('/theme/') || 
+          req.url.includes('/assets/') || 
+          req.url.includes('/manifest.json') || 
+          req.url.includes('/robots.txt') ||
+          req.url.includes('/files/') || 
+          req.url.includes('/pages/') || 
+          req.url.includes('/site.json')
+        )
       ) {
         if (mime.getType(req.url.split('?')[0])) {
           res.setHeader('Content-Type', mime.getType(req.url));
