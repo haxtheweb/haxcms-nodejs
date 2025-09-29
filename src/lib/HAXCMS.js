@@ -1219,13 +1219,18 @@ class HAXCMSSite
   <link rel="preconnect" crossorigin href="https://cdnjs.cloudflare.com">
   <link rel="preconnect" crossorigin href="https://i.creativecommons.org">
   <link rel="preconnect" crossorigin href="https://licensebuttons.net">
-  <link rel="preload" href="${base}build/es6/node_modules/mobx/dist/mobx.esm.js" as="script" crossorigin="anonymous" />
-  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-builder.js" as="script" crossorigin="anonymous" />
-  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-store.js" as="script" crossorigin="anonymous" />
-  <link rel="preload" href="${base}build/es6/dist/my-custom-elements.js" as="script" crossorigin="anonymous" />
+  <link rel="preload" href="${base}build.js" as="script" />
+  <link rel="preload" href="${base}build-haxcms.js" as="script" />
+  <link rel="preload" href="${base}wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js" crossorigin="anonymous" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/dynamic-import-registry/dynamic-import-registry.js" crossorigin="anonymous" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/haxcms-site-builder.js" crossorigin="anonymous" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-store.js" crossorigin="anonymous" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-router.js" crossorigin="anonymous" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base/HAXCMSThemeWiring.js" crossorigin="anonymous" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base/HAXCMSLitElementTheme.js" crossorigin="anonymous" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/utils/utils.js" crossorigin="anonymous" />
   <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
-  <link rel="preload" href="./custom/build/custom.es6.js" as="script" crossorigin="anonymous" />
-  <link rel="preload" href="./theme/theme.css" as="style" />  
   <meta name="generator" content="HAXcms">
   ${canonical}${prevResource}${nextResource}
   <link rel="manifest" href="manifest.json" />
