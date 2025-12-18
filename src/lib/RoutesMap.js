@@ -30,6 +30,7 @@ const RoutesMap = {
     connectionSettings: require('../routes/connectionSettings.js'),
     generateAppStore: require('../routes/generateAppStore.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
+    skeletonsList: require('../routes/skeletonsList.js'),
   },
 };
 

@@ -61,6 +61,7 @@ async function connectionSettings(req, res) {
     archiveSite: `${baseAPIPath}archiveSite?user_token=${userToken}`,
     copySite: `${baseAPIPath}cloneSite?user_token=${userToken}`,
     getSitesList: `${baseAPIPath}listSites?user_token=${userToken}`,
+    skeletonsList: `${baseAPIPath}skeletonsList?user_token=${userToken}`,
     appStore: {
       url: `${baseAPIPath}generateAppStore`,
       params: {
