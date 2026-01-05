@@ -11,7 +11,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
  */
 function refreshAccessToken(req, res) {
   // check that we have a valid refresh token
-  const validRefresh = HAXCMS.validateRefreshToken(false, req);
+  const validRefresh = HAXCMS.validateRefreshToken(false, req, res);
   // if we have a valid refresh token then issue a new access token
   if (validRefresh) {
     res.send({

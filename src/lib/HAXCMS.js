@@ -2815,17 +2815,24 @@ class HAXCMSClass {
       }
     }
     /**
-     * Validate a JTW during POST
+     * Validate a refresh JWT from cookie.
+     * When endOnInvalid is true, this will send a 401 and clear the cookie
+     * using the provided res object. When false it will simply return false
+     * and let the caller decide what to do.
      */
-    validateRefreshToken(endOnInvalid = true, req) {
+    validateRefreshToken(endOnInvalid = true, req, res = null) {
       if (this.isCLI() || this.HAXCMS_DISABLE_JWT_CHECKS) {
         return true;
       }
       // get the refresh token from cookie
       let refreshToken = req.cookies['haxcms_refresh_token'];
-      // if there isn't one then we have to bail hard
+      // if there isn't one then we have to bail
       if (!refreshToken) {
-       res.sendStatus(401);
+        if (endOnInvalid && res) {
+          res.cookie('haxcms_refresh_token', '1', { maxAge: 1 });
+          res.sendStatus(401);
+        }
+        return false;
       }
       // if there is a refresh token then decode it
       let refreshTokenDecoded = this.decodeRefreshToken(refreshToken);
@@ -2842,8 +2849,8 @@ class HAXCMSClass {
           }
         }
       }
-      // kick back the end if its invalid
-      if (endOnInvalid) {
+      // kick back the end if it's invalid and we are asked to end here
+      if (endOnInvalid && res) {
         res.cookie('haxcms_refresh_token', '1', { maxAge: 1 });
         res.sendStatus(401);
       }

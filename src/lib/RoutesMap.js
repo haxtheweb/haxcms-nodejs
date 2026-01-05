@@ -21,6 +21,10 @@ const RoutesMap = {
     saveNode: require('../routes/saveNode.js'),
     deleteNode: require('../routes/deleteNode.js'),
     saveFile: require('../routes/saveFile.js'),
+    // allow AppHax API (which defaults to POST) to call refreshAccessToken
+    // and skeletonsList, while still supporting GET for other clients
+    refreshAccessToken: require('../routes/refreshAccessToken.js'),
+    skeletonsList: require('../routes/skeletonsList.js'),
   },
   get: {
     logout: require('../routes/logout.js'),
