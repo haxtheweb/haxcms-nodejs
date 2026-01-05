@@ -168,8 +168,10 @@ class HAXCMSSite
       else {
         let pageSchema = [];
         switch (build.structure) {
+          case 'from-skeleton':
           case 'import':
             // implies we had a backend service process much of what we are to build for an import
+            // from-skeleton uses same structure as import but comes from skeleton files
             if (build.items) {
               for (let i=0; i < build.items.length; i++) {
                 pageSchema.push({
@@ -179,7 +181,7 @@ class HAXCMSSite
                   "slug" : build.items[i]['slug'],
                   "id" : build.items[i]['id'],
                   "indent" : build.items[i]['indent'],
-                  "contents" : build.items[i]['contents'],
+                  "contents" : build.items[i]['content'] || build.items[i]['contents'] || '',
                   "order" : build.items[i]['order'],
                   "metadata" : (build.items[i]['metadata']) ? build.items[i]['metadata'] : null,
               });

@@ -25,6 +25,7 @@ const RoutesMap = {
     // and skeletonsList, while still supporting GET for other clients
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
     skeletonsList: require('../routes/skeletonsList.js'),
+    getSkeleton: require('../routes/getSkeleton.js'),
   },
   get: {
     logout: require('../routes/logout.js'),
@@ -35,6 +36,7 @@ const RoutesMap = {
     generateAppStore: require('../routes/generateAppStore.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
     skeletonsList: require('../routes/skeletonsList.js'),
+    getSkeleton: require('../routes/getSkeleton.js'),
   },
 };
 
@@ -43,6 +45,7 @@ const OpenRoutes = [
   'generateAppStore',
   'connectionSettings',
   'getSitesList',
+  'getSkeleton',
   'login',
   'logout',
   'api',

@@ -75,8 +75,11 @@ async function skeletonsList(req, res) {
             // demo/source url optional
             const demo = meta.sourceUrl || '#';
             
-            // Build public URL relative to HAXcms base
-            const publicBase = HAXCMS.basePath + dir.replace(HAXCMS.HAXCMS_ROOT + '/', '') + '/';
+            // Build API URL to fetch skeleton content with user_token
+            const skeletonName = path.basename(file, '.json');
+            const baseAPIPath = HAXCMS.basePath + HAXCMS.systemRequestBase;
+            const userToken = req.query.user_token;
+            const skeletonUrl = `${baseAPIPath}getSkeleton?name=${encodeURIComponent(skeletonName)}&user_token=${encodeURIComponent(userToken)}`;
             
             items.push({
               title: title,
@@ -85,7 +88,7 @@ async function skeletonsList(req, res) {
               category: category,
               attributes: attributes,
               'demo-url': demo,
-              'skeleton-url': publicBase + file
+              'skeleton-url': skeletonUrl
             });
           } catch (parseError) {
             // Skip invalid JSON files
