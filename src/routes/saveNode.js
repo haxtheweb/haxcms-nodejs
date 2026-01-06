@@ -1,6 +1,7 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const filter_var = require('../lib/filter_var.js');
 const strip_tags = require("locutus/php/strings/strip_tags");
+const html_entity_decode = require("locutus/php/strings/html_entity_decode");
 /**
    * @OA\Post(
    *    path="/saveNode",
@@ -40,11 +41,15 @@ const strip_tags = require("locutus/php/strings/strip_tags");
       let details = {};
       // if we have details object then merge configure and advanced
       if (bodyParams['node']['details']) {
-        for (var key in bodyParams['node']['details']['node']['configure']) {
-          details[key] = bodyParams['node']['details']['node']['configure'][key];
+        if (bodyParams['node']['details']['node'] && bodyParams['node']['details']['node']['configure']) {
+          for (var key in bodyParams['node']['details']['node']['configure']) {
+            details[key] = bodyParams['node']['details']['node']['configure'][key];
+          }
         }
-        for (var key in bodyParams['node']['details']['node']['advanced']) {
-          details[key] = bodyParams['node']['details']['node']['advanced'][key];
+        if (bodyParams['node']['details']['node'] && bodyParams['node']['details']['node']['advanced']) {
+          for (var key in bodyParams['node']['details']['node']['advanced']) {
+            details[key] = bodyParams['node']['details']['node']['advanced'][key];
+          }
         }
       }
       // update the page's content, using manifest to find it
@@ -105,12 +110,12 @@ const strip_tags = require("locutus/php/strings/strip_tags");
             // to avoid duplication issues
             bytes = await page.writeLocation(data['content'], site.siteDirectory);
             if (bytes === false) {
-              return {
+              return res.send({
                 '__failed' : {
                   'status' : 500,
                   'message' : 'failed to write',
                 }
-              };
+              });
             } else {
                 // sanity check
                 if (!(page.metadata)) {
@@ -118,7 +123,8 @@ const strip_tags = require("locutus/php/strings/strip_tags");
                 }
                 // update attributes in the page
                 if (data["attributes"]["title"]) {
-                  page.title = data["attributes"]["title"];
+                  // decode entities and strip tags so manifest stores clean text
+                  page.title = html_entity_decode(strip_tags(data["attributes"]["title"]));
                 }
                 if (data["attributes"]["slug"]) {
                   // account for x being the only front end reserved route
@@ -247,10 +253,11 @@ const strip_tags = require("locutus/php/strings/strip_tags");
                 // auto generate a text only description from first 200 chars
                 // unless we were sent one to use
                 if ((data["attributes"]["description"]) && data["attributes"]["description"] != '') {
-                  page.description = data["attributes"]["description"];
+                  page.description = html_entity_decode(strip_tags(data["attributes"]["description"]));
                 }
                 else {
-                  page.description = clean.substring(0, 200).replace("\n", '');
+                  const decodedClean = html_entity_decode(clean);
+                  page.description = decodedClean.substring(0, 200).replace("\n", '');
                 }
                 let readtime = Math.round(countWords(clean) / 200);
                 // account for uber small body
@@ -295,14 +302,22 @@ const strip_tags = require("locutus/php/strings/strip_tags");
                 );
             }
           }
-          res.send({
+          return res.send({
             status: 200,
             data: page
+          });
+        } else {
+          // Mirror PHP behavior: if body is missing, treat as failed write instead of hanging
+          return res.send({
+            '__failed' : {
+              'status' : 500,
+              'message' : 'failed to write',
+            }
           });
         }
       }
       else {
-        res.sendStatus(500);
+        return res.sendStatus(500);
       }
     }
     else {

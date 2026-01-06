@@ -210,10 +210,20 @@ async function saveNodeDetails(req, res) {
         if (!page.metadata) {
           page.metadata = {};
         }
-        if (req.body['node']['details'].hasOwnProperty('image')) {
-          if (req.body['node']['details']['image'] !== '' && req.body['node']['details']['image'] !== null) {
-            page.metadata.image = filter_var(req.body['node']['details']['image'], 'FILTER_SANITIZE_URL');
-          } else {
+        const details = req.body['node']['details'] || {};
+        // Support both `image` and legacy `media` field; prefer explicit `image`.
+        let imageValue = null;
+        if (details.hasOwnProperty('image')) {
+          imageValue = details.image;
+        }
+        else if (details.hasOwnProperty('media')) {
+          imageValue = details.media;
+        }
+        if (imageValue !== null) {
+          if (imageValue !== '' && imageValue !== undefined) {
+            page.metadata.image = filter_var(imageValue, 'FILTER_SANITIZE_URL');
+          }
+          else {
             delete page.metadata.image;
           }
         }
