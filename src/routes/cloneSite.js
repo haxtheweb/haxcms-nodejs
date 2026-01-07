@@ -72,12 +72,15 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
 
       await newSite.save();
       res.send({
-        'link':
-          HAXCMS.basePath +
-          HAXCMS.sitesDirectory +
-          '/' +
-          cloneName,
-        'name': cloneName
+        status: 200,
+        data: {
+          link:
+            HAXCMS.basePath +
+            HAXCMS.sitesDirectory +
+            '/' +
+            cloneName,
+          name: cloneName,
+        },
       });
     } else {
       res.sendStatus(403);

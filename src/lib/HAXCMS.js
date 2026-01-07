@@ -2017,32 +2017,75 @@ class HAXCMSClass {
    * Generate machine name
    */
   generateMachineName(name) {
-      return name.replace([
-      '/[^a-zA-Z0-9]+/',
-      '/-+/',
-      '/^-+/',
-      '/-+/',
-      ], ['-', '-', '', '']).toLowerCase();
+      // mirror hardened PHP generateMachineName behavior
+      if (name === undefined || name === null) {
+        return 'default';
+      }
+      let n = String(name);
+      // Remove null bytes
+      n = n.replace(/\0/g, '');
+      // URL decode to catch encoded traversal attempts
+      try {
+        n = decodeURIComponent(n);
+      }
+      catch (e) {
+        // if decode fails, fall back to original string
+      }
+      // Remove any path traversal sequences completely
+      n = n.replace(/\.{2,}/g, ''); // remove .. sequences
+      n = n.replace(/[\\/]/g, ''); // remove all slashes
+      // Only allow alphanumeric, hyphens, and underscores
+      n = n.replace(/[^a-zA-Z0-9_-]+/g, '-');
+      // Clean up multiple consecutive hyphens/underscores
+      n = n.replace(/[-_]{2,}/g, '-');
+      // Remove leading/trailing hyphens/underscores
+      n = n.replace(/^[-_]+|[-_]+$/g, '');
+      // Convert to lowercase
+      n = n.toLowerCase();
+      // Fallback for empty result
+      if (!n) {
+        n = 'default';
+      }
+      return n;
   }
 
   /**
    * Generate slug name
    */
   generateSlugName(name) {
-    let slug = name.replace([
-      '/[^\w\-\/]+/',
-      '/-+/',
-      '/^-+/',
-      '/-+$/',
-      ], ['-', '-', '', '']).toLowerCase();
-    // '//' needs removed
-    slug = slug.replace('////','/');
-    slug = slug.replace('///','/');
-    slug = slug.replace('//','/');
-    slug = slug.replace('//','/');
+    if (name === undefined || name === null) {
+      return '';
+    }
+    let n = String(name);
+    // Remove null bytes
+    n = n.replace(/\0/g, '');
+    // URL decode to catch encoded traversal attempts
+    try {
+      n = decodeURIComponent(n);
+    }
+    catch (e) {
+      // ignore decode errors, keep original string
+    }
+    // Remove path traversal sequences while preserving forward slashes for URLs
+    n = n.replace(/\.{2,}[\\/]*?/g, ''); // remove ../ and .. sequences
+    n = n.replace(/\\/g, ''); // remove backslashes
+    // Convert to lowercase first
+    let slug = n.toLowerCase();
+    // Allow word chars, hyphens, and forward slashes; normalize others to '-'
+    slug = slug.replace(/[^\w\-\/]+/g, '-');
+    // Clean up multiple consecutive hyphens
+    slug = slug.replace(/-{2,}/g, '-');
+    // Clean up multiple consecutive slashes
+    slug = slug.replace(/\/{2,}/g, '/');
+    // Remove leading/trailing hyphens and slashes
+    slug = slug.replace(/^[-/]+|[-/]+$/g, '');
+    // Ensure no path traversal sequences remain after processing
+    if (slug.indexOf('..') !== -1) {
+      slug = slug.replace(/\.+/g, '');
+    }
     // slugs CAN NOT start with / but otherwise it should be allowed
-    while (slug.substring(0, 1) == "/") {
-      slug = slug.substring(1)
+    while (slug.substring(0, 1) === '/') {
+      slug = slug.substring(1);
     }
     return slug;
   }

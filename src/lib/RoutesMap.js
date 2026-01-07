@@ -27,6 +27,9 @@ const RoutesMap = {
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
     skeletonsList: require('../routes/skeletonsList.js'),
     getSkeleton: require('../routes/getSkeleton.js'),
+    // meta endpoints mirroring PHP Operations::options and ::api
+    options: require('../routes/options.js'),
+    api: require('../routes/api.js'),
   },
   get: {
     logout: require('../routes/logout.js'),
