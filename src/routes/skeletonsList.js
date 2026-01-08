@@ -28,7 +28,9 @@ async function skeletonsList(req, res) {
   const items = [];
   // directories to scan for JSON skeleton definitions
   const dirs = [];
-  const coreDir = path.join(HAXCMS.HAXCMS_ROOT, 'system', 'boilerplate', 'skeletons');
+  // built-in skeletons now live under coreConfig/skeletons like other core config
+  const coreDir = path.join(HAXCMS.coreConfigPath, 'skeletons');
+  // _config location remains in the cascade for overrides / custom skeletons
   const configDir = path.join(HAXCMS.HAXCMS_ROOT, '_config', 'skeletons');
   
   if (await fs.pathExists(coreDir)) {

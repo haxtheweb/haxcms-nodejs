@@ -46,7 +46,9 @@ async function getSkeleton(req, res) {
 
   // directories to search for skeleton files
   const dirs = [];
-  const coreDir = path.join(HAXCMS.HAXCMS_ROOT, 'system', 'boilerplate', 'skeletons');
+  // coreConfig provides built-in skeletons consistent with other core definitions
+  const coreDir = path.join(HAXCMS.coreConfigPath, 'skeletons');
+  // _config location still participates in the cascade for overrides
   const configDir = path.join(HAXCMS.HAXCMS_ROOT, '_config', 'skeletons');
   
   if (await fs.pathExists(coreDir)) {
