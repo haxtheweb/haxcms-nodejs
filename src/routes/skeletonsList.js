@@ -79,6 +79,12 @@ async function skeletonsList(req, res) {
             
             // Build API URL to fetch skeleton content with user_token
             const skeletonName = path.basename(file, '.json');
+            // "default-starter" is a shared internal fallback skeleton that
+            // many generic themes point at behind the scenes. It should not
+            // appear in the public list of selectable skeletons.
+            if (skeletonName === 'default-starter') {
+              continue;
+            }
             const baseAPIPath = HAXCMS.basePath + HAXCMS.systemRequestBase;
             const userToken = req.query.user_token;
             const skeletonUrl = `${baseAPIPath}getSkeleton?name=${encodeURIComponent(skeletonName)}&user_token=${encodeURIComponent(userToken)}`;
