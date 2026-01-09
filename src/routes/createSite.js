@@ -70,7 +70,7 @@ async function createSite(req, res) {
       build.structure = req.body['build']['structure'];
       // TYPE of structure we are creating
       build.type = req.body['build']['type'];
-      if (build.type == 'docx import' || build.structure == "import") {
+      if (build.type == 'docx import' || build.structure == "import" || build.structure == "from-skeleton") {
         // JSONOutlineSchemaItem Array
         build.items = req.body['build']['items'];
       }

@@ -19,8 +19,17 @@ const RoutesMap = {
 
     createNode: require('../routes/createNode.js'),
     saveNode: require('../routes/saveNode.js'),
+    saveNodeDetails: require('../routes/saveNodeDetails.js'),
     deleteNode: require('../routes/deleteNode.js'),
     saveFile: require('../routes/saveFile.js'),
+    // allow AppHax API (which defaults to POST) to call refreshAccessToken
+    // and skeletonsList, while still supporting GET for other clients
+    refreshAccessToken: require('../routes/refreshAccessToken.js'),
+    skeletonsList: require('../routes/skeletonsList.js'),
+    getSkeleton: require('../routes/getSkeleton.js'),
+    // meta endpoints mirroring PHP Operations::options and ::api
+    options: require('../routes/options.js'),
+    api: require('../routes/api.js'),
   },
   get: {
     logout: require('../routes/logout.js'),
@@ -30,6 +39,8 @@ const RoutesMap = {
     connectionSettings: require('../routes/connectionSettings.js'),
     generateAppStore: require('../routes/generateAppStore.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
+    skeletonsList: require('../routes/skeletonsList.js'),
+    getSkeleton: require('../routes/getSkeleton.js'),
   },
 };
 
@@ -38,6 +49,7 @@ const OpenRoutes = [
   'generateAppStore',
   'connectionSettings',
   'getSitesList',
+  'getSkeleton',
   'login',
   'logout',
   'api',

@@ -1,32 +1,40 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 function loginRoute(req, res)  {
-  // if we don't have a user and the don't answer, bail
+  // primary branch: username / password login
   if (req.body && req.body.username && req.body.password) {
-    // _ paranoia
-    var u = req.body.username;
-    // driving me insane  
-    var p = req.body.password;
-    // _ paranoia ripping up my brain
+    const u = req.body.username;
+    const p = req.body.password;
     // test if this is a valid user login
     if (!HAXCMS.testLogin(u, p, true)) {
-      res.sendStatus(403);
+      return res.sendStatus(403);
     }
-    else {
-        // set a refresh_token COOKIE that will ship w/ all calls automatically
-      res.cookie('haxcms_refresh_token', HAXCMS.getRefreshToken(u), { 
-        expires: 0 ,
-        path: '/',
-        domain: '',
-        secure: false,
-        httpOnly: true,
-      });
-      res.send('"' + HAXCMS.getJWT(u) + '"');
-    }
+    // set a refresh_token COOKIE that will ship w/ all calls automatically
+    res.cookie('haxcms_refresh_token', HAXCMS.getRefreshToken(u), { 
+      expires: 0 ,
+      path: '/',
+      domain: '',
+      secure: false,
+      httpOnly: true,
+    });
+    return res.json({
+      status: 200,
+      jwt: HAXCMS.getJWT(u),
+    });
   }
   // login end point requested yet a jwt already exists
   // this is something of a revalidate case
-  else if ((req.body && req.body != {} && req.body['jwt'] && req.body['jwt'] != null) || (res.query && res.query != {} && res.query['jwt'] && res.query['jwt'] != null)) {
-    res.send('"' + HAXCMS.validateJWT(req, res) + '"');
+  else if (
+    (req.body && Object.keys(req.body).length && req.body['jwt']) ||
+    (req.query && Object.keys(req.query).length && req.query['jwt'])
+  ) {
+    const valid = HAXCMS.validateJWT(req, res);
+    if (valid) {
+      return res.json({
+        status: 200,
+        jwt: valid,
+      });
+    }
+    return res.sendStatus(403);
   }
   else {
     res.sendStatus(403);

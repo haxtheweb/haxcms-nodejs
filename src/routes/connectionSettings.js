@@ -47,6 +47,8 @@ async function connectionSettings(req, res) {
     // enables redirecting back to site root if JWT really is dead
     redirectUrl: HAXCMS.basePath,
     saveNodePath: `${baseAPIPath}saveNode?site_token=${siteToken}`,
+    // Singular node operations (moveUp, setTitle, etc.)
+    saveNodeDetailsPath: `${baseAPIPath}saveNodeDetails?site_token=${siteToken}`,
     saveManifestPath: `${baseAPIPath}saveManifest?site_token=${siteToken}`,
     saveOutlinePath: `${baseAPIPath}saveOutline?site_token=${siteToken}`,
     getSiteFieldsPath: `${baseAPIPath}formLoad?haxcms_form_id=siteSettings`,
@@ -61,6 +63,7 @@ async function connectionSettings(req, res) {
     archiveSite: `${baseAPIPath}archiveSite?user_token=${userToken}`,
     copySite: `${baseAPIPath}cloneSite?user_token=${userToken}`,
     getSitesList: `${baseAPIPath}listSites?user_token=${userToken}`,
+    skeletonsList: `${baseAPIPath}skeletonsList?user_token=${userToken}`,
     appStore: {
       url: `${baseAPIPath}generateAppStore`,
       params: {

@@ -168,8 +168,10 @@ class HAXCMSSite
       else {
         let pageSchema = [];
         switch (build.structure) {
+          case 'from-skeleton':
           case 'import':
             // implies we had a backend service process much of what we are to build for an import
+            // from-skeleton uses same structure as import but comes from skeleton files
             if (build.items) {
               for (let i=0; i < build.items.length; i++) {
                 pageSchema.push({
@@ -179,7 +181,7 @@ class HAXCMSSite
                   "slug" : build.items[i]['slug'],
                   "id" : build.items[i]['id'],
                   "indent" : build.items[i]['indent'],
-                  "contents" : build.items[i]['contents'],
+                  "contents" : build.items[i]['content'] || build.items[i]['contents'] || '',
                   "order" : build.items[i]['order'],
                   "metadata" : (build.items[i]['metadata']) ? build.items[i]['metadata'] : null,
               });
@@ -1224,11 +1226,11 @@ class HAXCMSSite
   <link rel="preload" href="${base}wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
   <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js" crossorigin="anonymous" />
   <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/dynamic-import-registry/dynamic-import-registry.js" crossorigin="anonymous" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/haxcms-site-builder.js" crossorigin="anonymous" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-builder.js" crossorigin="anonymous" />
   <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-store.js" crossorigin="anonymous" />
   <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-router.js" crossorigin="anonymous" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base/HAXCMSThemeWiring.js" crossorigin="anonymous" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base/HAXCMSLitElementTheme.js" crossorigin="anonymous" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/HAXCMSThemeWiring.js" crossorigin="anonymous" />
+  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/HAXCMSLitElementTheme.js" crossorigin="anonymous" />
   <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/utils/utils.js" crossorigin="anonymous" />
   <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
   <meta name="generator" content="HAXcms">
@@ -2015,32 +2017,75 @@ class HAXCMSClass {
    * Generate machine name
    */
   generateMachineName(name) {
-      return name.replace([
-      '/[^a-zA-Z0-9]+/',
-      '/-+/',
-      '/^-+/',
-      '/-+/',
-      ], ['-', '-', '', '']).toLowerCase();
+      // mirror hardened PHP generateMachineName behavior
+      if (name === undefined || name === null) {
+        return 'default';
+      }
+      let n = String(name);
+      // Remove null bytes
+      n = n.replace(/\0/g, '');
+      // URL decode to catch encoded traversal attempts
+      try {
+        n = decodeURIComponent(n);
+      }
+      catch (e) {
+        // if decode fails, fall back to original string
+      }
+      // Remove any path traversal sequences completely
+      n = n.replace(/\.{2,}/g, ''); // remove .. sequences
+      n = n.replace(/[\\/]/g, ''); // remove all slashes
+      // Only allow alphanumeric, hyphens, and underscores
+      n = n.replace(/[^a-zA-Z0-9_-]+/g, '-');
+      // Clean up multiple consecutive hyphens/underscores
+      n = n.replace(/[-_]{2,}/g, '-');
+      // Remove leading/trailing hyphens/underscores
+      n = n.replace(/^[-_]+|[-_]+$/g, '');
+      // Convert to lowercase
+      n = n.toLowerCase();
+      // Fallback for empty result
+      if (!n) {
+        n = 'default';
+      }
+      return n;
   }
 
   /**
    * Generate slug name
    */
   generateSlugName(name) {
-    let slug = name.replace([
-      '/[^\w\-\/]+/',
-      '/-+/',
-      '/^-+/',
-      '/-+$/',
-      ], ['-', '-', '', '']).toLowerCase();
-    // '//' needs removed
-    slug = slug.replace('////','/');
-    slug = slug.replace('///','/');
-    slug = slug.replace('//','/');
-    slug = slug.replace('//','/');
+    if (name === undefined || name === null) {
+      return '';
+    }
+    let n = String(name);
+    // Remove null bytes
+    n = n.replace(/\0/g, '');
+    // URL decode to catch encoded traversal attempts
+    try {
+      n = decodeURIComponent(n);
+    }
+    catch (e) {
+      // ignore decode errors, keep original string
+    }
+    // Remove path traversal sequences while preserving forward slashes for URLs
+    n = n.replace(/\.{2,}[\\/]*?/g, ''); // remove ../ and .. sequences
+    n = n.replace(/\\/g, ''); // remove backslashes
+    // Convert to lowercase first
+    let slug = n.toLowerCase();
+    // Allow word chars, hyphens, and forward slashes; normalize others to '-'
+    slug = slug.replace(/[^\w\-\/]+/g, '-');
+    // Clean up multiple consecutive hyphens
+    slug = slug.replace(/-{2,}/g, '-');
+    // Clean up multiple consecutive slashes
+    slug = slug.replace(/\/{2,}/g, '/');
+    // Remove leading/trailing hyphens and slashes
+    slug = slug.replace(/^[-/]+|[-/]+$/g, '');
+    // Ensure no path traversal sequences remain after processing
+    if (slug.indexOf('..') !== -1) {
+      slug = slug.replace(/\.+/g, '');
+    }
     // slugs CAN NOT start with / but otherwise it should be allowed
-    while (slug.substring(0, 1) == "/") {
-      slug = slug.substring(1)
+    while (slug.substring(0, 1) === '/') {
+      slug = slug.substring(1);
     }
     return slug;
   }
@@ -2815,17 +2860,24 @@ class HAXCMSClass {
       }
     }
     /**
-     * Validate a JTW during POST
+     * Validate a refresh JWT from cookie.
+     * When endOnInvalid is true, this will send a 401 and clear the cookie
+     * using the provided res object. When false it will simply return false
+     * and let the caller decide what to do.
      */
-    validateRefreshToken(endOnInvalid = true, req) {
+    validateRefreshToken(endOnInvalid = true, req, res = null) {
       if (this.isCLI() || this.HAXCMS_DISABLE_JWT_CHECKS) {
         return true;
       }
       // get the refresh token from cookie
       let refreshToken = req.cookies['haxcms_refresh_token'];
-      // if there isn't one then we have to bail hard
+      // if there isn't one then we have to bail
       if (!refreshToken) {
-       res.sendStatus(401);
+        if (endOnInvalid && res) {
+          res.cookie('haxcms_refresh_token', '1', { maxAge: 1 });
+          res.sendStatus(401);
+        }
+        return false;
       }
       // if there is a refresh token then decode it
       let refreshTokenDecoded = this.decodeRefreshToken(refreshToken);
@@ -2842,8 +2894,8 @@ class HAXCMSClass {
           }
         }
       }
-      // kick back the end if its invalid
-      if (endOnInvalid) {
+      // kick back the end if it's invalid and we are asked to end here
+      if (endOnInvalid && res) {
         res.cookie('haxcms_refresh_token', '1', { maxAge: 1 });
         res.sendStatus(401);
       }

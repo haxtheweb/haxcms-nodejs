@@ -47,8 +47,11 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
           HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.manifest.metadata.site.name,
           HAXCMS.HAXCMS_ROOT + HAXCMS.archivedDirectory + '/' + site.manifest.metadata.site.name);
         res.send({
-          'name': site.name,
-          'detail': 'Site archived',
+          status: 200,
+          data: {
+            name: site.name,
+            detail: 'Site archived',
+          },
         });
       }
       else {

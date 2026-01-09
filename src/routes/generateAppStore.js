@@ -23,7 +23,14 @@ function generateAppStore(req, res) {
   // test if this is a valid user login with this specialty token that HAX looks for
   if (
     req.query['appstore_token'] &&
-    HAXCMS.validateRequestToken(req.query['appstore_token'], 'appstore', req.query)
+    HAXCMS.validateRequestToken(req.query['appstore_token'], 'appstore', req.query) &&
+    req.query['site_token'] &&
+    req.query['siteName'] &&
+    HAXCMS.validateRequestToken(
+      req.query['site_token'],
+      HAXCMS.getActiveUserName() + ':' + req.query['siteName'],
+      req.query
+    )
   ) {
     let apikeys = {};
     let baseApps = AppStoreService.baseSupportedApps();
