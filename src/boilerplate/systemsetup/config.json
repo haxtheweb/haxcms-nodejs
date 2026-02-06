@@ -25,6 +25,9 @@
         }
       ],
       "autoloader": {
+        "site-remote-content": "@haxtheweb/haxcms-elements/lib/ui-components/site/site-remote-content.js",
+        "citation-element": "@haxtheweb/citation-element/citation-element.js",
+        "page-flag": "@haxtheweb/page-flag/page-flag.js",
         "multiple-choice": "@haxtheweb/multiple-choice/multiple-choice.js",
         "true-false-question": "@haxtheweb/multiple-choice/lib/true-false-question.js",
         "short-answer-question": "@haxtheweb/multiple-choice/lib/short-answer-question.js",
