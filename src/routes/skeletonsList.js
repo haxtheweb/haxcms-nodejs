@@ -95,6 +95,9 @@ async function skeletonsList(req, res) {
               image: image,
               category: category,
               attributes: attributes,
+              // repeat machine name explicitly so UIs don't have to infer it from skeleton-url
+              machineName: skeletonName,
+              'machine-name': skeletonName,
               'demo-url': demo,
               'skeleton-url': skeletonUrl
             });
