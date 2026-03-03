@@ -62,6 +62,15 @@ async function skeletonsList(req, res) {
             const title = meta.useCaseTitle || meta.name || path.basename(file, '.json');
             const description = meta.useCaseDescription || meta.description || '';
             const image = meta.useCaseImage || '';
+
+            // priority: negative floats to the top, positive sinks
+            let priority = 0;
+            if (typeof meta.priority !== 'undefined') {
+              const num = Number(meta.priority);
+              if (Number.isFinite(num)) {
+                priority = num;
+              }
+            }
             
             // categories/tags from meta or build type if present
             let category = [];
@@ -93,6 +102,7 @@ async function skeletonsList(req, res) {
               title: title,
               description: description,
               image: image,
+              priority: priority,
               category: category,
               attributes: attributes,
               // repeat machine name explicitly so UIs don't have to infer it from skeleton-url
