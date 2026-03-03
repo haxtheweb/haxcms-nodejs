@@ -15,6 +15,7 @@ const RoutesMap = {
     archiveSite: require('../routes/archiveSite.js'),
     downloadSite: require('../routes/downloadSite.js'),
     saveManifest: require('../routes/saveManifest.js'),
+    savePlatformSettings: require('../routes/savePlatformSettings.js'),
     saveOutline: require('../routes/saveOutline.js'),
 
     createNode: require('../routes/createNode.js'),

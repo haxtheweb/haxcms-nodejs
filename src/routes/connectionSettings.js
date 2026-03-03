@@ -50,6 +50,7 @@ async function connectionSettings(req, res) {
     // Singular node operations (moveUp, setTitle, etc.)
     saveNodeDetailsPath: `${baseAPIPath}saveNodeDetails?site_token=${siteToken}`,
     saveManifestPath: `${baseAPIPath}saveManifest?site_token=${siteToken}`,
+    savePlatformSettingsPath: `${baseAPIPath}savePlatformSettings?site_token=${siteToken}`,
     saveOutlinePath: `${baseAPIPath}saveOutline?site_token=${siteToken}`,
     getSiteFieldsPath: `${baseAPIPath}formLoad?haxcms_form_id=siteSettings`,
     // form token to validate form submissions as unique to the session

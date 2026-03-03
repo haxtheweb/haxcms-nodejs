@@ -2747,24 +2747,37 @@ class HAXCMSClass {
    */
    getWCRegistryJson(site, base = './') {
     let wcMap = {};
-    let wcPath;
+    let wcPath = null;
+    let wcPathCandidates = [];
     // need to make the request relative to site
     if (base == './') {
-      // possible this comes up empty
-      if (fs.existsSync(path.join(site.siteDirectory, 'wc-registry.json'))) {
-        wcPath = path.join(site.siteDirectory, 'wc-registry.json');
+      if (site && site.siteDirectory) {
+        wcPathCandidates.push(path.join(site.siteDirectory, 'wc-registry.json'));
       }
-      else {
-        wcPath = path.join(HAXCMS_ROOT, "/wc-registry.json");
-      }
+      // legacy expectation in project root
+      wcPathCandidates.push(path.join(HAXCMS_ROOT, 'wc-registry.json'));
+      // repo-local location used in haxcms-nodejs
+      wcPathCandidates.push(path.join(HAXCMS_ROOT, 'src/public/wc-registry.json'));
+      // fallback relative to this file for edge runtime roots
+      wcPathCandidates.push(path.join(__dirname, '../public/wc-registry.json'));
     }
     else {
-      wcPath = path.join(base, "wc-registry.json");
+      wcPathCandidates.push(path.join(base, 'wc-registry.json'));
+    }
+    for (const candidatePath of wcPathCandidates) {
+      if (fs.existsSync(candidatePath)) {
+        wcPath = candidatePath;
+        break;
+      }
     }
     // support private IP space which will block this ever going through
-    if (!process.env.IAM_PRIVATE_ADDRESS_SPACE) {
-      wcMap = JSON.parse(fs.readFileSync(wcPath),
-      {encoding:'utf8', flag:'r'}, 'utf8');
+    if (!process.env.IAM_PRIVATE_ADDRESS_SPACE && wcPath) {
+      try {
+        wcMap = JSON.parse(fs.readFileSync(wcPath, { encoding: 'utf8', flag: 'r' }));
+      }
+      catch (e) {
+        wcMap = {};
+      }
     }
     return wcMap;
   }

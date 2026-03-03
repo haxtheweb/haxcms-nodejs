@@ -99,7 +99,13 @@ async function createSite(req, res) {
     schema.slug = schema.location;
     schema.metadata = {
         site: {},
-        theme: {}
+        theme: {},
+        // platform settings scaffold (prevents front-end null handling)
+        platform: {
+          audience: 'expert',
+          features: {},
+          allowedBlocks: []
+        }
     }
     // store build data in case we need it down the road
     schema.metadata.build = build;

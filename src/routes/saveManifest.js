@@ -51,6 +51,12 @@ const fs = require('fs-extra');
         form = HAXCMS.loadForm(req.body['haxcms_form_id'], context);
       }*/
       if (HAXCMS.validateRequestToken(req.body['haxcms_form_token'], req.body['haxcms_form_id'])) {
+        // preserve platform settings regardless of what the client sends
+        // (platform settings are saved via savePlatformSettings)
+        const existingPlatform = site.manifest && site.manifest.metadata
+          ? site.manifest.metadata.platform
+          : null;
+
         site.manifest.title = req.body['manifest']['site']['manifest-title'].replace(/<\/?[^>]+(>|$)/g, "");
         site.manifest.description = req.body['manifest']['site']['manifest-description'].replace(/<\/?[^>]+(>|$)/g, "");
         // store some version data here just so we can find it later
@@ -247,6 +253,14 @@ const fs = require('fs-extra');
             delete site.manifest.metadata.site.homePageId;
           }
         }
+        // ensure platform exists; do not overwrite existing platform settings
+        if (!site.manifest.metadata.platform) {
+          site.manifest.metadata.platform = {};
+        }
+        if (existingPlatform) {
+          site.manifest.metadata.platform = existingPlatform;
+        }
+
         site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
         // don't reorganize the structure
         await site.manifest.save(false);
