@@ -45,31 +45,25 @@ async function getSkeleton(req, res) {
   const fileName = safeName.endsWith('.json') ? safeName : `${safeName}.json`;
 
   // directories to search for skeleton files
-  const dirs = [];
-  // coreConfig provides built-in skeletons consistent with other core definitions
-  const coreDir = path.join(HAXCMS.coreConfigPath, 'skeletons');
-  // _config location still participates in the cascade for overrides
-  const configDir = path.join(HAXCMS.HAXCMS_ROOT, '_config', 'skeletons');
-  
-  if (await fs.pathExists(coreDir)) {
-    dirs.push(coreDir);
-  }
-  if (await fs.pathExists(configDir)) {
-    dirs.push(configDir);
-  }
+  // precedence: user > config (deployment) > core
+  const dirs = [
+    path.join(HAXCMS.configDirectory, 'user', 'skeletons'),
+    path.join(HAXCMS.configDirectory, 'skeletons'),
+    path.join(HAXCMS.coreConfigPath, 'skeletons'),
+  ];
 
   // Search for the skeleton file
   for (const dir of dirs) {
     const filePath = path.join(dir, fileName);
-    
+
     if (await fs.pathExists(filePath)) {
       try {
         const json = await fs.readFile(filePath, 'utf8');
         const skeleton = JSON.parse(json);
-        
+
         return res.json({
           status: 200,
-          data: skeleton
+          data: skeleton,
         });
       } catch (parseError) {
         return res.status(500).json({

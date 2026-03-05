@@ -26,95 +26,119 @@ async function skeletonsList(req, res) {
   }
 
   const items = [];
-  // directories to scan for JSON skeleton definitions
-  const dirs = [];
-  // built-in skeletons now live under coreConfig/skeletons like other core config
-  const coreDir = path.join(HAXCMS.coreConfigPath, 'skeletons');
-  // _config location remains in the cascade for overrides / custom skeletons
-  const configDir = path.join(HAXCMS.HAXCMS_ROOT, '_config', 'skeletons');
-  
-  if (await fs.pathExists(coreDir)) {
-    dirs.push(coreDir);
-  }
-  if (await fs.pathExists(configDir)) {
-    dirs.push(configDir);
-  }
+  const seen = new Set();
 
-  for (const dir of dirs) {
+  // directories to scan for JSON skeleton definitions
+  // precedence: user > config (deployment) > core
+  const dirs = [
+    {
+      scope: 'user',
+      dir: path.join(HAXCMS.configDirectory, 'user', 'skeletons'),
+    },
+    {
+      scope: 'config',
+      dir: path.join(HAXCMS.configDirectory, 'skeletons'),
+    },
+    {
+      scope: 'core',
+      dir: path.join(HAXCMS.coreConfigPath, 'skeletons'),
+    },
+  ];
+
+  for (const entry of dirs) {
+    const dir = entry.dir;
+    const scope = entry.scope;
+
+    if (!(await fs.pathExists(dir))) {
+      continue;
+    }
+
     try {
       const files = await fs.readdir(dir);
-      
+
       for (const file of files) {
         if (file === '.' || file === '..') continue;
-        
+
         const filePath = path.join(dir, file);
         const stats = await fs.stat(filePath);
-        
-        if (stats.isFile() && path.extname(file).toLowerCase() === '.json') {
-          try {
-            const json = await fs.readFile(filePath, 'utf8');
-            const skeleton = JSON.parse(json);
-            
-            if (typeof skeleton !== 'object') continue;
-            
-            // Accept flexible export structures; derive meta fields
-            const meta = skeleton.meta || {};
-            const title = meta.useCaseTitle || meta.name || path.basename(file, '.json');
-            const description = meta.useCaseDescription || meta.description || '';
-            const image = meta.useCaseImage || '';
 
-            // priority: negative floats to the top, positive sinks
-            let priority = 0;
-            if (typeof meta.priority !== 'undefined') {
-              const num = Number(meta.priority);
-              if (Number.isFinite(num)) {
-                priority = num;
-              }
+        if (!(stats.isFile() && path.extname(file).toLowerCase() === '.json')) {
+          continue;
+        }
+
+        const skeletonName = path.basename(file, '.json');
+        // "default-starter" is a shared internal fallback skeleton that
+        // many generic themes point at behind the scenes. It should not
+        // appear in the public list of selectable skeletons.
+        if (skeletonName === 'default-starter') {
+          continue;
+        }
+
+        // de-dupe by machineName using precedence order above
+        if (seen.has(skeletonName)) {
+          continue;
+        }
+
+        try {
+          const json = await fs.readFile(filePath, 'utf8');
+          const skeleton = JSON.parse(json);
+
+          if (typeof skeleton !== 'object') continue;
+
+          // Accept flexible export structures; derive meta fields
+          const meta = skeleton.meta || {};
+          const title = meta.useCaseTitle || meta.name || skeletonName;
+          const description = meta.useCaseDescription || meta.description || '';
+          const image = meta.useCaseImage || '';
+
+          // priority: negative floats to the top, positive sinks
+          let priority = 0;
+          if (typeof meta.priority !== 'undefined') {
+            const num = Number(meta.priority);
+            if (Number.isFinite(num)) {
+              priority = num;
             }
-            
-            // categories/tags from meta or build type if present
-            let category = [];
-            if (Array.isArray(meta.category)) {
-              category = meta.category;
-            } else if (Array.isArray(meta.tags)) {
-              category = meta.tags;
-            }
-            
-            // attributes/icons optional in meta
-            const attributes = Array.isArray(meta.attributes) ? meta.attributes : [];
-            
-            // demo/source url optional
-            const demo = meta.sourceUrl || '#';
-            
-            // Build API URL to fetch skeleton content with user_token
-            const skeletonName = path.basename(file, '.json');
-            // "default-starter" is a shared internal fallback skeleton that
-            // many generic themes point at behind the scenes. It should not
-            // appear in the public list of selectable skeletons.
-            if (skeletonName === 'default-starter') {
-              continue;
-            }
-            const baseAPIPath = HAXCMS.basePath + HAXCMS.systemRequestBase;
-            const userToken = req.query.user_token;
-            const skeletonUrl = `${baseAPIPath}getSkeleton?name=${encodeURIComponent(skeletonName)}&user_token=${encodeURIComponent(userToken)}`;
-            
-            items.push({
-              title: title,
-              description: description,
-              image: image,
-              priority: priority,
-              category: category,
-              attributes: attributes,
-              // repeat machine name explicitly so UIs don't have to infer it from skeleton-url
-              machineName: skeletonName,
-              'machine-name': skeletonName,
-              'demo-url': demo,
-              'skeleton-url': skeletonUrl
-            });
-          } catch (parseError) {
-            // Skip invalid JSON files
-            console.warn(`Failed to parse skeleton file ${file}:`, parseError.message);
           }
+
+          // categories/tags from meta or build type if present
+          let category = [];
+          if (Array.isArray(meta.category)) {
+            category = meta.category;
+          } else if (Array.isArray(meta.tags)) {
+            category = meta.tags;
+          }
+
+          // attributes/icons optional in meta
+          const attributes = Array.isArray(meta.attributes) ? meta.attributes : [];
+
+          // demo/source url optional
+          const demo = meta.sourceUrl || '#';
+
+          // Build API URL to fetch skeleton content with user_token
+          const baseAPIPath = HAXCMS.basePath + HAXCMS.systemRequestBase;
+          const userToken = req.query.user_token;
+          const skeletonUrl = `${baseAPIPath}getSkeleton?name=${encodeURIComponent(skeletonName)}&user_token=${encodeURIComponent(userToken)}`;
+
+          items.push({
+            title: title,
+            description: description,
+            image: image,
+            priority: priority,
+            category: category,
+            attributes: attributes,
+            // indicate which directory it came from
+            scope: scope,
+            // repeat machine name explicitly so UIs don't have to infer it from skeleton-url
+            machineName: skeletonName,
+            'machine-name': skeletonName,
+            'demo-url': demo,
+            'skeleton-url': skeletonUrl,
+          });
+
+          seen.add(skeletonName);
+        } catch (parseError) {
+          // Skip invalid JSON files
+          console.warn(`Failed to parse skeleton file ${file}:`, parseError.message);
         }
       }
     } catch (readError) {

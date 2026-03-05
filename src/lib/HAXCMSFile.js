@@ -4,6 +4,71 @@ const Axios = require('axios')
 const { HAXCMS } = require('./HAXCMS.js');
 const mime = require('mime');
 const sharp = require('sharp');
+
+const ALLOWED_UPLOAD_EXTENSION_PATTERN = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i;
+const EXECUTABLE_FILE_EXTENSIONS = [
+  'php',
+  'php3',
+  'php4',
+  'php5',
+  'php7',
+  'php8',
+  'phtml',
+  'phar',
+  'phpt',
+  'cgi',
+  'pl',
+  'py',
+  'rb',
+  'sh',
+  'bash',
+  'zsh',
+  'ksh',
+  'csh',
+  'tcsh',
+  'asp',
+  'aspx',
+  'jsp',
+  'exe',
+  'dll',
+  'com',
+  'bat',
+  'cmd',
+  'msi'
+];
+
+function stripExecutableExtensionPatterns(fileName) {
+  if (!fileName || typeof fileName !== 'string') {
+    return '';
+  }
+  const parsedName = path.parse(fileName);
+  const parts = parsedName.base.split('.');
+  if (parts.length <= 1) {
+    return parsedName.base;
+  }
+  const safeParts = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part) {
+      continue;
+    }
+    if (i > 0) {
+      const normalizedPart = part.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (EXECUTABLE_FILE_EXTENSIONS.includes(normalizedPart)) {
+        continue;
+      }
+    }
+    safeParts.push(part);
+  }
+  if (!safeParts.length) {
+    return '';
+  }
+  const sanitizedBaseName = safeParts.join('.');
+  if (parsedName.dir && parsedName.dir !== '.') {
+    return path.join(parsedName.dir, sanitizedBaseName);
+  }
+  return sanitizedBaseName;
+}
 // a site object
 class HAXCMSFile
 {
@@ -22,16 +87,16 @@ class HAXCMSFile
       if (!fs.existsSync(pathPart)) {
         fs.mkdirSync(pathPart);
       }
-      let newFilename = tmpFile.originalname.replace(/[/\\?%*:|"<>\s]/g, '-');
-      const { name, ext } = path.parse(newFilename);
-      let counter = 1;
-      while (fs.existsSync(path.join(pathPart, newFilename))) {
-        newFilename = `${name}_${counter}${ext}`;
-        counter++;
+      let incomingName = '';
+      if (tmpFile.originalname) {
+        incomingName = tmpFile.originalname;
       }
-
+      else if (tmpFile.name) {
+        incomingName = tmpFile.name;
+      }
+      let sanitizedIncomingName = stripExecutableExtensionPatterns(incomingName);
       // ensure file is an image, video, docx, pdf, etc. of safe file types to allow uploading
-      if (!tmpFile.name.match(/.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i)) {
+      if (!sanitizedIncomingName || !ALLOWED_UPLOAD_EXTENSION_PATTERN.test(sanitizedIncomingName)) {
         return {
           'status' : 500,
           '__failed' : {
@@ -39,6 +104,13 @@ class HAXCMSFile
             'message' : 'File type not allowed',
           }
         };
+      }
+      let newFilename = sanitizedIncomingName.replace(/[\/\\?%*:|"<>]/g, '-').replace(/\s+/g, '-');
+      const { name, ext } = path.parse(newFilename);
+      let counter = 1;
+      while (fs.existsSync(path.join(pathPart, newFilename))) {
+        newFilename = `${name}_${counter}${ext}`;
+        counter++;
       }
       let fullpath = path.join(pathPart, newFilename);
       try {
@@ -103,10 +175,10 @@ class HAXCMSFile
                 'fullUrl' :
                     HAXCMS.basePath +
                     pathPart +
-                    tmpFile['name'],
-                'url': 'files/' + tmpFile['name'],
+                    newFilename,
+                'url': 'files/' + newFilename,
                 'type': mime.getType(fullpath),
-                'name': tmpFile['name'],
+                'name': newFilename,
                 'size': tmpFile['size']
             }
         };

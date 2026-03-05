@@ -2,6 +2,45 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
 const GitPlus = require('../lib/GitPlus.js');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
 const HAXCMSFile = require('../lib/HAXCMSFile.js');
+const path = require('path');
+
+const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i;
+
+function normalizeBulkImportName(locationName) {
+  if (typeof locationName !== 'string') {
+    return null;
+  }
+  let normalized = locationName.trim().replace(/\\/g, '/').replace(/^files\//, '');
+  if (
+    normalized === '' ||
+    normalized.indexOf('\0') !== -1 ||
+    normalized.startsWith('/') ||
+    normalized.includes('..')
+  ) {
+    return null;
+  }
+  const parts = normalized.split('/');
+  for (const part of parts) {
+    if (part === '' || part === '.' || part === '..') {
+      return null;
+    }
+  }
+  return normalized;
+}
+
+function isSafeBulkImportSourcePath(sourcePath) {
+  if (typeof sourcePath !== 'string') {
+    return false;
+  }
+  const normalizedSource = sourcePath.trim();
+  if (normalizedSource === '' || normalizedSource.indexOf('\0') !== -1) {
+    return false;
+  }
+  if (/^https?:\/\//i.test(normalizedSource)) {
+    return true;
+  }
+  return path.isAbsolute(normalizedSource);
+}
 
 /**
    * @OA\Post(
@@ -180,10 +219,25 @@ async function createSite(req, res) {
     if (filesToDownload && typeof filesToDownload === 'object') {
       for (var locationName in filesToDownload) {
         let downloadLocation = filesToDownload[locationName];
+        const normalizedImportName = normalizeBulkImportName(locationName);
+        if (
+          !normalizedImportName ||
+          !SAFE_BULK_IMPORT_EXTENSION_REGEX.test(normalizedImportName) ||
+          !isSafeBulkImportSourcePath(downloadLocation)
+        ) {
+          return res.status(400).send({
+            status: 400,
+            __failed: {
+              status: 400,
+              message: 'Invalid file import payload in build.files',
+              file: locationName
+            }
+          });
+        }
         let file = new HAXCMSFile();
         // check for a file upload; we block a few formats by design
         await file.save({
-          "name": locationName.replace('files/',''),
+          "name": normalizedImportName,
           "tmp_name": downloadLocation,
           "path": downloadLocation,
           "bulk-import": true

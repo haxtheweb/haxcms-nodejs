@@ -1793,6 +1793,22 @@ class HAXCMSClass {
     ];
 
     this.configDirectory = discoverConfigPath;
+    // ensure expected config directories exist (mirrors PHP _config behavior)
+    // - skeletons: deployment-level overrides
+    // - user/skeletons: per-user skeletons created via UI
+    try {
+      const skelDir = path.join(this.configDirectory, 'skeletons');
+      const userSkelDir = path.join(this.configDirectory, 'user', 'skeletons');
+      if (!fs.existsSync(skelDir)) {
+        fs.mkdirSync(skelDir, { recursive: true });
+      }
+      if (!fs.existsSync(userSkelDir)) {
+        fs.mkdirSync(userSkelDir, { recursive: true });
+      }
+    }
+    catch (e) {
+      // non-fatal; directory creation can fail in some locked-down environments
+    }
     // these are relative to the current path
     this.coreConfigPath = __dirname + '/../coreConfig/';
     this.boilerplatePath = __dirname + '/../boilerplate/';
