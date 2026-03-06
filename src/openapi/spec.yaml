@@ -46,15 +46,76 @@ paths:
       operationId: 'Operations::saveManifest'
       parameters:
         -
-          name: jwt
+          name: site_token
           in: query
-          description: 'JSON Web token, obtain by using  /login'
+          description: 'Site-specific validation token'
           required: true
           schema:
             type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - site
+                - manifest
+                - haxcms_form_id
+                - haxcms_form_token
+              properties:
+                site:
+                  type: object
+                manifest:
+                  type: object
+                haxcms_form_id:
+                  type: string
+                haxcms_form_token:
+                  type: string
+              type: object
       responses:
         '200':
           description: 'Save the manifest of the site'
+  /savePlatformSettings:
+    post:
+      tags:
+        - cms
+        - authenticated
+      operationId: 'Operations::savePlatformSettings'
+      parameters:
+        -
+          name: site_token
+          in: query
+          description: 'Site-specific validation token'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - site
+                - platform
+              properties:
+                site:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                platform:
+                  type: object
+                  properties:
+                    audience:
+                      type: string
+                    features:
+                      type: object
+                    allowedBlocks:
+                      type: array
+                      items:
+                        type: string
+              type: object
+      responses:
+        '200':
+          description: 'Save platform settings into site.json metadata.platform'
   /saveOutline:
     post:
       tags:
@@ -64,12 +125,70 @@ paths:
       operationId: 'Operations::saveOutline'
       parameters:
         -
-          name: jwt
+          name: site_token
           in: query
-          description: 'JSON Web token, obtain by using  /login'
+          description: 'Site-specific validation token'
           required: true
           schema:
             type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - site
+                - items
+              properties:
+                site:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                items:
+                  type: array
+                  items:
+                    type: object
+                    description: 'Outline items to save. Page write location is backend-controlled by page id.'
+                    properties:
+                      id:
+                        type: string
+                      title:
+                        type: string
+                      parent:
+                        type: string
+                      indent:
+                        type: number
+                      order:
+                        type: number
+                      slug:
+                        type: string
+                      metadata:
+                        type: object
+                      duplicate:
+                        type: string
+                      contents:
+                        type: string
+                      delete:
+                        type: boolean
+              type: object
+              example:
+                site:
+                  name: mysite
+                items:
+                  -
+                    id: item-123
+                    title: 'Unit 1'
+                    parent: null
+                    indent: 0
+                    order: 0
+                    metadata: {}
+                  -
+                    id: item-456
+                    title: 'Unit 1 copy'
+                    duplicate: item-123
+                    parent: null
+                    indent: 0
+                    order: 1
       responses:
         '200':
           description: 'Save an entire site outline'
@@ -82,9 +201,9 @@ paths:
       operationId: 'Operations::saveNode'
       parameters:
         -
-          name: jwt
+          name: site_token
           in: query
-          description: 'JSON Web token, obtain by using  /login'
+          description: 'Site-specific validation token'
           required: true
           schema:
             type: string
@@ -100,9 +219,9 @@ paths:
       operationId: 'Operations::deleteNode'
       parameters:
         -
-          name: jwt
+          name: site_token
           in: query
-          description: 'JSON Web token, obtain by using  /login'
+          description: 'Site-specific validation token'
           required: true
           schema:
             type: string
@@ -116,14 +235,18 @@ paths:
         - authenticated
         - meta
       operationId: 'Operations::siteUpdateAlternateFormats'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - site
+              properties:
+                site:
+                  type: object
+                format:
+                  type: string
+              type: object
       responses:
         '200':
           description: 'Update the alternative formats surrounding a site'
@@ -162,9 +285,9 @@ paths:
       operationId: 'Operations::getUserData'
       parameters:
         -
-          name: jwt
+          name: user_token
           in: query
-          description: 'JSON Web token, obtain by using  /login'
+          description: 'User validation token'
           required: true
           schema:
             type: string
@@ -178,14 +301,23 @@ paths:
         - authenticated
         - form
       operationId: 'Operations::formLoad'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - token
+                - haxcms_form_id
+              properties:
+                token:
+                  type: string
+                haxcms_form_id:
+                  type: string
+                site:
+                  type: object
+                node:
+                  type: object
+              type: object
       responses:
         '200':
           description: 'Load a form based on ID'
@@ -196,14 +328,23 @@ paths:
         - authenticated
         - form
       operationId: 'Operations::formProcess'
-      parameters:
-        -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - haxcms_form_id
+                - haxcms_form_token
+              properties:
+                haxcms_form_id:
+                  type: string
+                haxcms_form_token:
+                  type: string
+                site:
+                  type: object
+                node:
+                  type: object
+              type: object
       responses:
         '200':
           description: 'Process a form based on ID and input data'
@@ -216,9 +357,9 @@ paths:
       operationId: 'Operations::listFiles'
       parameters:
         -
-          name: jwt
+          name: site_token
           in: query
-          description: 'JSON Web token, obtain by using  /login'
+          description: 'Site-specific validation token'
           required: true
           schema:
             type: string
@@ -232,23 +373,21 @@ paths:
         - user
       description: 'Attempt a user login'
       operationId: 'Operations::login'
-      parameters:
-        -
-          name: u
-          in: query
-          description: 'User name'
-          required: true
-          schema:
-            type: string
-          example: admin
-        -
-          name: p
-          in: query
-          description: Password
-          required: true
-          schema:
-            type: string
-          example: admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                jwt:
+                  type: string
+              type: object
+              example:
+                username: admin
+                password: admin
       responses:
         '200':
           description: 'JWT token as response'
@@ -335,9 +474,9 @@ paths:
       operationId: 'Operations::cloneSite'
       parameters:
         -
-          name: jwt
+          name: user_token
           in: query
-          description: 'JSON Web token, obtain by using  /login'
+          description: 'User validation token'
           required: true
           schema:
             type: string
@@ -367,9 +506,9 @@ paths:
       operationId: 'Operations::downloadSite'
       parameters:
         -
-          name: jwt
+          name: user_token
           in: query
-          description: 'JSON Web token, obtain by using  /login'
+          description: 'User validation token'
           required: true
           schema:
             type: string
@@ -398,9 +537,9 @@ paths:
       operationId: 'Operations::archiveSite'
       parameters:
         -
-          name: jwt
+          name: user_token
           in: query
-          description: 'JSON Web token, obtain by using  /login'
+          description: 'User validation token'
           required: true
           schema:
             type: string
@@ -429,13 +568,6 @@ paths:
       operationId: 'Operations::createSite'
       parameters:
         -
-          name: jwt
-          in: query
-          description: 'JSON Web token, obtain by using  /login'
-          required: true
-          schema:
-            type: string
-        -
           name: user_token
           in: query
           description: 'User validation token'
@@ -448,7 +580,7 @@ paths:
             schema:
               required:
                 - site
-                - theme
+                - token
               properties:
                 site:
                   type: object
@@ -500,6 +632,37 @@ paths:
       responses:
         '200':
           description: 'Create a new site'
+  /saveNodeDetails:
+    post:
+      tags:
+        - cms
+        - authenticated
+        - node
+      operationId: 'Operations::saveNodeDetails'
+      parameters:
+        -
+          name: site_token
+          in: query
+          description: 'Site-specific validation token'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - site
+                - node
+              properties:
+                site:
+                  type: object
+                node:
+                  type: object
+              type: object
+      responses:
+        '200':
+          description: 'Perform a singular node operation'
   /createNode:
     post:
       tags:

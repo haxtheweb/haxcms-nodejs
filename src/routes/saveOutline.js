@@ -173,12 +173,7 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
         if (!expectedLocation) {
           return saveOutlineError(res, 400, 'invalid page location');
         }
-        if (typeof item.location !== 'undefined' && item.location != '') {
-          let requestedLocation = normalizeOutlineLocation(item.location);
-          if (!requestedLocation || requestedLocation != expectedLocation) {
-            return saveOutlineError(res, 400, 'location does not match page id');
-          }
-        }
+        // location is backend-controlled based on page id, ignore client input
         if (!getValidatedWritePath(site.siteDirectory, expectedLocation)) {
           return saveOutlineError(res, 400, 'invalid write target');
         }
