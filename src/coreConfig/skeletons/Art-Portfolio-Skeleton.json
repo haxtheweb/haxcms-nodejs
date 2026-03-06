@@ -6,7 +6,7 @@
       "created": "2026-02-09T16:56:56.978Z",
       "type": "skeleton",
       "sourceUrl": "http://php.ddev.site/sites/art-portfolio-skeleton-3/index",
-      "useCaseTitle": "Art Portfolio Usecase",
+      "useCaseTitle": "Art Portfolio",
       "useCaseDescription": "Art portfolio theme skeleton use case",
       "useCaseImage": "@haxtheweb/haxcms-elements/lib/theme-screenshots/theme-clean-portfolio-theme-thumb.jpg",
       "category": ["Website"],

@@ -2,6 +2,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
 const GitPlus = require('../lib/GitPlus.js');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
 const HAXCMSFile = require('../lib/HAXCMSFile.js');
+const fs = require('fs-extra');
 const path = require('path');
 
 const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i;
@@ -40,6 +41,185 @@ function isSafeBulkImportSourcePath(sourcePath) {
     return true;
   }
   return path.isAbsolute(normalizedSource);
+}
+
+function normalizeSkeletonMachineName(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.replace(/\.json$/i, '').trim().toLowerCase();
+}
+
+async function resolveSkeletonBuildByMachineName(machineName) {
+  const normalizedTarget = normalizeSkeletonMachineName(machineName);
+  if (normalizedTarget === '') {
+    return null;
+  }
+  const dirs = [
+    path.join(HAXCMS.configDirectory, 'user', 'skeletons'),
+    path.join(HAXCMS.configDirectory, 'skeletons'),
+    path.join(HAXCMS.coreConfigPath, 'skeletons')
+  ];
+  for (const dir of dirs) {
+    if (!(await fs.pathExists(dir))) {
+      continue;
+    }
+    const files = await fs.readdir(dir);
+    for (const file of files) {
+      if (path.extname(file).toLowerCase() !== '.json') {
+        continue;
+      }
+      const filePath = path.join(dir, file);
+      let skeleton;
+      try {
+        skeleton = JSON.parse(await fs.readFile(filePath, 'utf8'));
+      }
+      catch (e) {
+        continue;
+      }
+      const normalizedFileName = normalizeSkeletonMachineName(
+        path.basename(file, '.json')
+      );
+      const normalizedMetaMachineName = normalizeSkeletonMachineName(
+        skeleton && skeleton.meta && typeof skeleton.meta.machineName === 'string'
+          ? skeleton.meta.machineName
+          : ''
+      );
+      const normalizedMetaName = normalizeSkeletonMachineName(
+        skeleton && skeleton.meta && typeof skeleton.meta.name === 'string'
+          ? skeleton.meta.name
+          : ''
+      );
+      if (
+        normalizedTarget === normalizedFileName ||
+        normalizedTarget === normalizedMetaMachineName ||
+        normalizedTarget === normalizedMetaName
+      ) {
+        return {
+          filePath,
+          skeleton,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function isObjectLike(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function cloneJsonValue(value, fallback = null) {
+  if (typeof value === 'undefined' || value === null) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  }
+  catch (e) {
+    return fallback;
+  }
+}
+
+function getTrustedSkeletonSettings(skeleton) {
+  if (!isObjectLike(skeleton)) {
+    return null;
+  }
+  if (isObjectLike(skeleton.site) && isObjectLike(skeleton.site.settings)) {
+    return cloneJsonValue(skeleton.site.settings, null);
+  }
+  if (isObjectLike(skeleton._skeleton) && isObjectLike(skeleton._skeleton.originalSettings)) {
+    return cloneJsonValue(skeleton._skeleton.originalSettings, null);
+  }
+  if (
+    isObjectLike(skeleton._skeleton) &&
+    isObjectLike(skeleton._skeleton.originalMetadata) &&
+    isObjectLike(skeleton._skeleton.originalMetadata.site) &&
+    isObjectLike(skeleton._skeleton.originalMetadata.site.settings)
+  ) {
+    return cloneJsonValue(skeleton._skeleton.originalMetadata.site.settings, null);
+  }
+  return null;
+}
+
+function getTrustedSkeletonPlatform(skeleton) {
+  if (!isObjectLike(skeleton)) {
+    return null;
+  }
+  if (isObjectLike(skeleton.site) && isObjectLike(skeleton.site.platform)) {
+    return cloneJsonValue(skeleton.site.platform, null);
+  }
+  if (
+    isObjectLike(skeleton._skeleton) &&
+    isObjectLike(skeleton._skeleton.originalMetadata) &&
+    isObjectLike(skeleton._skeleton.originalMetadata.platform)
+  ) {
+    return cloneJsonValue(skeleton._skeleton.originalMetadata.platform, null);
+  }
+  return null;
+}
+
+function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
+  if (!isObjectLike(skeleton)) {
+    return null;
+  }
+  let theme = null;
+  if (
+    isObjectLike(skeleton._skeleton) &&
+    isObjectLike(skeleton._skeleton.fullThemeConfig)
+  ) {
+    const fullThemeConfig = skeleton._skeleton.fullThemeConfig;
+    let themeBase = {};
+    if (isObjectLike(fullThemeConfig.settings)) {
+      themeBase = cloneJsonValue(fullThemeConfig.settings, {});
+    }
+    if (
+      typeof fullThemeConfig.element === 'string' &&
+      fullThemeConfig.element !== ''
+    ) {
+      themeBase.element = fullThemeConfig.element;
+    }
+    if (isObjectLike(fullThemeConfig.variables)) {
+      themeBase.variables = cloneJsonValue(fullThemeConfig.variables, {});
+    }
+    theme = themeBase;
+  }
+  const skeletonThemeElement =
+    isObjectLike(skeleton.site) &&
+    typeof skeleton.site.theme === 'string' &&
+    skeleton.site.theme !== ''
+      ? skeleton.site.theme
+      : '';
+  if (
+    (!isObjectLike(theme) || Object.keys(theme).length === 0) &&
+    skeletonThemeElement &&
+    isObjectLike(themesAry[skeletonThemeElement])
+  ) {
+    theme = cloneJsonValue(themesAry[skeletonThemeElement], {});
+  }
+  if ((!isObjectLike(theme) || Object.keys(theme).length === 0) && isObjectLike(skeleton.theme)) {
+    theme = cloneJsonValue(skeleton.theme, {});
+  }
+  if (!isObjectLike(theme) || Object.keys(theme).length === 0) {
+    return null;
+  }
+  if (!theme.element && skeletonThemeElement) {
+    theme.element = skeletonThemeElement;
+  }
+  if (
+    !theme.element &&
+    typeof theme.path === 'string' &&
+    theme.path !== ''
+  ) {
+    const inferredElement = path.basename(theme.path, '.js');
+    if (inferredElement) {
+      theme.element = inferredElement;
+    }
+  }
+  if (!isObjectLike(theme.variables)) {
+    theme.variables = {};
+  }
+  return theme;
 }
 
 /**
@@ -100,6 +280,8 @@ async function createSite(req, res) {
     // null in the event we get hits that don't have this
     let build = null;
     let filesToDownload = null;
+    let trustedSkeleton = null;
+    let trustedSkeletonFilePath = null;
     // support for build info. the details used to actually create this site originally
     if (req.body['build']) {
       build = {};
@@ -116,7 +298,54 @@ async function createSite(req, res) {
       if (req.body['build']['files']) {
         filesToDownload = req.body['build']['files'];
       }
+      const isFromSkeleton =
+        build.structure === 'from-skeleton' &&
+        req.body['build']['skeletonMachineName'] &&
+        typeof req.body['build']['skeletonMachineName'] === 'string';
+      if (isFromSkeleton) {
+        const resolvedSkeleton = await resolveSkeletonBuildByMachineName(
+          req.body['build']['skeletonMachineName']
+        );
+        if (!resolvedSkeleton || !resolvedSkeleton.skeleton) {
+          return res.status(400).send({
+            status: 400,
+            __failed: {
+              status: 400,
+              message: 'Unable to resolve skeletonMachineName for from-skeleton build',
+              skeletonMachineName: req.body['build']['skeletonMachineName'],
+            }
+          });
+        }
+        trustedSkeleton = resolvedSkeleton.skeleton;
+        trustedSkeletonFilePath = resolvedSkeleton.filePath;
+        const trustedBuild = isObjectLike(trustedSkeleton.build)
+          ? trustedSkeleton.build
+          : {};
+        if (typeof trustedBuild.structure === 'string' && trustedBuild.structure !== '') {
+          build.structure = trustedBuild.structure;
+        }
+        if (typeof trustedBuild.type === 'string' && trustedBuild.type !== '') {
+          build.type = trustedBuild.type;
+        }
+        build.items = Array.isArray(trustedBuild.items) ? trustedBuild.items : [];
+        if (trustedBuild.files && typeof trustedBuild.files === 'object') {
+          filesToDownload = trustedBuild.files;
+        }
+      }
     }
+    const buildDebug = {
+      structure: build && build.structure ? build.structure : null,
+      type: build && build.type ? build.type : null,
+      skeletonMachineName: req.body && req.body['build'] && req.body['build']['skeletonMachineName'] ? req.body['build']['skeletonMachineName'] : null,
+      hasItems: !!(build && Array.isArray(build.items) && build.items.length > 0),
+      itemCount: build && Array.isArray(build.items) ? build.items.length : 0,
+      hasFiles: !!(filesToDownload && typeof filesToDownload === 'object' && Object.keys(filesToDownload).length > 0),
+      fileCount: filesToDownload && typeof filesToDownload === 'object' ? Object.keys(filesToDownload).length : 0
+    };
+    const useTrustedSkeleton =
+      build &&
+      build.structure === 'from-skeleton' &&
+      isObjectLike(trustedSkeleton);
     // sanitize name
     let name = HAXCMS.generateMachineName(req.body['site']['name']);
     let site = await HAXCMS.loadSite(
@@ -137,60 +366,145 @@ async function createSite(req, res) {
         '/index.html';
     schema.slug = schema.location;
     schema.metadata = {
-        site: {},
-        theme: {},
-        // platform settings scaffold (prevents front-end null handling)
-        platform: {
-          audience: 'expert',
-          features: {},
-          allowedBlocks: []
-        }
+      site: {},
+      theme: {},
+    };
+    if (useTrustedSkeleton) {
+      const trustedPlatform = getTrustedSkeletonPlatform(trustedSkeleton);
+      if (isObjectLike(trustedPlatform)) {
+        schema.metadata.platform = trustedPlatform;
+      }
+    }
+    if (!isObjectLike(schema.metadata.platform)) {
+      // platform settings scaffold (prevents front-end null handling)
+      schema.metadata.platform = {
+        audience: 'expert',
+        features: {},
+        allowedBlocks: []
+      };
     }
     // store build data in case we need it down the road
-    schema.metadata.build = build;
+    if (build && !useTrustedSkeleton) {
+      schema.metadata.build = build;
+    }
     schema.metadata.site.name = site.manifest.metadata.site.name;
     let theme = HAXCMS.HAXCMS_DEFAULT_THEME;
-    if (req.body['site']['theme'] && typeof req.body['site']['theme'] === "string") {
+    if (
+      useTrustedSkeleton &&
+      trustedSkeleton &&
+      trustedSkeleton.site &&
+      typeof trustedSkeleton.site.theme === 'string' &&
+      trustedSkeleton.site.theme !== ''
+    ) {
+      theme = trustedSkeleton.site.theme;
+    }
+    else if (req.body['site']['theme'] && typeof req.body['site']['theme'] === "string") {
       theme = req.body['site']['theme'];
     }
     let themesAry = HAXCMS.getThemes();
-    // look for a match so we can set the correct data
-    for (var key in themesAry) {
-      if (theme == key) {
-        schema.metadata.theme = themesAry[key];
+    if (useTrustedSkeleton) {
+      const trustedTheme = getTrustedSkeletonTheme(trustedSkeleton, themesAry);
+      if (isObjectLike(trustedTheme)) {
+        schema.metadata.theme = trustedTheme;
       }
     }
-    schema.metadata.theme.variables = {};
+    // look for a match so we can set the correct data
+    if (!isObjectLike(schema.metadata.theme) || Object.keys(schema.metadata.theme).length === 0) {
+      for (var key in themesAry) {
+        if (theme == key) {
+          schema.metadata.theme = cloneJsonValue(themesAry[key], themesAry[key]);
+        }
+      }
+    }
+    if (!isObjectLike(schema.metadata.theme)) {
+      schema.metadata.theme = {};
+    }
+    if (!isObjectLike(schema.metadata.theme.variables)) {
+      schema.metadata.theme.variables = {};
+    }
     // description for an overview if desired
     if (req.body['site']['description'] && req.body['site']['description'] != '' && req.body['site']['description'] != null) {
         schema.description = req.body['site']['description'].replace(/<\/?[^>]+(>|$)/g, "");
     }
+    else if (
+      useTrustedSkeleton &&
+      trustedSkeleton &&
+      trustedSkeleton.site &&
+      trustedSkeleton.site.description &&
+      typeof trustedSkeleton.site.description === 'string'
+    ) {
+      schema.description = trustedSkeleton.site.description.replace(/<\/?[^>]+(>|$)/g, "");
+    }
+    const incomingTheme =
+      req.body &&
+      req.body['theme'] &&
+      typeof req.body['theme'] === 'object'
+        ? req.body['theme']
+        : {};
     // background image / banner
-    if (req.body['theme']['image'] && req.body['theme']['image'] != '' && req.body['theme']['image'] != null) {
-      schema.metadata.site.logo = req.body['theme']['image'];
+    if (incomingTheme['image'] && incomingTheme['image'] != '' && incomingTheme['image'] != null) {
+      schema.metadata.site.logo = incomingTheme['image'];
+    }
+    else if (
+      useTrustedSkeleton &&
+      trustedSkeleton &&
+      trustedSkeleton.site &&
+      trustedSkeleton.site.logo &&
+      typeof trustedSkeleton.site.logo === 'string'
+    ) {
+      schema.metadata.site.logo = trustedSkeleton.site.logo;
     }
     else {
       schema.metadata.site.logo = 'assets/banner.jpg';
     }
     // icon to express the concept / visually identify site
-    if ((req.body['theme']['icon']) && req.body['theme']['icon'] != '' && req.body['theme']['icon'] != null) {
-      schema.metadata.theme.variables.icon = req.body['theme']['icon'];
+    if ((incomingTheme['icon']) && incomingTheme['icon'] != '' && incomingTheme['icon'] != null) {
+      schema.metadata.theme.variables.icon = incomingTheme['icon'];
     }
     let hex = HAXCMS.HAXCMS_FALLBACK_HEX;
+    if (
+      schema.metadata.theme.variables.hexCode &&
+      typeof schema.metadata.theme.variables.hexCode === 'string' &&
+      schema.metadata.theme.variables.hexCode !== ''
+    ) {
+      hex = schema.metadata.theme.variables.hexCode;
+    }
     // slightly style the site based on css vars and hexcode
-    if ((req.body['theme']['hexCode']) && req.body['theme']['hexCode'] != '' && req.body['theme']['hexCode'] != null) {
-       hex = req.body['theme']['hexCode'];
+    if ((incomingTheme['hexCode']) && incomingTheme['hexCode'] != '' && incomingTheme['hexCode'] != null) {
+       hex = incomingTheme['hexCode'];
     }
     schema.metadata.theme.variables.hexCode = hex;
     let cssvar = '--simple-colors-default-theme-light-blue-7';
-    if ((req.body['theme']['cssVariable']) && req.body['theme']['cssVariable'] != '' && req.body['theme']['cssVariable'] != null) {
-        cssvar = req.body['theme']['cssVariable'];
+    if (
+      schema.metadata.theme.variables.cssVariable &&
+      typeof schema.metadata.theme.variables.cssVariable === 'string' &&
+      schema.metadata.theme.variables.cssVariable !== ''
+    ) {
+      cssvar = schema.metadata.theme.variables.cssVariable;
+    }
+    if ((incomingTheme['cssVariable']) && incomingTheme['cssVariable'] != '' && incomingTheme['cssVariable'] != null) {
+        cssvar = incomingTheme['cssVariable'];
     }
     schema.metadata.theme.variables.cssVariable = cssvar;
-    schema.metadata.site.settings = {};
-    schema.metadata.site.settings.lang = 'en-US';
-    schema.metadata.site.settings.publishPagesOn = true;
-    schema.metadata.site.settings.canonical = true;
+    let trustedSettings = null;
+    if (useTrustedSkeleton) {
+      trustedSettings = getTrustedSkeletonSettings(trustedSkeleton);
+    }
+    if (isObjectLike(trustedSettings)) {
+      schema.metadata.site.settings = trustedSettings;
+    }
+    else {
+      schema.metadata.site.settings = {};
+    }
+    if (!schema.metadata.site.settings.lang) {
+      schema.metadata.site.settings.lang = 'en-US';
+    }
+    if (typeof schema.metadata.site.settings.publishPagesOn === 'undefined') {
+      schema.metadata.site.settings.publishPagesOn = true;
+    }
+    if (typeof schema.metadata.site.settings.canonical === 'undefined') {
+      schema.metadata.site.settings.canonical = true;
+    }
     schema.metadata.site.created = Math.floor(Date.now() / 1000);
     schema.metadata.site.updated = Math.floor(Date.now() / 1000);
     // check for publishing settings being set globally in HAXCMS

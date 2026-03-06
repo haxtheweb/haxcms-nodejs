@@ -61,12 +61,10 @@ if (process.env.NODE_ENV === "development") {
   const ws = require("ws");
   const chokidar = require("chokidar");
 
-  console.log("development")
   const wsServer = new ws.Server({server: server});
   wsServer.on("connection", (ws) => {
     chokidar.watch(`${process.cwd()}/custom/src/`).on('change', async (path, stats) => {
       path = path.replace(/.*(?=custom\/src)/, '');
-      console.log(`file change: ${path}, rebuilding`)
       await exec("cd custom && npm run build");
       ws.send("theme reload")
     });

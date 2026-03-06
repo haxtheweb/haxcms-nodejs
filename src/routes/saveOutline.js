@@ -1,4 +1,5 @@
 const fs = require('fs-extra');
+const path = require('path');
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
 /**
@@ -23,6 +24,12 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
       // items from the POST
       let site = await HAXCMS.loadSite(req.body['site']['name']);
       let original = [...site.manifest.items];
+      let originalLocationMap = {};
+      for (let originalKey in original) {
+        let originalItem = original[originalKey];
+        originalLocationMap[originalItem.id] = normalizeOutlineLocation(originalItem.location);
+      }
+      let safeLocationMap = {};
       let items = [...req.body['items']];
       let itemMap = {};
       var page, bytes, cleanTitle;
@@ -60,9 +67,9 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
         } else {
           page.order = parseInt(key);
         }
-        // keep location if we get one already
-        if (typeof item.location !== 'undefined' && item.location != '') {
-          page.location = item.location;
+        // location is backend-controlled to prevent arbitrary writes
+        if (originalLocationMap[page.id]) {
+          page.location = originalLocationMap[page.id];
         } else {
           // generate a logical page slug
           page.location = 'pages/' + page.id + '/index.html';
@@ -123,6 +130,7 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
                 );
             }
         }
+        safeLocationMap[page.id] = page.location;
         // check for any metadata keys that did come over
         for (let pageKey in item.metadata) {
             page.metadata[pageKey] = item.metadata[pageKey];
@@ -155,20 +163,55 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
         if (!page) {
           page = site.loadNode(itemMap[item.id]);
         }
+        if (!page) {
+          return saveOutlineError(res, 400, 'invalid page reference');
+        }
+        let expectedLocation = safeLocationMap[page.id];
+        if (!expectedLocation) {
+          expectedLocation = normalizeOutlineLocation(page.location);
+        }
+        if (!expectedLocation) {
+          return saveOutlineError(res, 400, 'invalid page location');
+        }
+        if (typeof item.location !== 'undefined' && item.location != '') {
+          let requestedLocation = normalizeOutlineLocation(item.location);
+          if (!requestedLocation || requestedLocation != expectedLocation) {
+            return saveOutlineError(res, 400, 'location does not match page id');
+          }
+        }
+        if (!getValidatedWritePath(site.siteDirectory, expectedLocation)) {
+          return saveOutlineError(res, 400, 'invalid write target');
+        }
+        page.location = expectedLocation;
         if (typeof item.duplicate !== 'undefined') {
           let nodeToDuplicate = site.loadNode(item.duplicate);
           // load the node we are duplicating with support for the same map needed for page loading
           if (!nodeToDuplicate) {
             nodeToDuplicate = site.loadNode(itemMap[item.duplicate]);
           }
+          if (!nodeToDuplicate) {
+            return saveOutlineError(res, 400, 'invalid duplicate source');
+          }
           let content = await site.getPageContent(nodeToDuplicate);
+          if (!isLikelyHtmlContent(content)) {
+            return saveOutlineError(res, 400, 'invalid duplicate content');
+          }
           // write it to the file system
           bytes = await page.writeLocation(content, site.siteDirectory);
+          if (bytes === false) {
+            return saveOutlineError(res, 500, 'failed to write');
+          }
         }
         // contents that were shipped across, and not null, take priority over a dup request
         if (typeof item.contents !== 'undefined' && item.contents && item.contents != '') {
+          if (!isLikelyHtmlContent(item.contents)) {
+            return saveOutlineError(res, 400, 'invalid page contents');
+          }
           // write it to the file system
           bytes = await page.writeLocation(item.contents, site.siteDirectory);
+          if (bytes === false) {
+            return saveOutlineError(res, 500, 'failed to write');
+          }
         }
       }
       items = [...req.body['items']];
@@ -216,5 +259,69 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
     } else {
       res.sendStatus(403);
     }
+  }
+  function normalizeOutlineLocation(location) {
+    if (typeof location !== 'string') {
+      return false;
+    }
+    let normalized = location.replace(/\\/g, '/').trim();
+    if (normalized == '' || normalized.indexOf('\u0000') !== -1) {
+      return false;
+    }
+    if (normalized.substring(0, 1) == '/') {
+      return false;
+    }
+    let parts = normalized.split('/');
+    for (let partKey in parts) {
+      let part = parts[partKey];
+      if (part == '' || part == '.' || part == '..') {
+        return false;
+      }
+    }
+    if (parts[0] != 'pages' && parts[0] != 'content') {
+      return false;
+    }
+    return parts.join('/');
+  }
+  function getValidatedWritePath(siteDirectory, location) {
+    let normalizedLocation = normalizeOutlineLocation(location);
+    if (!normalizedLocation) {
+      return false;
+    }
+    let siteRoot = path.resolve(siteDirectory);
+    let targetPath = path.resolve(siteDirectory, normalizedLocation);
+    if (targetPath != siteRoot && targetPath.indexOf(siteRoot + path.sep) !== 0) {
+      return false;
+    }
+    if (!fs.existsSync(targetPath)) {
+      return false;
+    }
+    try {
+      if (!fs.lstatSync(targetPath).isFile()) {
+        return false;
+      }
+    }
+    catch (e) {
+      return false;
+    }
+    return targetPath;
+  }
+  function isLikelyHtmlContent(content) {
+    if (typeof content !== 'string') {
+      return false;
+    }
+    let trimmed = content.trim();
+    if (trimmed == '') {
+      return false;
+    }
+    return /<([a-zA-Z][a-zA-Z0-9-]*)(\s[^>]*)?>/.test(trimmed);
+  }
+  function saveOutlineError(res, status, message) {
+    return res.send({
+      '__failed' : {
+        'status' : status,
+        'message' : message,
+      }
+    });
   }
   module.exports = saveOutline;

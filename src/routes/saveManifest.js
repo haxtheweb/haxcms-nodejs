@@ -234,7 +234,6 @@ const fs = require('fs-extra');
             req.body['manifest']['site']['manifest-metadata-site-homePageId'],
             "FILTER_SANITIZE_STRING"
           );
-          console.log(homePageId);
           // Validate that the page exists in the site manifest
           let validPage = false;
           if (homePageId && homePageId !== '' && site.manifest.items) {
