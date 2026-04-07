@@ -44,27 +44,76 @@ async function savePlatformSettings(req, res) {
 
     const validFeatureKeys = [
       'addPage',
+      'saveAndEdit',
       'deletePage',
       'outlineDesigner',
       'styleGuide',
       'insights',
-      'manifest',
+      'siteManifest',
+      'themeManifest',
+      'authorManifest',
+      'seoManifest',
       'pageBreak',
       'addBlock',
+      'popularGizmos',
+      'recentGizmos',
       'contentMap',
       'viewSource',
-      'onlineSearch',
+      'uploadMedia',
+      'onlineMedia',
+      'community',
+      'pageTemplates',
+      'blockTemplates',
     ];
-
-    if (!platform.features || typeof platform.features !== 'object') {
+    const legacyFeatureKeyMap = {
+      manifest: ['siteManifest', 'themeManifest', 'authorManifest', 'seoManifest'],
+      onlineSearch: ['onlineMedia'],
+      delete: ['deletePage'],
+    };
+    const featureSources = [];
+    if (
+      platform.features &&
+      typeof platform.features === 'object' &&
+      !Array.isArray(platform.features)
+    ) {
+      featureSources.push(platform.features);
+    }
+    if (
+      platform.cmsFeatures &&
+      typeof platform.cmsFeatures === 'object' &&
+      !Array.isArray(platform.cmsFeatures)
+    ) {
+      featureSources.push(platform.cmsFeatures);
+    }
+    if (
+      platform.editorFeatures &&
+      typeof platform.editorFeatures === 'object' &&
+      !Array.isArray(platform.editorFeatures)
+    ) {
+      featureSources.push(platform.editorFeatures);
+    }
+    if (featureSources.length === 0) {
       res.sendStatus(400);
       return;
     }
 
-    for (const key of Object.keys(platform.features)) {
-      if (!validFeatureKeys.includes(key) || typeof platform.features[key] !== 'boolean') {
-        res.sendStatus(400);
-        return;
+    const normalizedFeatures = {};
+    for (const source of featureSources) {
+      for (const key of Object.keys(source)) {
+        if (typeof source[key] !== 'boolean') {
+          res.sendStatus(400);
+          return;
+        }
+        if (validFeatureKeys.includes(key)) {
+          normalizedFeatures[key] = source[key];
+        } else if (legacyFeatureKeyMap[key]) {
+          for (const mappedKey of legacyFeatureKeyMap[key]) {
+            normalizedFeatures[mappedKey] = source[key];
+          }
+        } else {
+          res.sendStatus(400);
+          return;
+        }
       }
     }
 
@@ -112,8 +161,8 @@ async function savePlatformSettings(req, res) {
 
     // only store supported feature keys
     for (const k of validFeatureKeys) {
-      if (typeof platform.features[k] === 'boolean') {
-        site.manifest.metadata.platform.features[k] = platform.features[k];
+      if (typeof normalizedFeatures[k] === 'boolean') {
+        site.manifest.metadata.platform.features[k] = normalizedFeatures[k];
       }
     }
 

@@ -265,30 +265,48 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
                   readtime = 1;
                 }
                 page.metadata.readtime = readtime;
-                // reset bc we rebuild this each page save
-                page.metadata.videos = {};
-                page.metadata.images = {};
-                // pull schema apart and seee if we have any images
+                // reset because we rebuild this each page save
+                page.metadata.videos = [];
+                page.metadata.images = [];
+                // pull schema apart and see if we have any media
                 // that other things could use for metadata / theming purposes
-                for (var element in schema) {
-                  switch(element['tag']) {
+                let schemaElements = [];
+                if (Array.isArray(schema)) {
+                  schemaElements = schema;
+                }
+                else if (schema && typeof schema === 'object') {
+                  for (var schemaKey in schema) {
+                    if (schema[schemaKey]) {
+                      schemaElements.push(schema[schemaKey]);
+                    }
+                  }
+                }
+                for (var elementKey in schemaElements) {
+                  let element = schemaElements[elementKey];
+                  if (!(element) || !(element['tag'])) {
+                    continue;
+                  }
+                  if (!(element['properties'])) {
+                    element['properties'] = {};
+                  }
+                  switch (element['tag']) {
                     case 'img':
-                      if ((element['properties']['src'])) {
+                      if (element['properties']['src']) {
                         page.metadata.images.push(element['properties']['src']);
                       }
                     break;
                     case 'a11y-gif-player':
-                      if ((element['properties']['src'])) {
+                      if (element['properties']['src']) {
                         page.metadata.images.push(element['properties']['src']);
                       }
                     break;
                     case 'media-image':
-                      if ((element['properties']['source'])) {
+                      if (element['properties']['source']) {
                         page.metadata.images.push(element['properties']['source']);
                       }
                     break;
                     case 'video-player':
-                      if ((element['properties']['source'])) {
+                      if (element['properties']['source']) {
                         page.metadata.videos.push(element['properties']['source']);
                       }
                     break;

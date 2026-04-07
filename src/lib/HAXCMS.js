@@ -749,62 +749,51 @@ class HAXCMSSite
      */
     async updateAlternateFormats(format = null)
     {
-        if (format == null || format == 'rss') {
-            // rip changes to feed urls
-            let rss = new FeedMe();
-            fs.writeFileSync(this.siteDirectory + '/rss.xml', rss.getRSSFeed(this));
-            fs.writeFileSync(
-              this.siteDirectory + '/atom.xml',
-                rss.getAtomFeed(this)
-            );
+        let rss = new FeedMe();
+        let domain = null;
+        if (this.manifest.metadata.site.domain) {
+          domain = this.manifest.metadata.site.domain;
         }
-        // build a sitemap if we have a domain, kinda required...
-       /* if (format == null || format == 'sitemap') {
-                          // @todo sitemap generator needs an equivalent
-          
-          if ((this.manifest.metadata.site.domain)) {
-                let domain = this.manifest.metadata.site.domain;
-                //generator = new \Icamys\SitemapGenerator\SitemapGenerator(
-                //    domain,
-                //    this.siteDirectory
-                //);
-                let generator = {};
-                // will create also compressed (gzipped) sitemap
-                generator.createGZipFile = true;
-                // determine how many urls should be put into one file
-                // according to standard protocol 50000 is maximum value (see http://www.sitemaps.org/protocol.html)
-                generator.maxURLsPerSitemap = 50000;
-                // sitemap file name
-                generator.sitemapFileName = "sitemap.xml";
-                // sitemap index file name
-                generator.sitemapIndexFileName = "sitemap-index.xml";
-                // adding url `loc`, `lastmodified`, `changefreq`, `priority`
-                for (var key in this.manifest.items) {
-                    let item = this.manifest.items[key];
-                    if (item.parent == null) {
-                        priority = '1.0';
-                    } else if (item.indent == 2) {
-                        priority = '0.7';
-                    } else {
-                        priority = '0.5';
-                    }
-                    let updatedTime = Math.floor(Date.now() / 1000);
-                    updatedTime.setTimestamp(item.metadata.updated);
-                    let d = new Date();
-                    updatedTime.format(d.toISOString());
-                    generator.addUrl(
-                        domain + '/' + item.location.replace('pages/', '').replace('/index.html', ''),
-                        updatedTime,
-                        'daily',
-                        priority
-                    );
-                }
-                // generating internally a sitemap
-                 generator.createSitemap();
-                // writing early generated sitemap to file
-                 generator.writeSitemap();
+        if (domain == null || domain == '') {
+          // mirror PHP fallback behavior for generated feeds
+          let fallbackDomain = HAXCMS.getDomain();
+          if (!fallbackDomain || fallbackDomain == '') {
+            domain = '/sites/' + this.manifest.metadata.site.name + '/';
+          }
+          else {
+            fallbackDomain = fallbackDomain.replace('iam.', 'oer.');
+            if (!/^https?:\/\//.test(fallbackDomain)) {
+              fallbackDomain = 'https://' + fallbackDomain;
             }
-        }*/
+            domain = fallbackDomain.replace(/\/$/, '') + '/sites/' + this.manifest.metadata.site.name + '/';
+          }
+        }
+        if (format == null || format == 'rss') {
+            try {
+              fs.writeFileSync(this.siteDirectory + '/rss.xml', rss.getRSSFeed(this, domain));
+              fs.writeFileSync(
+                this.siteDirectory + '/atom.xml',
+                rss.getAtomFeed(this, domain)
+              );
+            }
+            catch (e) {
+              // keep parity with PHP behavior: never hard fail a save on feed serialization
+            }
+        }
+        if (format == null || format == 'sitemap') {
+            try {
+              if (domain != null && domain != '') {
+                fs.writeFileSync(this.siteDirectory + '/sitemap.xml', rss.getSitemap(this, domain));
+                fs.writeFileSync(
+                  this.siteDirectory + '/sitemap-index.xml',
+                  rss.getSitemapIndex(domain)
+                );
+              }
+            }
+            catch (e) {
+              // keep parity with PHP behavior: never hard fail a save on sitemap serialization
+            }
+        }
         if (format == null || format == 'search') {
             // now generate the search index
             await fs.writeFileSync(
@@ -871,24 +860,55 @@ class HAXCMSSite
      * @return array items - sorted items based on the key used
      */
     sortItems(key, dir = 'ASC') {
-        let items = [...this.manifest.items];
+        let items = [];
+        if (Array.isArray(this.manifest.items)) {
+          for (var itemKey in this.manifest.items) {
+            let item = this.manifest.items[itemKey];
+            if (item && typeof item === 'object') {
+              items.push(item);
+            }
+          }
+        }
+        else if (this.manifest.items && typeof this.manifest.items === 'object') {
+          for (var objKey in this.manifest.items) {
+            let item = this.manifest.items[objKey];
+            if (item && typeof item === 'object') {
+              items.push(item);
+            }
+          }
+        }
+        let sortDir = 'ASC';
+        if (dir == 'DESC') {
+          sortDir = 'DESC';
+        }
         switch (key) {
             case 'created':
             case 'updated':
             case 'readtime':
-              this.__compareItemKey = key;
-              this.__compareItemDir = dir;
               usort(items, function (a, b) {
-                let key = this.__compareItemKey;
-                let dir = this.__compareItemDir;
-                if (a.metadata[key]) {
-                  if (dir == 'DESC') {
-                    return a.metadata[key] > b.metadata[key];
-                  }
-                  else {
-                    return a.metadata[key] < b.metadata[key];
-                  }
+                let aMeta = {};
+                let bMeta = {};
+                if (a.metadata && typeof a.metadata === 'object') {
+                  aMeta = a.metadata;
                 }
+                if (b.metadata && typeof b.metadata === 'object') {
+                  bMeta = b.metadata;
+                }
+                let aValue = Number(aMeta[key]);
+                let bValue = Number(bMeta[key]);
+                if (isNaN(aValue)) {
+                  aValue = 0;
+                }
+                if (isNaN(bValue)) {
+                  bValue = 0;
+                }
+                if (aValue === bValue) {
+                  return 0;
+                }
+                if (sortDir == 'DESC') {
+                  return aValue > bValue ? -1 : 1;
+                }
+                return aValue < bValue ? -1 : 1;
               });
             break;
             case 'id':
@@ -899,12 +919,21 @@ class HAXCMSSite
             case 'parent':
             case 'description':
                 usort(items, function (a, b) {
-                  if (dir == 'ASC') {
-                    return a[key] > b[key];
+                  let aValue = '';
+                  let bValue = '';
+                  if (typeof a[key] !== 'undefined' && a[key] !== null) {
+                    aValue = String(a[key]);
                   }
-                  else {
-                    return a[key] < b[key];
+                  if (typeof b[key] !== 'undefined' && b[key] !== null) {
+                    bValue = String(b[key]);
                   }
+                  if (aValue === bValue) {
+                    return 0;
+                  }
+                  if (sortDir == 'DESC') {
+                    return aValue > bValue ? -1 : 1;
+                  }
+                  return aValue < bValue ? -1 : 1;
                 });
             break;
         }
@@ -2173,10 +2202,13 @@ class HAXCMSClass {
     }
     hmacBase64(data, key)
     {
-      var buf1 = crypto.createHmac("sha256", "0").update(data).digest();
-      var buf2 = Buffer.from(key);
-      // generate the hash
-      return Buffer.concat([buf1, buf2]).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      return crypto
+        .createHmac('sha256', key)
+        .update(data)
+        .digest('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
     }
     /**
      * load form and spitting out HAXschema + values in our standard transmission method
