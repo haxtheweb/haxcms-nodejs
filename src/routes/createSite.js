@@ -105,6 +105,76 @@ async function resolveSkeletonBuildByMachineName(machineName) {
   return null;
 }
 
+async function resolveSkeletonBuildByThemeMachineName(machineName) {
+  const normalizedTarget = normalizeSkeletonMachineName(machineName);
+  if (normalizedTarget === '') {
+    return null;
+  }
+  const themesAry = HAXCMS.getThemes();
+  if (!isObjectLike(themesAry)) {
+    return null;
+  }
+  let matchedThemeKey = null;
+  for (const key of Object.keys(themesAry)) {
+    const themeObj = themesAry[key];
+    const normalizedKey = normalizeSkeletonMachineName(key);
+    const normalizedElement = normalizeSkeletonMachineName(
+      isObjectLike(themeObj) && typeof themeObj.element === 'string'
+        ? themeObj.element
+        : ''
+    );
+    if (
+      normalizedTarget === normalizedKey ||
+      (normalizedElement !== '' && normalizedTarget === normalizedElement)
+    ) {
+      matchedThemeKey = key;
+      break;
+    }
+  }
+  if (!matchedThemeKey) {
+    return null;
+  }
+  const fallbackSkeleton = await resolveSkeletonBuildByMachineName('default-starter');
+  let trustedSkeleton = null;
+  let trustedSkeletonFilePath = null;
+  if (fallbackSkeleton && isObjectLike(fallbackSkeleton.skeleton)) {
+    trustedSkeleton = cloneJsonValue(fallbackSkeleton.skeleton, {});
+    trustedSkeletonFilePath = fallbackSkeleton.filePath;
+  }
+  if (!isObjectLike(trustedSkeleton)) {
+    trustedSkeleton = {
+      meta: {},
+      site: {},
+      build: {
+        type: 'skeleton',
+        structure: 'from-skeleton',
+        items: [],
+        files: [],
+      },
+    };
+    trustedSkeletonFilePath = 'generated:theme-fallback';
+  }
+  if (!isObjectLike(trustedSkeleton.meta)) {
+    trustedSkeleton.meta = {};
+  }
+  trustedSkeleton.meta.machineName = matchedThemeKey;
+  trustedSkeleton.meta.name = matchedThemeKey;
+  if (!isObjectLike(trustedSkeleton.site)) {
+    trustedSkeleton.site = {};
+  }
+  trustedSkeleton.site.theme = matchedThemeKey;
+  if (
+    isObjectLike(trustedSkeleton._skeleton) &&
+    Object.prototype.hasOwnProperty.call(trustedSkeleton._skeleton, 'fullThemeConfig')
+  ) {
+    delete trustedSkeleton._skeleton.fullThemeConfig;
+  }
+  return {
+    filePath: trustedSkeletonFilePath,
+    skeleton: trustedSkeleton,
+  };
+}
+
 function isObjectLike(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -303,9 +373,14 @@ async function createSite(req, res) {
         req.body['build']['skeletonMachineName'] &&
         typeof req.body['build']['skeletonMachineName'] === 'string';
       if (isFromSkeleton) {
-        const resolvedSkeleton = await resolveSkeletonBuildByMachineName(
+        let resolvedSkeleton = await resolveSkeletonBuildByMachineName(
           req.body['build']['skeletonMachineName']
         );
+        if (!resolvedSkeleton || !resolvedSkeleton.skeleton) {
+          resolvedSkeleton = await resolveSkeletonBuildByThemeMachineName(
+            req.body['build']['skeletonMachineName']
+          );
+        }
         if (!resolvedSkeleton || !resolvedSkeleton.skeleton) {
           return res.status(400).send({
             status: 400,
