@@ -301,6 +301,76 @@ async function validateUploadMimeAndContent(filePath, fileName) {
     detectedMime: detectedMime.toLowerCase()
   };
 }
+function getBulkImportStagingRootPath() {
+  const stagingRoot = path.join(HAXCMS.configDirectory, 'tmp', 'imports');
+  if (!fs.pathExistsSync(stagingRoot)) {
+    return null;
+  }
+  try {
+    const resolvedRoot = fs.realpathSync(stagingRoot);
+    if (!resolvedRoot) {
+      return null;
+    }
+    return resolvedRoot;
+  }
+  catch (e) {
+    return null;
+  }
+}
+
+function isPathWithinRoot(resolvedPath, resolvedRoot) {
+  if (!resolvedPath || !resolvedRoot) {
+    return false;
+  }
+  if (resolvedPath === resolvedRoot) {
+    return true;
+  }
+  return resolvedPath.indexOf(resolvedRoot + path.sep) === 0;
+}
+
+function isValidBulkImportStagedPath(inputPath) {
+  if (typeof inputPath !== 'string') {
+    return false;
+  }
+  const normalizedSource = inputPath.trim();
+  if (normalizedSource === '' || normalizedSource.indexOf('\0') !== -1) {
+    return false;
+  }
+  if (/^[a-zA-Z][a-zA-Z0-9+\.\-]*:/.test(normalizedSource) && !/^[a-zA-Z]:[\\/]/.test(normalizedSource)) {
+    return false;
+  }
+  if (!path.isAbsolute(normalizedSource)) {
+    return false;
+  }
+  if (!fs.pathExistsSync(normalizedSource)) {
+    return false;
+  }
+  let resolvedSource = null;
+  try {
+    resolvedSource = fs.realpathSync(normalizedSource);
+  }
+  catch (e) {
+    return false;
+  }
+  if (!resolvedSource) {
+    return false;
+  }
+  let sourceStats = null;
+  try {
+    sourceStats = fs.statSync(resolvedSource);
+  }
+  catch (e) {
+    return false;
+  }
+  if (!sourceStats || !sourceStats.isFile()) {
+    return false;
+  }
+  const stagingRoot = getBulkImportStagingRootPath();
+  if (!stagingRoot) {
+    return false;
+  }
+  return isPathWithinRoot(resolvedSource, stagingRoot);
+}
 // a site object
 class HAXCMSFile
 {
@@ -314,6 +384,7 @@ class HAXCMSFile
     if (tmpFile['path']) {
       // get contents of the file if it was uploaded into a variable
       let filedata = tmpFile['path'];
+      const isBulkImport = !!tmpFile['bulk-import'];
       let pathPart = site.siteDirectory + '/files/';
       // ensure this path exists
       if (!fs.existsSync(pathPart)) {
@@ -346,7 +417,16 @@ class HAXCMSFile
       }
       let sourcePath = filedata;
       let remoteDownloadPath = null;
-      if (filedata.startsWith('https://') || filedata.startsWith('http://')) {
+      if (isBulkImport && !isValidBulkImportStagedPath(filedata)) {
+        return {
+          'status' : 500,
+          '__failed' : {
+            'status' : 500,
+            'message' : 'Invalid bulk import source',
+          }
+        };
+      }
+      if (!isBulkImport && (filedata.startsWith('https://') || filedata.startsWith('http://'))) {
         remoteDownloadPath = path.join(
           HAXCMS.configDirectory,
           'tmp',
