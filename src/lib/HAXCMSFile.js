@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const Axios = require('axios')
 const { HAXCMS } = require('./HAXCMS.js');
 const sharp = require('sharp');
+const dns = require('dns');
 
 const ALLOWED_UPLOAD_EXTENSION_PATTERN = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i;
 const ALLOWED_MIME_BY_EXTENSION = {
@@ -345,6 +346,16 @@ function isValidBulkImportStagedPath(inputPath) {
   if (!fs.pathExistsSync(normalizedSource)) {
     return false;
   }
+  // reject symlinks to prevent TOCTOU attacks
+  try {
+    var lstats = fs.lstatSync(normalizedSource);
+    if (lstats.isSymbolicLink()) {
+      return false;
+    }
+  }
+  catch (e) {
+    return false;
+  }
   let resolvedSource = null;
   try {
     resolvedSource = fs.realpathSync(normalizedSource);
@@ -371,6 +382,82 @@ function isValidBulkImportStagedPath(inputPath) {
   }
   return isPathWithinRoot(resolvedSource, stagingRoot);
 }
+
+/**
+ * Check if an IP address is in a private, reserved, or loopback range.
+ */
+function isPrivateOrReservedIP(ip) {
+  if (!ip || typeof ip !== 'string') {
+    return true;
+  }
+  if (ip === '::1' || ip === '0:0:0:0:0:0:0:1' || ip === '::' || ip === '0.0.0.0') {
+    return true;
+  }
+  if (ip.startsWith('127.')) {
+    return true;
+  }
+  // link-local / cloud metadata (169.254.169.254)
+  if (ip.startsWith('169.254.')) {
+    return true;
+  }
+  if (ip.startsWith('10.')) {
+    return true;
+  }
+  if (ip.startsWith('192.168.')) {
+    return true;
+  }
+  // private Class B (172.16.0.0/12)
+  if (ip.startsWith('172.')) {
+    var parts = ip.split('.');
+    var secondOctet = parseInt(parts[1], 10);
+    if (secondOctet >= 16 && secondOctet <= 31) {
+      return true;
+    }
+  }
+  var lowerIP = ip.toLowerCase();
+  // IPv6 unique local
+  if (lowerIP.startsWith('fc') || lowerIP.startsWith('fd')) {
+    return true;
+  }
+  // IPv6 link-local
+  if (lowerIP.startsWith('fe80')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Validate that a URL does not resolve to an internal/private/metadata IP.
+ * Returns true if the URL is safe to fetch, false otherwise.
+ */
+async function validateUrlNotSSRF(urlString) {
+  var parsed;
+  try {
+    parsed = new URL(urlString);
+  }
+  catch (e) {
+    return false;
+  }
+  var protocol = parsed.protocol.toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    return false;
+  }
+  var hostname = parsed.hostname;
+  if (!hostname) {
+    return false;
+  }
+  try {
+    var result = await dns.promises.lookup(hostname);
+    if (isPrivateOrReservedIP(result.address)) {
+      return false;
+    }
+  }
+  catch (e) {
+    return false;
+  }
+  return true;
+}
+
 // a site object
 class HAXCMSFile
 {
@@ -427,6 +514,17 @@ class HAXCMSFile
         };
       }
       if (!isBulkImport && (filedata.startsWith('https://') || filedata.startsWith('http://'))) {
+        // SSRF guard: block requests to internal/private/metadata IPs
+        var isUrlSafe = await validateUrlNotSSRF(filedata);
+        if (!isUrlSafe) {
+          return {
+            'status' : 500,
+            '__failed' : {
+              'status' : 500,
+              'message' : 'URL target is not allowed',
+            }
+          };
+        }
         remoteDownloadPath = path.join(
           HAXCMS.configDirectory,
           'tmp',
@@ -462,6 +560,30 @@ class HAXCMSFile
       }
       const detectedMimeType = mimeValidation.detectedMime;
       let fullpath = path.join(pathPart, newFilename);
+      // TOCTOU defense: verify bulk import source is not a symlink right before move
+      if (isBulkImport) {
+        try {
+          var preMoveStats = fs.lstatSync(sourcePath);
+          if (preMoveStats.isSymbolicLink()) {
+            return {
+              'status': 500,
+              '__failed': {
+                'status': 500,
+                'message': 'Bulk import source replaced with symlink',
+              }
+            };
+          }
+        }
+        catch (e) {
+          return {
+            'status': 500,
+            '__failed': {
+              'status': 500,
+              'message': 'Unable to verify bulk import source',
+            }
+          };
+        }
+      }
       try {
         fs.moveSync(sourcePath, fullpath);
       }
@@ -575,4 +697,7 @@ async function downloadAndSaveFile(url, filepath) {
   });
 }
 
+HAXCMSFile.isValidBulkImportStagedPath = isValidBulkImportStagedPath;
+HAXCMSFile.getBulkImportStagingRootPath = getBulkImportStagingRootPath;
+HAXCMSFile.isPathWithinRoot = isPathWithinRoot;
 module.exports = HAXCMSFile;

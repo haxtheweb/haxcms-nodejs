@@ -28,77 +28,6 @@ function normalizeBulkImportName(locationName) {
   }
   return normalized;
 }
-function getBulkImportStagingRootPath() {
-  const stagingRoot = path.join(HAXCMS.configDirectory, 'tmp', 'imports');
-  if (!fs.pathExistsSync(stagingRoot)) {
-    return null;
-  }
-  try {
-    const resolvedRoot = fs.realpathSync(stagingRoot);
-    if (!resolvedRoot) {
-      return null;
-    }
-    return resolvedRoot;
-  }
-  catch (e) {
-    return null;
-  }
-}
-
-function isPathWithinRoot(resolvedPath, resolvedRoot) {
-  if (!resolvedPath || !resolvedRoot) {
-    return false;
-  }
-  if (resolvedPath === resolvedRoot) {
-    return true;
-  }
-  return resolvedPath.indexOf(resolvedRoot + path.sep) === 0;
-}
-
-function isSafeBulkImportSourcePath(sourcePath) {
-  if (typeof sourcePath !== 'string') {
-    return false;
-  }
-  const normalizedSource = sourcePath.trim();
-  if (normalizedSource === '' || normalizedSource.indexOf('\0') !== -1) {
-    return false;
-  }
-  // block protocol and stream wrapper paths, except Windows drive letters
-  if (/^[a-zA-Z][a-zA-Z0-9+\.\-]*:/.test(normalizedSource) && !/^[a-zA-Z]:[\\/]/.test(normalizedSource)) {
-    return false;
-  }
-  if (!path.isAbsolute(normalizedSource)) {
-    return false;
-  }
-  if (!fs.pathExistsSync(normalizedSource)) {
-    return false;
-  }
-  let resolvedSourcePath = null;
-  try {
-    resolvedSourcePath = fs.realpathSync(normalizedSource);
-  }
-  catch (e) {
-    return false;
-  }
-  if (!resolvedSourcePath) {
-    return false;
-  }
-  let sourceStats = null;
-  try {
-    sourceStats = fs.statSync(resolvedSourcePath);
-  }
-  catch (e) {
-    return false;
-  }
-  if (!sourceStats || !sourceStats.isFile()) {
-    return false;
-  }
-  const stagingRoot = getBulkImportStagingRootPath();
-  if (!stagingRoot) {
-    return false;
-  }
-  return isPathWithinRoot(resolvedSourcePath, stagingRoot);
-}
 
 function normalizeSkeletonMachineName(value) {
   if (typeof value !== 'string') {
@@ -669,7 +598,7 @@ async function createSite(req, res) {
         if (
           !normalizedImportName ||
           !SAFE_BULK_IMPORT_EXTENSION_REGEX.test(normalizedImportName) ||
-          !isSafeBulkImportSourcePath(downloadLocation)
+          !HAXCMSFile.isValidBulkImportStagedPath(downloadLocation)
         ) {
           return res.status(400).send({
             status: 400,
