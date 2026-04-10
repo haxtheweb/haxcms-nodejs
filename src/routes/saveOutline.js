@@ -2,6 +2,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
+const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
 /**
    * @OA\Post(
    *    path="/saveOutline",
@@ -192,7 +193,10 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
             return saveOutlineError(res, 400, 'invalid duplicate content');
           }
           // write it to the file system
-          bytes = await page.writeLocation(content, site.siteDirectory);
+          bytes = await page.writeLocation(
+            sanitizeHTMLForStorage(content),
+            site.siteDirectory
+          );
           if (bytes === false) {
             return saveOutlineError(res, 500, 'failed to write');
           }
@@ -203,7 +207,10 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
             return saveOutlineError(res, 400, 'invalid page contents');
           }
           // write it to the file system
-          bytes = await page.writeLocation(item.contents, site.siteDirectory);
+          bytes = await page.writeLocation(
+            sanitizeHTMLForStorage(item.contents),
+            site.siteDirectory
+          );
           if (bytes === false) {
             return saveOutlineError(res, 500, 'failed to write');
           }

@@ -1,6 +1,7 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const path = require('path');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
+const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
 /**
  * @OA\Post(
  *     path="/createNode",
@@ -123,7 +124,7 @@ async function createNode(req, res) {
             // write it to the file system
             // this all seems round about but it's more secure
             let bytes = await page.writeLocation(
-                content,
+                sanitizeHTMLForStorage(content),
                 site.siteDirectory
             );
             }
@@ -137,7 +138,7 @@ async function createNode(req, res) {
         if (page = site.loadNode(item.id)) {
             // write it to the file system
             let bytes = await page.writeLocation(
-            nodeParams['node']['contents'],
+            sanitizeHTMLForStorage(nodeParams['node']['contents']),
             site.siteDirectory
             );
         }

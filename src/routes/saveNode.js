@@ -2,6 +2,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
 const filter_var = require('../lib/filter_var.js');
 const strip_tags = require("locutus/php/strings/strip_tags");
 const html_entity_decode = require("locutus/php/strings/html_entity_decode");
+const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
 /**
    * @OA\Post(
    *    path="/saveNode",
@@ -108,7 +109,10 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
             // @todo make sure that we stripped off page-break
             // and now save WITHOUT the top level page-break
             // to avoid duplication issues
-            bytes = await page.writeLocation(data['content'], site.siteDirectory);
+            bytes = await page.writeLocation(
+              sanitizeHTMLForStorage(data['content']),
+              site.siteDirectory
+            );
             if (bytes === false) {
               return res.send({
                 '__failed' : {

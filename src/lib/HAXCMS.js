@@ -27,6 +27,7 @@ const usort = require('locutus/php/array/usort');
 const sharp = require('sharp');
 const util  = require('node:util');
 const child_process  = require('child_process');
+const { sanitizeHTMLForStorage } = require('./sanitizeContent.js');
 const exec = util.promisify(child_process.exec);
 // a site object
 class HAXCMSSite
@@ -730,7 +731,7 @@ class HAXCMSSite
         if (template == 'html') {
           // now this should exist if it didn't a minute ago
           let bytes = page.writeLocation(
-            html,
+            sanitizeHTMLForStorage(html),
             this.siteDirectory
           );
         }
