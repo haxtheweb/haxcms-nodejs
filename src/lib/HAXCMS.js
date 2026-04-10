@@ -1176,6 +1176,16 @@ class HAXCMSSite
      * @todo move this to a render function / section / engine
      */
     async getSiteMetadata(page = null, domain = null, cdn = '') {
+      const escapeHtml = (value) => String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+      const sanitizeUrl = (value) => filter_var(
+        String(value == null ? '' : value),
+        'FILTER_SANITIZE_URL'
+      );
       if (page == null) {
         page = new JSONOutlineSchemaItem();
       }
@@ -1188,14 +1198,14 @@ class HAXCMSSite
       let preconnect = '';
       let base = './';
       if (cdn == '' && HAXCMS.cdn != './') {
-        preconnect = `<link rel="preconnect" crossorigin href="${HAXCMS.cdn}" />`;
+        preconnect = `<link rel="preconnect" crossorigin href="${escapeHtml(sanitizeUrl(HAXCMS.cdn))}" />`;
         cdn = HAXCMS.cdn;
       }
       if (cdn != '') {
         // preconnect for faster DNS lookup
-        preconnect = `<link rel="preconnect" crossorigin href="${cdn}" />`;
+        preconnect = `<link rel="preconnect" crossorigin href="${escapeHtml(sanitizeUrl(cdn))}" />`;
         // preload rewrite correctly
-        base = cdn;
+        base = sanitizeUrl(cdn);
       }
       let title = page.title;
       let siteTitle = this.manifest.title + ' | ' + page.title;
@@ -1224,10 +1234,10 @@ class HAXCMSSite
       // canonical flag, if set we use the domain field
       if (this.manifest.metadata.site.settings.canonical) {
         if (this.manifest.metadata.site.domain && this.manifest.metadata.site.domain != '') {
-          canonical = '  <link name="canonical" href="' + filter_var(this.manifest.metadata.site.domain + '/' + page.slug, "FILTER_SANITIZE_URL") + '" />' + "\n";
+          canonical = '  <link name="canonical" href="' + escapeHtml(sanitizeUrl(this.manifest.metadata.site.domain + '/' + page.slug)) + '" />' + "\n";
         }
         else {
-          canonical = '  <link name="canonical" href="' + filter_var(domain, "FILTER_SANITIZE_URL") + '" />' + "\n";
+          canonical = '  <link name="canonical" href="' + escapeHtml(sanitizeUrl(domain)) + '" />' + "\n";
         }
       }
       else {
@@ -1239,12 +1249,19 @@ class HAXCMSSite
       if (page.id && this.manifest.getItemKeyById(page.id) !== false) {
         let currentId = this.manifest.getItemKeyById(page.id);
         if (currentId > 0 && this.manifest.items[currentId-1] && this.manifest.items[currentId-1].slug) {
-          prevResource = '  <link rel="prev" href="' + this.manifest.items[currentId-1].slug + '" />' + "\n";
+          prevResource = '  <link rel="prev" href="' + escapeHtml(String(this.manifest.items[currentId - 1].slug)) + '" />' + "\n";
         }
         if (currentId < this.manifest.items.length-1 && this.manifest.items[currentId+1] && this.manifest.items[currentId+1].slug) {
-          nextResource = '  <link rel="next" href="' + this.manifest.items[currentId+1].slug + '" />' + "\n";
+          nextResource = '  <link rel="next" href="' + escapeHtml(String(this.manifest.items[currentId + 1].slug)) + '" />' + "\n";
         }
       }
+      const safeSiteTitle = escapeHtml(siteTitle);
+      const safeTitle = escapeHtml(title);
+      const safeDescription = escapeHtml(description);
+      const safeManifestTitle = escapeHtml(this.manifest.title);
+      const safeDomain = escapeHtml(sanitizeUrl(domain));
+      const safeSocialShareImage = escapeHtml(sanitizeUrl(this.getSocialShareImage(page)));
+      const safeHexCode = escapeHtml(hexCode);
       let metadata = `<meta charset="utf-8" />
   ${preconnect}
   <link rel="preconnect" crossorigin href="https://fonts.googleapis.com">
@@ -1267,47 +1284,47 @@ class HAXCMSSite
   ${canonical}${prevResource}${nextResource}
   <link rel="manifest" href="manifest.json" />
   <meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, user-scalable=yes">
-  <title>${siteTitle}</title>
-  <link rel="icon" href="${await this.getLogoSize('16', '16')}">
-  <meta name="theme-color" content="${hexCode}">
+  <title>${safeSiteTitle}</title>
+  <link rel=\"icon\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('16', '16')))}\">
+  <meta name=\"theme-color\" content=\"${safeHexCode}\">
   ${robots}
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="application-name" content="${title}">
+  <meta name=\"application-name\" content=\"${safeTitle}\">
 
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="${title}">
+  <meta name=\"apple-mobile-web-app-title\" content=\"${safeTitle}\">
 
-  <link rel="apple-touch-icon" sizes="48x48" href="${await this.getLogoSize('48', '48')}">
-  <link rel="apple-touch-icon" sizes="72x72" href="${await this.getLogoSize('72', '72')}">
-  <link rel="apple-touch-icon" sizes="96x96" href="${await this.getLogoSize('96', '96')}">
-  <link rel="apple-touch-icon" sizes="144x144" href="${await this.getLogoSize('144', '144')}">
-  <link rel="apple-touch-icon" sizes="192x192" href="${await this.getLogoSize('192', '192')}">
+  <link rel=\"apple-touch-icon\" sizes=\"48x48\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('48', '48')))}\">
+  <link rel=\"apple-touch-icon\" sizes=\"72x72\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('72', '72')))}\">
+  <link rel=\"apple-touch-icon\" sizes=\"96x96\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('96', '96')))}\">
+  <link rel=\"apple-touch-icon\" sizes=\"144x144\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('144', '144')))}\">
+  <link rel=\"apple-touch-icon\" sizes=\"192x192\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('192', '192')))}\">
 
-  <meta name="msapplication-TileImage" content="${await this.getLogoSize('144', '144')}">
-  <meta name="msapplication-TileColor" content="${hexCode}">
+  <meta name=\"msapplication-TileImage\" content=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('144', '144')))}\">
+  <meta name=\"msapplication-TileColor\" content=\"${safeHexCode}\">
   <meta name="msapplication-tap-highlight" content="no">
         
-  <meta name="description" content="${description}" />
-  <meta name="og:sitename" property="og:sitename" content="${this.manifest.title}" />
-  <meta name="og:title" property="og:title" content="${title}" />
+  <meta name=\"description\" content=\"${safeDescription}\" />
+  <meta name=\"og:sitename\" property=\"og:sitename\" content=\"${safeManifestTitle}\" />
+  <meta name=\"og:title\" property=\"og:title\" content=\"${safeTitle}\" />
   <meta name="og:type" property="og:type" content="article" />
-  <meta name="og:url" property="og:url" content="${domain}" />
-  <meta name="og:description" property="og:description" content="${description}" />
-  <meta name="og:image" property="og:image" content="${this.getSocialShareImage(page)}" />
+  <meta name=\"og:url\" property=\"og:url\" content=\"${safeDomain}\" />
+  <meta name=\"og:description\" property=\"og:description\" content=\"${safeDescription}\" />
+  <meta name=\"og:image\" property=\"og:image\" content=\"${safeSocialShareImage}\" />
   <meta name="twitter:card" property="twitter:card" content="summary_large_image" />
-  <meta name="twitter:site" property="twitter:site" content="${domain}" />
-  <meta name="twitter:title" property="twitter:title" content="${title}" />
-  <meta name="twitter:description" property="twitter:description" content="${description}" />
-  <meta name="twitter:image" property="twitter:image" content="${this.getSocialShareImage(page)}" />`;  
+  <meta name=\"twitter:site\" property=\"twitter:site\" content=\"${safeDomain}\" />
+  <meta name=\"twitter:title\" property=\"twitter:title\" content=\"${safeTitle}\" />
+  <meta name=\"twitter:description\" property=\"twitter:description\" content=\"${safeDescription}\" />
+  <meta name=\"twitter:image\" property=\"twitter:image\" content=\"${safeSocialShareImage}\" />`;  
       // mix in license metadata if we have it
       let licenseData = this.getLicenseData('all');
       if ((this.manifest.license) && (licenseData[this.manifest.license])) {
-          metadata += "\n" + '  <meta rel="cc:license" href="' + licenseData[this.manifest.license]['link'] + '" content="License: ' + licenseData[this.manifest.license]['name'] + '"/>' + "\n";
+          metadata += "\n" + '  <meta rel="cc:license" href="' + escapeHtml(sanitizeUrl(licenseData[this.manifest.license]['link'])) + '" content="License: ' + escapeHtml(licenseData[this.manifest.license]['name']) + '"/>' + "\n";
       }
       // add in X link if they provided one
       if ((this.manifest.metadata.author.socialLink) && (this.manifest.metadata.author.socialLink.indexOf('https://twitter.com/') === 0 || this.manifest.metadata.author.socialLink.indexOf('https://x.com/') === 0)) {
-          metadata += "\n" + '  <meta name="twitter:creator" content="' + this.manifest.metadata.author.socialLink.replace('https://twitter.com/', '@').replace('https://x.com/', '@') + '" />';
+          metadata += "\n" + '  <meta name="twitter:creator" content="' + escapeHtml(this.manifest.metadata.author.socialLink.replace('https://twitter.com/', '@').replace('https://x.com/', '@')) + '" />';
       }
       return metadata;
     }
