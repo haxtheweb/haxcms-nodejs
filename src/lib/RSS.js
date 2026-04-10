@@ -1,4 +1,5 @@
 const fs = require('fs-extra')
+const { escapeXMLValue } = require('./sanitizeContent.js')
 // simple RSS / Atom feed generator from a JSON outline schema object
 class FeedMe
 {
@@ -41,12 +42,7 @@ class FeedMe
      */
     xmlEscape(value = '')
     {
-        return String(value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;')
+        return escapeXMLValue(value)
     }
     /**
      * Convert rich HTML to plain text-ish output.

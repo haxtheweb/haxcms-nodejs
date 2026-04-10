@@ -20,12 +20,25 @@ function sanitizeMetadataValue(value) {
   if (value === null || value === undefined) {
     return ''
   }
-  return String(value)
+  return escapeHTMLAttribute(value)
+}
+
+function escapeHTMLAttribute(value) {
+  return String(value === null || value === undefined ? '' : value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
+}
+
+function escapeXMLValue(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&apos;')
 }
 
 function sanitizeHTMLForStorage(html) {
@@ -66,4 +79,6 @@ module.exports = {
   sanitizeHTMLForStorage,
   sanitizeURLValue,
   sanitizeMetadataValue,
+  escapeHTMLAttribute,
+  escapeXMLValue,
 }

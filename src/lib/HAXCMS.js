@@ -27,7 +27,11 @@ const usort = require('locutus/php/array/usort');
 const sharp = require('sharp');
 const util  = require('node:util');
 const child_process  = require('child_process');
-const { sanitizeHTMLForStorage } = require('./sanitizeContent.js');
+const {
+  sanitizeHTMLForStorage,
+  sanitizeURLValue,
+  escapeHTMLAttribute,
+} = require('./sanitizeContent.js');
 const exec = util.promisify(child_process.exec);
 // a site object
 class HAXCMSSite
@@ -1176,16 +1180,8 @@ class HAXCMSSite
      * @todo move this to a render function / section / engine
      */
     async getSiteMetadata(page = null, domain = null, cdn = '') {
-      const escapeHtml = (value) => String(value == null ? '' : value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-      const sanitizeUrl = (value) => filter_var(
-        String(value == null ? '' : value),
-        'FILTER_SANITIZE_URL'
-      );
+      const escapeHtml = (value) => escapeHTMLAttribute(value);
+      const sanitizeUrl = (value) => sanitizeURLValue(value, '');
       if (page == null) {
         page = new JSONOutlineSchemaItem();
       }
