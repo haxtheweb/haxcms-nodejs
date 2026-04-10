@@ -2,7 +2,11 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
 const filter_var = require('../lib/filter_var.js');
 const strip_tags = require("locutus/php/strings/strip_tags");
 const html_entity_decode = require("locutus/php/strings/html_entity_decode");
-const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
+const {
+  sanitizeHTMLForStorage,
+  sanitizeURLValue,
+  sanitizeMetadataValue,
+} = require('../lib/sanitizeContent.js');
 /**
    * @OA\Post(
    *    path="/saveNode",
@@ -199,7 +203,9 @@ const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
                 }
                 // support for defining and updating related-items
                 if ((data["attributes"]["related-items"]) && data["attributes"]["related-items"] != '') {
-                  page.metadata.relatedItems = data["attributes"]["related-items"];
+                  page.metadata.relatedItems = sanitizeMetadataValue(
+                    data["attributes"]["related-items"]
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.relatedItems)) {
@@ -207,7 +213,10 @@ const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
                 }
                 // support for defining and updating image
                 if ((data["attributes"]["image"]) && data["attributes"]["image"] != '') {
-                  page.metadata.image = data["attributes"]["image"];
+                  page.metadata.image = sanitizeURLValue(
+                    data["attributes"]["image"],
+                    ''
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.image)) {
@@ -215,7 +224,9 @@ const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
                 }
                 // support for defining and updating page type
                 if ((data["attributes"]["tags"]) && data["attributes"]["tags"] != '') {
-                  page.metadata.tags = data["attributes"]["tags"];
+                  page.metadata.tags = sanitizeMetadataValue(
+                    data["attributes"]["tags"]
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.tags)) {
@@ -223,7 +234,9 @@ const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
                 }
                 // support for defining and updating page accentColor
                 if ((data["attributes"]["accent-color"]) && data["attributes"]["accent-color"] != '') {
-                  page.metadata.accentColor = data["attributes"]["accent-color"];
+                  page.metadata.accentColor = sanitizeMetadataValue(
+                    data["attributes"]["accent-color"]
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.accentColor)) {
@@ -231,7 +244,9 @@ const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
                 }
                 // support for defining and updating page type
                 if ((data["attributes"]["icon"]) && data["attributes"]["icon"] != '') {
-                  page.metadata.icon = data["attributes"]["icon"];
+                  page.metadata.icon = sanitizeMetadataValue(
+                    data["attributes"]["icon"]
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.icon)) {
@@ -239,7 +254,10 @@ const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
                 }
                 // support for defining an image to represent the page
                 if ((data["attributes"]["image"]) && data["attributes"]["image"] != '') {
-                  page.metadata.image = data["attributes"]["image"];
+                  page.metadata.image = sanitizeURLValue(
+                    data["attributes"]["image"],
+                    ''
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.image)) {

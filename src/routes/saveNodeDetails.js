@@ -1,6 +1,10 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const strip_tags = require("locutus/php/strings/strip_tags");
 const filter_var = require('../lib/filter_var.js');
+const {
+  sanitizeURLValue,
+  sanitizeMetadataValue
+} = require('../lib/sanitizeContent.js');
 /**
    * @OA\\Post(\n   *    path=\"/saveNodeDetails\",
    *    tags={\"cms\",\"authenticated\",\"node\"},
@@ -185,7 +189,7 @@ async function saveNodeDetails(req, res) {
         }
         if (req.body['node']['details'].hasOwnProperty('tags')) {
           if (req.body['node']['details']['tags'] !== '' && req.body['node']['details']['tags'] !== null) {
-            page.metadata.tags = filter_var(req.body['node']['details']['tags'], 'FILTER_SANITIZE_STRING');
+            page.metadata.tags = sanitizeMetadataValue(req.body['node']['details']['tags']);
           } else {
             delete page.metadata.tags;
           }
@@ -198,7 +202,7 @@ async function saveNodeDetails(req, res) {
         }
         if (req.body['node']['details'].hasOwnProperty('icon')) {
           if (req.body['node']['details']['icon'] !== '' && req.body['node']['details']['icon'] !== null) {
-            page.metadata.icon = filter_var(req.body['node']['details']['icon'], 'FILTER_SANITIZE_STRING');
+            page.metadata.icon = sanitizeMetadataValue(req.body['node']['details']['icon']);
           } else {
             delete page.metadata.icon;
           }
@@ -221,7 +225,7 @@ async function saveNodeDetails(req, res) {
         }
         if (imageValue !== null) {
           if (imageValue !== '' && imageValue !== undefined) {
-            page.metadata.image = filter_var(imageValue, 'FILTER_SANITIZE_URL');
+            page.metadata.image = sanitizeURLValue(imageValue, '');
           }
           else {
             delete page.metadata.image;
@@ -235,7 +239,7 @@ async function saveNodeDetails(req, res) {
         }
         if (req.body['node']['details'].hasOwnProperty('relatedItems')) {
           if (req.body['node']['details']['relatedItems'] !== '' && req.body['node']['details']['relatedItems'] !== null) {
-            page.metadata.relatedItems = filter_var(req.body['node']['details']['relatedItems'], 'FILTER_SANITIZE_STRING');
+            page.metadata.relatedItems = sanitizeMetadataValue(req.body['node']['details']['relatedItems']);
           } else {
             delete page.metadata.relatedItems;
           }

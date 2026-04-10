@@ -1,6 +1,7 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const filter_var = require('../lib/filter_var.js');
 const fs = require('fs-extra');
+const { sanitizeURLValue } = require('../lib/sanitizeContent.js');
 /**
    * @OA\Post(
    *    path="/saveManifest",
@@ -65,9 +66,13 @@ const fs = require('fs-extra');
             req.body['manifest']['site']['manifest-metadata-site-domain'],
             "FILTER_SANITIZE_STRING"
         );
-        site.manifest.metadata.site.logo = filter_var(
+        site.manifest.metadata.site.domain = sanitizeURLValue(
+          site.manifest.metadata.site.domain,
+          ''
+        );
+        site.manifest.metadata.site.logo = sanitizeURLValue(
             req.body['manifest']['site']['manifest-metadata-site-logo'],
-            "FILTER_SANITIZE_STRING"
+            ''
         );
         site.manifest.metadata.site.tags = filter_var(
           req.body['manifest']['site']['manifest-metadata-site-tags'],
@@ -84,6 +89,7 @@ const fs = require('fs-extra');
               req.body['manifest']['site']['manifest-domain'],
               "FILTER_SANITIZE_STRING"
           );
+          domain = sanitizeURLValue(domain, '');
           // support updating the domain CNAME value
           if (site.manifest.metadata.site.domain != domain) {
             site.manifest.metadata.site.domain = domain;
@@ -109,6 +115,10 @@ const fs = require('fs-extra');
           site.manifest.metadata.theme.variables.image = filter_var(
             req.body['manifest']['theme']['manifest-metadata-theme-variables-image'],"FILTER_SANITIZE_STRING"
           );
+          site.manifest.metadata.theme.variables.image = sanitizeURLValue(
+            site.manifest.metadata.theme.variables.image,
+            ''
+          );
         }
         if (typeof req.body['manifest']['theme']['manifest-metadata-theme-variables-imageAlt'] !== 'undefined') {
           site.manifest.metadata.theme.variables.imageAlt = filter_var(
@@ -118,6 +128,10 @@ const fs = require('fs-extra');
         if (typeof req.body['manifest']['theme']['manifest-metadata-theme-variables-imageLink'] !== 'undefined') {
           site.manifest.metadata.theme.variables.imageLink = filter_var(
             req.body['manifest']['theme']['manifest-metadata-theme-variables-imageLink'], "FILTER_SANITIZE_STRING"
+          );
+          site.manifest.metadata.theme.variables.imageLink = sanitizeURLValue(
+            site.manifest.metadata.theme.variables.imageLink,
+            ''
           );
         }
         // REGIONS SUPPORT
@@ -167,6 +181,10 @@ const fs = require('fs-extra');
                 req.body['manifest']['author']['manifest-metadata-author-image'],
                 "FILTER_SANITIZE_STRING"
             );
+            site.manifest.metadata.author.image = sanitizeURLValue(
+              site.manifest.metadata.author.image,
+              ''
+            );
             site.manifest.metadata.author.name = filter_var(
                 req.body['manifest']['author']['manifest-metadata-author-name'],
                 "FILTER_SANITIZE_STRING"
@@ -178,6 +196,10 @@ const fs = require('fs-extra');
             site.manifest.metadata.author.socialLink = filter_var(
                 req.body['manifest']['author']['manifest-metadata-author-socialLink'],
                 "FILTER_SANITIZE_STRING"
+            );
+            site.manifest.metadata.author.socialLink = sanitizeURLValue(
+              site.manifest.metadata.author.socialLink,
+              ''
             );
         }
         if (typeof req.body['manifest']['seo']['manifest-metadata-site-settings-private'] !== 'undefined') {
