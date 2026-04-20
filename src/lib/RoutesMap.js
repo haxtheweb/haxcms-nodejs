@@ -15,7 +15,11 @@ const RoutesMap = {
     archiveSite: require('../routes/archiveSite.js'),
     downloadSite: require('../routes/downloadSite.js'),
     saveManifest: require('../routes/saveManifest.js'),
+    saveAppearanceSettings: require('../routes/saveAppearanceSettings.js'),
     savePlatformSettings: require('../routes/savePlatformSettings.js'),
+    saveAllowedBlocks: require('../routes/saveAllowedBlocks.js'),
+    saveEditorSettings: require('../routes/saveEditorSettings.js'),
+    saveSeoSettings: require('../routes/saveSeoSettings.js'),
     saveOutline: require('../routes/saveOutline.js'),
 
     createNode: require('../routes/createNode.js'),

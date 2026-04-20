@@ -148,12 +148,137 @@
                   "platform": {
                     "type": "object",
                     "properties": {
-                      "audience": {
-                        "type": "string"
-                      },
                       "features": {
                         "type": "object"
+                      }
+                    }
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save platform feature settings into site.json metadata.platform.features"
+          }
+        }
+      }
+    },
+    "/saveSeoSettings": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated"
+        ],
+        "operationId": "Operations::saveSeoSettings",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "author": {
+                    "type": "object",
+                    "properties": {
+                      "license": {
+                        "type": "string"
                       },
+                      "image": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "socialLink": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "seo": {
+                    "type": "object",
+                    "properties": {
+                      "pathauto": {
+                        "type": "boolean"
+                      },
+                      "publishPagesOn": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save SEO and author settings into site.json"
+          }
+        }
+      }
+    },
+    "/saveAllowedBlocks": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated"
+        ],
+        "operationId": "Operations::saveAllowedBlocks",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "platform"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "platform": {
+                    "type": "object",
+                    "properties": {
                       "allowedBlocks": {
                         "type": "array",
                         "items": {
@@ -170,7 +295,63 @@
         },
         "responses": {
           "200": {
-            "description": "Save platform settings into site.json metadata.platform"
+            "description": "Save allowed blocks into site.json metadata.platform.allowedBlocks"
+          }
+        }
+      }
+    },
+    "/saveEditorSettings": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated"
+        ],
+        "operationId": "Operations::saveEditorSettings",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "platform"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "platform": {
+                    "type": "object",
+                    "properties": {
+                      "audience": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save editor settings into site.json metadata.platform.audience"
           }
         }
       }

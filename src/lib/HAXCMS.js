@@ -2349,6 +2349,7 @@ class HAXCMSClass {
             "manifest-metadata-theme-variables-imageLink": null,
             "manifest-metadata-theme-variables-hexCode": null,
             "manifest-metadata-theme-variables-cssVariable": null,
+            "manifest-metadata-theme-variables-palette": null,
             "manifest-metadata-theme-variables-icon": null,
             "regions": {
               "manifest-metadata-theme-regions-header": null,

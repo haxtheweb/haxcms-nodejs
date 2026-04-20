@@ -13,7 +13,7 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
  *    ),
  *    @OA\Response(
  *        response="200",
- *        description="Save platform settings into site.json metadata.platform"
+ *        description="Save platform feature settings into site.json metadata.platform.features"
  *   )
  * )
  */
@@ -36,11 +36,6 @@ async function savePlatformSettings(req, res) {
     const platform = req.body.platform;
 
     // Validate payload shape
-    const allowedAudiences = ['novice', 'expert'];
-    if (!platform.audience || !allowedAudiences.includes(platform.audience)) {
-      res.sendStatus(400);
-      return;
-    }
 
     const validFeatureKeys = [
       'addPage',
@@ -117,47 +112,22 @@ async function savePlatformSettings(req, res) {
       }
     }
 
-    if (!Array.isArray(platform.allowedBlocks)) {
-      res.sendStatus(400);
-      return;
-    }
-
-    const wcMap = HAXCMS.getWCRegistryJson(site);
-
-    const cleanAllowedBlocks = [];
-    for (const tag of platform.allowedBlocks) {
-      if (typeof tag !== 'string') {
-        res.sendStatus(400);
-        return;
-      }
-
-      // Allow basic HTML primitives (no dash) OR web components found in wc-registry
-      const isHtmlTag = /^[a-z][a-z0-9]*$/.test(tag) && !tag.includes('-');
-      const isRegisteredWc = !isHtmlTag && wcMap && typeof wcMap[tag] !== 'undefined';
-
-      if (!isHtmlTag && !isRegisteredWc) {
-        res.sendStatus(400);
-        return;
-      }
-
-      cleanAllowedBlocks.push(tag);
-    }
-
-    const uniqueAllowedBlocks = [...new Set(cleanAllowedBlocks)].sort();
-
-    // Write to manifest metadata.platform (overwrite the group)
+    // Write features only. Audience and allowed blocks are managed by their
+    // dedicated endpoints (saveEditorSettings / saveAllowedBlocks).
     if (!site.manifest.metadata) {
       site.manifest.metadata = {};
     }
     if (!site.manifest.metadata.site) {
       site.manifest.metadata.site = {};
     }
-
-    site.manifest.metadata.platform = {
-      audience: platform.audience,
-      features: {},
-      allowedBlocks: uniqueAllowedBlocks,
-    };
+    if (
+      !site.manifest.metadata.platform ||
+      typeof site.manifest.metadata.platform !== 'object' ||
+      Array.isArray(site.manifest.metadata.platform)
+    ) {
+      site.manifest.metadata.platform = {};
+    }
+    site.manifest.metadata.platform.features = {};
 
     // only store supported feature keys
     for (const k of validFeatureKeys) {

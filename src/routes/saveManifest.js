@@ -166,6 +166,22 @@ const { sanitizeURLValue } = require('../lib/sanitizeContent.js');
         site.manifest.metadata.theme.variables.cssVariable = "--simple-colors-default-theme-" + filter_var(
           req.body['manifest']['theme']['manifest-metadata-theme-variables-cssVariable'], "FILTER_SANITIZE_STRING"
         ) + "-7";
+        if (
+          typeof req.body['manifest']['theme']['manifest-metadata-theme-variables-palette'] !== 'undefined'
+        ) {
+          let paletteValue = filter_var(
+            req.body['manifest']['theme']['manifest-metadata-theme-variables-palette'],
+            "FILTER_SANITIZE_STRING"
+          );
+          if (typeof paletteValue === 'string') {
+            paletteValue = paletteValue.trim().toLowerCase();
+            if (paletteValue === '') {
+              delete site.manifest.metadata.theme.variables.palette;
+            } else if (/^[a-z0-9-]+$/.test(paletteValue)) {
+              site.manifest.metadata.theme.variables.palette = paletteValue;
+            }
+          }
+        }
         site.manifest.metadata.theme.variables.icon = filter_var(
           req.body['manifest']['theme']['manifest-metadata-theme-variables-icon'],"FILTER_SANITIZE_STRING"
         );
