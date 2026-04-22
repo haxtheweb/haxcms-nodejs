@@ -1,4 +1,8 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 
 /**
    * @OA\Post(
@@ -20,6 +24,9 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
   async function deleteNode(req, res) {
     let site = await HAXCMS.loadSite(req.body['site']['name']);
     if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
+      if (!platformAllows(site, 'deletePage')) {
+        return featureDisabledResponse(res, 'Delete is disabled for this site');
+      }
       // update the page's content, using manifest to find it
       // this ensures that writing is always to what the file system
       // determines to be the correct page

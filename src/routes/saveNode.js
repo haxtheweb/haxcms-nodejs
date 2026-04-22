@@ -7,6 +7,10 @@ const {
   sanitizeURLValue,
   sanitizeMetadataValue,
 } = require('../lib/sanitizeContent.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 /**
    * @OA\Post(
    *    path="/saveNode",
@@ -87,6 +91,12 @@ const {
             // a capability that is not supported currently beyond experiments
             page = site.loadNode(data["attributes"]["item-id"]);
             if (!page) {
+              if (!platformAllows(site, 'addPage')) {
+                return featureDisabledResponse(
+                  res,
+                  'Adding pages is disabled for this site'
+                );
+              }
               // generate a new item based on the site
               let nodeParams = {
                 "node" : {

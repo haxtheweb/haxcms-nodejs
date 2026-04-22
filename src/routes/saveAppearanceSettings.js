@@ -1,6 +1,10 @@
 const { HAXCMS } = require('../lib/HAXCMS.js')
 const filter_var = require('../lib/filter_var.js')
 const { sanitizeURLValue } = require('../lib/sanitizeContent.js')
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js')
 
 const ALLOWED_TOP_LEVEL_KEYS = new Set(['jwt', 'site', 'manifest'])
 const ALLOWED_SITE_KEYS = new Set(['name'])
@@ -129,6 +133,12 @@ async function saveAppearanceSettings(req, res) {
 
   const themePayload = req.body.manifest.theme
   const site = await HAXCMS.loadSite(req.body.site.name)
+  if (!platformAllows(site, 'themeManifest')) {
+    return featureDisabledResponse(
+      res,
+      'Theme settings are disabled for this site',
+    )
+  }
   if (!site || !site.manifest) {
     res.sendStatus(400)
     return

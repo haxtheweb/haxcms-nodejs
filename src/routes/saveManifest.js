@@ -2,6 +2,10 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
 const filter_var = require('../lib/filter_var.js');
 const fs = require('fs-extra');
 const { sanitizeURLValue } = require('../lib/sanitizeContent.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 /**
    * @OA\Post(
    *    path="/saveManifest",
@@ -23,6 +27,12 @@ const { sanitizeURLValue } = require('../lib/sanitizeContent.js');
     if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
       // load the site from name
       let site = await HAXCMS.loadSite(req.body['site']['name']);
+      if (!platformAllows(site, 'siteManifest')) {
+        return featureDisabledResponse(
+          res,
+          'Manifest editing is disabled for this site'
+        );
+      }
       // standard form submit
       // @todo 
       // make the form point to a form submission endpoint with appropriate name

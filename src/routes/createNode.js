@@ -2,6 +2,10 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
 const path = require('path');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
 const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 /**
  * @OA\Post(
  *     path="/createNode",
@@ -75,6 +79,9 @@ async function createNode(req, res) {
   if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + nodeParams['site']['name'])) {
     let item;
     let site = await HAXCMS.loadSite(req.body['site']['name'].toLowerCase());
+    if (!platformAllows(site, 'addPage')) {
+      return featureDisabledResponse(res, 'Adding pages is disabled for this site');
+    }
     // implies we've been TOLD to create nodes
     // this is typically from a docx import
     if (nodeParams['items']) {

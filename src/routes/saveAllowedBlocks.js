@@ -1,4 +1,8 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 
 /**
  * @OA\Post(
@@ -27,6 +31,12 @@ async function saveAllowedBlocks(req, res) {
   ) {
     // load the site from name
     let site = await HAXCMS.loadSite(req.body['site']['name']);
+    if (!platformAllows(site, 'siteManifest')) {
+      return featureDisabledResponse(
+        res,
+        'Allowed blocks settings are disabled for this site'
+      );
+    }
 
     if (!req.body || typeof req.body.platform !== 'object' || !req.body.platform) {
       res.sendStatus(400);

@@ -95,6 +95,21 @@ function stripExecutableExtensionPatterns(fileName) {
   return sanitizedBaseName;
 }
 
+function normalizeFilenameExtensionCasing(fileName) {
+  if (!fileName || typeof fileName !== 'string') {
+    return '';
+  }
+  const parsedName = path.parse(fileName);
+  if (!parsedName.ext) {
+    return fileName;
+  }
+  const normalizedBaseName = parsedName.name + parsedName.ext.toLowerCase();
+  if (parsedName.dir && parsedName.dir !== '.') {
+    return path.join(parsedName.dir, normalizedBaseName);
+  }
+  return normalizedBaseName;
+}
+
 function mimeMatchesAllowed(actualMime, allowedMimes) {
   for (let i = 0; i < allowedMimes.length; i++) {
     const allowedMime = String(allowedMimes[i]).toLowerCase();
@@ -484,7 +499,9 @@ class HAXCMSFile
       else if (tmpFile.name) {
         incomingName = tmpFile.name;
       }
-      let sanitizedIncomingName = stripExecutableExtensionPatterns(incomingName);
+      let sanitizedIncomingName = normalizeFilenameExtensionCasing(
+        stripExecutableExtensionPatterns(incomingName)
+      );
       // ensure file is an image, video, docx, pdf, etc. of safe file types to allow uploading
       if (!sanitizedIncomingName || !ALLOWED_UPLOAD_EXTENSION_PATTERN.test(sanitizedIncomingName)) {
         return {

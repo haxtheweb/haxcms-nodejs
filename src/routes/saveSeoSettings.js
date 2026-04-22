@@ -1,6 +1,10 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const filter_var = require('../lib/filter_var.js');
 const { sanitizeURLValue } = require('../lib/sanitizeContent.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 
 /**
  * @OA\Post(
@@ -34,6 +38,12 @@ async function saveSeoSettings(req, res) {
     if (!site || !site.manifest) {
       res.sendStatus(400);
       return;
+    }
+    if (!platformAllows(site, 'seoManifest')) {
+      return featureDisabledResponse(
+        res,
+        'SEO settings are disabled for this site'
+      );
     }
 
     if (!site.manifest.metadata) {

@@ -5,6 +5,10 @@ const {
   sanitizeURLValue,
   sanitizeMetadataValue
 } = require('../lib/sanitizeContent.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 /**
    * @OA\\Post(\n   *    path=\"/saveNodeDetails\",
    *    tags={\"cms\",\"authenticated\",\"node\"},
@@ -19,19 +23,6 @@ async function saveNodeDetails(req, res) {
   if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
     const site = await HAXCMS.loadSite(req.body['site']['name']);
 
-    // Check platform configuration
-    const platformConfig = site.manifest.metadata && site.manifest.metadata.platform;
-    const outlineAllowed = !platformConfig || platformConfig.outlineDesigner !== false;
-    
-    if (!outlineAllowed) {
-      return res.send({
-        '__failed': {
-          'status': 403,
-          'message': 'Outline operations are disabled for this site',
-        }
-      });
-    }
-
     if (!req.body['node'] || !req.body['node']['id']) {
       return res.send({
         '__failed': {
@@ -44,6 +35,30 @@ async function saveNodeDetails(req, res) {
     const operation = req.body['node']['details'] && req.body['node']['details']['operation'] 
       ? req.body['node']['details']['operation'] 
       : null;
+    const pageDetailOperations = new Set([
+      'setTitle',
+      'setDescription',
+      'setTags',
+      'setIcon',
+      'setMedia',
+      'setImage',
+      'setRelatedItems',
+      'setLocked',
+      'setPublished',
+      'setHideInMenu',
+    ]);
+    if (!platformAllows(site, 'outlineDesigner')) {
+      return featureDisabledResponse(
+        res,
+        'Outline operations are disabled for this site',
+      );
+    }
+    if (pageDetailOperations.has(operation) && !platformAllows(site, 'pageBreak')) {
+      return featureDisabledResponse(
+        res,
+        'Page details editing is disabled for this site',
+      );
+    }
     
     let page = site.loadNode(req.body['node']['id']);
     
