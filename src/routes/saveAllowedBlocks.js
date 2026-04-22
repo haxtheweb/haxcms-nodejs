@@ -43,39 +43,45 @@ async function saveAllowedBlocks(req, res) {
       return;
     }
 
-    if (!Array.isArray(req.body.platform.allowedBlocks)) {
+    if (
+      req.body.platform.allowedBlocks !== null &&
+      !Array.isArray(req.body.platform.allowedBlocks)
+    ) {
       res.sendStatus(400);
       return;
     }
 
-    const wcMap = HAXCMS.getWCRegistryJson(site);
+    let uniqueAllowedBlocks = null;
+    if (Array.isArray(req.body.platform.allowedBlocks)) {
+      const wcMap = HAXCMS.getWCRegistryJson(site);
 
-    const cleanAllowedBlocks = [];
-    for (const tag of req.body.platform.allowedBlocks) {
-      if (typeof tag !== 'string') {
-        res.sendStatus(400);
-        return;
+      const cleanAllowedBlocks = [];
+      for (const tag of req.body.platform.allowedBlocks) {
+        if (typeof tag !== 'string') {
+          res.sendStatus(400);
+          return;
+        }
+
+        const cleanTag = tag.trim();
+        if (!cleanTag) {
+          res.sendStatus(400);
+          return;
+        }
+
+        // Allow basic HTML primitives (no dash) OR web components found in wc-registry
+        const isHtmlTag = /^[a-z][a-z0-9]*$/.test(cleanTag) && !cleanTag.includes('-');
+        const isRegisteredWc = !isHtmlTag && wcMap && typeof wcMap[cleanTag] !== 'undefined';
+
+        if (!isHtmlTag && !isRegisteredWc) {
+          res.sendStatus(400);
+          return;
+        }
+
+        cleanAllowedBlocks.push(cleanTag);
       }
 
-      const cleanTag = tag.trim();
-      if (!cleanTag) {
-        res.sendStatus(400);
-        return;
-      }
-
-      // Allow basic HTML primitives (no dash) OR web components found in wc-registry
-      const isHtmlTag = /^[a-z][a-z0-9]*$/.test(cleanTag) && !cleanTag.includes('-');
-      const isRegisteredWc = !isHtmlTag && wcMap && typeof wcMap[cleanTag] !== 'undefined';
-
-      if (!isHtmlTag && !isRegisteredWc) {
-        res.sendStatus(400);
-        return;
-      }
-
-      cleanAllowedBlocks.push(cleanTag);
+      uniqueAllowedBlocks = [...new Set(cleanAllowedBlocks)].sort();
     }
-
-    const uniqueAllowedBlocks = [...new Set(cleanAllowedBlocks)].sort();
 
     if (!site.manifest.metadata) {
       site.manifest.metadata = {};
