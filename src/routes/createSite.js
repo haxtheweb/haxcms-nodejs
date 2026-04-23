@@ -6,6 +6,8 @@ const fs = require('fs-extra');
 const path = require('path');
 
 const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i;
+const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
+const DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE = '--simple-colors-default-theme-light-blue-7';
 
 function normalizeBulkImportName(locationName) {
   if (typeof locationName !== 'string') {
@@ -283,8 +285,8 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
    *    path="/createSite",
    *    tags={"cms","authenticated","site"},
    *    @OA\Parameter(
-   *         name="jwt",
-   *         description="JSON Web token, obtain by using  /login",
+   *         name="user_token",
+   *         description="User validation token",
    *         in="query",
    *         required=true,
    *         @OA\Schema(type="string")
@@ -298,24 +300,25 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
    *                     type="object"
    *                 ),
    *                 @OA\Property(
-   *                     property="theme",
+   *                     property="build",
    *                     type="object"
    *                 ),
-   *                 required={"site","node"},
+   *                 @OA\Property(
+   *                     property="token",
+   *                     type="string"
+   *                 ),
+   *                 required={"site","token"},
    *                 example={
    *                    "site": {
    *                      "name": "mynewsite",
-   *                      "domain": ""
+   *                      "description": "The description",
+   *                      "theme": "learn-two-theme"
    *                    },
-   *                    "theme": {
-   *                      "name": "learn-two-theme",
-   *                      "variables": {
-   *                        "image":"",
-   *                        "icon":"",
-   *                        "hexCode":"",
-   *                        "cssVariable":"",
-   *                        }                   
-   *                    }
+   *                    "build": {
+   *                      "type": "course",
+   *                      "structure": "docx import"
+   *                    },
+   *                    "token": "request-token"
    *                 }
    *             )
    *         )
@@ -462,6 +465,9 @@ async function createSite(req, res) {
     else if (req.body['site']['theme'] && typeof req.body['site']['theme'] === "string") {
       theme = req.body['site']['theme'];
     }
+    if (typeof theme === 'string') {
+      theme = theme.trim().toLowerCase();
+    }
     let themesAry = HAXCMS.getThemes();
     if (useTrustedSkeleton) {
       const trustedTheme = getTrustedSkeletonTheme(trustedSkeleton, themesAry);
@@ -471,10 +477,18 @@ async function createSite(req, res) {
     }
     // look for a match so we can set the correct data
     if (!isObjectLike(schema.metadata.theme) || Object.keys(schema.metadata.theme).length === 0) {
-      for (var key in themesAry) {
-        if (theme == key) {
-          schema.metadata.theme = cloneJsonValue(themesAry[key], themesAry[key]);
-        }
+      if (isObjectLike(themesAry) && isObjectLike(themesAry[theme])) {
+        schema.metadata.theme = cloneJsonValue(themesAry[theme], themesAry[theme]);
+      }
+      else {
+        return res.status(400).send({
+          status: 400,
+          __failed: {
+            status: 400,
+            message: 'Invalid theme supplied for site creation',
+            theme,
+          }
+        });
       }
     }
     if (!isObjectLike(schema.metadata.theme)) {
@@ -496,17 +510,8 @@ async function createSite(req, res) {
     ) {
       schema.description = trustedSkeleton.site.description.replace(/<\/?[^>]+(>|$)/g, "");
     }
-    const incomingTheme =
-      req.body &&
-      req.body['theme'] &&
-      typeof req.body['theme'] === 'object'
-        ? req.body['theme']
-        : {};
-    // background image / banner
-    if (incomingTheme['image'] && incomingTheme['image'] != '' && incomingTheme['image'] != null) {
-      schema.metadata.site.logo = incomingTheme['image'];
-    }
-    else if (
+    // background image / banner (request does not control this)
+    if (
       useTrustedSkeleton &&
       trustedSkeleton &&
       trustedSkeleton.site &&
@@ -518,10 +523,15 @@ async function createSite(req, res) {
     else {
       schema.metadata.site.logo = 'assets/banner.jpg';
     }
-    // icon to express the concept / visually identify site
-    if ((incomingTheme['icon']) && incomingTheme['icon'] != '' && incomingTheme['icon'] != null) {
-      schema.metadata.theme.variables.icon = incomingTheme['icon'];
+    let icon = DEFAULT_CREATE_SITE_THEME_ICON;
+    if (
+      schema.metadata.theme.variables.icon &&
+      typeof schema.metadata.theme.variables.icon === 'string' &&
+      schema.metadata.theme.variables.icon !== ''
+    ) {
+      icon = schema.metadata.theme.variables.icon;
     }
+    schema.metadata.theme.variables.icon = icon;
     let hex = HAXCMS.HAXCMS_FALLBACK_HEX;
     if (
       schema.metadata.theme.variables.hexCode &&
@@ -530,21 +540,14 @@ async function createSite(req, res) {
     ) {
       hex = schema.metadata.theme.variables.hexCode;
     }
-    // slightly style the site based on css vars and hexcode
-    if ((incomingTheme['hexCode']) && incomingTheme['hexCode'] != '' && incomingTheme['hexCode'] != null) {
-       hex = incomingTheme['hexCode'];
-    }
     schema.metadata.theme.variables.hexCode = hex;
-    let cssvar = '--simple-colors-default-theme-light-blue-7';
+    let cssvar = DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE;
     if (
       schema.metadata.theme.variables.cssVariable &&
       typeof schema.metadata.theme.variables.cssVariable === 'string' &&
       schema.metadata.theme.variables.cssVariable !== ''
     ) {
       cssvar = schema.metadata.theme.variables.cssVariable;
-    }
-    if ((incomingTheme['cssVariable']) && incomingTheme['cssVariable'] != '' && incomingTheme['cssVariable'] != null) {
-        cssvar = incomingTheme['cssVariable'];
     }
     schema.metadata.theme.variables.cssVariable = cssvar;
     let trustedSettings = null;

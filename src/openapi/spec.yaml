@@ -29,7 +29,24 @@ paths:
       responses:
         '200':
           description: 'API documentation in YAML'
+  /openapi:
+    get:
+      tags:
+        - api
+      summary: 'Generate the swagger API documentation for this site'
+      operationId: 'Operations::openapi'
+      responses:
+        '200':
+          description: 'API documentation in YAML'
   /openapi/json:
+    get:
+      tags:
+        - api
+      summary: 'Generate the swagger API documentation for this site'
+      operationId: 'Operations::openapi'
+      responses:
+        '200':
+          description: 'API documentation in JSON'
     post:
       tags:
         - api
@@ -232,6 +249,43 @@ paths:
       responses:
         '200':
           description: 'Save SEO and author settings into site.json'
+  /saveAppearanceSettings:
+    post:
+      tags:
+        - cms
+        - authenticated
+      operationId: 'Operations::saveAppearanceSettings'
+      parameters:
+        -
+          name: site_token
+          in: query
+          description: 'Site-specific validation token'
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              required:
+                - site
+                - manifest
+              properties:
+                site:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                manifest:
+                  type: object
+                  properties:
+                    theme:
+                      type: object
+                      description: 'Theme appearance values to persist in site.json metadata.theme'
+              type: object
+      responses:
+        '200':
+          description: 'Save appearance settings into site.json metadata.theme'
   /saveOutline:
     post:
       tags:
@@ -518,8 +572,24 @@ paths:
       responses:
         '200':
           description: 'User logout, front end will kill token'
+    get:
+      tags:
+        - cms
+        - user
+      operationId: 'Operations::logout'
+      responses:
+        '200':
+          description: 'User logout, front end will kill token'
   /refreshAccessToken:
     post:
+      tags:
+        - cms
+        - user
+      operationId: 'Operations::refreshAccessToken'
+      responses:
+        '200':
+          description: 'User access token for refreshing JWT when it goes stale'
+    get:
       tags:
         - cms
         - user
@@ -573,8 +643,91 @@ paths:
           description: 'User is uploading a file to present in a site'
         '500':
           description: 'Error uploading file'
+  /skeletonsList:
+    get:
+      tags:
+        - cms
+      operationId: 'Operations::skeletonsList'
+      parameters:
+        -
+          name: user_token
+          in: query
+          description: 'User validation token'
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'List available site skeletons'
+    post:
+      tags:
+        - cms
+      operationId: 'Operations::skeletonsList'
+      parameters:
+        -
+          name: user_token
+          in: query
+          description: 'User validation token'
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'List available site skeletons'
+  /getSkeleton:
+    get:
+      tags:
+        - cms
+      operationId: 'Operations::getSkeleton'
+      parameters:
+        -
+          name: user_token
+          in: query
+          description: 'User validation token'
+          required: true
+          schema:
+            type: string
+        -
+          name: name
+          in: query
+          description: 'Skeleton file name (without .json extension)'
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'Returns skeleton JSON data'
+    post:
+      tags:
+        - cms
+      operationId: 'Operations::getSkeleton'
+      parameters:
+        -
+          name: user_token
+          in: query
+          description: 'User validation token'
+          required: true
+          schema:
+            type: string
+        -
+          name: name
+          in: query
+          description: 'Skeleton file name (without .json extension)'
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'Returns skeleton JSON data'
   /listSites:
     get:
+      tags:
+        - cms
+      operationId: 'Operations::listSites'
+      responses:
+        '200':
+          description: 'Load a list of all sites the user has created'
+    post:
       tags:
         - cms
       operationId: 'Operations::listSites'
@@ -709,17 +862,6 @@ paths:
                       type: string
                     theme:
                       type: string
-                theme:
-                  type: object
-                  properties:
-                    image:
-                      type: string
-                    icon:
-                      type: string
-                    hexCode:
-                      type: string
-                    cssVariable:
-                      type: string
                 build:
                   type: object
                   properties:
@@ -740,11 +882,10 @@ paths:
                   domain: ''
                   description: 'My new site description'
                   theme: learn-two-theme
-                theme:
-                  image: 'assets/banner.jpg'
-                  icon: 'icons:web'
-                  hexCode: '#3f51b5'
-                  cssVariable: '--simple-colors-default-theme-light-blue-7'
+                build:
+                  type: course
+                  structure: docx import
+                token: request-token
       responses:
         '200':
           description: 'Create a new site'
