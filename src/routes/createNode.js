@@ -86,21 +86,23 @@ async function createNode(req, res) {
     // this is typically from a docx import
     if (nodeParams['items']) {
       // create pages
-      for (i=0; i < nodeParams['items'].length; i++) {
+      for (let i=0; i < nodeParams['items'].length; i++) {
         // outline-designer allows delete + confirmation but we don't have anything
         // so instead, just don't process the thing in question if asked to delete it
         if (nodeParams['items'][i]['delete'] && nodeParams['items'][i]['delete'] == true) {
           // do nothing
         }
         else {
-          item = site.addPage(
+          item = await site.addPage(
           nodeParams['items'][i]['parent'], 
           nodeParams['items'][i]['title'], 
           'html', 
           nodeParams['items'][i]['slug'],
           nodeParams['items'][i]['id'],
           nodeParams['items'][i]['indent'],
-          nodeParams['items'][i]['contents']
+          nodeParams['items'][i]['content'] || nodeParams['items'][i]['contents'] || '',
+          nodeParams['items'][i]['order'],
+          (nodeParams['items'][i]['metadata']) ? nodeParams['items'][i]['metadata'] : null,
           );  
         }
       }

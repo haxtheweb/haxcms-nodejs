@@ -690,7 +690,7 @@ class HAXCMSSite
           page.indent = parent.indent + 1;
         }
         // set order to the page's count for default add to end ordering
-        if (order) {
+        if (order || order === 0) {
           page.order = order;
         }
         else {
