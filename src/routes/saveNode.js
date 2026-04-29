@@ -120,11 +120,12 @@ const {
             }
             // now this should exist if it didn't a minute ago
             page = site.loadNode(data["attributes"]["item-id"]);
+            let sanitizedContent = sanitizeHTMLForStorage(data['content']);
             // @todo make sure that we stripped off page-break
             // and now save WITHOUT the top level page-break
             // to avoid duplication issues
             bytes = await page.writeLocation(
-              sanitizeHTMLForStorage(data['content']),
+              sanitizedContent,
               site.siteDirectory
             );
             if (bytes === false) {
@@ -345,6 +346,7 @@ const {
                   }
                 }
                 await site.updateNode(page);
+                await site.writePageAlternateFormats(page, sanitizedContent);
                 site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
                 await site.manifest.save();
                 await site.gitCommit(

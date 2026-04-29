@@ -17,6 +17,8 @@ const SITE_FILE_NAME = 'site.json';
 const utf8 = require('utf8');
 const JSONOutlineSchemaItem = require('./JSONOutlineSchemaItem.js');
 const FeedMe = require('./RSS.js');
+const TurndownService = require('turndown');
+const jsyaml = require('js-yaml');
 const array_search = require('locutus/php/array/array_search');
 const array_unshift = require('locutus/php/array/array_unshift');
 const implode = require('locutus/php/strings/implode');
@@ -31,8 +33,13 @@ const {
   sanitizeHTMLForStorage,
   sanitizeURLValue,
   escapeHTMLAttribute,
+  escapeXMLValue,
 } = require('./sanitizeContent.js');
 const exec = util.promisify(child_process.exec);
+const turndownService = new TurndownService();
+turndownService.keep(function(node) {
+  return node && node.nodeName && String(node.nodeName).indexOf('-') !== -1;
+});
 // a site object
 class HAXCMSSite
 {
@@ -1130,6 +1137,151 @@ class HAXCMSSite
         return filter_var(await fs.readFileSync(path.join(this.siteDirectory, page.location),
         {encoding:'utf8', flag:'r'}));
       }
+    }
+    /**
+     * Generate per-page alternate formats in the same folder as index.html.
+     * This is best-effort and never throws.
+     */
+    async writePageAlternateFormats(page, htmlContent = '') {
+      if (!page || !page.location || page.location == '' || !this.siteDirectory) {
+        return false;
+      }
+      let content = '';
+      if (typeof htmlContent === 'string' && htmlContent != '') {
+        content = htmlContent;
+      }
+      else {
+        try {
+          content = await this.getPageContent(page);
+        }
+        catch (e) {
+          content = '';
+        }
+      }
+      if (typeof content !== 'string' || content == '') {
+        content = '<p></p>';
+      }
+      // Markdown
+      try {
+        let markdown = turndownService.turndown(content);
+        let markdownLocation = this.getPageAlternateLocation(page.location, 'md');
+        fs.writeFileSync(path.join(this.siteDirectory, markdownLocation), markdown);
+      }
+      catch (e) {}
+      // JSON
+      try {
+        let jsonPayload = this.getPageAlternatePayload(page, content, 'json');
+        fs.writeFileSync(
+          path.join(this.siteDirectory, jsonPayload.location),
+          JSON.stringify(jsonPayload, null, 2)
+        );
+      }
+      catch (e) {}
+      // YAML
+      try {
+        let yamlPayload = this.getPageAlternatePayload(page, content, 'yaml');
+        fs.writeFileSync(
+          path.join(this.siteDirectory, yamlPayload.location),
+          jsyaml.dump(yamlPayload)
+        );
+      }
+      catch (e) {}
+      // XML
+      try {
+        let xmlPayload = this.getPageAlternatePayload(page, content, 'xml');
+        fs.writeFileSync(
+          path.join(this.siteDirectory, xmlPayload.location),
+          this.getPageAlternateXML(xmlPayload)
+        );
+      }
+      catch (e) {}
+      return true;
+    }
+    /**
+     * Build structured payload with location set for extension.
+     */
+    getPageAlternatePayload(page, content, extension = 'json') {
+      let payload = {};
+      try {
+        payload = JSON.parse(JSON.stringify(page));
+      }
+      catch (e) {
+        payload = {};
+      }
+      payload.location = this.getPageAlternateLocation(page.location, extension);
+      payload.content = content;
+      return payload;
+    }
+    /**
+     * Derive alternate file location from page location.
+     */
+    getPageAlternateLocation(location = '', extension = 'json') {
+      if (typeof location !== 'string' || location == '') {
+        return '';
+      }
+      let cleanExtension = String(extension).replace(/^\./, '').toLowerCase();
+      let normalizedLocation = location.replace(/\\/g, '/');
+      if (/\.html?$/i.test(normalizedLocation)) {
+        return normalizedLocation.replace(/\.html?$/i, '.' + cleanExtension);
+      }
+      return normalizedLocation + '.' + cleanExtension;
+    }
+    /**
+     * Generate XML output for per-page structured payload.
+     */
+    getPageAlternateXML(payload = {}) {
+      let xml = '<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<item>';
+      for (let key in payload) {
+        xml += this.getPageAlternateXMLNode(key, payload[key]);
+      }
+      xml += '\n</item>\n';
+      return xml;
+    }
+    /**
+     * Serialize a payload node to XML recursively.
+     */
+    getPageAlternateXMLNode(key, value) {
+      let tagName = this.getSafeXMLTagName(key);
+      if (key == 'content') {
+        return '\n<' + tagName + '><![CDATA[' + this.getSafeCDATA(value) + ']]></' + tagName + '>';
+      }
+      if (Array.isArray(value)) {
+        let output = '';
+        for (let i = 0; i < value.length; i++) {
+          output += this.getPageAlternateXMLNode('item', value[i]);
+        }
+        return '\n<' + tagName + '>' + output + '\n</' + tagName + '>';
+      }
+      if (value && typeof value === 'object') {
+        let output = '';
+        for (let childKey in value) {
+          output += this.getPageAlternateXMLNode(childKey, value[childKey]);
+        }
+        return '\n<' + tagName + '>' + output + '\n</' + tagName + '>';
+      }
+      if (value === null || typeof value === 'undefined') {
+        return '\n<' + tagName + '></' + tagName + '>';
+      }
+      return '\n<' + tagName + '>' + escapeXMLValue(String(value)) + '</' + tagName + '>';
+    }
+    /**
+     * Ensure XML tags are valid and deterministic.
+     */
+    getSafeXMLTagName(name = '') {
+      let tagName = String(name).replace(/[^a-zA-Z0-9_-]/g, '-');
+      if (tagName == '') {
+        tagName = 'item';
+      }
+      if (/^[0-9]/.test(tagName)) {
+        tagName = 'item-' + tagName;
+      }
+      return tagName;
+    }
+    /**
+     * Prevent CDATA breakouts.
+     */
+    getSafeCDATA(value = '') {
+      return String(value).replace(/\]\]>/g, ']]]]><![CDATA[>');
     }
     /**
      * Generate the stub of a well formed site.json item
