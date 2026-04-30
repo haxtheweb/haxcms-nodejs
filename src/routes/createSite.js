@@ -8,6 +8,14 @@ const path = require('path');
 const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i;
 const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
 const DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE = '--simple-colors-default-theme-light-blue-7';
+const DEFAULT_SUPPORTED_SITE_LICENSES = [
+  'by',
+  'by-sa',
+  'by-nd',
+  'by-nc',
+  'by-nc-sa',
+  'by-nc-nd'
+];
 
 function normalizeBulkImportName(locationName) {
   if (typeof locationName !== 'string') {
@@ -36,6 +44,53 @@ function normalizeSkeletonMachineName(value) {
     return '';
   }
   return value.replace(/\.json$/i, '').trim().toLowerCase();
+}
+
+function getSupportedSiteLicenseCodes() {
+  let supported = [...DEFAULT_SUPPORTED_SITE_LICENSES];
+  if (HAXCMS && typeof HAXCMS.getLicenseData === 'function') {
+    const options = HAXCMS.getLicenseData('select');
+    if (options && typeof options === 'object') {
+      const keys = Object.keys(options)
+        .map((key) =>
+          typeof key === 'string'
+            ? key.trim().toLowerCase().replace(/_/g, '-')
+            : ''
+        )
+        .filter((key) => key !== '');
+      if (keys.length > 0) {
+        supported = keys;
+      }
+    }
+  }
+  return [...new Set(supported)];
+}
+
+function normalizeSiteLicenseValue(rawValue, supportedLicenses = []) {
+  if (!rawValue || typeof rawValue !== 'string') {
+    return null;
+  }
+  const value = rawValue
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, '-');
+  if (value === '') {
+    return null;
+  }
+  if (supportedLicenses.includes(value)) {
+    return value;
+  }
+  for (const code of supportedLicenses) {
+    if (
+      value.indexOf(`/licenses/${code}`) !== -1 ||
+      value.indexOf(`cc ${code}`) !== -1 ||
+      value.indexOf(`cc-${code}`) !== -1 ||
+      value.indexOf(`cc:${code}`) !== -1
+    ) {
+      return code;
+    }
+  }
+  return null;
 }
 
 async function resolveSkeletonBuildByMachineName(machineName) {
@@ -418,6 +473,32 @@ async function createSite(req, res) {
         domain,
         build
     );
+    const supportedSiteLicenses = getSupportedSiteLicenseCodes();
+    const requestedLicense =
+      req.body &&
+      req.body['site'] &&
+      typeof req.body['site']['license'] === 'string'
+        ? req.body['site']['license']
+        : null;
+    let normalizedSiteLicense = normalizeSiteLicenseValue(
+      requestedLicense,
+      supportedSiteLicenses
+    );
+    if (
+      !normalizedSiteLicense &&
+      useTrustedSkeleton &&
+      trustedSkeleton &&
+      trustedSkeleton.site &&
+      typeof trustedSkeleton.site.license === 'string'
+    ) {
+      normalizedSiteLicense = normalizeSiteLicenseValue(
+        trustedSkeleton.site.license,
+        supportedSiteLicenses
+      );
+    }
+    if (normalizedSiteLicense) {
+      site.manifest.license = normalizedSiteLicense;
+    }
     // now get a new item to reference this into the top level sites listing
     let schema = new JSONOutlineSchemaItem();
     schema.id = site.manifest.id;
@@ -452,6 +533,9 @@ async function createSite(req, res) {
       schema.metadata.build = build;
     }
     schema.metadata.site.name = site.manifest.metadata.site.name;
+    if (normalizedSiteLicense) {
+      schema.metadata.site.license = normalizedSiteLicense;
+    }
     let theme = HAXCMS.HAXCMS_DEFAULT_THEME;
     if (
       useTrustedSkeleton &&

@@ -12,6 +12,12 @@ const mime = require('mime');
 const path = require('path');
 const fs = require("fs-extra");
 const server = require('http').Server(app);
+const PAGE_VARIANT_CONTENT_TYPES = {
+  md: 'text/markdown; charset=utf-8',
+  json: 'application/json; charset=utf-8',
+  yaml: 'application/yaml; charset=utf-8',
+  xml: 'application/xml; charset=utf-8',
+};
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
@@ -103,7 +109,7 @@ systemStructureContext().then((site) => {
     } else {
       app.use(express.static(publicDir));
     }
-    app.use('/', (req, res, next) => {
+    app.use('/', async (req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', `http://localhost:${port}`);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
@@ -143,6 +149,7 @@ systemStructureContext().then((site) => {
           req.url.includes('/assets/') || 
           req.url.includes('/manifest.json') || 
           req.url.includes('/robots.txt') ||
+          req.url.includes('/llms.txt') ||
           req.url.includes('/files/') || 
           req.url.includes('/pages/') || 
           req.url.includes('/site.json')
@@ -160,6 +167,32 @@ systemStructureContext().then((site) => {
         });
       }
       else {
+        const requestPath = getRequestPathWithoutQuery(req.url);
+        let variantResponse = {
+          served: false,
+          item: null,
+          canonicalPath: null,
+        };
+        if (requestPath.indexOf('/x/') !== 0) {
+          variantResponse = tryServePageVariantRequest(
+            req,
+            res,
+            site,
+            requestPath,
+            ''
+          );
+          if (variantResponse.served) {
+            return;
+          }
+          if (variantResponse.item && variantResponse.canonicalPath) {
+            setPageAlternateHeaders(
+              res,
+              site,
+              variantResponse.item,
+              variantResponse.canonicalPath
+            );
+          }
+        }
         // all page calls just go to the index and the front end will render them
         if (mime.getType(req.url.split('?')[0])) {
           res.setHeader('Content-Type', mime.getType(req.url));
@@ -167,35 +200,25 @@ systemStructureContext().then((site) => {
         else {
           res.setHeader('Content-Type', 'text/html');
         }
-        // injects a websocket for livereload support when developing custom components
-        if (process.env.NODE_ENV === "development") {
-          let indexFile = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
-          const devScript = `
-  <script>
-    const socket = new WebSocket('ws://localhost:${port}');
-    // Connection opened
-    socket.addEventListener('open', function (event) {
-        socket.send('connected to server successfully')
-    });
-    socket.addEventListener('message', function (event) {
-      if(event.data === 'theme reload') {
-        window.location.reload();
-      }
-    });
-  </script>`;
-
-          indexFile = indexFile.replace('</body>', `${devScript}
-</body>`);
+        try {
+          let indexFile = await renderDynamicSiteIndexResponse(
+            req,
+            site,
+            variantResponse.item,
+            variantResponse.canonicalPath,
+            path.join(publicDir, 'index.html')
+          );
+          // injects a websocket for livereload support when developing custom components
+          if (process.env.NODE_ENV === "development") {
+            indexFile = injectDevReloadScript(indexFile, port);
+          }
           res.send(indexFile);
-        } else {
-          // send file for the index even tho route says it's a path not on our file system
-          // this way internal routing picks up and loads the correct content while
-          // at the same time express has delivered us SOMETHING as the path in the request
-          // url doesn't actually exist
-          res.sendFile(`index.html`,
-            {
-              root: publicDir
-            });
+        }
+        catch (e) {
+          // fallback to static index delivery if runtime injection fails
+          res.sendFile(`index.html`, {
+            root: publicDir
+          });
         }
       }
     });
@@ -226,7 +249,7 @@ systemStructureContext().then((site) => {
     });
     // sites need rewriting to work with PWA routes without failing file location
     // similar to htaccess
-    app.use(`/${HAXCMS.sitesDirectory}/`,(req, res, next) => {
+    app.use(`/${HAXCMS.sitesDirectory}/`, async (req, res, next) => {
       if (req.url.includes('/system/api/')) {
         next()
       }
@@ -262,6 +285,7 @@ systemStructureContext().then((site) => {
           req.url.includes('/assets/') || 
           req.url.includes('/manifest.json') || 
           req.url.includes('/robots.txt') ||
+          req.url.includes('/llms.txt') ||
           req.url.includes('/files/') || 
           req.url.includes('/pages/') || 
           req.url.includes('/site.json')
@@ -279,18 +303,60 @@ systemStructureContext().then((site) => {
         });
       }
       else {
+        const multisiteRequestPath = getRequestPathWithoutQuery(req.url);
+        const siteName = getMultisiteSiteName(multisiteRequestPath);
+        let siteContext = null;
+        let variantResponse = {
+          served: false,
+          item: null,
+          canonicalPath: null,
+        };
+        if (siteName) {
+          siteContext = await HAXCMS.loadSite(siteName);
+          const siteSubPath = getMultisiteSiteSubPath(multisiteRequestPath);
+          if (siteContext && siteSubPath.indexOf('/x/') !== 0) {
+              variantResponse = tryServePageVariantRequest(
+                req,
+                res,
+                siteContext,
+                siteSubPath,
+                `/${HAXCMS.sitesDirectory}/${siteName}`
+              );
+              if (variantResponse.served) {
+                return;
+              }
+              if (variantResponse.item && variantResponse.canonicalPath) {
+                setPageAlternateHeaders(
+                  res,
+                  siteContext,
+                  variantResponse.item,
+                  variantResponse.canonicalPath
+                );
+              }
+          }
+        }
         if (mime.getType(req.url.split('?')[0])) {
           res.setHeader('Content-Type', mime.getType(req.url));
         }
         else {
           res.setHeader('Content-Type', 'text/html');
         }
-        // send file for the index even tho route says it's a path not on our file system
-        // this way internal routing picks up and loads the correct content while
-        // at the same time express has delivered us SOMETHING as the path in the request
-        // url doesn't actually exist
-        res.sendFile(req.url.replace(/\/(.*?)\/(.*)/, `/${HAXCMS.sitesDirectory}/$1/index.html`),
-        {
+        if (siteContext && siteContext.siteDirectory) {
+          try {
+            let indexFile = await renderDynamicSiteIndexResponse(
+              req,
+              siteContext,
+              variantResponse.item,
+              variantResponse.canonicalPath,
+              path.join(siteContext.siteDirectory, 'index.html')
+            );
+            res.send(indexFile);
+            return;
+          }
+          catch (e) {}
+        }
+        // send static index fallback even if route points to a non-file path
+        res.sendFile(req.url.replace(/\/(.*?)\/(.*)/, `/${HAXCMS.sitesDirectory}/$1/index.html`), {
           root: process.cwd()
         });
       }
@@ -358,6 +424,7 @@ systemStructureContext().then((site) => {
         !req.url.startsWith('/favicon.ico') &&
         !req.url.startsWith('/manifest.json') &&
         !req.url.startsWith('/robots.txt') &&
+        !req.url.startsWith('/llms.txt') &&
         !req.url.startsWith('/VERSION.txt')
       ) {
         res.sendFile('/',
@@ -398,3 +465,369 @@ function handleServerError(e) {
 }
 
 server.on("error", handleServerError);
+function getRequestPathWithoutQuery(url = '') {
+  return String(url || '').split('?')[0];
+}
+
+function getExplicitVariantInfo(pathname = '') {
+  const matched = String(pathname || '').match(/^(.*)\.(md|json|ya?ml|xml)$/i);
+  if (!matched) {
+    return {
+      format: null,
+      basePath: pathname,
+    };
+  }
+  let format = matched[2].toLowerCase();
+  if (format === 'yml') {
+    format = 'yaml';
+  }
+  return {
+    format,
+    basePath: matched[1] || '',
+  };
+}
+
+function getNegotiatedVariantFormat(acceptHeader = '') {
+  const accept = String(acceptHeader || '').toLowerCase();
+  const acceptsHtml =
+    accept.indexOf('text/html') !== -1 ||
+    accept.indexOf('application/xhtml+xml') !== -1;
+  if (acceptsHtml) {
+    return null;
+  }
+  if (accept.indexOf('text/markdown') !== -1) {
+    return 'md';
+  }
+  if (
+    accept.indexOf('application/yaml') !== -1 ||
+    accept.indexOf('application/x-yaml') !== -1 ||
+    accept.indexOf('text/yaml') !== -1
+  ) {
+    return 'yaml';
+  }
+  if (
+    accept.indexOf('application/xml') !== -1 ||
+    accept.indexOf('text/xml') !== -1
+  ) {
+    return 'xml';
+  }
+  if (
+    accept.indexOf('application/json') !== -1 &&
+    accept.indexOf('text/html') === -1
+  ) {
+    return 'json';
+  }
+  return null;
+}
+
+function normalizeSlugFromPath(pathname = '') {
+  let slugPath = String(pathname || '').replace(/^\/+/, '');
+  slugPath = slugPath.replace(/\/+$/, '');
+  return slugPath;
+}
+
+function resolvePageBySlug(site, slug = '') {
+  if (
+    !site ||
+    !site.manifest ||
+    !Array.isArray(site.manifest.items) ||
+    slug === ''
+  ) {
+    return null;
+  }
+  if (site.manifest.getItemByProperty) {
+    const matched = site.manifest.getItemByProperty('slug', slug);
+    if (matched) {
+      return matched;
+    }
+  }
+  for (let i = 0; i < site.manifest.items.length; i++) {
+    const item = site.manifest.items[i];
+    if (item && item.slug === slug) {
+      return item;
+    }
+  }
+  return null;
+}
+
+function buildCanonicalPagePath(routePrefix = '', slug = '') {
+  const cleanPrefix = String(routePrefix || '').replace(/\/+$/, '');
+  const cleanSlug = String(slug || '').replace(/^\/+/, '').replace(/\/+$/, '');
+  if (cleanSlug === '') {
+    if (cleanPrefix === '') {
+      return '/';
+    }
+    return cleanPrefix;
+  }
+  if (cleanPrefix === '') {
+    return '/' + cleanSlug;
+  }
+  return cleanPrefix + '/' + cleanSlug;
+}
+
+function appendVaryHeader(res, value = 'Accept') {
+  const currentHeader = res.getHeader('Vary');
+  if (!currentHeader) {
+    res.setHeader('Vary', value);
+    return;
+  }
+  const current = String(currentHeader);
+  const entries = current.split(',').map((entry) => entry.trim().toLowerCase());
+  if (entries.indexOf(value.toLowerCase()) === -1) {
+    res.setHeader('Vary', current + ', ' + value);
+  }
+}
+
+function getPageVariantLocation(site, item, format = 'json') {
+  if (!site || !item || !item.location) {
+    return null;
+  }
+  if (site.getPageAlternateLocation) {
+    return site.getPageAlternateLocation(item.location, format);
+  }
+  if (/\.html?$/i.test(item.location)) {
+    return item.location.replace(/\.html?$/i, '.' + format);
+  }
+  return item.location + '.' + format;
+}
+
+function resolveVariantFilePath(site, item, format = 'json') {
+  const variantLocation = getPageVariantLocation(site, item, format);
+  if (!variantLocation || !site || !site.siteDirectory) {
+    return null;
+  }
+  const absolutePath = path.join(site.siteDirectory, variantLocation);
+  if (fs.existsSync(absolutePath) && fs.lstatSync(absolutePath).isFile()) {
+    return absolutePath;
+  }
+  return null;
+}
+
+function servePageVariantFile(res, site, item, format, canonicalPath, negotiated = false) {
+  const variantFilePath = resolveVariantFilePath(site, item, format);
+  if (!variantFilePath) {
+    return false;
+  }
+  const contentType = PAGE_VARIANT_CONTENT_TYPES[format] || 'text/plain; charset=utf-8';
+  res.setHeader('Content-Type', contentType);
+  if (canonicalPath) {
+    res.setHeader('Content-Location', canonicalPath + '.' + format);
+  }
+  if (negotiated) {
+    appendVaryHeader(res, 'Accept');
+  }
+  res.sendFile(variantFilePath);
+  return true;
+}
+
+function setPageAlternateHeaders(res, site, item, canonicalPath = '') {
+  if (!site || !item || !canonicalPath) {
+    return;
+  }
+  const links = [];
+  const formats = Object.keys(PAGE_VARIANT_CONTENT_TYPES);
+  for (let i = 0; i < formats.length; i++) {
+    const format = formats[i];
+    const variantFilePath = resolveVariantFilePath(site, item, format);
+    if (variantFilePath) {
+      links.push(
+        '<' + canonicalPath + '.' + format + '>; rel="alternate"; type="' +
+        PAGE_VARIANT_CONTENT_TYPES[format].replace('; charset=utf-8', '') + '"'
+      );
+    }
+  }
+  if (links.length > 0) {
+    res.setHeader('Link', links.join(', '));
+    appendVaryHeader(res, 'Accept');
+  }
+}
+
+function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefix = '') {
+  const explicitInfo = getExplicitVariantInfo(requestPath);
+  const slug = normalizeSlugFromPath(explicitInfo.basePath);
+  if (slug === '') {
+    return {
+      served: false,
+      item: null,
+      canonicalPath: null,
+    };
+  }
+  const item = resolvePageBySlug(site, slug);
+  if (!item) {
+    if (explicitInfo.format) {
+      res.status(404);
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.send('Not found');
+      return {
+        served: true,
+        item: null,
+        canonicalPath: null,
+      };
+    }
+    return {
+      served: false,
+      item: null,
+      canonicalPath: null,
+    };
+  }
+  const canonicalPath = buildCanonicalPagePath(routePrefix, slug);
+  if (explicitInfo.format) {
+    const servedExplicit = servePageVariantFile(
+      res,
+      site,
+      item,
+      explicitInfo.format,
+      canonicalPath
+    );
+    if (!servedExplicit) {
+      res.status(404);
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.send('Not found');
+    }
+    return {
+      served: true,
+      item,
+      canonicalPath,
+    };
+  }
+  const negotiatedFormat = getNegotiatedVariantFormat(req.headers.accept);
+  if (negotiatedFormat) {
+    const servedNegotiated = servePageVariantFile(
+      res,
+      site,
+      item,
+      negotiatedFormat,
+      canonicalPath,
+      true
+    );
+    if (servedNegotiated) {
+      return {
+        served: true,
+        item,
+        canonicalPath,
+      };
+    }
+  }
+  return {
+    served: false,
+    item,
+    canonicalPath,
+  };
+}
+
+function getMultisiteSiteName(requestPath = '') {
+  const pathParts = String(requestPath || '').replace(/^\/+/, '').split('/');
+  if (pathParts.length === 0 || pathParts[0] === '') {
+    return null;
+  }
+  return pathParts[0];
+}
+
+function getMultisiteSiteSubPath(requestPath = '') {
+  const pathParts = String(requestPath || '').replace(/^\/+/, '').split('/');
+  if (pathParts.length <= 1) {
+    return '/';
+  }
+  return '/' + pathParts.slice(1).join('/');
+}
+
+function getRequestAbsoluteUrl(req, fallbackPath = '/') {
+  let protocol = 'http';
+  if (req && req.headers && typeof req.headers['x-forwarded-proto'] === 'string' && req.headers['x-forwarded-proto'] !== '') {
+    protocol = req.headers['x-forwarded-proto'].split(',')[0].trim();
+  }
+  else if (req && req.protocol) {
+    protocol = req.protocol;
+  }
+  let host = '';
+  if (req && req.headers && typeof req.headers['x-forwarded-host'] === 'string' && req.headers['x-forwarded-host'] !== '') {
+    host = req.headers['x-forwarded-host'].split(',')[0].trim();
+  }
+  else if (req && req.headers && typeof req.headers.host === 'string') {
+    host = req.headers.host;
+  }
+  let requestPath = fallbackPath;
+  if (req && (req.originalUrl || req.url)) {
+    requestPath = getRequestPathWithoutQuery(req.originalUrl || req.url);
+  }
+  if (!requestPath || typeof requestPath !== 'string') {
+    requestPath = '/';
+  }
+  if (requestPath.substring(0, 1) !== '/') {
+    requestPath = '/' + requestPath;
+  }
+  if (host === '') {
+    return requestPath;
+  }
+  return protocol + '://' + host + requestPath;
+}
+
+function sanitizeManagedHeadMarkup(markup = '') {
+  return String(markup || '').replace(/\\"/g, '"');
+}
+
+function replaceManagedHeadMarkup(indexFile = '', metadata = '', serviceWorkerScript = '') {
+  const cleanMetadata = sanitizeManagedHeadMarkup(metadata);
+  const cleanServiceWorkerScript = sanitizeManagedHeadMarkup(serviceWorkerScript);
+  let managedHeadMarkup = cleanMetadata;
+  if (cleanServiceWorkerScript !== '') {
+    managedHeadMarkup += '\n' + cleanServiceWorkerScript + '\n';
+  }
+  let output = String(indexFile || '');
+  const managedHeadPattern = /<meta charset[\s\S]*?(?=\s*<style[\s>])/i;
+  if (managedHeadPattern.test(output)) {
+    output = output.replace(managedHeadPattern, managedHeadMarkup + '\n');
+    return output;
+  }
+  if (output.indexOf('</head>') !== -1) {
+    output = output.replace('</head>', managedHeadMarkup + '\n</head>');
+  }
+  return output;
+}
+
+function replaceSiteBuilderContent(indexFile = '', pageContent = '') {
+  const builderPattern = /<haxcms-site-builder([^>]*)>[\s\S]*?<\/haxcms-site-builder>/i;
+  if (!builderPattern.test(indexFile)) {
+    return indexFile;
+  }
+  return String(indexFile || '').replace(
+    builderPattern,
+    '<haxcms-site-builder$1>' + String(pageContent || '') + '</haxcms-site-builder>'
+  );
+}
+
+function injectDevReloadScript(indexFile = '', port = 3000) {
+  const devScript = `
+  <script>
+    const socket = new WebSocket('ws://localhost:${port}');
+    socket.addEventListener('open', function () {
+      socket.send('connected to server successfully');
+    });
+    socket.addEventListener('message', function (event) {
+      if (event.data === 'theme reload') {
+        globalThis.location.reload();
+      }
+    });
+  </script>`;
+  return String(indexFile || '').replace('</body>', `${devScript}
+</body>`);
+}
+
+async function renderDynamicSiteIndexResponse(req, site, item, canonicalPath = '', indexFilePath = '') {
+  let indexFile = fs.readFileSync(indexFilePath, 'utf8');
+  const absoluteUrl = getRequestAbsoluteUrl(req, canonicalPath || '/');
+  const metadata = await site.getSiteMetadata(item || null, absoluteUrl, '', canonicalPath || '');
+  const serviceWorkerScript = site.getServiceWorkerScript(null, false, site.getServiceWorkerStatus());
+  indexFile = replaceManagedHeadMarkup(indexFile, metadata, serviceWorkerScript);
+  let pageContent = '';
+  if (item) {
+    try {
+      pageContent = await site.getPageContent(item);
+    }
+    catch (e) {
+      pageContent = '';
+    }
+  }
+  indexFile = replaceSiteBuilderContent(indexFile, pageContent);
+  return indexFile;
+}

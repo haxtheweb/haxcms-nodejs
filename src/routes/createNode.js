@@ -121,6 +121,7 @@ async function createNode(req, res) {
       // add the item back into the outline schema
       site.manifest.addItem(item);
       await site.manifest.save();
+      let alternateContent = '';
       // support for duplicating the content of another item
       if (nodeParams['node']['duplicate']) {
         // verify we can load this id
@@ -132,8 +133,9 @@ async function createNode(req, res) {
             if (page = site.loadNode(item.id)) {
             // write it to the file system
             // this all seems round about but it's more secure
+            alternateContent = sanitizeHTMLForStorage(content);
             let bytes = await page.writeLocation(
-                sanitizeHTMLForStorage(content),
+                alternateContent,
                 site.siteDirectory
             );
             }
@@ -146,11 +148,16 @@ async function createNode(req, res) {
         let page;
         if (page = site.loadNode(item.id)) {
             // write it to the file system
+            alternateContent = sanitizeHTMLForStorage(nodeParams['node']['contents']);
             let bytes = await page.writeLocation(
-            sanitizeHTMLForStorage(nodeParams['node']['contents']),
+            alternateContent,
             site.siteDirectory
             );
         }
+      }
+      let createdPage = site.loadNode(item.id);
+      if (createdPage) {
+        site.writePageAlternateFormats(createdPage, alternateContent);
       }
       await site.gitCommit('Page added:' + item.title + ' (' + item.id + ')'); 
       // update the alternate formats as a new page exists

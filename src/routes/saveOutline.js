@@ -43,6 +43,7 @@ const {
       let safeLocationMap = {};
       let items = [...req.body['items']];
       let itemMap = {};
+      let pageAlternateContentMap = {};
       var page, bytes, cleanTitle;
       // items from the POST
       for (var key in items) {
@@ -100,6 +101,7 @@ const {
               HAXCMS.boilerplatePath + 'page/default',
               site.siteDirectory + '/' + page.location.replace('/index.html', '')
           );
+          pageAlternateContentMap[page.id] = '';
         }
         // this would imply existing item, lets see if it moved or needs moved
         else {
@@ -139,6 +141,7 @@ const {
                     HAXCMS.boilerplatePath + 'page/default',
                     site.siteDirectory + '/' + page.location.replace('/index.html', '')
                 );
+                pageAlternateContentMap[page.id] = '';
             }
         }
         safeLocationMap[page.id] = page.location;
@@ -189,6 +192,11 @@ const {
           return saveOutlineError(res, 400, 'invalid write target');
         }
         page.location = expectedLocation;
+        let alternateContent = '';
+        let shouldWriteAlternate = false;
+        if (typeof pageAlternateContentMap[page.id] !== 'undefined') {
+          shouldWriteAlternate = true;
+        }
         if (typeof item.duplicate !== 'undefined') {
           let nodeToDuplicate = site.loadNode(item.duplicate);
           // load the node we are duplicating with support for the same map needed for page loading
@@ -203,13 +211,15 @@ const {
             return saveOutlineError(res, 400, 'invalid duplicate content');
           }
           // write it to the file system
+          alternateContent = sanitizeHTMLForStorage(content);
           bytes = await page.writeLocation(
-            sanitizeHTMLForStorage(content),
+            alternateContent,
             site.siteDirectory
           );
           if (bytes === false) {
             return saveOutlineError(res, 500, 'failed to write');
           }
+          shouldWriteAlternate = true;
         }
         // contents that were shipped across, and not null, take priority over a dup request
         if (typeof item.contents !== 'undefined' && item.contents && item.contents != '') {
@@ -217,13 +227,18 @@ const {
             return saveOutlineError(res, 400, 'invalid page contents');
           }
           // write it to the file system
+          alternateContent = sanitizeHTMLForStorage(item.contents);
           bytes = await page.writeLocation(
-            sanitizeHTMLForStorage(item.contents),
+            alternateContent,
             site.siteDirectory
           );
           if (bytes === false) {
             return saveOutlineError(res, 500, 'failed to write');
           }
+          shouldWriteAlternate = true;
+        }
+        if (shouldWriteAlternate) {
+          site.writePageAlternateFormats(page, alternateContent);
         }
       }
       items = [...req.body['items']];

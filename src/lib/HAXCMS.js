@@ -408,6 +408,7 @@ class HAXCMSSite
           // seo / performance
           'push' : 'push-manifest.json',
           'robots' : 'robots.txt',
+          'llms' : 'llms.txt',
           // pwa related files
           'msbc' : 'browserconfig.xml',
           'manifest' : 'manifest.json',
@@ -569,7 +570,11 @@ class HAXCMSSite
             }
             catch(e) {}
           }
-      } 
+      }
+      try {
+        await this.updateAlternateFormats('llms');
+      }
+      catch (e) {}
     }
     /**
      * Rename a page from one location to another
@@ -739,13 +744,16 @@ class HAXCMSSite
         this.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
         await this.manifest.save();
         // support direct HTML setting
+        let alternateContent = '';
         if (template == 'html') {
           // now this should exist if it didn't a minute ago
+          alternateContent = sanitizeHTMLForStorage(html);
           let bytes = page.writeLocation(
-            sanitizeHTMLForStorage(html),
+            alternateContent,
             this.siteDirectory
           );
         }
+        this.writePageAlternateFormats(page, alternateContent);
         this.updateAlternateFormats();
         return page;
     }
@@ -813,6 +821,132 @@ class HAXCMSSite
                     json_encode(await this.lunrSearchIndex(this.manifest.items))
             );
         }
+        if (format == null || format == 'llms') {
+            try {
+              fs.writeFileSync(this.siteDirectory + '/llms.txt', this.getLLMSTxt(domain));
+            }
+            catch (e) {
+              // keep parity with PHP behavior: never hard fail a save on llms serialization
+            }
+        }
+    }
+    /**
+     * Generate llms.txt content based on site structure and generated markdown pages.
+     */
+    getLLMSTxt(domain = '') {
+      let title = this.getLLMSSafeText(this.manifest.title);
+      if (title == '') {
+        title = this.getLLMSSafeText(this.name);
+      }
+      if (title == '') {
+        title = 'HAXcms site';
+      }
+      let lines = ['# ' + title];
+      let description = this.getLLMSSafeText(this.manifest.description);
+      if (description != '') {
+        lines.push('');
+        lines.push('> ' + description);
+      }
+      lines.push('');
+      lines.push('HAXcms is a file-based CMS: authored pages and metadata are stored as portable files, not locked into a database-only workflow.');
+      lines.push('The canonical site structure is `site.json`, represented in JSON Outline Schema (`id`, `parent`, `order`, `slug`, `location`, and `metadata`).');
+      lines.push('Use HAX CLI and ecosystem tooling to maintain human-authored content while keeping machine-readable outputs synchronized.');
+      lines.push('Managed files (feeds, search indexes, manifests, and this `llms.txt`) are generated artifacts and should be rebuilt by tooling.');
+      lines.push('');
+      lines.push('## Core resources');
+      lines.push('- [site.json](' + this.getLLMSResourceURL(domain, 'site.json') + '): Canonical site manifest and navigation tree in JSON Outline Schema format.');
+      lines.push('- [llms.txt](' + this.getLLMSResourceURL(domain, 'llms.txt') + '): LLM-oriented guide to this site and its machine-readable resources.');
+      lines.push('');
+      lines.push('## Pages');
+      let items = [];
+      if (this.manifest && this.manifest.items) {
+        items = this.manifest.orderTree(this.manifest.items);
+      }
+      let hasPages = false;
+      for (let key in items) {
+        let item = items[key];
+        if (!item || !item.location) {
+          continue;
+        }
+        let markdownLocation = this.getPageAlternateLocation(item.location, 'md');
+        if (markdownLocation == '') {
+          continue;
+        }
+        let itemTitle = this.getLLMSSafeLinkText(item.title || item.slug || item.id || 'Untitled page');
+        let itemDescription = this.getLLMSSafeText(item.description);
+        let line = '- [' + itemTitle + '](' + this.getLLMSResourceURL(domain, markdownLocation) + ')';
+        if (itemDescription != '') {
+          line += ': ' + itemDescription;
+        }
+        lines.push(line);
+        hasPages = true;
+      }
+      if (!hasPages) {
+        lines.push('- [Site outline](' + this.getLLMSResourceURL(domain, 'site.json') + '): No page markdown files are currently available.');
+      }
+      lines.push('');
+      lines.push('## Optional');
+      lines.push('- [Search index](' + this.getLLMSResourceURL(domain, 'lunrSearchIndex.json') + '): Lunr corpus for quick full-text retrieval.');
+      lines.push('- [RSS feed](' + this.getLLMSResourceURL(domain, 'rss.xml') + '): Site updates in RSS format.');
+      lines.push('- [Atom feed](' + this.getLLMSResourceURL(domain, 'atom.xml') + '): Site updates in Atom format.');
+      lines.push('- [Sitemap](' + this.getLLMSResourceURL(domain, 'sitemap.xml') + '): URL-level discovery map for the published site.');
+      return lines.join('\n') + '\n';
+    }
+    /**
+     * Build a normalized llms.txt link URL from domain/base and a relative resource path.
+     */
+    getLLMSResourceURL(domain = '', location = '') {
+      let baseURL = this.getLLMSBaseURL(domain);
+      let cleanLocation = '';
+      if (typeof location === 'string') {
+        cleanLocation = location.replace(/\\/g, '/').replace(/^\/+/, '');
+      }
+      if (cleanLocation == '') {
+        return baseURL;
+      }
+      if (baseURL == '/') {
+        return '/' + cleanLocation;
+      }
+      return baseURL + cleanLocation;
+    }
+    /**
+     * Normalize domain/base values into a URL-safe prefix for llms.txt links.
+     */
+    getLLMSBaseURL(domain = '') {
+      let baseURL = '';
+      if (typeof domain === 'string') {
+        baseURL = domain.trim();
+      }
+      if (baseURL == '') {
+        return '/';
+      }
+      if (!/^https?:\/\//.test(baseURL) && baseURL.substring(0, 1) != '/') {
+        baseURL = '/' + baseURL;
+      }
+      if (baseURL.substring(baseURL.length - 1) != '/') {
+        baseURL += '/';
+      }
+      return baseURL;
+    }
+    /**
+     * Normalize text for llms.txt body content.
+     */
+    getLLMSSafeText(value = '') {
+      if (value == null || typeof value === 'undefined') {
+        return '';
+      }
+      let text = String(value);
+      return text.replace(/\r/g, ' ').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    /**
+     * Normalize markdown link text and escape bracket characters.
+     */
+    getLLMSSafeLinkText(value = '') {
+      let text = this.getLLMSSafeText(value);
+      if (text == '') {
+        text = 'Untitled page';
+      }
+      return text.replace(/\[/g, '\\[').replace(/\]/g, '\\]');
     }
     /**
      * Create Lunr.js style search index
@@ -1055,7 +1189,7 @@ class HAXCMSSite
       // because this can screw with caching, let's make sure we
       // can throttle it locally for developers as needed
       if (!addSW || (HAXCMS.developerMode && !ignoreDevMode)) {
-        return "\n  <!-- Service worker disabled via settings -.\n";
+        return "\n  <!-- Service worker disabled via settings -->\n";
       }
       // support dynamic calculation
       if (basePath == null) {
@@ -1227,6 +1361,52 @@ class HAXCMSSite
       return normalizedLocation + '.' + cleanExtension;
     }
     /**
+     * Build HTML <link rel="alternate"> tags for available page sidecar formats.
+     */
+    getPageAlternateLinkTags(page = null, canonicalPath = '') {
+      if (
+        !page ||
+        !page.slug ||
+        typeof page.slug !== 'string' ||
+        page.slug == '' ||
+        !this.siteDirectory
+      ) {
+        return '';
+      }
+      let basePath = canonicalPath;
+      if (typeof basePath !== 'string' || basePath == '') {
+        basePath = '/' + String(page.slug).replace(/^\/+/, '').replace(/\/+$/, '');
+      }
+      basePath = String(basePath).replace(/\/+$/, '');
+      if (basePath == '') {
+        return '';
+      }
+      const formatMimeMap = {
+        md: 'text/markdown',
+        json: 'application/json',
+        yaml: 'application/yaml',
+        xml: 'application/xml',
+      };
+      let tags = '';
+      for (let format in formatMimeMap) {
+        let variantLocation = this.getPageAlternateLocation(page.location, format);
+        if (!variantLocation) {
+          continue;
+        }
+        let variantPath = path.join(this.siteDirectory, variantLocation);
+        if (fs.pathExistsSync(variantPath) && fs.lstatSync(variantPath).isFile()) {
+          tags +=
+            '  <link rel="alternate" type="' +
+            escapeHTMLAttribute(formatMimeMap[format]) +
+            '" href="' +
+            escapeHTMLAttribute(basePath + '.' + format) +
+            '" />' +
+            "\n";
+        }
+      }
+      return tags;
+    }
+    /**
      * Generate XML output for per-page structured payload.
      */
     getPageAlternateXML(payload = {}) {
@@ -1331,7 +1511,7 @@ class HAXCMSSite
      * @return string an html chunk of tags for the head section
      * @todo move this to a render function / section / engine
      */
-    async getSiteMetadata(page = null, domain = null, cdn = '') {
+    async getSiteMetadata(page = null, domain = null, cdn = '', canonicalPath = '') {
       const escapeHtml = (value) => escapeHTMLAttribute(value);
       const sanitizeUrl = (value) => sanitizeURLValue(value, '');
       if (page == null) {
@@ -1403,6 +1583,8 @@ class HAXCMSSite
           nextResource = '  <link rel="next" href="' + escapeHtml(String(this.manifest.items[currentId + 1].slug)) + '" />' + "\n";
         }
       }
+      const alternateLinks = this.getPageAlternateLinkTags(page, canonicalPath);
+      canonical += alternateLinks;
       const safeSiteTitle = escapeHtml(siteTitle);
       const safeTitle = escapeHtml(title);
       const safeDescription = escapeHtml(description);
@@ -2031,6 +2213,29 @@ class HAXCMSClass {
     }
     this.config = JSON.parse(fs.readFileSync(path.join(this.configDirectory, "config.json"),
       {encoding:'utf8', flag:'r'}, 'utf8'));
+    if (!this.config.themes) {
+      this.config.themes = {};
+    }
+    if (!this.config.deploymentProfile) {
+      if (this.config.iam) {
+        this.config.deploymentProfile = 'haxiam-managed';
+      }
+      else if (this.operatingContext === 'multisite') {
+        this.config.deploymentProfile = 'self-hosted-multi-site';
+      }
+      else {
+        this.config.deploymentProfile = 'single-site';
+      }
+    }
+    if (!this.config.mcp) {
+      this.config.mcp = {};
+    }
+    if (typeof this.config.mcp.enabled === 'undefined') {
+      this.config.mcp.enabled = this.getDeploymentProfile() !== 'haxiam-managed';
+    }
+    if (typeof this.config.mcp.readOnly === 'undefined') {
+      this.config.mcp.readOnly = true;
+    }
     if (!this.config.appJWTConnectionSettings) {
       this.config.appJWTConnectionSettings = {};
     }
@@ -2227,6 +2432,47 @@ class HAXCMSClass {
    */
   isCLI() {
     return process.env.haxcms_middleware === "node-cli";
+  }
+  /**
+   * Deployment profile controls platform-level MCP defaults.
+   */
+  getDeploymentProfile() {
+    if (!this.config || !this.config.deploymentProfile) {
+      return 'single-site';
+    }
+    const profile = String(this.config.deploymentProfile).toLowerCase();
+    const validProfiles = ['single-site', 'self-hosted-multi-site', 'haxiam-managed'];
+    if (validProfiles.indexOf(profile) !== -1) {
+      return profile;
+    }
+    return 'single-site';
+  }
+  /**
+   * MCP availability policy.
+   */
+  isMcpEnabled() {
+    if (!this.config || !this.config.mcp) {
+      return false;
+    }
+    return this.config.mcp.enabled === true;
+  }
+  /**
+   * MCP write-protection policy (true means write calls must be blocked).
+   */
+  isMcpReadOnly() {
+    if (!this.isMcpEnabled()) {
+      return true;
+    }
+    if (!this.config || !this.config.mcp) {
+      return true;
+    }
+    return this.config.mcp.readOnly !== false;
+  }
+  /**
+   * MCP write capability helper.
+   */
+  isMcpWriteEnabled() {
+    return this.isMcpEnabled() && !this.isMcpReadOnly();
   }
 
   /**
