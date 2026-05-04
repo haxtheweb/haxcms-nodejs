@@ -65,6 +65,8 @@ async function connectionSettings(req, res) {
     getUserDataPath: `${baseAPIPath}getUserData?user_token=${userToken}`,
     createSite: `${baseAPIPath}createSite?user_token=${userToken}`,
     downloadSite: `${baseAPIPath}downloadSite?user_token=${userToken}`,
+    downloadSiteSkeleton: `${baseAPIPath}downloadSiteSkeleton?user_token=${userToken}`,
+    saveSiteAsTemplate: `${baseAPIPath}saveSiteAsTemplate?user_token=${userToken}`,
     archiveSite: `${baseAPIPath}archiveSite?user_token=${userToken}`,
     copySite: `${baseAPIPath}cloneSite?user_token=${userToken}`,
     getSitesList: `${baseAPIPath}listSites?user_token=${userToken}`,

@@ -14,6 +14,8 @@ const RoutesMap = {
     cloneSite: require('../routes/cloneSite.js'),
     archiveSite: require('../routes/archiveSite.js'),
     downloadSite: require('../routes/downloadSite.js'),
+    downloadSiteSkeleton: require('../routes/downloadSiteSkeleton.js'),
+    saveSiteAsTemplate: require('../routes/saveSiteAsTemplate.js'),
     saveManifest: require('../routes/saveManifest.js'),
     saveAppearanceSettings: require('../routes/saveAppearanceSettings.js'),
     savePlatformSettings: require('../routes/savePlatformSettings.js'),
