@@ -1382,6 +1382,7 @@ class HAXCMSSite
         return '';
       }
       const formatMimeMap = {
+        html: 'text/html',
         md: 'text/markdown',
         json: 'application/json',
         yaml: 'application/yaml',

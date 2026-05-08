@@ -13,6 +13,7 @@ const path = require('path');
 const fs = require("fs-extra");
 const server = require('http').Server(app);
 const PAGE_VARIANT_CONTENT_TYPES = {
+  html: 'text/html; charset=utf-8',
   md: 'text/markdown; charset=utf-8',
   json: 'application/json; charset=utf-8',
   yaml: 'application/yaml; charset=utf-8',
@@ -470,7 +471,7 @@ function getRequestPathWithoutQuery(url = '') {
 }
 
 function getExplicitVariantInfo(pathname = '') {
-  const matched = String(pathname || '').match(/^(.*)\.(md|json|ya?ml|xml)$/i);
+  const matched = String(pathname || '').match(/^(.*)\.(html|md|json|ya?ml|xml)$/i);
   if (!matched) {
     return {
       format: null,
