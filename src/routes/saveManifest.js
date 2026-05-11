@@ -61,12 +61,17 @@ const {
         }
         form = HAXCMS.loadForm(req.body['haxcms_form_id'], context);
       }*/
-      if (HAXCMS.validateRequestToken(req.body['haxcms_form_token'], req.body['haxcms_form_id'])) {
+      const isScopedDetailsPayload = isScopedDetailsManifestPayload(req.body);
+      if (isScopedDetailsPayload || HAXCMS.validateRequestToken(req.body['haxcms_form_token'], req.body['haxcms_form_id'])) {
         // preserve platform settings regardless of what the client sends
         // (platform settings are saved via savePlatformSettings)
         const existingPlatform = site.manifest && site.manifest.metadata
           ? site.manifest.metadata.platform
           : null;
+        if (isScopedDetailsPayload) {
+          await saveScopedDetailsPayload(site, req.body);
+        }
+        else {
 
         site.manifest.title = req.body['manifest']['site']['manifest-title'].replace(/<\/?[^>]+(>|$)/g, "");
         site.manifest.description = req.body['manifest']['site']['manifest-description'].replace(/<\/?[^>]+(>|$)/g, "");
@@ -300,6 +305,7 @@ const {
             delete site.manifest.metadata.site.homePageId;
           }
         }
+        }
         // ensure platform exists; do not overwrite existing platform settings
         if (!site.manifest.metadata.platform) {
           site.manifest.metadata.platform = {};
@@ -324,5 +330,127 @@ const {
     } else {
       res.sendStatus(403);
     }
+  }
+  function isScopedDetailsManifestPayload(body) {
+    if (!body || typeof body !== 'object') {
+      return false;
+    }
+    if (!body['manifest'] || typeof body['manifest'] !== 'object') {
+      return false;
+    }
+    const manifestSite = body['manifest']['site'];
+    const manifestSeo = body['manifest']['seo'];
+    const hasSitePayload = manifestSite && typeof manifestSite === 'object';
+    const hasSeoPayload = manifestSeo && typeof manifestSeo === 'object';
+    const hasDetailsFields =
+      typeof body['title'] !== 'undefined' ||
+      typeof body['homePageId'] !== 'undefined' ||
+      typeof body['sw'] !== 'undefined' ||
+      typeof body['forceUpgrade'] !== 'undefined' ||
+      (hasSitePayload && (
+        typeof manifestSite['manifest-title'] !== 'undefined' ||
+        typeof manifestSite['manifest-metadata-site-homePageId'] !== 'undefined'
+      )) ||
+      (hasSeoPayload && (
+        typeof manifestSeo['manifest-metadata-site-settings-sw'] !== 'undefined' ||
+        typeof manifestSeo['manifest-metadata-site-settings-forceUpgrade'] !== 'undefined'
+      ));
+    if (!hasDetailsFields) {
+      return false;
+    }
+    return (
+      typeof body['haxcms_form_id'] === 'undefined' &&
+      typeof body['haxcms_form_token'] === 'undefined'
+    );
+  }
+  function ensureSiteMetadataContainers(site) {
+    if (!(site.manifest.metadata)) {
+      site.manifest.metadata = {};
+    }
+    if (!(site.manifest.metadata.site)) {
+      site.manifest.metadata.site = {};
+    }
+    if (!(site.manifest.metadata.site.settings)) {
+      site.manifest.metadata.site.settings = {};
+    }
+  }
+  async function saveScopedDetailsPayload(site, body) {
+    ensureSiteMetadataContainers(site);
+    const manifestSite = body['manifest'] && body['manifest']['site']
+      ? body['manifest']['site']
+      : {};
+    const manifestSeo = body['manifest'] && body['manifest']['seo']
+      ? body['manifest']['seo']
+      : {};
+
+    let titleValue;
+    if (typeof manifestSite['manifest-title'] !== 'undefined') {
+      titleValue = manifestSite['manifest-title'];
+    }
+    else if (typeof body['title'] !== 'undefined') {
+      titleValue = body['title'];
+    }
+    if (typeof titleValue !== 'undefined') {
+      let cleanTitle = filter_var(titleValue, 'FILTER_SANITIZE_STRING');
+      if (typeof cleanTitle === 'string') {
+        site.manifest.title = cleanTitle.replace(/<\/?[^>]+(>|$)/g, '');
+      }
+    }
+
+    let homePageId;
+    if (typeof manifestSite['manifest-metadata-site-homePageId'] !== 'undefined') {
+      homePageId = manifestSite['manifest-metadata-site-homePageId'];
+    }
+    else if (typeof body['homePageId'] !== 'undefined') {
+      homePageId = body['homePageId'];
+    }
+    if (typeof homePageId !== 'undefined') {
+      homePageId = filter_var(homePageId, 'FILTER_SANITIZE_STRING');
+      let validPage = false;
+      if (homePageId && homePageId !== '' && site.manifest.items) {
+        for (let i = 0; i < site.manifest.items.length; i++) {
+          if (site.manifest.items[i].id === homePageId) {
+            validPage = true;
+            break;
+          }
+        }
+      }
+      if (validPage) {
+        site.manifest.metadata.site.homePageId = homePageId;
+      }
+      else {
+        delete site.manifest.metadata.site.homePageId;
+      }
+    }
+
+    let swValue;
+    if (typeof manifestSeo['manifest-metadata-site-settings-sw'] !== 'undefined') {
+      swValue = manifestSeo['manifest-metadata-site-settings-sw'];
+    }
+    else if (typeof body['sw'] !== 'undefined') {
+      swValue = body['sw'];
+    }
+    if (typeof swValue !== 'undefined') {
+      site.manifest.metadata.site.settings.sw = filter_var(
+        swValue,
+        'FILTER_VALIDATE_BOOLEAN'
+      );
+    }
+
+    let forceUpgradeValue;
+    if (typeof manifestSeo['manifest-metadata-site-settings-forceUpgrade'] !== 'undefined') {
+      forceUpgradeValue = manifestSeo['manifest-metadata-site-settings-forceUpgrade'];
+    }
+    else if (typeof body['forceUpgrade'] !== 'undefined') {
+      forceUpgradeValue = body['forceUpgrade'];
+    }
+    if (typeof forceUpgradeValue !== 'undefined') {
+      site.manifest.metadata.site.settings.forceUpgrade = filter_var(
+        forceUpgradeValue,
+        'FILTER_VALIDATE_BOOLEAN'
+      );
+    }
+
+    site.manifest.metadata.site.version = await HAXCMS.getHAXCMSVersion();
   }
   module.exports = saveManifest;

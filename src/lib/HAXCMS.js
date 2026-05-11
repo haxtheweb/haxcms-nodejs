@@ -2569,9 +2569,8 @@ class HAXCMSClass {
           cleanTitle = cleanTitle.replace('pages/', '').replace('/index.html', '');
       }
       cleanTitle = cleanTitle.replace(/ /g, '-').toLowerCase();
-      cleanTitle = cleanTitle.replace('/[^\w\-\/\s]+/u', '-');
-      cleanTitle = cleanTitle.replace('/--+/u',
-         '-');
+      cleanTitle = cleanTitle.replace(/[^\w\-\/]+/gu, '-');
+      cleanTitle = cleanTitle.replace(/--+/gu, '-');
       // ensure we don't return an empty title or it could break downstream things
       if (cleanTitle == '') {
           cleanTitle = 'blank';

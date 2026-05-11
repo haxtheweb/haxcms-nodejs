@@ -86,11 +86,12 @@ const {
           // generate a logical page slug
           page.location = 'pages/' + page.id + '/index.html';
         }
-        // keep location if we get one already
+        // keep slug if we get one already, but sanitize/normalize it
         if (typeof item.slug !== 'undefined' && item.slug != '') {
+          page.slug = normalizeOutlineSlug(site, item.slug, page, false);
         } else {
             // generate a logical page slug
-            page.slug = site.getUniqueSlugName(cleanTitle, page, true);
+            page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
         }
         // verify this exists, front end could have set what they wanted
         // or it could have just been renamed
@@ -116,11 +117,16 @@ const {
                     // core support for automatically managing paths to make them nice
                     if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto) {
                         moved = true;
-                        page.slug = site.getUniqueSlugName(HAXCMS.cleanTitle(page.title), page, true);
+                        page.slug = normalizeOutlineSlug(
+                          site,
+                          HAXCMS.cleanTitle(page.title),
+                          page,
+                          true,
+                        );
                     }
                     else if (tmpItem.slug != page.slug) {
                         moved = true;
-                        page.slug = HAXCMS.generateSlugName(tmpItem.slug);
+                        page.slug = normalizeOutlineSlug(site, page.slug, page, false);
                     }
                 }
             }
@@ -130,11 +136,11 @@ const {
               !moved &&
               !fs.existsSync(site.siteDirectory + '/' + page.location)
           ) {
-                pAuto = false;
+                let pAuto = false;
                 if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto) {
                   pAuto = true;
                 }
-                tmpTitle = site.getUniqueSlugName(cleanTitle, page, pAuto);
+                let tmpTitle = normalizeOutlineSlug(site, cleanTitle, page, pAuto);
                 page.location = 'pages/' + page.id + '/index.html';
                 page.slug = tmpTitle;
                 await HAXCMS.recurseCopy(
@@ -143,6 +149,9 @@ const {
                 );
                 pageAlternateContentMap[page.id] = '';
             }
+        }
+        if (typeof page.slug !== 'string' || page.slug == '') {
+          page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
         }
         safeLocationMap[page.id] = page.location;
         // check for any metadata keys that did come over
@@ -309,6 +318,19 @@ const {
       return false;
     }
     return parts.join('/');
+  }
+  function normalizeOutlineSlug(site, slug, page = null, pathAuto = false) {
+    let normalizedSlug = HAXCMS.generateSlugName(slug);
+    if (normalizedSlug == 'x') {
+      normalizedSlug = 'x-x';
+    }
+    if (normalizedSlug.substring(0, 2) == 'x/') {
+      normalizedSlug = normalizedSlug.replace('x/', 'x-x/');
+    }
+    if (normalizedSlug == '') {
+      normalizedSlug = 'blank';
+    }
+    return site.getUniqueSlugName(normalizedSlug, page, pathAuto);
   }
   function getValidatedWritePath(siteDirectory, location) {
     let normalizedLocation = normalizeOutlineLocation(location);

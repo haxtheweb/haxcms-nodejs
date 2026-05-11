@@ -134,6 +134,21 @@ async function saveSeoSettings(req, res) {
       );
     }
 
+    let authorEmailValue;
+    if (hasOwn(bodyAuthor, 'email')) {
+      authorEmailValue = normalizeString(bodyAuthor.email);
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.email')) {
+      authorEmailValue = normalizeString(
+        manifestAuthor['manifest.metadata.author.email'],
+      );
+    }
+    if (typeof authorEmailValue !== 'undefined') {
+      site.manifest.metadata.author.email = filter_var(
+        authorEmailValue,
+        'FILTER_SANITIZE_EMAIL',
+      );
+    }
+
     let authorSocialLinkValue;
     if (hasOwn(bodyAuthor, 'socialLink')) {
       authorSocialLinkValue = normalizeString(bodyAuthor.socialLink);
@@ -151,6 +166,109 @@ async function saveSeoSettings(req, res) {
         site.manifest.metadata.author.socialLink,
         '',
       );
+    }
+
+    let descriptionValue;
+    if (hasOwn(bodySeo, 'description')) {
+      descriptionValue = normalizeString(bodySeo.description);
+    } else if (hasOwn(manifestSeo, 'manifest.description')) {
+      descriptionValue = normalizeString(manifestSeo['manifest.description']);
+    }
+    if (typeof descriptionValue !== 'undefined') {
+      site.manifest.description = filter_var(
+        descriptionValue,
+        'FILTER_SANITIZE_STRING',
+      );
+    }
+
+    let logoValue;
+    if (hasOwn(bodySeo, 'logo')) {
+      logoValue = normalizeString(bodySeo.logo);
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.logo')) {
+      logoValue = normalizeString(manifestSeo['manifest.metadata.site.logo']);
+    }
+    if (typeof logoValue !== 'undefined') {
+      site.manifest.metadata.site.logo = filter_var(
+        logoValue,
+        'FILTER_SANITIZE_STRING',
+      );
+      site.manifest.metadata.site.logo = sanitizeURLValue(
+        site.manifest.metadata.site.logo,
+        '',
+      );
+    }
+
+    let domainValue;
+    if (hasOwn(bodySeo, 'domain')) {
+      domainValue = normalizeString(bodySeo.domain);
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.domain')) {
+      domainValue = normalizeString(
+        manifestSeo['manifest.metadata.site.domain'],
+      );
+    }
+    if (typeof domainValue !== 'undefined') {
+      site.manifest.metadata.site.domain = filter_var(
+        domainValue,
+        'FILTER_SANITIZE_STRING',
+      );
+      site.manifest.metadata.site.domain = sanitizeURLValue(
+        site.manifest.metadata.site.domain,
+        '',
+      );
+    }
+
+    let langValue;
+    if (hasOwn(bodySeo, 'lang')) {
+      langValue = normalizeString(bodySeo.lang);
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.settings.lang')) {
+      langValue = normalizeString(
+        manifestSeo['manifest.metadata.site.settings.lang'],
+      );
+    }
+    if (typeof langValue !== 'undefined') {
+      site.manifest.metadata.site.settings.lang = filter_var(
+        langValue,
+        'FILTER_SANITIZE_STRING',
+      );
+    }
+
+    let gaIDValue;
+    if (hasOwn(bodySeo, 'gaID')) {
+      gaIDValue = normalizeString(bodySeo.gaID);
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.settings.gaID')) {
+      gaIDValue = normalizeString(
+        manifestSeo['manifest.metadata.site.settings.gaID'],
+      );
+    }
+    if (typeof gaIDValue !== 'undefined') {
+      site.manifest.metadata.site.settings.gaID = filter_var(
+        gaIDValue,
+        'FILTER_SANITIZE_STRING',
+      );
+    }
+
+    let privateInput;
+    if (hasOwn(bodySeo, 'private')) {
+      privateInput = bodySeo.private;
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.settings.private')) {
+      privateInput = manifestSeo['manifest.metadata.site.settings.private'];
+    }
+    const privateValue = parseBoolean(privateInput);
+    if (privateValue !== null) {
+      site.manifest.metadata.site.settings.private = privateValue;
+    }
+
+    let canonicalInput;
+    if (hasOwn(bodySeo, 'canonical')) {
+      canonicalInput = bodySeo.canonical;
+    } else if (
+      hasOwn(manifestSeo, 'manifest.metadata.site.settings.canonical')
+    ) {
+      canonicalInput = manifestSeo['manifest.metadata.site.settings.canonical'];
+    }
+    const canonicalValue = parseBoolean(canonicalInput);
+    if (canonicalValue !== null) {
+      site.manifest.metadata.site.settings.canonical = canonicalValue;
     }
 
     let pathautoInput;
