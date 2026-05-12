@@ -1,5 +1,6 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
-const strip_tags = require("locutus/php/strings/strip_tags");
+const stripTagsImport = require('locutus/php/strings/strip_tags');
+const strip_tags = stripTagsImport.strip_tags || stripTagsImport;
 const filter_var = require('../lib/filter_var.js');
 const {
   sanitizeURLValue,

@@ -1,8 +1,10 @@
 const fs = require('fs-extra');
 const { v4: uuidv4 } = require('uuid');
 const JSONOutlineSchemaItem = require('./JSONOutlineSchemaItem.js');
-const array_search = require('locutus/php/array/array_search');
-const usort = require('locutus/php/array/usort');
+const arraySearchImport = require('locutus/php/array/array_search');
+const usortImport = require('locutus/php/array/usort');
+const array_search = arraySearchImport.array_search || arraySearchImport;
+const usort = usortImport.usort || usortImport;
 
 /**
  * JSONOutlineSchema - An object for interfacing with the JSON Outline schema
