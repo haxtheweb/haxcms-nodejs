@@ -6,6 +6,7 @@ const express = require('express');
 // load config from dot files
 require('dotenv').config()
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 const helmet = require('helmet');
 const app = express();
 const mime = require('mime');
@@ -81,6 +82,7 @@ if (process.env.NODE_ENV === "development") {
 app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
 app.use(helmet(helmetPolicies));
 app.use(cookieParser());
+app.use(compression());
 
 // Security: Force download of HTML files in sites' files directories to prevent XSS
 app.use((req, res, next) => {
