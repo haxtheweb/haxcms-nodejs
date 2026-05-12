@@ -1,6 +1,11 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const filter_var = require('../lib/filter_var.js');
 const fs = require('fs-extra');
+const { sanitizeURLValue } = require('../lib/sanitizeContent.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 /**
    * @OA\Post(
    *    path="/saveManifest",
@@ -22,6 +27,12 @@ const fs = require('fs-extra');
     if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
       // load the site from name
       let site = await HAXCMS.loadSite(req.body['site']['name']);
+      if (!platformAllows(site, 'siteManifest')) {
+        return featureDisabledResponse(
+          res,
+          'Manifest editing is disabled for this site'
+        );
+      }
       // standard form submit
       // @todo 
       // make the form point to a form submission endpoint with appropriate name
@@ -50,7 +61,18 @@ const fs = require('fs-extra');
         }
         form = HAXCMS.loadForm(req.body['haxcms_form_id'], context);
       }*/
-      if (HAXCMS.validateRequestToken(req.body['haxcms_form_token'], req.body['haxcms_form_id'])) {
+      const isScopedDetailsPayload = isScopedDetailsManifestPayload(req.body);
+      if (isScopedDetailsPayload || HAXCMS.validateRequestToken(req.body['haxcms_form_token'], req.body['haxcms_form_id'])) {
+        // preserve platform settings regardless of what the client sends
+        // (platform settings are saved via savePlatformSettings)
+        const existingPlatform = site.manifest && site.manifest.metadata
+          ? site.manifest.metadata.platform
+          : null;
+        if (isScopedDetailsPayload) {
+          await saveScopedDetailsPayload(site, req.body);
+        }
+        else {
+
         site.manifest.title = req.body['manifest']['site']['manifest-title'].replace(/<\/?[^>]+(>|$)/g, "");
         site.manifest.description = req.body['manifest']['site']['manifest-description'].replace(/<\/?[^>]+(>|$)/g, "");
         // store some version data here just so we can find it later
@@ -59,9 +81,13 @@ const fs = require('fs-extra');
             req.body['manifest']['site']['manifest-metadata-site-domain'],
             "FILTER_SANITIZE_STRING"
         );
-        site.manifest.metadata.site.logo = filter_var(
+        site.manifest.metadata.site.domain = sanitizeURLValue(
+          site.manifest.metadata.site.domain,
+          ''
+        );
+        site.manifest.metadata.site.logo = sanitizeURLValue(
             req.body['manifest']['site']['manifest-metadata-site-logo'],
-            "FILTER_SANITIZE_STRING"
+            ''
         );
         site.manifest.metadata.site.tags = filter_var(
           req.body['manifest']['site']['manifest-metadata-site-tags'],
@@ -78,6 +104,7 @@ const fs = require('fs-extra');
               req.body['manifest']['site']['manifest-domain'],
               "FILTER_SANITIZE_STRING"
           );
+          domain = sanitizeURLValue(domain, '');
           // support updating the domain CNAME value
           if (site.manifest.metadata.site.domain != domain) {
             site.manifest.metadata.site.domain = domain;
@@ -103,6 +130,10 @@ const fs = require('fs-extra');
           site.manifest.metadata.theme.variables.image = filter_var(
             req.body['manifest']['theme']['manifest-metadata-theme-variables-image'],"FILTER_SANITIZE_STRING"
           );
+          site.manifest.metadata.theme.variables.image = sanitizeURLValue(
+            site.manifest.metadata.theme.variables.image,
+            ''
+          );
         }
         if (typeof req.body['manifest']['theme']['manifest-metadata-theme-variables-imageAlt'] !== 'undefined') {
           site.manifest.metadata.theme.variables.imageAlt = filter_var(
@@ -112,6 +143,10 @@ const fs = require('fs-extra');
         if (typeof req.body['manifest']['theme']['manifest-metadata-theme-variables-imageLink'] !== 'undefined') {
           site.manifest.metadata.theme.variables.imageLink = filter_var(
             req.body['manifest']['theme']['manifest-metadata-theme-variables-imageLink'], "FILTER_SANITIZE_STRING"
+          );
+          site.manifest.metadata.theme.variables.imageLink = sanitizeURLValue(
+            site.manifest.metadata.theme.variables.imageLink,
+            ''
           );
         }
         // REGIONS SUPPORT
@@ -146,6 +181,22 @@ const fs = require('fs-extra');
         site.manifest.metadata.theme.variables.cssVariable = "--simple-colors-default-theme-" + filter_var(
           req.body['manifest']['theme']['manifest-metadata-theme-variables-cssVariable'], "FILTER_SANITIZE_STRING"
         ) + "-7";
+        if (
+          typeof req.body['manifest']['theme']['manifest-metadata-theme-variables-palette'] !== 'undefined'
+        ) {
+          let paletteValue = filter_var(
+            req.body['manifest']['theme']['manifest-metadata-theme-variables-palette'],
+            "FILTER_SANITIZE_STRING"
+          );
+          if (typeof paletteValue === 'string') {
+            paletteValue = paletteValue.trim().toLowerCase();
+            if (paletteValue === '') {
+              delete site.manifest.metadata.theme.variables.palette;
+            } else if (/^[a-z0-9-]+$/.test(paletteValue)) {
+              site.manifest.metadata.theme.variables.palette = paletteValue;
+            }
+          }
+        }
         site.manifest.metadata.theme.variables.icon = filter_var(
           req.body['manifest']['theme']['manifest-metadata-theme-variables-icon'],"FILTER_SANITIZE_STRING"
         );
@@ -161,6 +212,10 @@ const fs = require('fs-extra');
                 req.body['manifest']['author']['manifest-metadata-author-image'],
                 "FILTER_SANITIZE_STRING"
             );
+            site.manifest.metadata.author.image = sanitizeURLValue(
+              site.manifest.metadata.author.image,
+              ''
+            );
             site.manifest.metadata.author.name = filter_var(
                 req.body['manifest']['author']['manifest-metadata-author-name'],
                 "FILTER_SANITIZE_STRING"
@@ -172,6 +227,10 @@ const fs = require('fs-extra');
             site.manifest.metadata.author.socialLink = filter_var(
                 req.body['manifest']['author']['manifest-metadata-author-socialLink'],
                 "FILTER_SANITIZE_STRING"
+            );
+            site.manifest.metadata.author.socialLink = sanitizeURLValue(
+              site.manifest.metadata.author.socialLink,
+              ''
             );
         }
         if (typeof req.body['manifest']['seo']['manifest-metadata-site-settings-private'] !== 'undefined') {
@@ -228,7 +287,6 @@ const fs = require('fs-extra');
             req.body['manifest']['site']['manifest-metadata-site-homePageId'],
             "FILTER_SANITIZE_STRING"
           );
-          console.log(homePageId);
           // Validate that the page exists in the site manifest
           let validPage = false;
           if (homePageId && homePageId !== '' && site.manifest.items) {
@@ -247,6 +305,15 @@ const fs = require('fs-extra');
             delete site.manifest.metadata.site.homePageId;
           }
         }
+        }
+        // ensure platform exists; do not overwrite existing platform settings
+        if (!site.manifest.metadata.platform) {
+          site.manifest.metadata.platform = {};
+        }
+        if (existingPlatform) {
+          site.manifest.metadata.platform = existingPlatform;
+        }
+
         site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
         // don't reorganize the structure
         await site.manifest.save(false);
@@ -263,5 +330,127 @@ const fs = require('fs-extra');
     } else {
       res.sendStatus(403);
     }
+  }
+  function isScopedDetailsManifestPayload(body) {
+    if (!body || typeof body !== 'object') {
+      return false;
+    }
+    if (!body['manifest'] || typeof body['manifest'] !== 'object') {
+      return false;
+    }
+    const manifestSite = body['manifest']['site'];
+    const manifestSeo = body['manifest']['seo'];
+    const hasSitePayload = manifestSite && typeof manifestSite === 'object';
+    const hasSeoPayload = manifestSeo && typeof manifestSeo === 'object';
+    const hasDetailsFields =
+      typeof body['title'] !== 'undefined' ||
+      typeof body['homePageId'] !== 'undefined' ||
+      typeof body['sw'] !== 'undefined' ||
+      typeof body['forceUpgrade'] !== 'undefined' ||
+      (hasSitePayload && (
+        typeof manifestSite['manifest-title'] !== 'undefined' ||
+        typeof manifestSite['manifest-metadata-site-homePageId'] !== 'undefined'
+      )) ||
+      (hasSeoPayload && (
+        typeof manifestSeo['manifest-metadata-site-settings-sw'] !== 'undefined' ||
+        typeof manifestSeo['manifest-metadata-site-settings-forceUpgrade'] !== 'undefined'
+      ));
+    if (!hasDetailsFields) {
+      return false;
+    }
+    return (
+      typeof body['haxcms_form_id'] === 'undefined' &&
+      typeof body['haxcms_form_token'] === 'undefined'
+    );
+  }
+  function ensureSiteMetadataContainers(site) {
+    if (!(site.manifest.metadata)) {
+      site.manifest.metadata = {};
+    }
+    if (!(site.manifest.metadata.site)) {
+      site.manifest.metadata.site = {};
+    }
+    if (!(site.manifest.metadata.site.settings)) {
+      site.manifest.metadata.site.settings = {};
+    }
+  }
+  async function saveScopedDetailsPayload(site, body) {
+    ensureSiteMetadataContainers(site);
+    const manifestSite = body['manifest'] && body['manifest']['site']
+      ? body['manifest']['site']
+      : {};
+    const manifestSeo = body['manifest'] && body['manifest']['seo']
+      ? body['manifest']['seo']
+      : {};
+
+    let titleValue;
+    if (typeof manifestSite['manifest-title'] !== 'undefined') {
+      titleValue = manifestSite['manifest-title'];
+    }
+    else if (typeof body['title'] !== 'undefined') {
+      titleValue = body['title'];
+    }
+    if (typeof titleValue !== 'undefined') {
+      let cleanTitle = filter_var(titleValue, 'FILTER_SANITIZE_STRING');
+      if (typeof cleanTitle === 'string') {
+        site.manifest.title = cleanTitle.replace(/<\/?[^>]+(>|$)/g, '');
+      }
+    }
+
+    let homePageId;
+    if (typeof manifestSite['manifest-metadata-site-homePageId'] !== 'undefined') {
+      homePageId = manifestSite['manifest-metadata-site-homePageId'];
+    }
+    else if (typeof body['homePageId'] !== 'undefined') {
+      homePageId = body['homePageId'];
+    }
+    if (typeof homePageId !== 'undefined') {
+      homePageId = filter_var(homePageId, 'FILTER_SANITIZE_STRING');
+      let validPage = false;
+      if (homePageId && homePageId !== '' && site.manifest.items) {
+        for (let i = 0; i < site.manifest.items.length; i++) {
+          if (site.manifest.items[i].id === homePageId) {
+            validPage = true;
+            break;
+          }
+        }
+      }
+      if (validPage) {
+        site.manifest.metadata.site.homePageId = homePageId;
+      }
+      else {
+        delete site.manifest.metadata.site.homePageId;
+      }
+    }
+
+    let swValue;
+    if (typeof manifestSeo['manifest-metadata-site-settings-sw'] !== 'undefined') {
+      swValue = manifestSeo['manifest-metadata-site-settings-sw'];
+    }
+    else if (typeof body['sw'] !== 'undefined') {
+      swValue = body['sw'];
+    }
+    if (typeof swValue !== 'undefined') {
+      site.manifest.metadata.site.settings.sw = filter_var(
+        swValue,
+        'FILTER_VALIDATE_BOOLEAN'
+      );
+    }
+
+    let forceUpgradeValue;
+    if (typeof manifestSeo['manifest-metadata-site-settings-forceUpgrade'] !== 'undefined') {
+      forceUpgradeValue = manifestSeo['manifest-metadata-site-settings-forceUpgrade'];
+    }
+    else if (typeof body['forceUpgrade'] !== 'undefined') {
+      forceUpgradeValue = body['forceUpgrade'];
+    }
+    if (typeof forceUpgradeValue !== 'undefined') {
+      site.manifest.metadata.site.settings.forceUpgrade = filter_var(
+        forceUpgradeValue,
+        'FILTER_VALIDATE_BOOLEAN'
+      );
+    }
+
+    site.manifest.metadata.site.version = await HAXCMS.getHAXCMSVersion();
   }
   module.exports = saveManifest;

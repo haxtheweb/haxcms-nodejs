@@ -1,6 +1,15 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
-const strip_tags = require("locutus/php/strings/strip_tags");
+const stripTagsImport = require('locutus/php/strings/strip_tags');
+const strip_tags = stripTagsImport.strip_tags || stripTagsImport;
 const filter_var = require('../lib/filter_var.js');
+const {
+  sanitizeURLValue,
+  sanitizeMetadataValue
+} = require('../lib/sanitizeContent.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 /**
    * @OA\\Post(\n   *    path=\"/saveNodeDetails\",
    *    tags={\"cms\",\"authenticated\",\"node\"},
@@ -15,19 +24,6 @@ async function saveNodeDetails(req, res) {
   if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
     const site = await HAXCMS.loadSite(req.body['site']['name']);
 
-    // Check platform configuration
-    const platformConfig = site.manifest.metadata && site.manifest.metadata.platform;
-    const outlineAllowed = !platformConfig || platformConfig.outlineDesigner !== false;
-    
-    if (!outlineAllowed) {
-      return res.send({
-        '__failed': {
-          'status': 403,
-          'message': 'Outline operations are disabled for this site',
-        }
-      });
-    }
-
     if (!req.body['node'] || !req.body['node']['id']) {
       return res.send({
         '__failed': {
@@ -40,6 +36,30 @@ async function saveNodeDetails(req, res) {
     const operation = req.body['node']['details'] && req.body['node']['details']['operation'] 
       ? req.body['node']['details']['operation'] 
       : null;
+    const pageDetailOperations = new Set([
+      'setTitle',
+      'setDescription',
+      'setTags',
+      'setIcon',
+      'setMedia',
+      'setImage',
+      'setRelatedItems',
+      'setLocked',
+      'setPublished',
+      'setHideInMenu',
+    ]);
+    if (!platformAllows(site, 'outlineDesigner')) {
+      return featureDisabledResponse(
+        res,
+        'Outline operations are disabled for this site',
+      );
+    }
+    if (pageDetailOperations.has(operation) && !platformAllows(site, 'pageBreak')) {
+      return featureDisabledResponse(
+        res,
+        'Page details editing is disabled for this site',
+      );
+    }
     
     let page = site.loadNode(req.body['node']['id']);
     
@@ -185,7 +205,7 @@ async function saveNodeDetails(req, res) {
         }
         if (req.body['node']['details'].hasOwnProperty('tags')) {
           if (req.body['node']['details']['tags'] !== '' && req.body['node']['details']['tags'] !== null) {
-            page.metadata.tags = filter_var(req.body['node']['details']['tags'], 'FILTER_SANITIZE_STRING');
+            page.metadata.tags = sanitizeMetadataValue(req.body['node']['details']['tags']);
           } else {
             delete page.metadata.tags;
           }
@@ -198,7 +218,7 @@ async function saveNodeDetails(req, res) {
         }
         if (req.body['node']['details'].hasOwnProperty('icon')) {
           if (req.body['node']['details']['icon'] !== '' && req.body['node']['details']['icon'] !== null) {
-            page.metadata.icon = filter_var(req.body['node']['details']['icon'], 'FILTER_SANITIZE_STRING');
+            page.metadata.icon = sanitizeMetadataValue(req.body['node']['details']['icon']);
           } else {
             delete page.metadata.icon;
           }
@@ -221,7 +241,7 @@ async function saveNodeDetails(req, res) {
         }
         if (imageValue !== null) {
           if (imageValue !== '' && imageValue !== undefined) {
-            page.metadata.image = filter_var(imageValue, 'FILTER_SANITIZE_URL');
+            page.metadata.image = sanitizeURLValue(imageValue, '');
           }
           else {
             delete page.metadata.image;
@@ -235,7 +255,7 @@ async function saveNodeDetails(req, res) {
         }
         if (req.body['node']['details'].hasOwnProperty('relatedItems')) {
           if (req.body['node']['details']['relatedItems'] !== '' && req.body['node']['details']['relatedItems'] !== null) {
-            page.metadata.relatedItems = filter_var(req.body['node']['details']['relatedItems'], 'FILTER_SANITIZE_STRING');
+            page.metadata.relatedItems = sanitizeMetadataValue(req.body['node']['details']['relatedItems']);
           } else {
             delete page.metadata.relatedItems;
           }

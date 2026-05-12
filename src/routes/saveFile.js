@@ -1,6 +1,10 @@
 const path = require('path');
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const HAXCMSFile = require('../lib/HAXCMSFile.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 /**
    * @OA\Post(
    *    path="/saveFile",
@@ -81,6 +85,12 @@ const HAXCMSFile = require('../lib/HAXCMSFile.js');
     // Token is valid, proceed with file upload
     let site = await HAXCMS.loadSite(req.query['siteName']);
     if (site) {
+      if (!platformAllows(site, 'uploadMedia')) {
+        return featureDisabledResponse(
+          res,
+          'Uploading media is disabled for this site',
+        );
+      }
       // update the page's content, using manifest to find it
       // this ensures that writing is always to what the file system
       // determines to be the correct page

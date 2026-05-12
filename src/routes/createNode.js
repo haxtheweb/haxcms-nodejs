@@ -1,6 +1,11 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const path = require('path');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
+const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 /**
  * @OA\Post(
  *     path="/createNode",
@@ -74,25 +79,30 @@ async function createNode(req, res) {
   if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + nodeParams['site']['name'])) {
     let item;
     let site = await HAXCMS.loadSite(req.body['site']['name'].toLowerCase());
+    if (!platformAllows(site, 'addPage')) {
+      return featureDisabledResponse(res, 'Adding pages is disabled for this site');
+    }
     // implies we've been TOLD to create nodes
     // this is typically from a docx import
     if (nodeParams['items']) {
       // create pages
-      for (i=0; i < nodeParams['items'].length; i++) {
+      for (let i=0; i < nodeParams['items'].length; i++) {
         // outline-designer allows delete + confirmation but we don't have anything
         // so instead, just don't process the thing in question if asked to delete it
         if (nodeParams['items'][i]['delete'] && nodeParams['items'][i]['delete'] == true) {
           // do nothing
         }
         else {
-          item = site.addPage(
+          item = await site.addPage(
           nodeParams['items'][i]['parent'], 
           nodeParams['items'][i]['title'], 
           'html', 
           nodeParams['items'][i]['slug'],
           nodeParams['items'][i]['id'],
           nodeParams['items'][i]['indent'],
-          nodeParams['items'][i]['contents']
+          nodeParams['items'][i]['content'] || nodeParams['items'][i]['contents'] || '',
+          nodeParams['items'][i]['order'],
+          (nodeParams['items'][i]['metadata']) ? nodeParams['items'][i]['metadata'] : null,
           );  
         }
       }
@@ -111,6 +121,7 @@ async function createNode(req, res) {
       // add the item back into the outline schema
       site.manifest.addItem(item);
       await site.manifest.save();
+      let alternateContent = '';
       // support for duplicating the content of another item
       if (nodeParams['node']['duplicate']) {
         // verify we can load this id
@@ -122,8 +133,9 @@ async function createNode(req, res) {
             if (page = site.loadNode(item.id)) {
             // write it to the file system
             // this all seems round about but it's more secure
+            alternateContent = sanitizeHTMLForStorage(content);
             let bytes = await page.writeLocation(
-                content,
+                alternateContent,
                 site.siteDirectory
             );
             }
@@ -136,11 +148,16 @@ async function createNode(req, res) {
         let page;
         if (page = site.loadNode(item.id)) {
             // write it to the file system
+            alternateContent = sanitizeHTMLForStorage(nodeParams['node']['contents']);
             let bytes = await page.writeLocation(
-            nodeParams['node']['contents'],
+            alternateContent,
             site.siteDirectory
             );
         }
+      }
+      let createdPage = site.loadNode(item.id);
+      if (createdPage) {
+        site.writePageAlternateFormats(createdPage, alternateContent);
       }
       await site.gitCommit('Page added:' + item.title + ' (' + item.id + ')'); 
       // update the alternate formats as a new page exists

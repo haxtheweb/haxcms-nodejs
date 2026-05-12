@@ -1,6 +1,12 @@
 const fs = require('fs-extra');
+const path = require('path');
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
+const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 /**
    * @OA\Post(
    *    path="/saveOutline",
@@ -22,9 +28,22 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
     if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
       // items from the POST
       let site = await HAXCMS.loadSite(req.body['site']['name']);
+      if (!platformAllows(site, 'outlineDesigner')) {
+        return featureDisabledResponse(
+          res,
+          'Outline operations are disabled for this site',
+        );
+      }
       let original = [...site.manifest.items];
+      let originalLocationMap = {};
+      for (let originalKey in original) {
+        let originalItem = original[originalKey];
+        originalLocationMap[originalItem.id] = normalizeOutlineLocation(originalItem.location);
+      }
+      let safeLocationMap = {};
       let items = [...req.body['items']];
       let itemMap = {};
+      let pageAlternateContentMap = {};
       var page, bytes, cleanTitle;
       // items from the POST
       for (var key in items) {
@@ -60,18 +79,19 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
         } else {
           page.order = parseInt(key);
         }
-        // keep location if we get one already
-        if (typeof item.location !== 'undefined' && item.location != '') {
-          page.location = item.location;
+        // location is backend-controlled to prevent arbitrary writes
+        if (originalLocationMap[page.id]) {
+          page.location = originalLocationMap[page.id];
         } else {
           // generate a logical page slug
           page.location = 'pages/' + page.id + '/index.html';
         }
-        // keep location if we get one already
+        // keep slug if we get one already, but sanitize/normalize it
         if (typeof item.slug !== 'undefined' && item.slug != '') {
+          page.slug = normalizeOutlineSlug(site, item.slug, page, false);
         } else {
             // generate a logical page slug
-            page.slug = site.getUniqueSlugName(cleanTitle, page, true);
+            page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
         }
         // verify this exists, front end could have set what they wanted
         // or it could have just been renamed
@@ -82,6 +102,7 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
               HAXCMS.boilerplatePath + 'page/default',
               site.siteDirectory + '/' + page.location.replace('/index.html', '')
           );
+          pageAlternateContentMap[page.id] = '';
         }
         // this would imply existing item, lets see if it moved or needs moved
         else {
@@ -96,11 +117,16 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
                     // core support for automatically managing paths to make them nice
                     if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto) {
                         moved = true;
-                        page.slug = site.getUniqueSlugName(HAXCMS.cleanTitle(page.title), page, true);
+                        page.slug = normalizeOutlineSlug(
+                          site,
+                          HAXCMS.cleanTitle(page.title),
+                          page,
+                          true,
+                        );
                     }
                     else if (tmpItem.slug != page.slug) {
                         moved = true;
-                        page.slug = HAXCMS.generateSlugName(tmpItem.slug);
+                        page.slug = normalizeOutlineSlug(site, page.slug, page, false);
                     }
                 }
             }
@@ -110,19 +136,24 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
               !moved &&
               !fs.existsSync(site.siteDirectory + '/' + page.location)
           ) {
-                pAuto = false;
+                let pAuto = false;
                 if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto) {
                   pAuto = true;
                 }
-                tmpTitle = site.getUniqueSlugName(cleanTitle, page, pAuto);
+                let tmpTitle = normalizeOutlineSlug(site, cleanTitle, page, pAuto);
                 page.location = 'pages/' + page.id + '/index.html';
                 page.slug = tmpTitle;
                 await HAXCMS.recurseCopy(
                     HAXCMS.boilerplatePath + 'page/default',
                     site.siteDirectory + '/' + page.location.replace('/index.html', '')
                 );
+                pageAlternateContentMap[page.id] = '';
             }
         }
+        if (typeof page.slug !== 'string' || page.slug == '') {
+          page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
+        }
+        safeLocationMap[page.id] = page.location;
         // check for any metadata keys that did come over
         for (let pageKey in item.metadata) {
             page.metadata[pageKey] = item.metadata[pageKey];
@@ -155,20 +186,68 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
         if (!page) {
           page = site.loadNode(itemMap[item.id]);
         }
+        if (!page) {
+          return saveOutlineError(res, 400, 'invalid page reference');
+        }
+        let expectedLocation = safeLocationMap[page.id];
+        if (!expectedLocation) {
+          expectedLocation = normalizeOutlineLocation(page.location);
+        }
+        if (!expectedLocation) {
+          return saveOutlineError(res, 400, 'invalid page location');
+        }
+        // location is backend-controlled based on page id, ignore client input
+        if (!getValidatedWritePath(site.siteDirectory, expectedLocation)) {
+          return saveOutlineError(res, 400, 'invalid write target');
+        }
+        page.location = expectedLocation;
+        let alternateContent = '';
+        let shouldWriteAlternate = false;
+        if (typeof pageAlternateContentMap[page.id] !== 'undefined') {
+          shouldWriteAlternate = true;
+        }
         if (typeof item.duplicate !== 'undefined') {
           let nodeToDuplicate = site.loadNode(item.duplicate);
           // load the node we are duplicating with support for the same map needed for page loading
           if (!nodeToDuplicate) {
             nodeToDuplicate = site.loadNode(itemMap[item.duplicate]);
           }
+          if (!nodeToDuplicate) {
+            return saveOutlineError(res, 400, 'invalid duplicate source');
+          }
           let content = await site.getPageContent(nodeToDuplicate);
+          if (!isLikelyHtmlContent(content)) {
+            return saveOutlineError(res, 400, 'invalid duplicate content');
+          }
           // write it to the file system
-          bytes = await page.writeLocation(content, site.siteDirectory);
+          alternateContent = sanitizeHTMLForStorage(content);
+          bytes = await page.writeLocation(
+            alternateContent,
+            site.siteDirectory
+          );
+          if (bytes === false) {
+            return saveOutlineError(res, 500, 'failed to write');
+          }
+          shouldWriteAlternate = true;
         }
         // contents that were shipped across, and not null, take priority over a dup request
         if (typeof item.contents !== 'undefined' && item.contents && item.contents != '') {
+          if (!isLikelyHtmlContent(item.contents)) {
+            return saveOutlineError(res, 400, 'invalid page contents');
+          }
           // write it to the file system
-          bytes = await page.writeLocation(item.contents, site.siteDirectory);
+          alternateContent = sanitizeHTMLForStorage(item.contents);
+          bytes = await page.writeLocation(
+            alternateContent,
+            site.siteDirectory
+          );
+          if (bytes === false) {
+            return saveOutlineError(res, 500, 'failed to write');
+          }
+          shouldWriteAlternate = true;
+        }
+        if (shouldWriteAlternate) {
+          site.writePageAlternateFormats(page, alternateContent);
         }
       }
       items = [...req.body['items']];
@@ -216,5 +295,82 @@ const JSONOutlineSchemaItem = require('../lib/JSONOutlineSchemaItem.js');
     } else {
       res.sendStatus(403);
     }
+  }
+  function normalizeOutlineLocation(location) {
+    if (typeof location !== 'string') {
+      return false;
+    }
+    let normalized = location.replace(/\\/g, '/').trim();
+    if (normalized == '' || normalized.indexOf('\u0000') !== -1) {
+      return false;
+    }
+    if (normalized.substring(0, 1) == '/') {
+      return false;
+    }
+    let parts = normalized.split('/');
+    for (let partKey in parts) {
+      let part = parts[partKey];
+      if (part == '' || part == '.' || part == '..') {
+        return false;
+      }
+    }
+    if (parts[0] != 'pages' && parts[0] != 'content') {
+      return false;
+    }
+    return parts.join('/');
+  }
+  function normalizeOutlineSlug(site, slug, page = null, pathAuto = false) {
+    let normalizedSlug = HAXCMS.generateSlugName(slug);
+    if (normalizedSlug == 'x') {
+      normalizedSlug = 'x-x';
+    }
+    if (normalizedSlug.substring(0, 2) == 'x/') {
+      normalizedSlug = normalizedSlug.replace('x/', 'x-x/');
+    }
+    if (normalizedSlug == '') {
+      normalizedSlug = 'blank';
+    }
+    return site.getUniqueSlugName(normalizedSlug, page, pathAuto);
+  }
+  function getValidatedWritePath(siteDirectory, location) {
+    let normalizedLocation = normalizeOutlineLocation(location);
+    if (!normalizedLocation) {
+      return false;
+    }
+    let siteRoot = path.resolve(siteDirectory);
+    let targetPath = path.resolve(siteDirectory, normalizedLocation);
+    if (targetPath != siteRoot && targetPath.indexOf(siteRoot + path.sep) !== 0) {
+      return false;
+    }
+    if (!fs.existsSync(targetPath)) {
+      return false;
+    }
+    try {
+      if (!fs.lstatSync(targetPath).isFile()) {
+        return false;
+      }
+    }
+    catch (e) {
+      return false;
+    }
+    return targetPath;
+  }
+  function isLikelyHtmlContent(content) {
+    if (typeof content !== 'string') {
+      return false;
+    }
+    let trimmed = content.trim();
+    if (trimmed == '') {
+      return false;
+    }
+    return /<([a-zA-Z][a-zA-Z0-9-]*)(\s[^>]*)?>/.test(trimmed);
+  }
+  function saveOutlineError(res, status, message) {
+    return res.send({
+      '__failed' : {
+        'status' : status,
+        'message' : message,
+      }
+    });
   }
   module.exports = saveOutline;

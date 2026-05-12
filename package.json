@@ -1,6 +1,6 @@
 {
   "name": "@haxtheweb/haxcms-nodejs",
-  "version": "25.0.0",
+  "version": "26.0.0",
   "publishConfig": {
     "access": "public"
   },
@@ -45,35 +45,38 @@
     "node": ">=18.20.3"
   },
   "dependencies": {
-    "archiver": "7.0.1",
-    "axios": "1.7.8",
-    "chokidar": "^4.0.3",
-    "cookie-parser": "1.4.6",
+    "archiver": "8.0.0",
+    "axios": "^1.16.0",
+    "chokidar": "5.0.0",
+    "compression": "^1.8.1",
+    "cookie-parser": "^1.4.7",
     "dotenv": "16.4.5",
-    "express": "4.19.2",
+    "express": "^4.22.2",
     "fs-extra": "11.2.0",
     "git-interface": "2.1.2",
     "helmet": "7.1.0",
-    "jsonwebtoken": "9.0.2",
-    "locutus": "2.0.32",
+    "js-yaml": "4.1.1",
+    "jsonwebtoken": "9.0.3",
+    "locutus": "^3.0.34",
     "mime": "3.0.0",
     "minimist": "1.2.8",
-    "multer": "1.4.5-lts.1",
+    "multer": "2.1.1",
     "open": "8.4.2",
-    "sharp": "^0.33.4",
-    "twig": "1.17.1",
+    "sharp": "0.32.6",
+    "turndown": "7.1.1",
+    "twig": "^3.0.0",
     "utf8": "3.0.0",
-    "uuid": "10.0.0",
-    "ws": "^8.18.1",
-    "yaml": "2.4.5"
+    "uuid": "11.1.1",
+    "ws": "8.20.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@babel/cli": "^7.24.6",
-    "@babel/core": "^7.24.6",
-    "@babel/preset-env": "7.24.6",
-    "@babel/register": "^7.24.6",
-    "babel-plugin-transform-dynamic-import": "^2.1.0",
-    "commit-and-tag-version": "12.4.1",
-    "nodemon": "3.1.4"
+    "@babel/cli": "7.28.6",
+    "@babel/core": "7.29.0",
+    "@babel/preset-env": "7.29.5",
+    "@babel/register": "7.29.3",
+    "babel-plugin-transform-dynamic-import": "2.1.0",
+    "commit-and-tag-version": "12.7.3",
+    "nodemon": "3.1.14"
   }
 }

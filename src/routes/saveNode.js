@@ -1,7 +1,16 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const filter_var = require('../lib/filter_var.js');
-const strip_tags = require("locutus/php/strings/strip_tags");
-const html_entity_decode = require("locutus/php/strings/html_entity_decode");
+const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
+const html_entity_decode = require("locutus/php/strings/html_entity_decode").html_entity_decode;
+const {
+  sanitizeHTMLForStorage,
+  sanitizeURLValue,
+  sanitizeMetadataValue,
+} = require('../lib/sanitizeContent.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../lib/platformFeatures.js');
 /**
    * @OA\Post(
    *    path="/saveNode",
@@ -82,6 +91,12 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
             // a capability that is not supported currently beyond experiments
             page = site.loadNode(data["attributes"]["item-id"]);
             if (!page) {
+              if (!platformAllows(site, 'addPage')) {
+                return featureDisabledResponse(
+                  res,
+                  'Adding pages is disabled for this site'
+                );
+              }
               // generate a new item based on the site
               let nodeParams = {
                 "node" : {
@@ -105,10 +120,14 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
             }
             // now this should exist if it didn't a minute ago
             page = site.loadNode(data["attributes"]["item-id"]);
+            let sanitizedContent = sanitizeHTMLForStorage(data['content']);
             // @todo make sure that we stripped off page-break
             // and now save WITHOUT the top level page-break
             // to avoid duplication issues
-            bytes = await page.writeLocation(data['content'], site.siteDirectory);
+            bytes = await page.writeLocation(
+              sanitizedContent,
+              site.siteDirectory
+            );
             if (bytes === false) {
               return res.send({
                 '__failed' : {
@@ -195,7 +214,9 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
                 }
                 // support for defining and updating related-items
                 if ((data["attributes"]["related-items"]) && data["attributes"]["related-items"] != '') {
-                  page.metadata.relatedItems = data["attributes"]["related-items"];
+                  page.metadata.relatedItems = sanitizeMetadataValue(
+                    data["attributes"]["related-items"]
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.relatedItems)) {
@@ -203,7 +224,10 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
                 }
                 // support for defining and updating image
                 if ((data["attributes"]["image"]) && data["attributes"]["image"] != '') {
-                  page.metadata.image = data["attributes"]["image"];
+                  page.metadata.image = sanitizeURLValue(
+                    data["attributes"]["image"],
+                    ''
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.image)) {
@@ -211,7 +235,9 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
                 }
                 // support for defining and updating page type
                 if ((data["attributes"]["tags"]) && data["attributes"]["tags"] != '') {
-                  page.metadata.tags = data["attributes"]["tags"];
+                  page.metadata.tags = sanitizeMetadataValue(
+                    data["attributes"]["tags"]
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.tags)) {
@@ -219,7 +245,9 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
                 }
                 // support for defining and updating page accentColor
                 if ((data["attributes"]["accent-color"]) && data["attributes"]["accent-color"] != '') {
-                  page.metadata.accentColor = data["attributes"]["accent-color"];
+                  page.metadata.accentColor = sanitizeMetadataValue(
+                    data["attributes"]["accent-color"]
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.accentColor)) {
@@ -227,7 +255,9 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
                 }
                 // support for defining and updating page type
                 if ((data["attributes"]["icon"]) && data["attributes"]["icon"] != '') {
-                  page.metadata.icon = data["attributes"]["icon"];
+                  page.metadata.icon = sanitizeMetadataValue(
+                    data["attributes"]["icon"]
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.icon)) {
@@ -235,7 +265,10 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
                 }
                 // support for defining an image to represent the page
                 if ((data["attributes"]["image"]) && data["attributes"]["image"] != '') {
-                  page.metadata.image = data["attributes"]["image"];
+                  page.metadata.image = sanitizeURLValue(
+                    data["attributes"]["image"],
+                    ''
+                  );
                 }
                 // they sent across nothing but we had something previously
                 else if ((page.metadata.image)) {
@@ -265,36 +298,55 @@ const html_entity_decode = require("locutus/php/strings/html_entity_decode");
                   readtime = 1;
                 }
                 page.metadata.readtime = readtime;
-                // reset bc we rebuild this each page save
-                page.metadata.videos = {};
-                page.metadata.images = {};
-                // pull schema apart and seee if we have any images
+                // reset because we rebuild this each page save
+                page.metadata.videos = [];
+                page.metadata.images = [];
+                // pull schema apart and see if we have any media
                 // that other things could use for metadata / theming purposes
-                for (var element in schema) {
-                  switch(element['tag']) {
+                let schemaElements = [];
+                if (Array.isArray(schema)) {
+                  schemaElements = schema;
+                }
+                else if (schema && typeof schema === 'object') {
+                  for (var schemaKey in schema) {
+                    if (schema[schemaKey]) {
+                      schemaElements.push(schema[schemaKey]);
+                    }
+                  }
+                }
+                for (var elementKey in schemaElements) {
+                  let element = schemaElements[elementKey];
+                  if (!(element) || !(element['tag'])) {
+                    continue;
+                  }
+                  if (!(element['properties'])) {
+                    element['properties'] = {};
+                  }
+                  switch (element['tag']) {
                     case 'img':
-                      if ((element['properties']['src'])) {
+                      if (element['properties']['src']) {
                         page.metadata.images.push(element['properties']['src']);
                       }
                     break;
                     case 'a11y-gif-player':
-                      if ((element['properties']['src'])) {
+                      if (element['properties']['src']) {
                         page.metadata.images.push(element['properties']['src']);
                       }
                     break;
                     case 'media-image':
-                      if ((element['properties']['source'])) {
+                      if (element['properties']['source']) {
                         page.metadata.images.push(element['properties']['source']);
                       }
                     break;
                     case 'video-player':
-                      if ((element['properties']['source'])) {
+                      if (element['properties']['source']) {
                         page.metadata.videos.push(element['properties']['source']);
                       }
                     break;
                   }
                 }
                 await site.updateNode(page);
+                await site.writePageAlternateFormats(page, sanitizedContent);
                 site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
                 await site.manifest.save();
                 await site.gitCommit(

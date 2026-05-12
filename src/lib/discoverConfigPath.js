@@ -44,6 +44,10 @@ else {
             fs.mkdirSync(path.join(homeConfig, 'cache'));
             fs.mkdirSync(path.join(homeConfig, 'user'));
             fs.mkdirSync(path.join(homeConfig, 'user/files'));
+            // user-level skeletons live here (writable from UI)
+            fs.mkdirSync(path.join(homeConfig, 'user/skeletons'));
+            // deployment-level skeleton overrides live here (mirrors PHP _config/skeletons)
+            fs.mkdirSync(path.join(homeConfig, 'skeletons'));
             fs.mkdirSync(path.join(homeConfig, 'node_modules'));
     
             fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/config.json'), path.join(homeConfig, 'config.json'));

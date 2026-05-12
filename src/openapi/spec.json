@@ -1,907 +1,1557 @@
 {
-    "openapi": "3.0.0",
-    "info": {
-        "title": "HAXcms API",
-        "description": "API for interfacing with HAXcms end points",
-        "termsOfService": "https://haxtheweb.org",
-        "contact": {
-            "email": "hax@psu.edu"
-        },
-        "license": {
-            "name": "Apache 2.0",
-            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
-        },
-        "version": ""
+  "openapi": "3.0.0",
+  "info": {
+    "title": "HAXcms API",
+    "description": "API for interfacing with HAXcms end points",
+    "termsOfService": "https://haxtheweb.org",
+    "contact": {
+      "email": "hax@psu.edu"
     },
-    "servers": [
-    ],
-    "paths": {
-        "/options": {
-            "post": {
-                "tags": [
-                    "api"
-                ],
-                "operationId": "Operations::options",
-                "responses": {
-                    "200": {
-                        "description": "API bandaid till we get all the APIs documented. This is an array of callbacks"
-                    }
-                }
-            }
-        },
-        "/": {
-            "post": {
-                "tags": [
-                    "api"
-                ],
-                "summary": "Generate the swagger API documentation for this site",
-                "operationId": "Operations::api",
-                "responses": {
-                    "200": {
-                        "description": "API documentation in YAML"
-                    }
-                }
-            }
-        },
-        "/openapi/json": {
-            "post": {
-                "tags": [
-                    "api"
-                ],
-                "summary": "Generate the swagger API documentation for this site",
-                "operationId": "Operations::openapi",
-                "responses": {
-                    "200": {
-                        "description": "API documentation in JSON"
-                    }
-                }
-            }
-        },
-        "/saveManifest": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated"
-                ],
-                "operationId": "Operations::saveManifest",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Save the manifest of the site"
-                    }
-                }
-            }
-        },
-        "/saveOutline": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "site"
-                ],
-                "operationId": "Operations::saveOutline",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Save an entire site outline"
-                    }
-                }
-            }
-        },
-        "/saveNode": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "node"
-                ],
-                "operationId": "Operations::saveNode",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Save a node"
-                    }
-                }
-            }
-        },
-        "/deleteNode": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "node"
-                ],
-                "operationId": "Operations::deleteNode",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Delete a node"
-                    }
-                }
-            }
-        },
-        "/siteUpdateAlternateFormats": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "meta"
-                ],
-                "operationId": "Operations::siteUpdateAlternateFormats",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Update the alternative formats surrounding a site"
-                    }
-                }
-            }
-        },
-        "/connectionSettings": {
-            "get": {
-                "tags": [
-                    "cms"
-                ],
-                "operationId": "Operations::connectionSettings",
-                "responses": {
-                    "200": {
-                        "description": "Generate the connection settings dynamically for implying we have a PHP backend"
-                    }
-                }
-            }
-        },
-        "/generateAppStore": {
-            "get": {
-                "tags": [
-                    "hax",
-                    "api"
-                ],
-                "operationId": "Operations::generateAppStore",
-                "parameters": [
-                    {
-                        "name": "appstore_token",
-                        "in": "query",
-                        "description": "security token for appstore",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Generate the AppStore spec for HAX editor directions"
-                    }
-                }
-            }
-        },
-        "/getUserData": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "user",
-                    "settings"
-                ],
-                "operationId": "Operations::getUserData",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Load data about the logged in user"
-                    }
-                }
-            }
-        },
-        "/formLoad": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "form"
-                ],
-                "operationId": "Operations::formLoad",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Load a form based on ID"
-                    }
-                }
-            }
-        },
-        "/formProcess": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "form"
-                ],
-                "operationId": "Operations::formProcess",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Process a form based on ID and input data"
-                    }
-                }
-            }
-        },
-        "/listFiles": {
-            "get": {
-                "tags": [
-                    "hax",
-                    "authenticated",
-                    "file"
-                ],
-                "operationId": "Operations::listFiles",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Load existing files for presentation in HAX find area"
-                    }
-                }
-            }
-        },
-        "/login": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "user"
-                ],
-                "description": "Attempt a user login",
-                "operationId": "Operations::login",
-                "parameters": [
-                    {
-                        "name": "u",
-                        "in": "query",
-                        "description": "User name",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        },
-                        "example": "admin"
-                    },
-                    {
-                        "name": "p",
-                        "in": "query",
-                        "description": "Password",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        },
-                        "example": "admin"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "JWT token as response"
-                    },
-                    "403": {
-                        "description": "Invalid token / Login is required"
-                    }
-                }
-            }
-        },
-        "/logout": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "user"
-                ],
-                "operationId": "Operations::logout",
-                "responses": {
-                    "200": {
-                        "description": "User logout, front end will kill token"
-                    }
-                }
-            }
-        },
-        "/refreshAccessToken": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "user"
-                ],
-                "operationId": "Operations::refreshAccessToken",
-                "responses": {
-                    "200": {
-                        "description": "User access token for refreshing JWT when it goes stale"
-                    }
-                }
-            }
-        },
-        "/saveFile": {
-            "post": {
-                "tags": [
-                    "hax",
-                    "authenticated",
-                    "file"
-                ],
-                "operationId": "Operations::saveFile",
-                "parameters": [
-                    {
-                        "name": "site_token",
-                        "in": "query",
-                        "description": "Site-specific validation token",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "siteName",
-                        "in": "query",
-                        "description": "Name of the site to upload the file to",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "nodeId",
-                        "in": "query",
-                        "description": "ID of the node/page to associate the file with",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "multipart/form-data": {
-                            "schema": {
-                                "required": [
-                                    "file-upload"
-                                ],
-                                "properties": {
-                                    "file-upload": {
-                                        "type": "string",
-                                        "format": "binary",
-                                        "description": "File to upload"
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "User is uploading a file to present in a site"
-                    },
-                    "500": {
-                        "description": "Error uploading file"
-                    }
-                }
-            }
-        },
-        "/listSites": {
-            "get": {
-                "tags": [
-                    "cms"
-                ],
-                "operationId": "Operations::listSites",
-                "responses": {
-                    "200": {
-                        "description": "Load a list of all sites the user has created"
-                    }
-                }
-            }
-        },
-        "/cloneSite": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "site"
-                ],
-                "operationId": "Operations::cloneSite",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "site"
-                                ],
-                                "properties": {
-                                    "site": {
-                                        "type": "object"
-                                    }
-                                },
-                                "type": "object",
-                                "example": {
-                                    "site": {
-                                        "name": "mynewsite"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Clone a site by copying and renaming the folder on file system"
-                    }
-                }
-            }
-        },
-        "/downloadSite": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "site",
-                    "meta"
-                ],
-                "operationId": "Operations::downloadSite",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "site"
-                                ],
-                                "properties": {
-                                    "site": {
-                                        "type": "object"
-                                    }
-                                },
-                                "type": "object",
-                                "example": {
-                                    "site": {
-                                        "name": "mynewsite"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Download the site folder as a zip file"
-                    }
-                }
-            }
-        },
-        "/archiveSite": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "site"
-                ],
-                "operationId": "Operations::archiveSite",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "site"
-                                ],
-                                "properties": {
-                                    "site": {
-                                        "type": "object"
-                                    }
-                                },
-                                "type": "object",
-                                "example": {
-                                    "site": {
-                                        "name": "mynewsite"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Archive a site by moving it on the file system"
-                    }
-                }
-            }
-        },
-        "/createSite": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "site"
-                ],
-                "operationId": "Operations::createSite",
-                "parameters": [
-                    {
-                        "name": "jwt",
-                        "in": "query",
-                        "description": "JSON Web token, obtain by using  /login",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "user_token",
-                        "in": "query",
-                        "description": "User validation token",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "site",
-                                    "theme"
-                                ],
-                                "properties": {
-                                    "site": {
-                                        "type": "object",
-                                        "properties": {
-                                            "name": {
-                                                "type": "string"
-                                            },
-                                            "domain": {
-                                                "type": "string"
-                                            },
-                                            "description": {
-                                                "type": "string"
-                                            },
-                                            "theme": {
-                                                "type": "string"
-                                            }
-                                        }
-                                    },
-                                    "theme": {
-                                        "type": "object",
-                                        "properties": {
-                                            "image": {
-                                                "type": "string"
-                                            },
-                                            "icon": {
-                                                "type": "string"
-                                            },
-                                            "hexCode": {
-                                                "type": "string"
-                                            },
-                                            "cssVariable": {
-                                                "type": "string"
-                                            }
-                                        }
-                                    },
-                                    "build": {
-                                        "type": "object",
-                                        "properties": {
-                                            "structure": {
-                                                "type": "string"
-                                            },
-                                            "type": {
-                                                "type": "string"
-                                            },
-                                            "items": {
-                                                "type": "array"
-                                            },
-                                            "files": {
-                                                "type": "object"
-                                            }
-                                        }
-                                    },
-                                    "token": {
-                                        "type": "string"
-                                    }
-                                },
-                                "type": "object",
-                                "example": {
-                                    "site": {
-                                        "name": "mynewsite",
-                                        "domain": "",
-                                        "description": "My new site description",
-                                        "theme": "learn-two-theme"
-                                    },
-                                    "theme": {
-                                        "image": "assets/banner.jpg",
-                                        "icon": "icons:web",
-                                        "hexCode": "#3f51b5",
-                                        "cssVariable": "--simple-colors-default-theme-light-blue-7"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Create a new site"
-                    }
-                }
-            }
-        },
-        "/createNode": {
-            "post": {
-                "tags": [
-                    "cms",
-                    "authenticated",
-                    "node"
-                ],
-                "operationId": "Operations::createNode",
-                "parameters": [
-                    {
-                        "name": "site_token",
-                        "in": "query",
-                        "description": "Site-specific validation token",
-                        "required": true,
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "site",
-                                    "node"
-                                ],
-                                "properties": {
-                                    "site": {
-                                        "type": "object",
-                                        "properties": {
-                                            "name": {
-                                                "type": "string"
-                                            }
-                                        }
-                                    },
-                                    "node": {
-                                        "type": "object",
-                                        "properties": {
-                                            "id": {
-                                                "type": "string"
-                                            },
-                                            "title": {
-                                                "type": "string"
-                                            },
-                                            "location": {
-                                                "type": "string"
-                                            },
-                                            "duplicate": {
-                                                "type": "string"
-                                            },
-                                            "contents": {
-                                                "type": "string"
-                                            }
-                                        }
-                                    },
-                                    "indent": {
-                                        "type": "number"
-                                    },
-                                    "order": {
-                                        "type": "number"
-                                    },
-                                    "parent": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "metadata": {
-                                        "type": "object"
-                                    },
-                                    "items": {
-                                        "type": "array",
-                                        "description": "Array of items for bulk creation (e.g., from docx import)"
-                                    }
-                                },
-                                "type": "object",
-                                "example": {
-                                    "site": {
-                                        "name": "mysite"
-                                    },
-                                    "node": {
-                                        "id": null,
-                                        "title": "Cool post",
-                                        "location": null
-                                    },
-                                    "indent": null,
-                                    "order": null,
-                                    "parent": null,
-                                    "description": "An example description for the post",
-                                    "metadata": {
-                                        "tags": "metadata,can,be,whatever,you,want",
-                                        "other": "stuff"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Create a new node/page in a site"
-                    }
-                }
-            }
-        }
+    "license": {
+      "name": "Apache 2.0",
+      "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
     },
-    "tags": [
-        {
-            "name": "hax",
-            "description": "Operations required for HAX editor to work",
-            "externalDocs": {
-                "description": "Find out more about hax editor integrations",
-                "url": "https://haxtheweb.org/integrations/create-new-ones"
-            }
-        },
-        {
-            "name": "cms",
-            "description": "Operations for the CMS side"
-        },
-        {
-            "name": "site",
-            "description": "Operations for sites"
-        },
-        {
-            "name": "node",
-            "description": "Operations for individual nodes in a site"
-        },
-        {
-            "name": "file",
-            "description": "Operations for files related to CMS or HAX"
-        },
-        {
-            "name": "form",
-            "description": "Operations related to form submission or generation"
-        },
-        {
-            "name": "meta",
-            "description": "Operations related to metadata management or processes"
-        },
-        {
-            "name": "git",
-            "description": "Operations related to git / version control of the site"
-        },
-        {
-            "name": "user",
-            "description": "Operations for the user account / object"
-        },
-        {
-            "name": "api",
-            "description": "endpoint to generate the API or surrounding API callbacks"
-        },
-        {
-            "name": "settings",
-            "description": "Internal settings related to configuration of this HAXcms deployment"
-        },
-        {
-            "name": "authenticated",
-            "description": "Operations requiring authentication"
+    "version": null
+  },
+  "servers": null,
+  "paths": {
+    "/options": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "Operations::options",
+        "responses": {
+          "200": {
+            "description": "API bandaid till we get all the APIs documented. This is an array of callbacks"
+          }
         }
-    ],
-    "externalDocs": {
-        "description": "HAXcms and all things HAX documentations",
-        "url": "https://haxtheweb.org/"
+      }
+    },
+    "/": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "summary": "Generate the swagger API documentation for this site",
+        "operationId": "Operations::api",
+        "responses": {
+          "200": {
+            "description": "API documentation in YAML"
+          }
+        }
+      }
+    },
+    "/openapi": {
+      "get": {
+        "tags": [
+          "api"
+        ],
+        "summary": "Generate the swagger API documentation for this site",
+        "operationId": "Operations::openapi",
+        "responses": {
+          "200": {
+            "description": "API documentation in YAML"
+          }
+        }
+      }
+    },
+    "/openapi/json": {
+      "get": {
+        "tags": [
+          "api"
+        ],
+        "summary": "Generate the swagger API documentation for this site",
+        "operationId": "Operations::openapi",
+        "responses": {
+          "200": {
+            "description": "API documentation in JSON"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "summary": "Generate the swagger API documentation for this site",
+        "operationId": "Operations::openapi",
+        "responses": {
+          "200": {
+            "description": "API documentation in JSON"
+          }
+        }
+      }
+    },
+    "/saveManifest": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated"
+        ],
+        "operationId": "Operations::saveManifest",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "manifest",
+                  "haxcms_form_id",
+                  "haxcms_form_token"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object"
+                  },
+                  "manifest": {
+                    "type": "object"
+                  },
+                  "haxcms_form_id": {
+                    "type": "string"
+                  },
+                  "haxcms_form_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save the manifest of the site"
+          }
+        }
+      }
+    },
+    "/savePlatformSettings": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated"
+        ],
+        "operationId": "Operations::savePlatformSettings",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "platform"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "platform": {
+                    "type": "object",
+                    "properties": {
+                      "features": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save platform feature settings into site.json metadata.platform.features"
+          }
+        }
+      }
+    },
+    "/saveAllowedBlocks": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated"
+        ],
+        "operationId": "Operations::saveAllowedBlocks",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "platform"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "platform": {
+                    "type": "object",
+                    "properties": {
+                      "allowedBlocks": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save allowed blocks into site.json metadata.platform.allowedBlocks"
+          }
+        }
+      }
+    },
+    "/saveEditorSettings": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated"
+        ],
+        "operationId": "Operations::saveEditorSettings",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "platform"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "platform": {
+                    "type": "object",
+                    "properties": {
+                      "audience": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save editor settings into site.json metadata.platform.audience"
+          }
+        }
+      }
+    },
+    "/saveSeoSettings": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated"
+        ],
+        "operationId": "Operations::saveSeoSettings",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "author": {
+                    "type": "object",
+                    "properties": {
+                      "license": {
+                        "type": "string"
+                      },
+                      "image": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "socialLink": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "seo": {
+                    "type": "object",
+                    "properties": {
+                      "pathauto": {
+                        "type": "boolean"
+                      },
+                      "publishPagesOn": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save SEO and author settings into site.json"
+          }
+        }
+      }
+    },
+    "/saveAppearanceSettings": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated"
+        ],
+        "operationId": "Operations::saveAppearanceSettings",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "manifest"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "manifest": {
+                    "type": "object",
+                    "properties": {
+                      "theme": {
+                        "type": "object",
+                        "description": "Theme appearance values to persist in site.json metadata.theme"
+                      }
+                    }
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save appearance settings into site.json metadata.theme"
+          }
+        }
+      }
+    },
+    "/saveOutline": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "site"
+        ],
+        "operationId": "Operations::saveOutline",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "items"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "description": "Outline items to save. Page write location is backend-controlled by page id.",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "parent": {
+                          "type": "string"
+                        },
+                        "indent": {
+                          "type": "number"
+                        },
+                        "order": {
+                          "type": "number"
+                        },
+                        "slug": {
+                          "type": "string"
+                        },
+                        "metadata": {
+                          "type": "object"
+                        },
+                        "duplicate": {
+                          "type": "string"
+                        },
+                        "contents": {
+                          "type": "string"
+                        },
+                        "delete": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                },
+                "type": "object",
+                "example": {
+                  "site": {
+                    "name": "mysite"
+                  },
+                  "items": [
+                    {
+                      "id": "item-123",
+                      "title": "Unit 1",
+                      "parent": null,
+                      "indent": 0,
+                      "order": 0,
+                      "metadata": {}
+                    },
+                    {
+                      "id": "item-456",
+                      "title": "Unit 1 copy",
+                      "duplicate": "item-123",
+                      "parent": null,
+                      "indent": 0,
+                      "order": 1
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Save an entire site outline"
+          }
+        }
+      }
+    },
+    "/saveNode": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "node"
+        ],
+        "operationId": "Operations::saveNode",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Save a node"
+          }
+        }
+      }
+    },
+    "/deleteNode": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "node"
+        ],
+        "operationId": "Operations::deleteNode",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Delete a node"
+          }
+        }
+      }
+    },
+    "/siteUpdateAlternateFormats": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "meta"
+        ],
+        "operationId": "Operations::siteUpdateAlternateFormats",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object"
+                  },
+                  "format": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update the alternative formats surrounding a site"
+          }
+        }
+      }
+    },
+    "/connectionSettings": {
+      "get": {
+        "tags": [
+          "cms"
+        ],
+        "operationId": "Operations::connectionSettings",
+        "responses": {
+          "200": {
+            "description": "Generate the connection settings dynamically for implying we have a PHP backend"
+          }
+        }
+      }
+    },
+    "/generateAppStore": {
+      "get": {
+        "tags": [
+          "hax",
+          "api"
+        ],
+        "operationId": "Operations::generateAppStore",
+        "parameters": [
+          {
+            "name": "appstore_token",
+            "in": "query",
+            "description": "security token for appstore",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Generate the AppStore spec for HAX editor directions"
+          }
+        }
+      }
+    },
+    "/getUserData": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "user",
+          "settings"
+        ],
+        "operationId": "Operations::getUserData",
+        "parameters": [
+          {
+            "name": "user_token",
+            "in": "query",
+            "description": "User validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Load data about the logged in user"
+          }
+        }
+      }
+    },
+    "/formLoad": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "form"
+        ],
+        "operationId": "Operations::formLoad",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "token",
+                  "haxcms_form_id"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  },
+                  "haxcms_form_id": {
+                    "type": "string"
+                  },
+                  "site": {
+                    "type": "object"
+                  },
+                  "node": {
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Load a form based on ID"
+          }
+        }
+      }
+    },
+    "/formProcess": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "form"
+        ],
+        "operationId": "Operations::formProcess",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "haxcms_form_id",
+                  "haxcms_form_token"
+                ],
+                "properties": {
+                  "haxcms_form_id": {
+                    "type": "string"
+                  },
+                  "haxcms_form_token": {
+                    "type": "string"
+                  },
+                  "site": {
+                    "type": "object"
+                  },
+                  "node": {
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Process a form based on ID and input data"
+          }
+        }
+      }
+    },
+    "/listFiles": {
+      "get": {
+        "tags": [
+          "hax",
+          "authenticated",
+          "file"
+        ],
+        "operationId": "Operations::listFiles",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Load existing files for presentation in HAX find area"
+          }
+        }
+      }
+    },
+    "/login": {
+      "post": {
+        "tags": [
+          "cms",
+          "user"
+        ],
+        "description": "Attempt a user login",
+        "operationId": "Operations::login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  },
+                  "jwt": {
+                    "type": "string"
+                  }
+                },
+                "type": "object",
+                "example": {
+                  "username": "admin",
+                  "password": "admin"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JWT token as response"
+          },
+          "403": {
+            "description": "Invalid token / Login is required"
+          }
+        }
+      }
+    },
+    "/logout": {
+      "post": {
+        "tags": [
+          "cms",
+          "user"
+        ],
+        "operationId": "Operations::logout",
+        "responses": {
+          "200": {
+            "description": "User logout, front end will kill token"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "cms",
+          "user"
+        ],
+        "operationId": "Operations::logout",
+        "responses": {
+          "200": {
+            "description": "User logout, front end will kill token"
+          }
+        }
+      }
+    },
+    "/refreshAccessToken": {
+      "post": {
+        "tags": [
+          "cms",
+          "user"
+        ],
+        "operationId": "Operations::refreshAccessToken",
+        "responses": {
+          "200": {
+            "description": "User access token for refreshing JWT when it goes stale"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "cms",
+          "user"
+        ],
+        "operationId": "Operations::refreshAccessToken",
+        "responses": {
+          "200": {
+            "description": "User access token for refreshing JWT when it goes stale"
+          }
+        }
+      }
+    },
+    "/saveFile": {
+      "post": {
+        "tags": [
+          "hax",
+          "authenticated",
+          "file"
+        ],
+        "operationId": "Operations::saveFile",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "siteName",
+            "in": "query",
+            "description": "Name of the site to upload the file to",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nodeId",
+            "in": "query",
+            "description": "ID of the node/page to associate the file with",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "file-upload"
+                ],
+                "properties": {
+                  "file-upload": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "File to upload"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "User is uploading a file to present in a site"
+          },
+          "500": {
+            "description": "Error uploading file"
+          }
+        }
+      }
+    },
+    "/skeletonsList": {
+      "get": {
+        "tags": [
+          "cms"
+        ],
+        "operationId": "Operations::skeletonsList",
+        "parameters": [
+          {
+            "name": "user_token",
+            "in": "query",
+            "description": "User validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List available site skeletons"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "cms"
+        ],
+        "operationId": "Operations::skeletonsList",
+        "parameters": [
+          {
+            "name": "user_token",
+            "in": "query",
+            "description": "User validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List available site skeletons"
+          }
+        }
+      }
+    },
+    "/getSkeleton": {
+      "get": {
+        "tags": [
+          "cms"
+        ],
+        "operationId": "Operations::getSkeleton",
+        "parameters": [
+          {
+            "name": "user_token",
+            "in": "query",
+            "description": "User validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Skeleton file name (without .json extension)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns skeleton JSON data"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "cms"
+        ],
+        "operationId": "Operations::getSkeleton",
+        "parameters": [
+          {
+            "name": "user_token",
+            "in": "query",
+            "description": "User validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Skeleton file name (without .json extension)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns skeleton JSON data"
+          }
+        }
+      }
+    },
+    "/listSites": {
+      "get": {
+        "tags": [
+          "cms"
+        ],
+        "operationId": "Operations::listSites",
+        "responses": {
+          "200": {
+            "description": "Load a list of all sites the user has created"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "cms"
+        ],
+        "operationId": "Operations::listSites",
+        "responses": {
+          "200": {
+            "description": "Load a list of all sites the user has created"
+          }
+        }
+      }
+    },
+    "/cloneSite": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "site"
+        ],
+        "operationId": "Operations::cloneSite",
+        "parameters": [
+          {
+            "name": "user_token",
+            "in": "query",
+            "description": "User validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object"
+                  }
+                },
+                "type": "object",
+                "example": {
+                  "site": {
+                    "name": "mynewsite"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Clone a site by copying and renaming the folder on file system"
+          }
+        }
+      }
+    },
+    "/downloadSite": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "site",
+          "meta"
+        ],
+        "operationId": "Operations::downloadSite",
+        "parameters": [
+          {
+            "name": "user_token",
+            "in": "query",
+            "description": "User validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object"
+                  }
+                },
+                "type": "object",
+                "example": {
+                  "site": {
+                    "name": "mynewsite"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Download the site folder as a zip file"
+          }
+        }
+      }
+    },
+    "/archiveSite": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "site"
+        ],
+        "operationId": "Operations::archiveSite",
+        "parameters": [
+          {
+            "name": "user_token",
+            "in": "query",
+            "description": "User validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object"
+                  }
+                },
+                "type": "object",
+                "example": {
+                  "site": {
+                    "name": "mynewsite"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Archive a site by moving it on the file system"
+          }
+        }
+      }
+    },
+    "/createSite": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "site"
+        ],
+        "operationId": "Operations::createSite",
+        "parameters": [
+          {
+            "name": "user_token",
+            "in": "query",
+            "description": "User validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "token"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "domain": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "theme": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "build": {
+                    "type": "object",
+                    "properties": {
+                      "structure": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "items": {
+                        "type": "array"
+                      },
+                      "files": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object",
+                "example": {
+                  "site": {
+                    "name": "mynewsite",
+                    "domain": "",
+                    "description": "My new site description",
+                    "theme": "learn-two-theme"
+                  },
+                  "build": {
+                    "type": "course",
+                    "structure": "docx import"
+                  },
+                  "token": "request-token"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Create a new site"
+          }
+        }
+      }
+    },
+    "/saveNodeDetails": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "node"
+        ],
+        "operationId": "Operations::saveNodeDetails",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "node"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object"
+                  },
+                  "node": {
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Perform a singular node operation"
+          }
+        }
+      }
+    },
+    "/createNode": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "node"
+        ],
+        "operationId": "Operations::createNode",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "node"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "node": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      },
+                      "duplicate": {
+                        "type": "string"
+                      },
+                      "contents": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "indent": {
+                    "type": "number"
+                  },
+                  "order": {
+                    "type": "number"
+                  },
+                  "parent": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "type": "object"
+                  },
+                  "items": {
+                    "type": "array",
+                    "description": "Array of items for bulk creation (e.g., from docx import)"
+                  }
+                },
+                "type": "object",
+                "example": {
+                  "site": {
+                    "name": "mysite"
+                  },
+                  "node": {
+                    "id": null,
+                    "title": "Cool post",
+                    "location": null
+                  },
+                  "indent": null,
+                  "order": null,
+                  "parent": null,
+                  "description": "An example description for the post",
+                  "metadata": {
+                    "tags": "metadata,can,be,whatever,you,want",
+                    "other": "stuff"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Create a new node/page in a site"
+          }
+        }
+      }
     }
+  },
+  "tags": [
+    {
+      "name": "hax",
+      "description": "Operations required for HAX editor to work",
+      "externalDocs": {
+        "description": "Find out more about hax editor integrations",
+        "url": "https://haxtheweb.org/integrations/create-new-ones"
+      }
+    },
+    {
+      "name": "cms",
+      "description": "Operations for the CMS side"
+    },
+    {
+      "name": "site",
+      "description": "Operations for sites"
+    },
+    {
+      "name": "node",
+      "description": "Operations for individual nodes in a site"
+    },
+    {
+      "name": "file",
+      "description": "Operations for files related to CMS or HAX"
+    },
+    {
+      "name": "form",
+      "description": "Operations related to form submission or generation"
+    },
+    {
+      "name": "meta",
+      "description": "Operations related to metadata management or processes"
+    },
+    {
+      "name": "git",
+      "description": "Operations related to git / version control of the site"
+    },
+    {
+      "name": "user",
+      "description": "Operations for the user account / object"
+    },
+    {
+      "name": "api",
+      "description": "endpoint to generate the API or surrounding API callbacks"
+    },
+    {
+      "name": "settings",
+      "description": "Internal settings related to configuration of this HAXcms deployment"
+    },
+    {
+      "name": "authenticated",
+      "description": "Operations requiring authentication"
+    }
+  ],
+  "externalDocs": {
+    "description": "HAXcms and all things HAX documentations",
+    "url": "https://haxtheweb.org/"
+  }
 }
