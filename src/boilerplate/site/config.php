@@ -250,6 +250,7 @@ if (!isset($GLOBALS['HAXCMS'])) {
           <link rel="preload" href="' . $base . 'build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
           <meta name="generator" content="HAXcms" />
         ' . $canonical . $prevResource . $nextResource . '  <link rel="manifest" href="manifest.json" />
+          <link rel="alternate" type="text/markdown" href="' . $base . 'llms.txt" title="LLMs index" />
           <meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, user-scalable=yes" />
           <title>' . $siteTitle . '</title>
           <link rel="icon" href="' . $this->getLogoSize('16', '16') . '" />
