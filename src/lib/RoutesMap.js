@@ -41,6 +41,7 @@ const RoutesMap = {
   get: {
     logout: require('../routes/logout.js'),
     listFiles: require('../routes/listFiles.js'),
+    siteSearch: require('../routes/siteSearch.js'),
     openapi: require('../routes/openapi.js'),
     "openapi/json": require('../routes/openapi.js'),
     connectionSettings: require('../routes/connectionSettings.js'),

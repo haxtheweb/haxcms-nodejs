@@ -450,15 +450,36 @@ class HAXCMSSite
       let licenseData = this.getLicenseData('all');
       let licenseLink = '';
       let licenseName = '';
+      let domain = null;
       if ((this.manifest.license) && (licenseData[this.manifest.license])) {
         licenseLink = licenseData[this.manifest.license]['link'];
         licenseName = 'License: ' + licenseData[this.manifest.license]['name'];
+      }
+      if (this.manifest.metadata.site.domain) {
+        domain = this.manifest.metadata.site.domain;
+      }
+      if (domain == null || domain == '') {
+        let fallbackDomain = HAXCMS.getDomain();
+        if (!fallbackDomain || fallbackDomain == '') {
+          domain = '/sites/' + this.manifest.metadata.site.name + '/';
+        }
+        else {
+          fallbackDomain = fallbackDomain.replace('iam.', 'oer.');
+          if (!/^https?:\/\//.test(fallbackDomain)) {
+            fallbackDomain = 'https://' + fallbackDomain;
+          }
+          domain = fallbackDomain.replace(/\/$/, '') + '/sites/' + this.manifest.metadata.site.name + '/';
+        }
+      }
+      if (domain.substring(domain.length - 1) != '/') {
+        domain += '/';
       }
       let templateVars = {
           'hexCode': HAXCMS.HAXCMS_FALLBACK_HEX,
           'version': await HAXCMS.getHAXCMSVersion(),
           'basePath' :
               this.basePath + this.manifest.metadata.site.name + '/',
+          'domain': domain,
           'title': this.manifest.title,
           'short': this.manifest.metadata.site.name,
           'privateSite' : this.manifest.metadata.site.settings.private,
@@ -1619,7 +1640,9 @@ class HAXCMSSite
   <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/HAXCMSLitElementTheme.js" crossorigin="anonymous" />
   <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/utils/utils.js" crossorigin="anonymous" />
   <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
-  <meta name="generator" content="HAXcms">
+  <link rel="llms" href="llms.txt" title="LLM Content Map" />
+  <link rel="alternate" type="text/markdown" href="llms.txt" title="Markdown Summary" />
+  <meta name=\"generator\" content=\"HAXcms\">
   ${canonical}${prevResource}${nextResource}
   <link rel="manifest" href="manifest.json" />
   <meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, user-scalable=yes">
