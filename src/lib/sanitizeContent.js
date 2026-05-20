@@ -47,21 +47,21 @@ function sanitizeHTMLForStorage(html) {
   }
   let clean = html
   clean = clean.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-  clean = clean.replace(/\s+srcdoc\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, '')
-  clean = clean.replace(/\s+on[a-z0-9_-]+\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, '')
+  clean = clean.replace(/(\s+|["'])srcdoc\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, '$1')
+  clean = clean.replace(/(\s+|["'])on[a-z0-9_-]+\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, '$1')
   clean = clean.replace(
-    /\s+([a-zA-Z_:][a-zA-Z0-9_.:-]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/g,
-    function (match, attrName, attrValue, dqValue, sqValue, bareValue) {
+    /(\s+|["'])([a-zA-Z_:][a-zA-Z0-9_.:-]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/g,
+    function (match, attributeBoundary, attrName, attrValue, dqValue, sqValue, bareValue) {
       const attributeName = String(attrName).toLowerCase()
       if (EVENT_ATTRIBUTE_RE.test(attributeName)) {
-        return ''
+        return attributeBoundary
       }
       const value = dqValue || sqValue || bareValue || ''
       if (
         URL_LIKE_ATTRIBUTE_RE.test(attributeName) &&
         sanitizeURLValue(value, '') === ''
       ) {
-        return ''
+        return attributeBoundary
       }
       return match
     },
