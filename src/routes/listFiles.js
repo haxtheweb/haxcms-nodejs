@@ -43,15 +43,15 @@ function buildFilePublicUrl(site, relativeFilePath) {
 }
 function getDateCreatedValue(entryStats) {
   if (!entryStats || typeof entryStats !== 'object') {
-    return '';
+    return 0;
   }
   let createdMs = 0;
   if (
-    typeof entryStats.birthtimeMs === 'number' &&
-    Number.isFinite(entryStats.birthtimeMs) &&
-    entryStats.birthtimeMs > 0
+    typeof entryStats.mtimeMs === 'number' &&
+    Number.isFinite(entryStats.mtimeMs) &&
+    entryStats.mtimeMs > 0
   ) {
-    createdMs = entryStats.birthtimeMs;
+    createdMs = entryStats.mtimeMs;
   } else if (
     typeof entryStats.ctimeMs === 'number' &&
     Number.isFinite(entryStats.ctimeMs) &&
@@ -59,33 +59,45 @@ function getDateCreatedValue(entryStats) {
   ) {
     createdMs = entryStats.ctimeMs;
   } else if (
-    typeof entryStats.mtimeMs === 'number' &&
-    Number.isFinite(entryStats.mtimeMs) &&
-    entryStats.mtimeMs > 0
+    typeof entryStats.birthtimeMs === 'number' &&
+    Number.isFinite(entryStats.birthtimeMs) &&
+    entryStats.birthtimeMs > 0
   ) {
-    createdMs = entryStats.mtimeMs;
+    createdMs = entryStats.birthtimeMs;
   }
   if (createdMs <= 0) {
-    return '';
+    return 0;
   }
-  try {
-    return new Date(createdMs).toISOString();
-  } catch (e) {
-    return '';
-  }
+  return Math.round(createdMs);
 }
 function buildSiteFileRecord(site, absolutePath, entryStats, relativePath) {
   const stats = entryStats || fs.statSync(absolutePath);
   const apiPath = 'files/' + normalizePathForResponse(relativePath).replace(/^\/+/, '');
+  const dateCreated = getDateCreatedValue(stats);
+  const baseFileUrl = buildFilePublicUrl(site, apiPath);
   return {
     path: apiPath,
-    fullUrl: buildFilePublicUrl(site, apiPath),
+    fullUrl:
+      baseFileUrl +
+      (dateCreated
+        ? (baseFileUrl.indexOf('?') === -1 ? '?t=' : '&t=') + dateCreated
+        : ''),
     url: apiPath,
     mimetype: mime.getType(absolutePath) || '',
     name: path.basename(apiPath),
     size: stats && typeof stats.size === 'number' ? stats.size : 0,
-    dateCreated: getDateCreatedValue(stats),
+    dateCreated: dateCreated,
   };
+}
+function isManagedDerivativePath(relativePath = '') {
+  const normalizedRelativePath = normalizePathForResponse(relativePath).replace(
+    /^\/+/,
+    '',
+  );
+  return (
+    normalizedRelativePath === 'haxcms-managed' ||
+    normalizedRelativePath.indexOf('haxcms-managed/') === 0
+  );
 }
 function collectSiteFiles(site, siteFilePath, search = '') {
   const files = [];
@@ -119,6 +131,12 @@ function collectSiteFiles(site, siteFilePath, search = '') {
         continue;
       }
       if (entryStats.isDirectory()) {
+        const relativeDirectoryPath = normalizePathForResponse(
+          path.relative(siteFilePath, absoluteEntryPath),
+        );
+        if (isManagedDerivativePath(relativeDirectoryPath)) {
+          continue;
+        }
         directories.push(absoluteEntryPath);
         continue;
       }
@@ -129,6 +147,9 @@ function collectSiteFiles(site, siteFilePath, search = '') {
         path.relative(siteFilePath, absoluteEntryPath),
       );
       if (relativePath === '') {
+        continue;
+      }
+      if (isManagedDerivativePath(relativePath)) {
         continue;
       }
       if (

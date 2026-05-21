@@ -259,6 +259,35 @@ function buildFilePublicUrl(site, relativeFilePath) {
   }
   return fullUrl;
 }
+function getDateCreatedValue(entryStats) {
+  if (!entryStats || typeof entryStats !== 'object') {
+    return 0;
+  }
+  let createdMs = 0;
+  if (
+    typeof entryStats.mtimeMs === 'number' &&
+    Number.isFinite(entryStats.mtimeMs) &&
+    entryStats.mtimeMs > 0
+  ) {
+    createdMs = entryStats.mtimeMs;
+  } else if (
+    typeof entryStats.ctimeMs === 'number' &&
+    Number.isFinite(entryStats.ctimeMs) &&
+    entryStats.ctimeMs > 0
+  ) {
+    createdMs = entryStats.ctimeMs;
+  } else if (
+    typeof entryStats.birthtimeMs === 'number' &&
+    Number.isFinite(entryStats.birthtimeMs) &&
+    entryStats.birthtimeMs > 0
+  ) {
+    createdMs = entryStats.birthtimeMs;
+  }
+  if (createdMs <= 0) {
+    return 0;
+  }
+  return Math.round(createdMs);
+}
 
 function buildFileRecord(site, absolutePath, siteRelativePath = null) {
   const normalizedRelativePath = siteRelativePath
@@ -266,30 +295,16 @@ function buildFileRecord(site, absolutePath, siteRelativePath = null) {
     : normalizePathForResponse(path.relative(site.siteDirectory, absolutePath));
   const safeRelativePath = normalizedRelativePath.replace(/^\/+/, '');
   const stats = fs.statSync(absolutePath);
-  let dateCreated = '';
-  if (
-    typeof stats.birthtimeMs === 'number' &&
-    Number.isFinite(stats.birthtimeMs) &&
-    stats.birthtimeMs > 0
-  ) {
-    dateCreated = new Date(stats.birthtimeMs).toISOString();
-  } else if (
-    typeof stats.ctimeMs === 'number' &&
-    Number.isFinite(stats.ctimeMs) &&
-    stats.ctimeMs > 0
-  ) {
-    dateCreated = new Date(stats.ctimeMs).toISOString();
-  } else if (
-    typeof stats.mtimeMs === 'number' &&
-    Number.isFinite(stats.mtimeMs) &&
-    stats.mtimeMs > 0
-  ) {
-    dateCreated = new Date(stats.mtimeMs).toISOString();
-  }
+  const dateCreated = getDateCreatedValue(stats);
+  const baseFileUrl = buildFilePublicUrl(site, safeRelativePath);
   return {
     path: safeRelativePath,
     url: safeRelativePath,
-    fullUrl: buildFilePublicUrl(site, safeRelativePath),
+    fullUrl:
+      baseFileUrl +
+      (dateCreated
+        ? (baseFileUrl.indexOf('?') === -1 ? '?t=' : '&t=') + dateCreated
+        : ''),
     mimetype: mime.getType(absolutePath) || '',
     name: path.basename(safeRelativePath),
     size: stats.size || 0,
@@ -350,6 +365,15 @@ function getScalePreset(sizeKey) {
     preset: IMAGE_SCALE_PRESETS[DEFAULT_SCALE_PRESET],
   };
 }
+function getTemporaryImagePath(sourcePath, operationLabel = 'tmp') {
+  const sourceDirectory = path.dirname(sourcePath);
+  const sourceExtension = path.extname(sourcePath);
+  const sourceBaseName = path.basename(sourcePath, sourceExtension);
+  return path.join(
+    sourceDirectory,
+    sourceBaseName + '-' + operationLabel + '-' + Date.now() + sourceExtension,
+  );
+}
 
 async function convertImageToJpg(sourcePath, outputPath, transformMode = 'none') {
   const metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
@@ -395,6 +419,37 @@ async function scaleImageToPreset(sourcePath, outputPath, width, height) {
     })
     .jpeg({ quality: 82, mozjpeg: true })
     .toFile(outputPath);
+}
+async function rotateImageInPlace(sourcePath, rotation = 90) {
+  let metadata = null;
+  try {
+    metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
+  } catch (e) {
+    const rotateError = new Error('Only raster images can be rotated');
+    rotateError.status = 400;
+    throw rotateError;
+  }
+  if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
+    const rotateError = new Error('Only raster images can be rotated');
+    rotateError.status = 400;
+    throw rotateError;
+  }
+  const normalizedRotation = parseInt(rotation, 10);
+  const rotationValue = Number.isNaN(normalizedRotation) ? 90 : normalizedRotation;
+  const temporaryPath = getTemporaryImagePath(sourcePath, 'rotate');
+  try {
+    const rotatedBuffer = await sharp(sourcePath).rotate(rotationValue).toBuffer();
+    await fs.writeFile(temporaryPath, rotatedBuffer);
+    fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
+  } catch (e) {
+    if (fs.pathExistsSync(temporaryPath)) {
+      fs.removeSync(temporaryPath);
+    }
+    if (!e.status) {
+      e.status = 500;
+    }
+    throw e;
+  }
 }
 
 /**
@@ -442,6 +497,7 @@ async function fileOperation(req, res) {
       'scale',
       'sepia',
       'black-and-white',
+      'rotate-90',
     ].includes(
       operation,
     )
@@ -519,6 +575,23 @@ async function fileOperation(req, res) {
           source: fileInfo.normalizedPath,
           path: renameInfo.normalizedOutputPath,
           file: renamedFile,
+        },
+      });
+    }
+    if (operation === 'rotate-90') {
+      await rotateImageInPlace(fileInfo.resolvedPath, 90);
+      const rotatedFile = buildFileRecord(
+        site,
+        fileInfo.resolvedPath,
+        fileInfo.normalizedPath,
+      );
+      await site.gitCommit('File rotated (90deg): ' + fileInfo.normalizedPath);
+      return res.status(200).send({
+        status: 200,
+        data: {
+          operation: operation,
+          path: fileInfo.normalizedPath,
+          file: rotatedFile,
         },
       });
     }
