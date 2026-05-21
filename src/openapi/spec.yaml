@@ -536,6 +536,66 @@ paths:
       responses:
         '200':
           description: 'Load existing files for presentation in HAX find area'
+  /siteSearch:
+    get:
+      tags:
+        - hax
+        - authenticated
+        - site
+      operationId: 'Operations::siteSearch'
+      parameters:
+        -
+          name: site_token
+          in: query
+          description: 'Site-specific validation token'
+          required: true
+          schema:
+            type: string
+        -
+          name: siteName
+          in: query
+          description: 'Name of the site to search'
+          required: true
+          schema:
+            type: string
+        -
+          name: search
+          in: query
+          description: 'Search query (text or simple selector)'
+          required: true
+          schema:
+            type: string
+        -
+          name: searchField
+          in: query
+          description: 'Comma-separated fields for text mode'
+          required: false
+          schema:
+            type: string
+        -
+          name: searchSelector
+          in: query
+          description: 'Set true to use selector mode (tag, tag[attr], tag[attr="value"], [attr])'
+          required: false
+          schema:
+            type: boolean
+        -
+          name: searchCaseSensitive
+          in: query
+          description: 'Case-sensitive text matching'
+          required: false
+          schema:
+            type: boolean
+        -
+          name: searchLimit
+          in: query
+          description: 'Maximum number of matched items to return'
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 'Search site content and metadata fields'
   /login:
     post:
       tags:

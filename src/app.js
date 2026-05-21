@@ -386,7 +386,7 @@ systemStructureContext().then((site) => {
         limit: '50mb'
       });
       if (route === "saveFile") {
-        extra = upload.single('file-upload');
+        extra = upload.any();
       }
       app[method](`${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, extra ,(req, res, next) => {
         const op = req.route.path.replace(`${HAXCMS.basePath}${HAXCMS.systemRequestBase}`, '');

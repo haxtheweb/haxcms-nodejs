@@ -57,10 +57,15 @@ async function connectionSettings(req, res) {
     saveSeoSettingsPath: `${baseAPIPath}saveSeoSettings?site_token=${siteToken}`,
     saveOutlinePath: `${baseAPIPath}saveOutline?site_token=${siteToken}`,
     getSiteFieldsPath: `${baseAPIPath}formLoad?haxcms_form_id=siteSettings`,
+    contentSearchPath: `${baseAPIPath}siteSearch?site_token=${siteToken}`,
+    searchContentPath: `${baseAPIPath}siteSearch?site_token=${siteToken}`,
     // form token to validate form submissions as unique to the session
     getFormToken: HAXCMS.getRequestToken('form'),
     createNodePath: `${baseAPIPath}createNode?site_token=${siteToken}`,
     deleteNodePath: `${baseAPIPath}deleteNode?site_token=${siteToken}`,
+    listFilesPath: `${baseAPIPath}listFiles?site_token=${siteToken}`,
+    saveFilePath: `${baseAPIPath}saveFile?site_token=${siteToken}`,
+    fileOperationPath: `${baseAPIPath}fileOperation?site_token=${siteToken}`,
 
     getUserDataPath: `${baseAPIPath}getUserData?user_token=${userToken}`,
     createSite: `${baseAPIPath}createSite?user_token=${userToken}`,
