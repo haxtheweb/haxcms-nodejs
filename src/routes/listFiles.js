@@ -105,7 +105,7 @@ function collectSiteFiles(site, siteFilePath, search = '') {
     return files;
   }
   const searchValue = String(search || '').toLowerCase().trim();
-  const ignoredFiles = ['.', '..', '.gitkeep', '.DS_Store', '._.DS_Store'];
+  const ignoredFiles = ['.', '..', '.gitkeep', '.DS_Store', '._.DS_Store', '.htaccess', '._htaccess'];
   const directories = [siteFilePath];
   while (directories.length) {
     const activeDirectory = directories.pop();

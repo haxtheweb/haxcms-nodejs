@@ -432,6 +432,8 @@ class HAXCMSSite
           'adlcprootv1p2' : 'adlcp_rootv1p2.xsd',
           'imsxml' : 'ims_xml.xsd',
           'imsmanifest' : 'imsmanifest.xml',
+          // files directory execution hardening
+          'fileshtaccess' : 'files/.htaccess',
         };
     }
     /**

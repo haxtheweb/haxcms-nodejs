@@ -1,11 +1,18 @@
 const { parse } = require('node-html-parser');
 const { HAXCMS } = require('../lib/HAXCMS.js');
+const { sanitizeHTMLForStorage } = require('../lib/sanitizeContent.js');
 
 const SITE_SEARCH_DEFAULT_FIELDS = ['title', 'slug', 'description', 'tags', 'content'];
 const SITE_SEARCH_ALLOWED_FIELDS = ['id', 'title', 'slug', 'description', 'tags', 'content', 'location', 'parent'];
 const SITE_SEARCH_DEFAULT_LIMIT = 25;
 const SITE_SEARCH_MAX_LIMIT = 200;
 const SITE_SEARCH_MAX_QUERY_LENGTH = 256;
+const SITE_SEARCH_OPERATION_SEARCH = 'search';
+const SITE_SEARCH_OPERATION_REPLACE = 'replace';
+const SITE_SEARCH_ALLOWED_OPERATIONS = [
+  SITE_SEARCH_OPERATION_SEARCH,
+  SITE_SEARCH_OPERATION_REPLACE,
+];
 
 function parseBooleanValue(value) {
   if (typeof value === 'boolean') {
@@ -18,6 +25,67 @@ function parseBooleanValue(value) {
     return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
   }
   return false;
+}
+
+function countTextMatches(value, searchTerm, caseSensitive = false) {
+  if (typeof value !== 'string' || value.length === 0) {
+    return 0;
+  }
+  if (typeof searchTerm !== 'string' || searchTerm.length === 0) {
+    return 0;
+  }
+  const comparisonValue = caseSensitive ? value : value.toLowerCase();
+  const comparisonSearch = caseSensitive ? searchTerm : searchTerm.toLowerCase();
+  let total = 0;
+  let startAt = 0;
+  let foundAt = comparisonValue.indexOf(comparisonSearch, startAt);
+  while (foundAt !== -1) {
+    total++;
+    startAt = foundAt + comparisonSearch.length;
+    foundAt = comparisonValue.indexOf(comparisonSearch, startAt);
+  }
+  return total;
+}
+
+function replaceTextMatches(value, searchTerm, replacement, caseSensitive = false) {
+  if (typeof value !== 'string' || value.length === 0) {
+    return {
+      content: '',
+      total: 0,
+    };
+  }
+  if (typeof searchTerm !== 'string' || searchTerm.length === 0) {
+    return {
+      content: value,
+      total: 0,
+    };
+  }
+  if (caseSensitive) {
+    const total = countTextMatches(value, searchTerm, true);
+    return {
+      content: value.split(searchTerm).join(replacement),
+      total,
+    };
+  }
+  const source = String(value);
+  const sourceLower = source.toLowerCase();
+  const searchLower = String(searchTerm).toLowerCase();
+  let foundAt = sourceLower.indexOf(searchLower, 0);
+  let cursor = 0;
+  let total = 0;
+  let output = '';
+  while (foundAt !== -1) {
+    output += source.slice(cursor, foundAt);
+    output += replacement;
+    cursor = foundAt + searchTerm.length;
+    total++;
+    foundAt = sourceLower.indexOf(searchLower, cursor);
+  }
+  output += source.slice(cursor);
+  return {
+    content: output,
+    total,
+  };
 }
 
 function parseLimitValue(value, fallback = SITE_SEARCH_DEFAULT_LIMIT) {
@@ -108,6 +176,17 @@ function normalizeFieldValue(field, item, content = '') {
   }
 }
 
+
+function normalizeOperationValue(value) {
+  if (typeof value !== 'string') {
+    return SITE_SEARCH_OPERATION_SEARCH;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || !SITE_SEARCH_ALLOWED_OPERATIONS.includes(normalized)) {
+    return SITE_SEARCH_OPERATION_SEARCH;
+  }
+  return normalized;
+}
 function buildTextMatcher(searchTerm, caseSensitive = false) {
   const normalizedTerm = caseSensitive ? searchTerm : String(searchTerm).toLowerCase();
   return (value) => {
@@ -127,8 +206,8 @@ function buildTextMatcher(searchTerm, caseSensitive = false) {
   };
 }
 
-function parseSimpleSelector(selectorString) {
-  const selector = String(selectorString || '').trim();
+function parseSimpleSelectorPart(selectorPart) {
+  const selector = String(selectorPart || '').trim();
   if (!selector) {
     return {
       valid: false,
@@ -136,8 +215,6 @@ function parseSimpleSelector(selectorString) {
     };
   }
   if (
-    selector.includes(',') ||
-    selector.includes(' ') ||
     selector.includes('>') ||
     selector.includes('+') ||
     selector.includes('~') ||
@@ -192,6 +269,35 @@ function parseSimpleSelector(selectorString) {
   };
 }
 
+function parseSimpleSelector(selectorString) {
+  const rawSelector = String(selectorString || '').trim();
+  if (!rawSelector) {
+    return {
+      valid: false,
+      reason: 'Selector query is required',
+    };
+  }
+  const parts = rawSelector.split(',').map((part) => part.trim());
+  const normalizedParts = [];
+  for (const part of parts) {
+    if (!part) {
+      return {
+        valid: false,
+        reason: 'Selector groups cannot be empty',
+      };
+    }
+    const parsed = parseSimpleSelectorPart(part);
+    if (!parsed.valid) {
+      return parsed;
+    }
+    normalizedParts.push(parsed.selector);
+  }
+  return {
+    valid: true,
+    selector: normalizedParts.join(', '),
+  };
+}
+
 function selectorMatchesInContent(content, selector) {
   if (!content || !selector) {
     return null;
@@ -220,6 +326,7 @@ function selectorMatchesInContent(content, selector) {
 }
 
 function buildSearchResponse({
+  operation = SITE_SEARCH_OPERATION_SEARCH,
   searchTerm = '',
   searchFields = [],
   mode = 'text',
@@ -230,6 +337,7 @@ function buildSearchResponse({
   return {
     status: 200,
     data: {
+      operation,
       query: searchTerm,
       fields: searchFields,
       mode,
@@ -288,6 +396,7 @@ async function siteSearch(req, res) {
   ) {
     return res.sendStatus(403);
   }
+  const operation = normalizeOperationValue(requestBody.operation);
   const searchTerm = typeof requestBody.search === 'string'
     ? requestBody.search.trim()
     : '';
@@ -303,13 +412,49 @@ async function siteSearch(req, res) {
       message: `Search query is too long (max ${SITE_SEARCH_MAX_QUERY_LENGTH} characters)`,
     });
   }
+  if (operation === SITE_SEARCH_OPERATION_REPLACE && searchTerm.length <= 1) {
+    return res.status(400).send({
+      status: 400,
+      message: 'Search text must be more than 1 character for replacement operations',
+    });
+  }
 
-  const selectorMode = parseBooleanValue(requestBody.searchSelector) ||
-    (typeof requestBody.searchMode === 'string' && requestBody.searchMode.toLowerCase() === 'selector');
+  const selectorMode = operation !== SITE_SEARCH_OPERATION_REPLACE && (
+    parseBooleanValue(requestBody.searchSelector) ||
+    (typeof requestBody.searchMode === 'string' && requestBody.searchMode.toLowerCase() === 'selector')
+  );
   const searchLimit = parseLimitValue(requestBody.searchLimit, SITE_SEARCH_DEFAULT_LIMIT);
   const caseSensitive = parseBooleanValue(requestBody.searchCaseSensitive);
-  const searchFields = selectorMode ? ['content'] : normalizeSearchFields(requestBody.searchField);
-  const mode = selectorMode ? 'selector' : 'text';
+  const searchFields = operation === SITE_SEARCH_OPERATION_REPLACE
+    ? ['content']
+    : (selectorMode ? ['content'] : normalizeSearchFields(requestBody.searchField));
+  const mode = operation === SITE_SEARCH_OPERATION_REPLACE
+    ? 'replace'
+    : (selectorMode ? 'selector' : 'text');
+  let replacement = '';
+  if (operation === SITE_SEARCH_OPERATION_REPLACE) {
+    replacement = typeof requestBody.replace === 'string'
+      ? requestBody.replace.trim()
+      : '';
+    if (replacement.length === 1) {
+      return res.status(400).send({
+        status: 400,
+        message: 'Replacement text must be empty or more than 1 character',
+      });
+    }
+    if (!parseBooleanValue(requestBody.replaceConfirm)) {
+      return res.status(400).send({
+        status: 400,
+        message: 'Replacement requires confirmation',
+      });
+    }
+    if (replacement === '' && !parseBooleanValue(requestBody.replaceDestroyConfirm)) {
+      return res.status(400).send({
+        status: 400,
+        message: 'Removing matched text requires a second confirmation',
+      });
+    }
+  }
 
   let selectorData = null;
   if (selectorMode) {
@@ -324,6 +469,7 @@ async function siteSearch(req, res) {
 
   const site = await HAXCMS.loadSite(siteName);
   const defaultResponse = buildSearchResponse({
+    operation,
     searchTerm,
     searchFields,
     mode,
@@ -340,8 +486,90 @@ async function siteSearch(req, res) {
     return res.send(defaultResponse);
   }
 
-  const textMatcher = buildTextMatcher(searchTerm, caseSensitive);
   const orderedItems = site.manifest.orderTree(site.manifest.items);
+  if (operation === SITE_SEARCH_OPERATION_REPLACE) {
+    let totalMatches = 0;
+    let updatedItems = 0;
+    let totalReplacements = 0;
+    const changedItems = [];
+    for (const item of orderedItems) {
+      if (!item || !item.id) {
+        continue;
+      }
+      const page = site.loadNode(item.id);
+      if (!page) {
+        continue;
+      }
+      let content = await site.getPageContent(page);
+      if (typeof content !== 'string') {
+        content = '';
+      }
+      const replacementData = replaceTextMatches(
+        content,
+        searchTerm,
+        replacement,
+        caseSensitive,
+      );
+      if (replacementData.total < 1) {
+        continue;
+      }
+      totalMatches += replacementData.total;
+      const sanitizedContent = sanitizeHTMLForStorage(replacementData.content);
+      const writeResult = await page.writeLocation(sanitizedContent, site.siteDirectory);
+      if (!writeResult) {
+        continue;
+      }
+      updatedItems++;
+      totalReplacements += replacementData.total;
+      page.metadata = page.metadata && typeof page.metadata === 'object'
+        ? page.metadata
+        : {};
+      page.metadata.updated = Math.floor(Date.now() / 1000);
+      changedItems.push({
+        id: item.id,
+        title: item.title || '',
+        slug: item.slug || '',
+        replacements: replacementData.total,
+      });
+      try {
+        await site.writePageAlternateFormats(page, sanitizedContent);
+      }
+      catch (e) {}
+    }
+    if (totalMatches < 1) {
+      return res.status(400).send({
+        status: 400,
+        message: 'Search term not found in site content',
+      });
+    }
+    if (updatedItems < 1) {
+      return res.status(500).send({
+        status: 500,
+        message: 'No pages could be updated',
+      });
+    }
+    site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
+    await site.manifest.save();
+    await site.updateAlternateFormats();
+    const commitReplacement = replacement === '' ? '[removed]' : replacement;
+    await site.gitCommit(
+      `Bulk replace "${searchTerm}" -> "${commitReplacement}" across ${updatedItems} page${updatedItems === 1 ? '' : 's'}`,
+    );
+    return res.send({
+      status: 200,
+      data: {
+        operation: SITE_SEARCH_OPERATION_REPLACE,
+        query: searchTerm,
+        replace: replacement,
+        caseSensitive,
+        total: totalMatches,
+        updatedItems,
+        totalReplacements,
+        items: changedItems,
+      },
+    });
+  }
+  const textMatcher = buildTextMatcher(searchTerm, caseSensitive);
   const contentCache = {};
   const matches = [];
   for (const item of orderedItems) {
@@ -416,6 +644,7 @@ async function siteSearch(req, res) {
 
   return res.send(
     buildSearchResponse({
+      operation,
       searchTerm,
       searchFields,
       mode,

@@ -45,6 +45,36 @@ function normalizePathForResponse(value = '') {
   return String(value).split(path.sep).join('/');
 }
 
+function resolveSiteFilesRootPath(site) {
+  let siteRootPath = '';
+  try {
+    siteRootPath = fs.realpathSync(path.resolve(site.siteDirectory));
+  } catch (e) {
+    throw createStatusError('Unable to resolve site path', 500);
+  }
+  const filesRootCandidate = path.join(siteRootPath, 'files');
+  if (!fs.pathExistsSync(filesRootCandidate)) {
+    throw createStatusError('Files directory was not found', 404);
+  }
+  const filesRootStats = fs.lstatSync(filesRootCandidate);
+  if (filesRootStats.isSymbolicLink() || !filesRootStats.isDirectory()) {
+    throw createStatusError('Files directory was not found', 404);
+  }
+  let filesRootPath = '';
+  try {
+    filesRootPath = fs.realpathSync(filesRootCandidate);
+  } catch (e) {
+    throw createStatusError('Files directory was not found', 404);
+  }
+  if (!isPathInsideDirectory(siteRootPath, filesRootPath)) {
+    throw createStatusError('Files directory is outside of allowed site path', 403);
+  }
+  return {
+    siteRootPath,
+    filesRootPath,
+  };
+}
+
 function failed(res, status, message) {
   return res.status(status).send({
     __failed: {
@@ -66,6 +96,12 @@ function normalizeRequestedFilePath(inputPath = '') {
   normalizedPath = normalizedPath.replace(/^\/+/, '');
   normalizedPath = normalizedPath.replace(/^\.\/+/, '');
   return normalizedPath;
+}
+
+function createStatusError(message, status) {
+  const statusError = new Error(message);
+  statusError.status = status;
+  return statusError;
 }
 
 function isPathInsideDirectory(basePath, candidatePath) {
@@ -119,20 +155,20 @@ function resolveSiteFilePath(site, requestedPath) {
     normalizedPath.indexOf('\0') !== -1 ||
     normalizedPath.indexOf('..') !== -1
   ) {
-    throw new Error('Invalid file path');
+    throw createStatusError('Invalid file path', 400);
   }
   if (normalizedPath.indexOf('files/') !== 0) {
-    throw new Error('File path must start with files/');
+    throw createStatusError('File path must start with files/', 400);
   }
-  const filesRootPath = path.resolve(site.siteDirectory, 'files');
-  const resolvedPath = path.resolve(site.siteDirectory, normalizedPath);
-  if (!isPathInsideDirectory(filesRootPath, resolvedPath)) {
-    throw new Error('File path is outside of allowed files directory');
+  const siteRoots = resolveSiteFilesRootPath(site);
+  const resolvedPath = path.resolve(siteRoots.siteRootPath, normalizedPath);
+  if (!isPathInsideDirectory(siteRoots.filesRootPath, resolvedPath)) {
+    throw createStatusError('File path is outside of allowed files directory', 403);
   }
   return {
     normalizedPath,
     resolvedPath,
-    filesRootPath,
+    filesRootPath: siteRoots.filesRootPath,
   };
 }
 function sanitizeFileRenameBaseName(inputValue = '') {
@@ -232,14 +268,24 @@ function getRenamedFileInfo(fileInfo, requestedName) {
   };
 }
 
-function ensureExistingRegularFile(filePath) {
+function ensureExistingRegularFile(filePath, filesRootPath) {
   if (!fs.pathExistsSync(filePath)) {
-    throw new Error('Requested file was not found');
+    throw createStatusError('Requested file was not found', 404);
   }
   const stats = fs.lstatSync(filePath);
   if (stats.isSymbolicLink() || !stats.isFile()) {
-    throw new Error('Requested file path is not a valid file');
+    throw createStatusError('Requested file path is not a valid file', 404);
   }
+  let realFilePath = '';
+  try {
+    realFilePath = fs.realpathSync(filePath);
+  } catch (e) {
+    throw createStatusError('Requested file was not found', 404);
+  }
+  if (!isPathInsideDirectory(filesRootPath, realFilePath)) {
+    throw createStatusError('File path is outside of allowed files directory', 403);
+  }
+  return realFilePath;
 }
 
 function buildFilePublicUrl(site, relativeFilePath) {
@@ -325,10 +371,29 @@ function getSafeOutputBasename(relativePath) {
   return safeName;
 }
 
-function getImgOpsOutputPath(site, sourceRelativePath, width, height) {
-  const outputDirectory = path.resolve(site.siteDirectory, 'files', 'imgops');
-  const filesRootPath = path.resolve(site.siteDirectory, 'files');
-  fs.ensureDirSync(outputDirectory);
+function getImgOpsOutputPath(filesRootPath, sourceRelativePath, width, height) {
+  const outputDirectory = path.resolve(filesRootPath, 'imgops');
+  if (fs.pathExistsSync(outputDirectory)) {
+    const outputDirectoryStats = fs.lstatSync(outputDirectory);
+    if (outputDirectoryStats.isSymbolicLink() || !outputDirectoryStats.isDirectory()) {
+      throw createStatusError('Output path is not writable', 400);
+    }
+  } else {
+    try {
+      fs.ensureDirSync(outputDirectory);
+    } catch (e) {
+      throw createStatusError('Unable to prepare image operations directory', 500);
+    }
+  }
+  let resolvedOutputDirectory = '';
+  try {
+    resolvedOutputDirectory = fs.realpathSync(outputDirectory);
+  } catch (e) {
+    throw createStatusError('Unable to prepare image operations directory', 500);
+  }
+  if (!isPathInsideDirectory(filesRootPath, resolvedOutputDirectory)) {
+    throw createStatusError('Invalid output file path', 403);
+  }
   const outputFileName =
     getSafeOutputBasename(sourceRelativePath) +
     '-' +
@@ -336,14 +401,14 @@ function getImgOpsOutputPath(site, sourceRelativePath, width, height) {
     'x' +
     String(height) +
     '.jpg';
-  const resolvedOutputPath = path.resolve(outputDirectory, outputFileName);
+  const resolvedOutputPath = path.resolve(resolvedOutputDirectory, outputFileName);
   if (!isPathInsideDirectory(filesRootPath, resolvedOutputPath)) {
-    throw new Error('Invalid output file path');
+    throw createStatusError('Invalid output file path', 403);
   }
   if (fs.pathExistsSync(resolvedOutputPath)) {
     const outputStats = fs.lstatSync(resolvedOutputPath);
     if (outputStats.isSymbolicLink() || !outputStats.isFile()) {
-      throw new Error('Output path is not writable');
+      throw createStatusError('Output path is not writable', 400);
     }
   }
   return {
@@ -519,12 +584,23 @@ async function fileOperation(req, res) {
   try {
     fileInfo = resolveSiteFilePath(site, requestedPath);
   } catch (e) {
-    return failed(res, 400, e.message || 'Invalid file path');
+    return failed(
+      res,
+      e && e.status ? e.status : 400,
+      e && e.message ? e.message : 'Invalid file path',
+    );
   }
   try {
-    ensureExistingRegularFile(fileInfo.resolvedPath);
+    fileInfo.resolvedPath = ensureExistingRegularFile(
+      fileInfo.resolvedPath,
+      fileInfo.filesRootPath,
+    );
   } catch (e) {
-    return failed(res, 404, e.message || 'Requested file was not found');
+    return failed(
+      res,
+      e && e.status ? e.status : 404,
+      e && e.message ? e.message : 'Requested file was not found',
+    );
   }
   try {
     if (operation === 'delete') {
@@ -604,7 +680,7 @@ async function fileOperation(req, res) {
           ? sourceMetadata.height
           : IMAGE_SCALE_PRESETS.md.height;
       const convertOutput = getImgOpsOutputPath(
-        site,
+        fileInfo.filesRootPath,
         fileInfo.normalizedPath,
         targetWidth,
         targetHeight,
@@ -647,7 +723,7 @@ async function fileOperation(req, res) {
           ? sourceMetadata.height
           : IMAGE_SCALE_PRESETS.md.height;
       const transformOutput = getImgOpsOutputPath(
-        site,
+        fileInfo.filesRootPath,
         fileInfo.normalizedPath + '-' + operation,
         targetWidth,
         targetHeight,
@@ -681,7 +757,7 @@ async function fileOperation(req, res) {
     }
     const presetData = getScalePreset(req.body ? req.body.size : '');
     const scaleOutput = getImgOpsOutputPath(
-      site,
+      fileInfo.filesRootPath,
       fileInfo.normalizedPath,
       presetData.preset.width,
       presetData.preset.height,
