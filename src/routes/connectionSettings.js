@@ -12,6 +12,14 @@ const url = require('url');
  *        description="Generate the connection settings dynamically for implying we have a backend"
  *   )
  * )
+ * @OA\Post(
+ *    path="/connectionSettings",
+ *    tags={"cms"},
+ *    @OA\Response(
+ *        response="200",
+ *        description="Generate the connection settings dynamically for implying we have a backend"
+ *   )
+ * )
  */
 async function connectionSettings(req, res) {
   res.setHeader('Content-Type', 'application/javascript');
@@ -63,6 +71,9 @@ async function connectionSettings(req, res) {
     getFormToken: HAXCMS.getRequestToken('form'),
     createNodePath: `${baseAPIPath}createNode?site_token=${siteToken}`,
     deleteNodePath: `${baseAPIPath}deleteNode?site_token=${siteToken}`,
+    getNodeRevisionsPath: `${baseAPIPath}getNodeRevisions?site_token=${siteToken}`,
+    getNodeRevisionPath: `${baseAPIPath}getNodeRevision?site_token=${siteToken}`,
+    restoreNodeRevisionPath: `${baseAPIPath}restoreNodeRevision?site_token=${siteToken}`,
     listFilesPath: `${baseAPIPath}listFiles?site_token=${siteToken}`,
     saveFilePath: `${baseAPIPath}saveFile?site_token=${siteToken}`,
     fileOperationPath: `${baseAPIPath}fileOperation?site_token=${siteToken}`,

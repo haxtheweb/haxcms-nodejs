@@ -64,6 +64,7 @@
     "node-html-parser": "7.1.0",
     "open": "8.4.2",
     "sharp": "0.32.6",
+    "text-readability": "1.1.1",
     "turndown": "7.1.1",
     "twig": "^3.0.0",
     "utf8": "3.0.0",

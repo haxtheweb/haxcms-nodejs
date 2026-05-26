@@ -576,6 +576,198 @@
         }
       }
     },
+    "/getNodeRevisions": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "node",
+          "git"
+        ],
+        "operationId": "Operations::getNodeRevisions",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "node"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "node": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "description": "Optional max revisions to return (default 25)"
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "description": "Optional zero-based offset into revision history (default 0)"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List git revisions for a single node file"
+          }
+        }
+      }
+    },
+    "/getNodeRevision": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "node",
+          "git"
+        ],
+        "operationId": "Operations::getNodeRevision",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "node",
+                  "hash"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "node": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "hash": {
+                    "type": "string",
+                    "description": "Commit hash for the requested page revision"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Load the HTML content snapshot for a specific node revision hash"
+          }
+        }
+      }
+    },
+    "/restoreNodeRevision": {
+      "post": {
+        "tags": [
+          "cms",
+          "authenticated",
+          "node",
+          "git"
+        ],
+        "operationId": "Operations::restoreNodeRevision",
+        "parameters": [
+          {
+            "name": "site_token",
+            "in": "query",
+            "description": "Site-specific validation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "required": [
+                  "site",
+                  "node",
+                  "hash"
+                ],
+                "properties": {
+                  "site": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "node": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "hash": {
+                    "type": "string",
+                    "description": "Commit hash to restore content from"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Restore a node revision by writing historical content as a new commit"
+          }
+        }
+      }
+    },
     "/deleteNode": {
       "post": {
         "tags": [
@@ -639,6 +831,17 @@
     },
     "/connectionSettings": {
       "get": {
+        "tags": [
+          "cms"
+        ],
+        "operationId": "Operations::connectionSettings",
+        "responses": {
+          "200": {
+            "description": "Generate the connection settings dynamically for implying we have a PHP backend"
+          }
+        }
+      },
+      "post": {
         "tags": [
           "cms"
         ],
