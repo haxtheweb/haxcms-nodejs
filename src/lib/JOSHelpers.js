@@ -234,7 +234,77 @@ function typeFromElement(el) {
   }
 }
 
-function mediaStatus(item) {
+function tracksValueHasSource(tracksValue) {
+  if (typeof tracksValue !== 'string') {
+    return false;
+  }
+  const normalized = tracksValue.trim();
+  if (normalized === '') {
+    return false;
+  }
+  const lower = normalized.toLowerCase();
+  if (lower === 'null') {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(normalized);
+    if (Array.isArray(parsed)) {
+      for (let i = 0; i < parsed.length; i++) {
+        const track = parsed[i];
+        if (typeof track === 'string' && track.trim() !== '') {
+          return true;
+        }
+        if (
+          track &&
+          typeof track === 'object' &&
+          typeof track.src === 'string' &&
+          track.src.trim() !== ''
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof parsed.src === 'string' &&
+      parsed.src.trim() !== ''
+    ) {
+      return true;
+    }
+    return false;
+  }
+  catch (e) {
+    if (normalized !== '[]' && normalized !== '{}') {
+      return true;
+    }
+    return false;
+  }
+}
+
+function hasVideoPlayerTranscript(el) {
+  if (!el || !el.tagName || el.tagName.toLowerCase() !== 'video-player') {
+    return true;
+  }
+  const trackValue = String(el.getAttribute('track') || '').trim();
+  if (trackValue !== '' && trackValue.toLowerCase() !== 'null') {
+    return true;
+  }
+  if (tracksValueHasSource(String(el.getAttribute('tracks') || ''))) {
+    return true;
+  }
+  const trackNodes = el.querySelectorAll('track');
+  if (trackNodes && trackNodes.length > 0) {
+    return true;
+  }
+  return false;
+}
+
+function mediaStatus(item, el = null) {
+  if (item.type === 'video' && !hasVideoPlayerTranscript(el)) {
+    return 'warning';
+  }
   switch (item.type) {
     case 'audio':
     case 'video':
@@ -717,7 +787,7 @@ async function courseStatsFromOutline(
             type: typeFromElement(el),
             itemId: getElementPageItemId(el),
           };
-          tmp.status = mediaStatus(tmp);
+          tmp.status = mediaStatus(tmp, el);
           data.mediaData.push(tmp);
         }
         break;
