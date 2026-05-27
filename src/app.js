@@ -55,7 +55,7 @@ if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT
   helmetPolicies.crossOriginOpenerPolicy = 'same-origin';
 }
 // routes with all requires
-const { RoutesMap, OpenRoutes } = require('./lib/RoutesMap.js');
+const { RoutesMap, OpenRoutes, SystemAdminRoutes } = require('./lib/RoutesMap.js');
 // app settings
 const multer = require('multer');
 const { crossOriginOpenerPolicy } = require('helmet');
@@ -391,6 +391,12 @@ systemStructureContext().then((site) => {
       app[method](`${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, extra ,(req, res, next) => {
         const op = req.route.path.replace(`${HAXCMS.basePath}${HAXCMS.systemRequestBase}`, '');
         const rMethod = req.method.toLowerCase();
+        if (!validateSystemAdminRouteAccess(req, op)) {
+          return res.status(403).json({
+            status: 403,
+            message: 'system admin route requires system dashboard access',
+          });
+        }
         if (OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
           // call the method
           RoutesMap[rMethod][op](req, res, next);
@@ -402,6 +408,12 @@ systemStructureContext().then((site) => {
       app[method](`/${HAXCMS.sitesDirectory}/*${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, extra ,(req, res, next) => {
         const op = req.route.path.replace(`/${HAXCMS.sitesDirectory}/*${HAXCMS.basePath}${HAXCMS.systemRequestBase}`, '');
         const rMethod = req.method.toLowerCase();
+        if (!validateSystemAdminRouteAccess(req, op)) {
+          return res.status(403).json({
+            status: 403,
+            message: 'system admin route requires system dashboard access',
+          });
+        }
         if (OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
           // call the method
           RoutesMap[rMethod][op](req, res, next);
@@ -468,6 +480,32 @@ function handleServerError(e) {
 }
 
 server.on("error", handleServerError);
+function isSiteScopedSystemApiRoutePattern(req) {
+  if (!req || !req.route || typeof req.route.path !== 'string') {
+    return false;
+  }
+  return req.route.path.indexOf(`/${HAXCMS.sitesDirectory}/`) === 0;
+}
+function isDashboardRefererRequest(req) {
+  if (!req || !req.headers || typeof req.headers.referer !== 'string') {
+    return false;
+  }
+  return req.headers.referer.indexOf(`/${HAXCMS.sitesDirectory}/`) === -1;
+}
+
+
+function validateSystemAdminRouteAccess(req, op = '') {
+  if (SystemAdminRoutes.indexOf(op) === -1) {
+    return true;
+  }
+  if (
+    isSiteScopedSystemApiRoutePattern(req) &&
+    !isDashboardRefererRequest(req)
+  ) {
+    return false;
+  }
+  return true;
+}
 function getRequestPathWithoutQuery(url = '') {
   return String(url || '').split('?')[0];
 }

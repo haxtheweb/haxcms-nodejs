@@ -1,0 +1,202 @@
+const { HAXCMS } = require('../lib/HAXCMS.js');
+const { courseStatsFromOutline, siteHTMLContent } = require('../lib/JOSHelpers.js');
+
+let rs = null;
+try {
+  rs = require('text-readability');
+}
+catch (e) {
+  rs = {
+    daleChallReadabilityScore: () => 0,
+    difficultWords: () => 0,
+    syllableCount: () => 0,
+    lexiconCount: () => 0,
+    sentenceCount: () => 0,
+  };
+}
+
+function getGradeLevel(text) {
+  const score = rs.daleChallReadabilityScore(text);
+  if (score <= 4.9) {
+    return '4th grade or lower';
+  }
+  else if (score > 4.9 && score <= 5.9) {
+    return '5th / 6th grade';
+  }
+  else if (score > 5.9 && score <= 6.9) {
+    return '7th / 8th grade';
+  }
+  else if (score > 6.9 && score <= 7.9) {
+    return '9th / 10th grade';
+  }
+  else if (score > 7.9 && score <= 8.9) {
+    return '11th / 12th grade';
+  }
+  return 'college level reading';
+}
+
+function normalizeSiteLocation(body = {}) {
+  let siteLocation = '';
+  if (body && typeof body.link === 'string' && body.link !== '') {
+    siteLocation = body.link;
+  }
+  else if (
+    body &&
+    body.site &&
+    typeof body.site === 'object' &&
+    typeof body.site.file === 'string'
+  ) {
+    siteLocation = body.site.file;
+  }
+  if (siteLocation.indexOf('/site.json') !== -1) {
+    siteLocation = siteLocation.replace('/site.json', '');
+  }
+  if (siteLocation.endsWith('/')) {
+    siteLocation = siteLocation.slice(0, -1);
+  }
+  return siteLocation;
+}
+
+function normalizeActiveId(body = {}) {
+  let itemId = null;
+  if (typeof body.activeId !== 'undefined' && body.activeId !== null) {
+    itemId = body.activeId;
+  }
+  if (itemId === 'null') {
+    itemId = null;
+  }
+  return itemId;
+}
+
+function toISOFromUnixTime(value) {
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) {
+    return new Date(0).toISOString();
+  }
+  return new Date(parsed * 1000).toISOString();
+}
+
+function normalizeManifestItems(manifest) {
+  if (!manifest || !manifest.items) {
+    return [];
+  }
+  if (Array.isArray(manifest.items)) {
+    return [...manifest.items];
+  }
+  const items = [];
+  for (const key in manifest.items) {
+    if (manifest.items[key]) {
+      items.push(manifest.items[key]);
+    }
+  }
+  return items;
+}
+
+function safeReadabilityMetric(method, text) {
+  try {
+    return method(text);
+  }
+  catch (e) {
+    return 0;
+  }
+}
+
+/**
+ * @OA\Post(
+ *    path="/insights",
+ *    tags={"cms","authenticated","reports"},
+ *    @OA\Response(
+ *        response="200",
+ *        description="Load site insights report data"
+ *   )
+ * )
+ */
+async function insights(req, res) {
+  const body = req && req.body && typeof req.body === 'object' ? req.body : {};
+  if (
+    req.query['site_token'] &&
+    body.site &&
+    body.site.name &&
+    HAXCMS.validateRequestToken(
+      req.query['site_token'],
+      HAXCMS.getActiveUserName() + ':' + body.site.name
+    )
+  ) {
+    const site = await HAXCMS.loadSite(body.site.name);
+    if (!site || !site.manifest) {
+      return res.send({
+        status: 200,
+        data: {},
+      });
+    }
+    const siteLocation = normalizeSiteLocation(body);
+    const itemId = normalizeActiveId(body);
+    const data = await courseStatsFromOutline(siteLocation, site, itemId);
+    const text = await siteHTMLContent(site, null, itemId, true, true);
+    const readabilityText = typeof text === 'string' ? text : '';
+    data.readability = {
+      gradeLevel: getGradeLevel(readabilityText),
+      difficultWords: safeReadabilityMetric(rs.difficultWords, readabilityText),
+      syllableCount: safeReadabilityMetric(rs.syllableCount, readabilityText),
+      lexiconCount: safeReadabilityMetric(rs.lexiconCount, readabilityText),
+      sentenceCount: safeReadabilityMetric(rs.sentenceCount, readabilityText),
+    };
+    const fullManifest = site.manifest;
+    let items = normalizeManifestItems(fullManifest);
+    if (itemId === null || itemId === 'null') {
+      data.updated = toISOFromUnixTime(
+        fullManifest.metadata &&
+          fullManifest.metadata.site &&
+          fullManifest.metadata.site.updated
+          ? fullManifest.metadata.site.updated
+          : 0
+      );
+      data.created = toISOFromUnixTime(
+        fullManifest.metadata &&
+          fullManifest.metadata.site &&
+          fullManifest.metadata.site.created
+          ? fullManifest.metadata.site.created
+          : 0
+      );
+      data.title = fullManifest.title;
+    }
+    else {
+      const activeItem = fullManifest.getItemById(itemId);
+      if (activeItem && activeItem.metadata) {
+        data.updated = toISOFromUnixTime(activeItem.metadata.updated);
+        data.created = toISOFromUnixTime(activeItem.metadata.created);
+        data.title = activeItem.title;
+      }
+      if (typeof fullManifest.findBranch === 'function') {
+        items = fullManifest.findBranch(itemId);
+      }
+    }
+    if (items && items.length > 0) {
+      items.sort(function (a, b) {
+        const bUpdated = parseInt(
+          b && b.metadata && b.metadata.updated ? b.metadata.updated : 0,
+          10
+        );
+        const aUpdated = parseInt(
+          a && a.metadata && a.metadata.updated ? a.metadata.updated : 0,
+          10
+        );
+        return bUpdated - aUpdated;
+      });
+      items.map((item) => {
+        if (item && item.metadata && item.metadata.updated) {
+          item.metadata.updated = toISOFromUnixTime(item.metadata.updated);
+        }
+        return item;
+      });
+      data.updatedItems = items.slice(0, 6);
+    }
+    return res.send({
+      status: 200,
+      data: data,
+    });
+  }
+  return res.sendStatus(403);
+}
+
+module.exports = insights;

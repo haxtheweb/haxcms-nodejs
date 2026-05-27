@@ -24,11 +24,19 @@ const url = require('url');
 async function connectionSettings(req, res) {
   res.setHeader('Content-Type', 'application/javascript');
   const themes = JSON.parse(await fs.readFileSync(path.join(HAXCMS.coreConfigPath, "themes.json"), 'utf8'));
-  // this is the correct base if we're being called for connection from inside a site
-  let baseAPIPath = HAXCMS.basePath + HAXCMS.systemRequestBase;
-  // top level haxcms listing can't include basePath as it's the root already
-  if (req.headers && req.headers.referer && !req.headers.referer.includes('/sites/')) {
-    baseAPIPath = HAXCMS.systemRequestBase;
+  const isDashboardRequest = (
+    HAXCMS &&
+    HAXCMS.operatingContext !== 'single' &&
+    req.headers &&
+    req.headers.referer &&
+    !req.headers.referer.includes(`/${HAXCMS.sitesDirectory}/`)
+  );
+  // default to relative API paths so calls in site context resolve correctly
+  // and mirror PHP behavior for appStore-generated endpoint paths.
+  let baseAPIPath = HAXCMS.systemRequestBase;
+  // in non-root installs, preserve basePath for site-context API routing.
+  if (!isDashboardRequest && HAXCMS.basePath && HAXCMS.basePath !== '/') {
+    baseAPIPath = `${HAXCMS.basePath}${HAXCMS.systemRequestBase}`;
   }
   var sitename = '';
   // express gives this up on requests but doesn't know it ahead of time
@@ -46,7 +54,7 @@ async function connectionSettings(req, res) {
   const siteToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName() + ':' + sitename);
   // user token is just the name of the logged in user
   const userToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName());
-  const returnData = JSON.stringify({
+  const returnDataObj = {
     token: HAXCMS.getRequestToken(),
     login: `${baseAPIPath}login`,
     refreshUrl: `${baseAPIPath}refreshAccessToken`,
@@ -67,6 +75,10 @@ async function connectionSettings(req, res) {
     getSiteFieldsPath: `${baseAPIPath}formLoad?haxcms_form_id=siteSettings`,
     contentSearchPath: `${baseAPIPath}siteSearch?site_token=${siteToken}`,
     searchContentPath: `${baseAPIPath}siteSearch?site_token=${siteToken}`,
+    insightsPath: `${baseAPIPath}insights?site_token=${siteToken}`,
+    linkCheckerPath: `${baseAPIPath}linkChecker?site_token=${siteToken}`,
+    contentBrowserPath: `${baseAPIPath}contentBrowser?site_token=${siteToken}`,
+    mediaBrowserPath: `${baseAPIPath}mediaBrowser?site_token=${siteToken}`,
     // form token to validate form submissions as unique to the session
     getFormToken: HAXCMS.getRequestToken('form'),
     createNodePath: `${baseAPIPath}createNode?site_token=${siteToken}`,
@@ -77,16 +89,6 @@ async function connectionSettings(req, res) {
     listFilesPath: `${baseAPIPath}listFiles?site_token=${siteToken}`,
     saveFilePath: `${baseAPIPath}saveFile?site_token=${siteToken}`,
     fileOperationPath: `${baseAPIPath}fileOperation?site_token=${siteToken}`,
-
-    getUserDataPath: `${baseAPIPath}getUserData?user_token=${userToken}`,
-    createSite: `${baseAPIPath}createSite?user_token=${userToken}`,
-    downloadSite: `${baseAPIPath}downloadSite?user_token=${userToken}`,
-    downloadSiteSkeleton: `${baseAPIPath}downloadSiteSkeleton?user_token=${userToken}`,
-    saveSiteAsTemplate: `${baseAPIPath}saveSiteAsTemplate?user_token=${userToken}`,
-    archiveSite: `${baseAPIPath}archiveSite?user_token=${userToken}`,
-    copySite: `${baseAPIPath}cloneSite?user_token=${userToken}`,
-    getSitesList: `${baseAPIPath}listSites?user_token=${userToken}`,
-    skeletonsList: `${baseAPIPath}skeletonsList?user_token=${userToken}`,
     appStore: {
       url: `${baseAPIPath}generateAppStore`,
       params: {
@@ -96,7 +98,22 @@ async function connectionSettings(req, res) {
       }
     },
     themes: themes,
-  });
+  };
+  returnDataObj.getUserDataPath = `${baseAPIPath}getUserData?user_token=${userToken}`;
+  returnDataObj.createSite = `${baseAPIPath}createSite?user_token=${userToken}`;
+  returnDataObj.downloadSite = `${baseAPIPath}downloadSite?user_token=${userToken}`;
+  returnDataObj.downloadSiteSkeleton = `${baseAPIPath}downloadSiteSkeleton?user_token=${userToken}`;
+  returnDataObj.saveSiteAsTemplate = `${baseAPIPath}saveSiteAsTemplate?user_token=${userToken}`;
+  returnDataObj.archiveSite = `${baseAPIPath}archiveSite?user_token=${userToken}`;
+  returnDataObj.copySite = `${baseAPIPath}cloneSite?user_token=${userToken}`;
+  returnDataObj.getSitesList = `${baseAPIPath}listSites?user_token=${userToken}`;
+  returnDataObj.skeletonsList = `${baseAPIPath}skeletonsList?user_token=${userToken}`;
+  if (HAXCMS.getDeploymentProfile() !== 'haxiam-managed') {
+    returnDataObj.systemStatus = `${baseAPIPath}systemStatus?user_token=${userToken}`;
+    returnDataObj.getApiKeys = `${baseAPIPath}getApiKeys?user_token=${userToken}`;
+    returnDataObj.saveApiKeys = `${baseAPIPath}saveApiKeys?user_token=${userToken}`;
+  }
+  const returnData = JSON.stringify(returnDataObj);
   let after='';
   if (HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
     after = `window.appSettings.jwt = "${HAXCMS.getJWT(HAXCMS.superUser.name)}"`;

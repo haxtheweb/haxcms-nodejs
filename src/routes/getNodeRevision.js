@@ -34,6 +34,60 @@ function sanitizePageLocation(siteDirectory, location) {
   };
 }
 
+function parseRevisionJSONPayload(rawPayload) {
+  if (!rawPayload || typeof rawPayload !== 'string') {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(rawPayload);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+function getItemMetadataFromPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null;
+  }
+  const itemMetadata = {};
+  if (Object.prototype.hasOwnProperty.call(payload, 'id')) {
+    itemMetadata.id = payload.id;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'title')) {
+    itemMetadata.title = payload.title;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'description')) {
+    itemMetadata.description = payload.description;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'slug')) {
+    itemMetadata.slug = payload.slug;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'parent')) {
+    itemMetadata.parent = payload.parent;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'order')) {
+    itemMetadata.order = payload.order;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'indent')) {
+    itemMetadata.indent = payload.indent;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'metadata') &&
+    payload.metadata &&
+    typeof payload.metadata === 'object' &&
+    !Array.isArray(payload.metadata)
+  ) {
+    itemMetadata.metadata = payload.metadata;
+  } else {
+    itemMetadata.metadata = {};
+  }
+  return itemMetadata;
+}
+
 async function gitOutput(siteDirectory, args, trim = true) {
   const result = await execFile('git', ['--no-pager'].concat(args), {
     cwd: siteDirectory,
@@ -130,6 +184,22 @@ async function getNodeRevision(req, res) {
       ['show', hash + ':' + fileData.location],
       false,
     );
+    const jsonVariantLocation = site.getPageAlternateLocation(
+      page.location,
+      'json',
+    );
+    let itemMetadata = null;
+    if (jsonVariantLocation) {
+      try {
+        const itemMetadataRaw = await gitOutput(
+          site.siteDirectory,
+          ['show', hash + ':' + jsonVariantLocation],
+          false,
+        );
+        const parsedPayload = parseRevisionJSONPayload(itemMetadataRaw);
+        itemMetadata = getItemMetadataFromPayload(parsedPayload);
+      } catch (e) {}
+    }
     return res.send({
       status: 200,
       data: {
@@ -137,6 +207,9 @@ async function getNodeRevision(req, res) {
         nodeTitle: page.title || '',
         revision: revisionMetadata,
         content: fileContent,
+        jsonVariantLocation: jsonVariantLocation || '',
+        hasItemMetadata: !!itemMetadata,
+        itemMetadata: itemMetadata,
       },
     });
   } catch (e) {

@@ -32,13 +32,21 @@ const RoutesMap = {
     restoreNodeRevision: require('../routes/restoreNodeRevision.js'),
     deleteNode: require('../routes/deleteNode.js'),
     siteSearch: require('../routes/siteSearch.js'),
+    insights: require('../routes/insights.js'),
+    linkChecker: require('../routes/linkChecker.js'),
+    contentBrowser: require('../routes/contentBrowser.js'),
+    mediaBrowser: require('../routes/mediaBrowser.js'),
     listFiles: require('../routes/listFiles.js'),
     saveFile: require('../routes/saveFile.js'),
     fileOperation: require('../routes/fileOperation.js'),
-    // allow AppHax API (which defaults to POST) to call refreshAccessToken
-    // and skeletonsList, while still supporting GET for other clients
+    // allow AppHax API (which defaults to POST) to call connectionSettings,
+    // refreshAccessToken, and skeletonsList while still supporting GET
+    // for other clients; systemStatus is intentionally POST-only
     connectionSettings: require('../routes/connectionSettings.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
+    systemStatus: require('../routes/systemStatus.js'),
+    getApiKeys: require('../routes/getApiKeys.js'),
+    saveApiKeys: require('../routes/saveApiKeys.js'),
     skeletonsList: require('../routes/skeletonsList.js'),
     getSkeleton: require('../routes/getSkeleton.js'),
     // meta endpoints mirroring PHP Operations::options and ::api
@@ -72,5 +80,21 @@ const OpenRoutes = [
   'openapi/json',
   'refreshAccessToken'
 ];
+// haxcms system-admin routes should only be available from system dashboard context
+// future system-admin endpoints should be added here
+const SystemAdminRoutes = [
+  'listSites',
+  'createSite',
+  'cloneSite',
+  'archiveSite',
+  'downloadSite',
+  'downloadSiteSkeleton',
+  'saveSiteAsTemplate',
+  'systemStatus',
+  'getApiKeys',
+  'saveApiKeys',
+  'skeletonsList',
+  'getSkeleton',
+];
 
-module.exports = {RoutesMap, OpenRoutes};
+module.exports = {RoutesMap, OpenRoutes, SystemAdminRoutes};

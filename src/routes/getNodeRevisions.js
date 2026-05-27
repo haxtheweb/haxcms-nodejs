@@ -160,12 +160,17 @@ async function getNodeRevisions(req, res) {
         total = 0;
       }
     } catch (e) {}
+    const jsonVariantLocation = site.getPageAlternateLocation(
+      page.location,
+      'json',
+    );
 
     return res.send({
       status: 200,
       data: {
         nodeId: page.id,
         nodeTitle: page.title || '',
+        jsonVariantLocation: jsonVariantLocation || '',
         limit: limit,
         offset: offset,
         total: total,
