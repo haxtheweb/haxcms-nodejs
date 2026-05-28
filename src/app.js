@@ -60,6 +60,20 @@ const { RoutesMap, OpenRoutes, SystemAdminRoutes } = require('./lib/RoutesMap.js
 const multer = require('multer');
 const { crossOriginOpenerPolicy } = require('helmet');
 const upload = multer({ dest: path.join(HAXCMS.configDirectory, 'tmp/') })
+const jsonRequestParser = express.json({
+  type: '*/*',
+  limit: '50mb'
+});
+const uploadAnyParser = upload.any();
+function parseSchemaFileOperationBody(req, res, next) {
+  const contentType = req && req.headers && typeof req.headers['content-type'] === 'string'
+    ? req.headers['content-type'].toLowerCase()
+    : '';
+  if (contentType.indexOf('multipart/form-data') === 0) {
+    return uploadAnyParser(req, res, next);
+  }
+  return jsonRequestParser(req, res, next);
+}
 let publicDir = path.join(__dirname, '/public');
 // if in development, live reload
 if (process.env.NODE_ENV === "development") {
@@ -381,15 +395,12 @@ systemStructureContext().then((site) => {
   // loop through methods and apply the route to the file to deliver it
   for (var method in RoutesMap) {
     for (var route in RoutesMap[method]) {
-      let extra = express.json({
-        type: "*/*",
-        limit: '50mb'
-      });
+      let extra = jsonRequestParser;
       if (route === "saveFile") {
-        extra = upload.any();
+        extra = uploadAnyParser;
       }
       else if (route === "schemaFileOperation") {
-        extra = upload.any();
+        extra = parseSchemaFileOperationBody;
       }
       app[method](`${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, extra ,(req, res, next) => {
         const op = req.route.path.replace(`${HAXCMS.basePath}${HAXCMS.systemRequestBase}`, '');
