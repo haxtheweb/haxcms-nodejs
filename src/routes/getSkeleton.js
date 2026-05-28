@@ -2,6 +2,106 @@ const fs = require('fs-extra');
 const path = require('path');
 const { HAXCMS } = require('../lib/HAXCMS.js');
 
+function normalizeSkeletonLookupName(value = '') {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const safeValue = path.basename(value).replace(/\.json$/i, '').trim();
+  if (safeValue === '') {
+    return '';
+  }
+  const normalized = HAXCMS.generateMachineName(safeValue);
+  if (
+    !normalized ||
+    (normalized === 'default' && safeValue.toLowerCase() !== 'default')
+  ) {
+    return '';
+  }
+  return normalized;
+}
+
+async function resolveSkeletonByName(skeletonName = '') {
+  const normalizedTarget = normalizeSkeletonLookupName(skeletonName);
+  if (!normalizedTarget) {
+    return null;
+  }
+  // directories to search for skeleton files
+  // precedence: user > config (deployment) > core
+  const dirs = [
+    path.join(HAXCMS.configDirectory, 'user', 'skeletons'),
+    path.join(HAXCMS.configDirectory, 'skeletons'),
+    path.join(HAXCMS.coreConfigPath, 'skeletons'),
+  ];
+  for (let i = 0; i < dirs.length; i++) {
+    const dir = dirs[i];
+    if (!(await fs.pathExists(dir))) {
+      continue;
+    }
+    let files = [];
+    try {
+      files = await fs.readdir(dir);
+    }
+    catch (e) {
+      continue;
+    }
+    for (let j = 0; j < files.length; j++) {
+      const file = files[j];
+      if (file === '.' || file === '..') {
+        continue;
+      }
+      const filePath = path.join(dir, file);
+      let stats = null;
+      try {
+        stats = await fs.stat(filePath);
+      }
+      catch (e) {
+        continue;
+      }
+      if (
+        !stats ||
+        !stats.isFile() ||
+        path.extname(file).toLowerCase() !== '.json'
+      ) {
+        continue;
+      }
+      let skeleton = null;
+      try {
+        const json = await fs.readFile(filePath, 'utf8');
+        skeleton = JSON.parse(json);
+      }
+      catch (e) {
+        continue;
+      }
+      if (!skeleton || typeof skeleton !== 'object' || Array.isArray(skeleton)) {
+        continue;
+      }
+      const normalizedFileName = normalizeSkeletonLookupName(
+        path.basename(file, '.json'),
+      );
+      const meta = (
+        skeleton.meta &&
+        typeof skeleton.meta === 'object' &&
+        !Array.isArray(skeleton.meta)
+      ) ? skeleton.meta : {};
+      const normalizedMetaMachineName = normalizeSkeletonLookupName(
+        typeof meta.machineName === 'string' ? meta.machineName : '',
+      );
+      const normalizedMetaName = normalizeSkeletonLookupName(
+        typeof meta.name === 'string' ? meta.name : '',
+      );
+      if (
+        normalizedTarget === normalizedFileName ||
+        (normalizedMetaMachineName &&
+          normalizedTarget === normalizedMetaMachineName) ||
+        (normalizedMetaName && normalizedTarget === normalizedMetaName)
+      ) {
+        return skeleton;
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Get a specific skeleton file by name.
  * Returns the skeleton JSON data.
@@ -39,39 +139,12 @@ async function getSkeleton(req, res) {
       message: 'skeleton name is required',
     });
   }
-
-  // Sanitize the skeleton name to prevent directory traversal
-  const safeName = path.basename(skeletonName);
-  const fileName = safeName.endsWith('.json') ? safeName : `${safeName}.json`;
-
-  // directories to search for skeleton files
-  // precedence: user > config (deployment) > core
-  const dirs = [
-    path.join(HAXCMS.configDirectory, 'user', 'skeletons'),
-    path.join(HAXCMS.configDirectory, 'skeletons'),
-    path.join(HAXCMS.coreConfigPath, 'skeletons'),
-  ];
-
-  // Search for the skeleton file
-  for (const dir of dirs) {
-    const filePath = path.join(dir, fileName);
-
-    if (await fs.pathExists(filePath)) {
-      try {
-        const json = await fs.readFile(filePath, 'utf8');
-        const skeleton = JSON.parse(json);
-
-        return res.json({
-          status: 200,
-          data: skeleton,
-        });
-      } catch (parseError) {
-        return res.status(500).json({
-          status: 500,
-          message: `Failed to parse skeleton file: ${parseError.message}`,
-        });
-      }
-    }
+  const skeleton = await resolveSkeletonByName(skeletonName);
+  if (skeleton) {
+    return res.json({
+      status: 200,
+      data: skeleton,
+    });
   }
 
   return res.status(404).json({

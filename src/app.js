@@ -388,6 +388,9 @@ systemStructureContext().then((site) => {
       if (route === "saveFile") {
         extra = upload.any();
       }
+      else if (route === "schemaFileOperation") {
+        extra = upload.any();
+      }
       app[method](`${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, extra ,(req, res, next) => {
         const op = req.route.path.replace(`${HAXCMS.basePath}${HAXCMS.systemRequestBase}`, '');
         const rMethod = req.method.toLowerCase();

@@ -48,6 +48,8 @@ else {
             fs.mkdirSync(path.join(homeConfig, 'user/skeletons'));
             // deployment-level skeleton overrides live here (mirrors PHP _config/skeletons)
             fs.mkdirSync(path.join(homeConfig, 'skeletons'));
+            // settings directory for system-level feature flags (enabled blocks/themes/skeletons)
+            fs.mkdirSync(path.join(homeConfig, 'settings'));
             fs.mkdirSync(path.join(homeConfig, 'node_modules'));
     
             fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/config.json'), path.join(homeConfig, 'config.json'));
@@ -69,5 +71,9 @@ else {
 // ensure tmp is there
 if (!fs.pathExistsSync(path.join(discoverConfigPath, 'tmp/'))) {
     fs.mkdirSync(path.join(discoverConfigPath, 'tmp/'));
+}
+// ensure settings exists for new and legacy config directories
+if (!fs.pathExistsSync(path.join(discoverConfigPath, 'settings/'))) {
+    fs.mkdirSync(path.join(discoverConfigPath, 'settings/'));
 }
 module.exports = { discoverConfigPath };

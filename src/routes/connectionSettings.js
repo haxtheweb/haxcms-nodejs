@@ -1,7 +1,43 @@
-const fs = require('fs-extra');
-const path = require('path');
 const { HAXCMS } = require('../lib/HAXCMS.js');
+const {
+  discoverThemes,
+  readEnabledThemeMap,
+  writeEnabledThemeMap,
+  applyDetectedThemeDefaults,
+  isThemeEnabled,
+  themesToMap,
+} = require('../lib/themeSettings.js');
 const url = require('url');
+
+async function loadThemeMapFromSettings() {
+  const discovered = await discoverThemes(HAXCMS);
+  const detectedNames = discovered.map((item) => item.machineName);
+  let enabledThemes = await readEnabledThemeMap(HAXCMS);
+  const withDefaults = applyDetectedThemeDefaults(
+    HAXCMS,
+    enabledThemes,
+    detectedNames,
+  );
+  enabledThemes = withDefaults.enabledThemes;
+  if (withDefaults.changed) {
+    await writeEnabledThemeMap(HAXCMS, enabledThemes);
+  }
+  const themes = [];
+  for (let i = 0; i < discovered.length; i++) {
+    const item = discovered[i];
+    const enabled = isThemeEnabled(
+      HAXCMS,
+      item.machineName,
+      enabledThemes,
+    );
+    themes.push({
+      ...item,
+      enabled,
+      hidden: item.hidden === true || !enabled,
+    });
+  }
+  return themesToMap(themes);
+}
 
 /**
  * @OA\Get(
@@ -23,7 +59,21 @@ const url = require('url');
  */
 async function connectionSettings(req, res) {
   res.setHeader('Content-Type', 'application/javascript');
-  const themes = JSON.parse(await fs.readFileSync(path.join(HAXCMS.coreConfigPath, "themes.json"), 'utf8'));
+  let themes = {};
+  try {
+    themes = await loadThemeMapFromSettings();
+  }
+  catch (e) {
+    const fallbackThemes = (
+      HAXCMS &&
+      typeof HAXCMS.getThemes === 'function'
+    ) ? HAXCMS.getThemes() : {};
+    themes = (
+      fallbackThemes &&
+      typeof fallbackThemes === 'object' &&
+      !Array.isArray(fallbackThemes)
+    ) ? fallbackThemes : {};
+  }
   const isDashboardRequest = (
     HAXCMS &&
     HAXCMS.operatingContext !== 'single' &&
@@ -108,10 +158,16 @@ async function connectionSettings(req, res) {
   returnDataObj.copySite = `${baseAPIPath}cloneSite?user_token=${userToken}`;
   returnDataObj.getSitesList = `${baseAPIPath}listSites?user_token=${userToken}`;
   returnDataObj.skeletonsList = `${baseAPIPath}skeletonsList?user_token=${userToken}`;
+  returnDataObj.themesList = `${baseAPIPath}themesList?user_token=${userToken}`;
   if (HAXCMS.getDeploymentProfile() !== 'haxiam-managed') {
     returnDataObj.systemStatus = `${baseAPIPath}systemStatus?user_token=${userToken}`;
     returnDataObj.getApiKeys = `${baseAPIPath}getApiKeys?user_token=${userToken}`;
     returnDataObj.saveApiKeys = `${baseAPIPath}saveApiKeys?user_token=${userToken}`;
+    returnDataObj.systemBlocksList = `${baseAPIPath}systemBlocksList?user_token=${userToken}`;
+    returnDataObj.schemaFileOperation = `${baseAPIPath}schemaFileOperation?user_token=${userToken}`;
+    returnDataObj.saveEnabledSkeletons = `${baseAPIPath}saveEnabledSkeletons?user_token=${userToken}`;
+    returnDataObj.saveEnabledThemes = `${baseAPIPath}saveEnabledThemes?user_token=${userToken}`;
+    returnDataObj.saveEnabledBlocks = `${baseAPIPath}saveEnabledBlocks?user_token=${userToken}`;
   }
   const returnData = JSON.stringify(returnDataObj);
   let after='';

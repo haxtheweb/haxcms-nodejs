@@ -16,7 +16,7 @@ function getApiKeysFilePath(haxcms) {
     typeof haxcms.configDirectory === 'string' &&
     haxcms.configDirectory
   ) ? haxcms.configDirectory : path.join(process.cwd(), '_config');
-  return path.join(configDirectory, 'apiKeys.json');
+  return path.join(configDirectory, 'settings', 'apiKeys.json');
 }
 
 function normalizeApiKeyValue(value) {

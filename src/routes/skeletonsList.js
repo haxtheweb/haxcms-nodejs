@@ -1,6 +1,26 @@
-const fs = require('fs-extra');
-const path = require('path');
 const { HAXCMS } = require('../lib/HAXCMS.js');
+const {
+  normalizeBoolean,
+  discoverSkeletons,
+  readEnabledSkeletonMap,
+  writeEnabledSkeletonMap,
+  applyDetectedSkeletonDefaults,
+  isSkeletonEnabled,
+} = require('../lib/skeletonSettings.js');
+
+function shouldIncludeDisabled(req) {
+  const fromQuery = (
+    req &&
+    req.query &&
+    Object.prototype.hasOwnProperty.call(req.query, 'includeDisabled')
+  ) ? normalizeBoolean(req.query.includeDisabled, false) : false;
+  const fromBody = (
+    req &&
+    req.body &&
+    Object.prototype.hasOwnProperty.call(req.body, 'includeDisabled')
+  ) ? normalizeBoolean(req.body.includeDisabled, false) : false;
+  return fromQuery || fromBody;
+}
 
 /**
  * Discover available site skeletons from core and user config directories.
@@ -25,125 +45,36 @@ async function skeletonsList(req, res) {
     });
   }
 
+  const includeDisabled = shouldIncludeDisabled(req);
+  const userToken = req.query.user_token;
+  const discovered = await discoverSkeletons(HAXCMS, userToken);
+  const detectedNames = discovered.map((item) => item.machineName);
+  let enabledSkeletons = await readEnabledSkeletonMap(HAXCMS);
+  const withDefaults = applyDetectedSkeletonDefaults(
+    HAXCMS,
+    enabledSkeletons,
+    detectedNames,
+  );
+  enabledSkeletons = withDefaults.enabledSkeletons;
+  if (withDefaults.changed) {
+    await writeEnabledSkeletonMap(HAXCMS, enabledSkeletons);
+  }
+
   const items = [];
-  const seen = new Set();
-
-  // directories to scan for JSON skeleton definitions
-  // precedence: user > config (deployment) > core
-  const dirs = [
-    {
-      scope: 'user',
-      dir: path.join(HAXCMS.configDirectory, 'user', 'skeletons'),
-    },
-    {
-      scope: 'config',
-      dir: path.join(HAXCMS.configDirectory, 'skeletons'),
-    },
-    {
-      scope: 'core',
-      dir: path.join(HAXCMS.coreConfigPath, 'skeletons'),
-    },
-  ];
-
-  for (const entry of dirs) {
-    const dir = entry.dir;
-    const scope = entry.scope;
-
-    if (!(await fs.pathExists(dir))) {
+  for (let i = 0; i < discovered.length; i++) {
+    const item = discovered[i];
+    const enabled = isSkeletonEnabled(
+      HAXCMS,
+      item.machineName,
+      enabledSkeletons,
+    );
+    if (!includeDisabled && !enabled) {
       continue;
     }
-
-    try {
-      const files = await fs.readdir(dir);
-
-      for (const file of files) {
-        if (file === '.' || file === '..') continue;
-
-        const filePath = path.join(dir, file);
-        const stats = await fs.stat(filePath);
-
-        if (!(stats.isFile() && path.extname(file).toLowerCase() === '.json')) {
-          continue;
-        }
-
-        const skeletonName = path.basename(file, '.json');
-        // "default-starter" is a shared internal fallback skeleton that
-        // many generic themes point at behind the scenes. It should not
-        // appear in the public list of selectable skeletons.
-        if (skeletonName === 'default-starter') {
-          continue;
-        }
-
-        // de-dupe by machineName using precedence order above
-        if (seen.has(skeletonName)) {
-          continue;
-        }
-
-        try {
-          const json = await fs.readFile(filePath, 'utf8');
-          const skeleton = JSON.parse(json);
-
-          if (typeof skeleton !== 'object') continue;
-
-          // Accept flexible export structures; derive meta fields
-          const meta = skeleton.meta || {};
-          const title = meta.useCaseTitle || meta.name || skeletonName;
-          const description = meta.useCaseDescription || meta.description || '';
-          const image = meta.useCaseImage || '';
-
-          // priority: negative floats to the top, positive sinks
-          let priority = 0;
-          if (typeof meta.priority !== 'undefined') {
-            const num = Number(meta.priority);
-            if (Number.isFinite(num)) {
-              priority = num;
-            }
-          }
-
-          // categories/tags from meta or build type if present
-          let category = [];
-          if (Array.isArray(meta.category)) {
-            category = meta.category;
-          } else if (Array.isArray(meta.tags)) {
-            category = meta.tags;
-          }
-
-          // attributes/icons optional in meta
-          const attributes = Array.isArray(meta.attributes) ? meta.attributes : [];
-
-          // demo/source url optional
-          const demo = meta.sourceUrl || '#';
-
-          // Build API URL to fetch skeleton content with user_token
-          const baseAPIPath = HAXCMS.basePath + HAXCMS.systemRequestBase;
-          const userToken = req.query.user_token;
-          const skeletonUrl = `${baseAPIPath}getSkeleton?name=${encodeURIComponent(skeletonName)}&user_token=${encodeURIComponent(userToken)}`;
-
-          items.push({
-            title: title,
-            description: description,
-            image: image,
-            priority: priority,
-            category: category,
-            attributes: attributes,
-            // indicate which directory it came from
-            scope: scope,
-            // repeat machine name explicitly so UIs don't have to infer it from skeleton-url
-            machineName: skeletonName,
-            'machine-name': skeletonName,
-            'demo-url': demo,
-            'skeleton-url': skeletonUrl,
-          });
-
-          seen.add(skeletonName);
-        } catch (parseError) {
-          // Skip invalid JSON files
-          console.warn(`Failed to parse skeleton file ${file}:`, parseError.message);
-        }
-      }
-    } catch (readError) {
-      console.warn(`Failed to read directory ${dir}:`, readError.message);
-    }
+    items.push({
+      ...item,
+      enabled,
+    });
   }
 
   return res.json({

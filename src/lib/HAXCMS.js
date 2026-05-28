@@ -2210,11 +2210,15 @@ class HAXCMSClass {
     try {
       const skelDir = path.join(this.configDirectory, 'skeletons');
       const userSkelDir = path.join(this.configDirectory, 'user', 'skeletons');
+      const settingsDir = path.join(this.configDirectory, 'settings');
       if (!fs.existsSync(skelDir)) {
         fs.mkdirSync(skelDir, { recursive: true });
       }
       if (!fs.existsSync(userSkelDir)) {
         fs.mkdirSync(userSkelDir, { recursive: true });
+      }
+      if (!fs.existsSync(settingsDir)) {
+        fs.mkdirSync(settingsDir, { recursive: true });
       }
     }
     catch (e) {

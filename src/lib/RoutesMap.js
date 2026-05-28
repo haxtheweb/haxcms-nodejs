@@ -47,7 +47,13 @@ const RoutesMap = {
     systemStatus: require('../routes/systemStatus.js'),
     getApiKeys: require('../routes/getApiKeys.js'),
     saveApiKeys: require('../routes/saveApiKeys.js'),
+    saveEnabledSkeletons: require('../routes/saveEnabledSkeletons.js'),
+    schemaFileOperation: require('../routes/schemaFileOperation.js'),
+    saveEnabledThemes: require('../routes/saveEnabledThemes.js'),
+    saveEnabledBlocks: require('../routes/saveEnabledBlocks.js'),
+    systemBlocksList: require('../routes/systemBlocksList.js'),
     skeletonsList: require('../routes/skeletonsList.js'),
+    themesList: require('../routes/themesList.js'),
     getSkeleton: require('../routes/getSkeleton.js'),
     // meta endpoints mirroring PHP Operations::options and ::api
     options: require('../routes/options.js'),
@@ -60,8 +66,10 @@ const RoutesMap = {
     "openapi/json": require('../routes/openapi.js'),
     connectionSettings: require('../routes/connectionSettings.js'),
     generateAppStore: require('../routes/generateAppStore.js'),
+    systemBlocksList: require('../routes/systemBlocksList.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
     skeletonsList: require('../routes/skeletonsList.js'),
+    themesList: require('../routes/themesList.js'),
     getSkeleton: require('../routes/getSkeleton.js'),
   },
 };
@@ -93,7 +101,13 @@ const SystemAdminRoutes = [
   'systemStatus',
   'getApiKeys',
   'saveApiKeys',
+  'saveEnabledBlocks',
+  'systemBlocksList',
+  'saveEnabledThemes',
+  'saveEnabledSkeletons',
+  'schemaFileOperation',
   'skeletonsList',
+  'themesList',
   'getSkeleton',
 ];
 
