@@ -167,16 +167,23 @@ systemStructureContext().then((site) => {
           req.url.includes('/manifest.json') || 
           req.url.includes('/robots.txt') ||
           req.url.includes('/llms.txt') ||
+          req.url.includes('/rss.xml') ||
+          req.url.includes('/atom.xml') ||
+          req.url.includes('/sitemap.xml') ||
+          req.url.includes('/sitemap-index.xml') ||
+          req.url.includes('/.well-known/') ||
           req.url.includes('/files/') || 
           req.url.includes('/pages/') || 
           req.url.includes('/site.json')
         )
       ) {
-        if (mime.getType(req.url.split('?')[0])) {
-          res.setHeader('Content-Type', mime.getType(req.url));
-        }
-        else {
-          res.setHeader('Content-Type', 'text/html');
+        if (!setWellKnownContentType(res, req.url)) {
+          if (mime.getType(req.url.split('?')[0])) {
+            res.setHeader('Content-Type', mime.getType(req.url));
+          }
+          else {
+            res.setHeader('Content-Type', 'text/html');
+          }
         }
         res.sendFile(req.url.split('?')[0],
         {
@@ -189,6 +196,7 @@ systemStructureContext().then((site) => {
           served: false,
           item: null,
           canonicalPath: null,
+          notFound: false,
         };
         if (requestPath.indexOf('/x/') !== 0) {
           variantResponse = tryServePageVariantRequest(
@@ -210,6 +218,10 @@ systemStructureContext().then((site) => {
             );
           }
         }
+        const pageMiss = variantResponse.notFound === true;
+        if (pageMiss) {
+          res.status(404);
+        }
         // all page calls just go to the index and the front end will render them
         if (mime.getType(req.url.split('?')[0])) {
           res.setHeader('Content-Type', mime.getType(req.url));
@@ -223,6 +235,7 @@ systemStructureContext().then((site) => {
             site,
             variantResponse.item,
             variantResponse.canonicalPath,
+            pageMiss,
             path.join(publicDir, 'index.html')
           );
           // injects a websocket for livereload support when developing custom components
@@ -303,16 +316,23 @@ systemStructureContext().then((site) => {
           req.url.includes('/manifest.json') || 
           req.url.includes('/robots.txt') ||
           req.url.includes('/llms.txt') ||
+          req.url.includes('/rss.xml') ||
+          req.url.includes('/atom.xml') ||
+          req.url.includes('/sitemap.xml') ||
+          req.url.includes('/sitemap-index.xml') ||
+          req.url.includes('/.well-known/') ||
           req.url.includes('/files/') || 
           req.url.includes('/pages/') || 
           req.url.includes('/site.json')
         )
       ) {
-        if (mime.getType(req.url.split('?')[0])) {
-          res.setHeader('Content-Type', mime.getType(req.url));
-        }
-        else {
-          res.setHeader('Content-Type', 'text/html');
+        if (!setWellKnownContentType(res, req.url)) {
+          if (mime.getType(req.url.split('?')[0])) {
+            res.setHeader('Content-Type', mime.getType(req.url));
+          }
+          else {
+            res.setHeader('Content-Type', 'text/html');
+          }
         }
         res.sendFile(req.url.split('?')[0],
         {
@@ -327,6 +347,7 @@ systemStructureContext().then((site) => {
           served: false,
           item: null,
           canonicalPath: null,
+          notFound: false,
         };
         if (siteName) {
           siteContext = await HAXCMS.loadSite(siteName);
@@ -352,6 +373,10 @@ systemStructureContext().then((site) => {
               }
           }
         }
+        const pageMiss = variantResponse.notFound === true;
+        if (pageMiss) {
+          res.status(404);
+        }
         if (mime.getType(req.url.split('?')[0])) {
           res.setHeader('Content-Type', mime.getType(req.url));
         }
@@ -365,6 +390,7 @@ systemStructureContext().then((site) => {
               siteContext,
               variantResponse.item,
               variantResponse.canonicalPath,
+              pageMiss,
               path.join(siteContext.siteDirectory, 'index.html')
             );
             res.send(indexFile);
@@ -522,6 +548,21 @@ function validateSystemAdminRouteAccess(req, op = '') {
 }
 function getRequestPathWithoutQuery(url = '') {
   return String(url || '').split('?')[0];
+}
+function setWellKnownContentType(res, requestPath = '') {
+  const cleanRequestPath = getRequestPathWithoutQuery(requestPath);
+  if (/\/\.well-known\/api-catalog$/.test(cleanRequestPath)) {
+    res.setHeader(
+      'Content-Type',
+      'application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"'
+    );
+    return true;
+  }
+  if (/\/\.well-known\/security\.txt$/.test(cleanRequestPath)) {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    return true;
+  }
+  return false;
 }
 
 function getExplicitVariantInfo(pathname = '') {
@@ -705,10 +746,12 @@ function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefi
       served: false,
       item: null,
       canonicalPath: null,
+      notFound: false,
     };
   }
   const item = resolvePageBySlug(site, slug);
   if (!item) {
+    const missingCanonicalPath = buildCanonicalPagePath(routePrefix, slug);
     if (explicitInfo.format) {
       res.status(404);
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -716,13 +759,15 @@ function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefi
       return {
         served: true,
         item: null,
-        canonicalPath: null,
+        canonicalPath: missingCanonicalPath,
+        notFound: true,
       };
     }
     return {
       served: false,
       item: null,
-      canonicalPath: null,
+      canonicalPath: missingCanonicalPath,
+      notFound: true,
     };
   }
   const canonicalPath = buildCanonicalPagePath(routePrefix, slug);
@@ -743,6 +788,7 @@ function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefi
       served: true,
       item,
       canonicalPath,
+      notFound: false,
     };
   }
   const negotiatedFormat = getNegotiatedVariantFormat(req.headers.accept);
@@ -760,6 +806,7 @@ function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefi
         served: true,
         item,
         canonicalPath,
+        notFound: false,
       };
     }
   }
@@ -767,6 +814,7 @@ function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefi
     served: false,
     item,
     canonicalPath,
+    notFound: false,
   };
 }
 
@@ -868,7 +916,7 @@ function injectDevReloadScript(indexFile = '', port = 3000) {
 </body>`);
 }
 
-async function renderDynamicSiteIndexResponse(req, site, item, canonicalPath = '', indexFilePath = '') {
+async function renderDynamicSiteIndexResponse(req, site, item, canonicalPath = '', pageMiss = false, indexFilePath = '') {
   let indexFile = fs.readFileSync(indexFilePath, 'utf8');
   const absoluteUrl = getRequestAbsoluteUrl(req, canonicalPath || '/');
   const metadata = await site.getSiteMetadata(item || null, absoluteUrl, '', canonicalPath || '');
@@ -883,6 +931,49 @@ async function renderDynamicSiteIndexResponse(req, site, item, canonicalPath = '
       pageContent = '';
     }
   }
+  else if (pageMiss) {
+    pageContent = getPageMissShellMarkup();
+  }
   indexFile = replaceSiteBuilderContent(indexFile, pageContent);
   return indexFile;
+}
+function getPageMissShellMarkup() {
+  return `<style>
+  .haxcms-page-miss {
+    min-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 12px;
+    padding: 24px;
+    font-family: "Press Start 2P", "Courier New", monospace;
+  }
+  .haxcms-page-miss__fire {
+    font-size: 64px;
+    line-height: 1;
+    margin: 0;
+  }
+  .haxcms-page-miss__pixel {
+    margin: 0;
+    white-space: pre;
+    line-height: 1.1;
+    font-size: 16px;
+  }
+  .haxcms-page-miss__text {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.4;
+  }
+</style>
+<section class="haxcms-page-miss" role="alert" aria-live="polite">
+  <p class="haxcms-page-miss__fire" aria-hidden="true">🔥</p>
+  <pre class="haxcms-page-miss__pixel" aria-hidden="true">  ▗▄▖
+ ▐█▀█▌
+ ▐█▄█▌
+  ▜█▛
+  ▐▌▐▌</pre>
+  <p class="haxcms-page-miss__text">The page miss, it burns!</p>
+</section>`;
 }

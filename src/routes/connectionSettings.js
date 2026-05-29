@@ -163,6 +163,8 @@ async function connectionSettings(req, res) {
     returnDataObj.systemStatus = `${baseAPIPath}systemStatus?user_token=${userToken}`;
     returnDataObj.getApiKeys = `${baseAPIPath}getApiKeys?user_token=${userToken}`;
     returnDataObj.saveApiKeys = `${baseAPIPath}saveApiKeys?user_token=${userToken}`;
+    returnDataObj.getMediaSettings = `${baseAPIPath}getMediaSettings?user_token=${userToken}`;
+    returnDataObj.saveMediaSettings = `${baseAPIPath}saveMediaSettings?user_token=${userToken}`;
     returnDataObj.systemBlocksList = `${baseAPIPath}systemBlocksList?user_token=${userToken}`;
     returnDataObj.schemaFileOperation = `${baseAPIPath}schemaFileOperation?user_token=${userToken}`;
     returnDataObj.saveEnabledSkeletons = `${baseAPIPath}saveEnabledSkeletons?user_token=${userToken}`;

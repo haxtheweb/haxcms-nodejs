@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const mime = require('mime');
 const sharp = require('sharp');
 const { HAXCMS } = require('../lib/HAXCMS.js');
+const { readMediaSettings } = require('../lib/mediaSettings.js');
 const {
   platformAllows,
   featureDisabledResponse,
@@ -16,6 +17,9 @@ const IMAGE_SCALE_PRESETS = {
   xl: { width: 1200, height: 900 },
 };
 const DEFAULT_SCALE_PRESET = 'md';
+const DEFAULT_JPEG_QUALITY = 90;
+const MIN_JPEG_QUALITY = 1;
+const MAX_JPEG_QUALITY = 100;
 const ALLOWED_RENAME_EXTENSIONS = [
   'jpg',
   'jpeg',
@@ -40,6 +44,35 @@ const ALLOWED_RENAME_EXTENSIONS = [
   'html',
   'md',
 ];
+
+function normalizeJpegQualityValue(value) {
+  const numericValue = parseInt(value, 10);
+  if (Number.isNaN(numericValue)) {
+    return null;
+  }
+  if (numericValue < MIN_JPEG_QUALITY) {
+    return MIN_JPEG_QUALITY;
+  }
+  if (numericValue > MAX_JPEG_QUALITY) {
+    return MAX_JPEG_QUALITY;
+  }
+  return numericValue;
+}
+
+function resolveJpegQualityFromSettings(mediaSettings = {}) {
+  let configuredQuality = null;
+  if (
+    mediaSettings &&
+    typeof mediaSettings === 'object' &&
+    !Array.isArray(mediaSettings)
+  ) {
+    configuredQuality = normalizeJpegQualityValue(mediaSettings.jpegQuality);
+  }
+  if (configuredQuality !== null) {
+    return configuredQuality;
+  }
+  return DEFAULT_JPEG_QUALITY;
+}
 
 function normalizePathForResponse(value = '') {
   return String(value).split(path.sep).join('/');
@@ -440,7 +473,12 @@ function getTemporaryImagePath(sourcePath, operationLabel = 'tmp') {
   );
 }
 
-async function convertImageToJpg(sourcePath, outputPath, transformMode = 'none') {
+async function convertImageToJpg(
+  sourcePath,
+  outputPath,
+  transformMode = 'none',
+  jpegQuality = DEFAULT_JPEG_QUALITY,
+) {
   const metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
   if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
     const conversionError = new Error('Only raster images can be converted to JPG');
@@ -461,19 +499,29 @@ async function convertImageToJpg(sourcePath, outputPath, transformMode = 'none')
         [0.272, 0.534, 0.131],
       ]);
   }
-  const outputQuality = transformMode === 'none' ? 90 : 82;
+  const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
+  const outputQuality =
+    normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
   await pipeline
     .jpeg({ quality: outputQuality, mozjpeg: true })
     .toFile(outputPath);
 }
-
-async function scaleImageToPreset(sourcePath, outputPath, width, height) {
+async function scaleImageToPreset(
+  sourcePath,
+  outputPath,
+  width,
+  height,
+  jpegQuality = DEFAULT_JPEG_QUALITY,
+) {
   const metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
   if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
     const scaleError = new Error('Only raster images can be scaled');
     scaleError.status = 400;
     throw scaleError;
   }
+  const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
+  const outputQuality =
+    normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
   await sharp(sourcePath)
     .rotate()
     .resize({
@@ -482,7 +530,7 @@ async function scaleImageToPreset(sourcePath, outputPath, width, height) {
       fit: 'inside',
       withoutEnlargement: true,
     })
-    .jpeg({ quality: 82, mozjpeg: true })
+    .jpeg({ quality: outputQuality, mozjpeg: true })
     .toFile(outputPath);
 }
 async function rotateImageInPlace(sourcePath, rotation = 90) {
@@ -553,6 +601,11 @@ async function fileOperation(req, res) {
       'File operations are disabled for this site',
     );
   }
+  let mediaSettings = {};
+  try {
+    mediaSettings = await readMediaSettings(HAXCMS);
+  } catch (e) {}
+  const jpegQuality = resolveJpegQualityFromSettings(mediaSettings);
   const operation = req.body && req.body.operation ? String(req.body.operation).trim() : '';
   if (
     ![
@@ -689,6 +742,7 @@ async function fileOperation(req, res) {
         fileInfo.resolvedPath,
         convertOutput.outputPath,
         'none',
+        jpegQuality,
       );
       const convertedFile = buildFileRecord(
         site,
@@ -732,6 +786,7 @@ async function fileOperation(req, res) {
         fileInfo.resolvedPath,
         transformOutput.outputPath,
         operation,
+        jpegQuality,
       );
       const transformedFile = buildFileRecord(
         site,
@@ -767,6 +822,7 @@ async function fileOperation(req, res) {
       scaleOutput.outputPath,
       presetData.preset.width,
       presetData.preset.height,
+      jpegQuality,
     );
     const scaledFile = buildFileRecord(site, scaleOutput.outputPath, scaleOutput.relativePath);
     await site.gitCommit(
