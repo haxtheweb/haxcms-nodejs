@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs-extra');
 const Axios = require('axios')
 const { HAXCMS } = require('./HAXCMS.js');
+const { readMediaSettings } = require('./mediaSettings.js');
 const sharp = require('sharp');
 const dns = require('dns');
 
@@ -31,6 +32,8 @@ const ALLOWED_MIME_BY_EXTENSION = {
   'md': ['text/markdown', 'text/plain']
 };
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+const MIN_JPEG_QUALITY = 1;
+const MAX_JPEG_QUALITY = 100;
 const EXECUTABLE_FILE_EXTENSIONS = [
   'php',
   'php3',
@@ -108,6 +111,65 @@ function normalizeFilenameExtensionCasing(fileName) {
     return path.join(parsedName.dir, normalizedBaseName);
   }
   return normalizedBaseName;
+}
+
+function normalizeJpegQualityValue(value) {
+  const numericValue = parseInt(value, 10);
+  if (Number.isNaN(numericValue)) {
+    return null;
+  }
+  if (numericValue < MIN_JPEG_QUALITY) {
+    return MIN_JPEG_QUALITY;
+  }
+  if (numericValue > MAX_JPEG_QUALITY) {
+    return MAX_JPEG_QUALITY;
+  }
+  return numericValue;
+}
+
+function getTemporaryJpegPath(sourcePath) {
+  const sourceDirectory = path.dirname(sourcePath);
+  const sourceExtension = path.extname(sourcePath);
+  const sourceBaseName = path.basename(sourcePath, sourceExtension);
+  return path.join(
+    sourceDirectory,
+    sourceBaseName + '-jpeg-quality-' + Date.now() + sourceExtension,
+  );
+}
+
+async function applyConfiguredJpegUploadQuality(filePath) {
+  let mediaSettings = {};
+  try {
+    mediaSettings = await readMediaSettings(HAXCMS);
+  }
+  catch (e) {
+    return;
+  }
+  if (
+    !mediaSettings ||
+    typeof mediaSettings !== 'object' ||
+    Array.isArray(mediaSettings)
+  ) {
+    return;
+  }
+  const configuredQuality = normalizeJpegQualityValue(mediaSettings.jpegQuality);
+  if (configuredQuality === null) {
+    return;
+  }
+  const temporaryPath = getTemporaryJpegPath(filePath);
+  try {
+    await sharp(filePath)
+      .rotate()
+      .jpeg({ quality: configuredQuality, mozjpeg: true })
+      .toFile(temporaryPath);
+    fs.moveSync(temporaryPath, filePath, { overwrite: true });
+  }
+  catch (e) {
+    if (fs.pathExistsSync(temporaryPath)) {
+      fs.removeSync(temporaryPath);
+    }
+    throw e;
+  }
 }
 
 function mimeMatchesAllowed(actualMime, allowedMimes) {
@@ -609,6 +671,14 @@ class HAXCMSFile
         return {
           status: 500
         };
+      }
+      if (detectedMimeType === 'image/jpeg') {
+        try {
+          await applyConfiguredJpegUploadQuality(fullpath);
+        }
+        catch (e) {
+          console.warn(e);
+        }
       }
       //@todo make a way of defining these as returns as well as number to take
       // specialized support for images to do scale and crop stuff automatically
