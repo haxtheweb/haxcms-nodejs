@@ -13,6 +13,7 @@
     "dev:nologin": "nodemon src/local.js",
     "start": "open http://localhost:3000 && npm run dev",
     "build": "rm -rf dist && babel src --out-dir dist --copy-files --include-dotfiles && chmod 774 dist/local.js && chmod 774 dist/app.js && chmod 774 dist/cli.js",
+    "verify:sanitize-policy": "node scripts/verify-sanitize-policy.js",
     "release": "npm run build && commit-and-tag-version && git push --follow-tags origin main && npm publish",
     "haxcms-nodejs-cli": "haxcms-nodejs-cli"
   },
@@ -50,6 +51,7 @@
     "chokidar": "5.0.0",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
+    "dompurify": "3.3.0",
     "dotenv": "16.4.5",
     "express": "^4.22.2",
     "fs-extra": "11.2.0",
@@ -57,6 +59,7 @@
     "helmet": "7.1.0",
     "js-yaml": "4.1.1",
     "jsonwebtoken": "9.0.3",
+    "jsdom": "26.1.0",
     "locutus": "^3.0.34",
     "mime": "3.0.0",
     "minimist": "1.2.8",

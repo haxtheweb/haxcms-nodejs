@@ -2272,6 +2272,69 @@ class HAXCMSSite
 }
 // HAXcms core
 class HAXCMSClass {
+  safeStringCompare(stored, submitted) {
+    if (typeof stored !== 'string' || typeof submitted !== 'string') {
+      return false;
+    }
+    const storedBuffer = Buffer.from(stored, 'utf8');
+    const submittedBuffer = Buffer.from(submitted, 'utf8');
+    if (storedBuffer.length !== submittedBuffer.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(storedBuffer, submittedBuffer);
+  }
+  hasDefaultCredentials() {
+    return this.user && this.user.name === 'admin' && this.user.password === 'admin';
+  }
+  shouldAllowDefaultCredentials() {
+    if (!process.env.HAXCMS_ALLOW_DEFAULT_CREDS) {
+      return false;
+    }
+    const allowedValues = ['1', 'true', 'yes'];
+    return allowedValues.indexOf(String(process.env.HAXCMS_ALLOW_DEFAULT_CREDS).toLowerCase()) !== -1;
+  }
+  generateSecurePassword() {
+    return crypto.randomBytes(16).toString('hex');
+  }
+  getIntConfigValue(value, fallback, min, max) {
+    let num = parseInt(value, 10);
+    if (isNaN(num)) {
+      num = fallback;
+    }
+    if (num < min) {
+      num = min;
+    }
+    if (num > max) {
+      num = max;
+    }
+    return num;
+  }
+  getLoginRateLimitSettings() {
+    const defaults = {
+      enabled: true,
+      windowMs: 15 * 60 * 1000,
+      maxAttempts: 5,
+      blockMs: 15 * 60 * 1000,
+    };
+    let cfg = {};
+    if (
+      this.config &&
+      this.config.security &&
+      this.config.security.loginRateLimit
+    ) {
+      cfg = this.config.security.loginRateLimit;
+    }
+    let enabled = defaults.enabled;
+    if (typeof cfg.enabled !== 'undefined') {
+      enabled = cfg.enabled === true;
+    }
+    return {
+      enabled: enabled,
+      windowMs: this.getIntConfigValue(cfg.windowMs, defaults.windowMs, 10 * 1000, 24 * 60 * 60 * 1000),
+      maxAttempts: this.getIntConfigValue(cfg.maxAttempts, defaults.maxAttempts, 1, 1000),
+      blockMs: this.getIntConfigValue(cfg.blockMs, defaults.blockMs, 10 * 1000, 24 * 60 * 60 * 1000),
+    };
+  }
   async gitTest() {
     try {
       const { stdout, stderr } = await exec('git --version');
@@ -2398,6 +2461,12 @@ class HAXCMSClass {
     if (!this.config.appJWTConnectionSettings) {
       this.config.appJWTConnectionSettings = {};
     }
+    if (!this.config.security) {
+      this.config.security = {};
+    }
+    if (!this.config.security.loginRateLimit) {
+      this.config.security.loginRateLimit = {};
+    }
     // load in core theme data
     let themeData = JSON.parse(fs.readFileSync(path.join(this.coreConfigPath, "themes.json"),
       {encoding:'utf8', flag:'r'}, 'utf8'));
@@ -2490,33 +2559,38 @@ class HAXCMSClass {
       this.superUser = {...this.user};
     }
     catch (e) {
-      // don't send console warnings if this is CLI
-      if (!this.isCLI()) {
-        console.warn('***************************************************************');
-        console.warn('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
-        console.warn(`${path.join(this.configDirectory, ".user")} is being created with default credentials`);
-        console.warn("MAKE SURE YOU EDIT THIS FILE IF PUTTING IN PRODUCTION!!!!!");
-        console.warn("username: admin");
-        console.warn("password: admin");
-        console.warn("\n***************************************************************");
-      }
-      // create a default user
+      // create a default user with secure random password
+      const seededPassword = this.generateSecurePassword();
       this.superUser = {
         name: 'admin',
-        password: 'admin',
+        password: seededPassword,
       };
       this.user = {
         name: 'admin',
-        password: 'admin',
+        password: seededPassword,
       };
       fs.writeFileSync(path.join(this.configDirectory, ".user"), JSON.stringify(this.user, null, 2));
+      if (!this.isCLI()) {
+        console.error('***************************************************************');
+        console.error('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
+        console.error('\n*** HAXcms admin seeded credentials ***');
+        console.error(`username: ${this.user.name}`);
+        console.error(`password: ${seededPassword}`);
+        console.error(`\nCredentials saved to: ${path.join(this.configDirectory, ".user")}`);
+        console.error('Change this password immediately for production use.');
+        console.error('\n***************************************************************');
+      }
     }
-    // warn if we have default credentials unless CLI
-    if (this.user.name == 'admin' && this.user.password == 'admin' && !this.isCLI()) {
-      console.warn('***************************************************************');
-      console.warn('\nHAXcms USER CONFIGURATION FILE HAS DEFAULT CREDENTIALS, change them!!');
-      console.warn(`\n${path.join(this.configDirectory, ".user")}`);
-      console.warn("\n***************************************************************");
+    // refuse to start web runtime with known default credentials unless explicitly overridden
+    if (this.hasDefaultCredentials() && !this.isCLI() && !this.shouldAllowDefaultCredentials()) {
+      console.error('***************************************************************');
+      console.error('\n*** Refusing to start HAXcms ***');
+      console.error('Default credentials were detected in .user:');
+      console.error(` ${path.join(this.configDirectory, ".user")}`);
+      console.error('Set a strong password and restart.');
+      console.error('To override temporarily for emergency scenarios, set HAXCMS_ALLOW_DEFAULT_CREDS=1.');
+      console.error('\n***************************************************************');
+      throw new Error('HAXcms startup blocked due to default credentials.');
     }
   }
   /**
@@ -3569,8 +3643,8 @@ class HAXCMSClass {
     testLogin(name, pass, adminFallback = false)
     {
         if (
-            this.user.name === name &&
-            this.user.password === pass
+            this.safeStringCompare(this.user.name, name) &&
+            this.safeStringCompare(this.user.password, pass)
         ) {
             return true;
         }
@@ -3579,8 +3653,8 @@ class HAXCMSClass {
         // the fallback being allowable is useful for managed environments
         else if (
             adminFallback &&
-            this.superUser.name === name &&
-            this.superUser.password === pass
+            this.safeStringCompare(this.superUser.name, name) &&
+            this.safeStringCompare(this.superUser.password, pass)
         ) {
             return true;
         }
