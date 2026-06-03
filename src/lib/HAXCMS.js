@@ -1679,6 +1679,31 @@ class HAXCMSSite
       const safeDomain = escapeHtml(sanitizeUrl(canonicalUrl || domain));
       const safeSocialShareImage = escapeHtml(sanitizeUrl(this.getSocialShareImage(page)));
       const safeHexCode = escapeHtml(hexCode);
+      const joinUrl = (baseValue = '', segmentValue = '') => {
+        const normalizedBase = String(baseValue || '');
+        const normalizedSegment = String(segmentValue || '');
+        if (normalizedSegment == '') {
+          return normalizedBase;
+        }
+        if (/^https?:\/\//i.test(normalizedSegment)) {
+          return normalizedSegment;
+        }
+        if (normalizedBase == '') {
+          return normalizedSegment;
+        }
+        return normalizedBase.replace(/\/+$/, '') + '/' + normalizedSegment.replace(/^\/+/, '');
+      };
+      let inLanguage = 'en-US';
+      if (
+        this.manifest &&
+        this.manifest.metadata &&
+        this.manifest.metadata.site &&
+        this.manifest.metadata.site.settings &&
+        this.manifest.metadata.site.settings.lang &&
+        String(this.manifest.metadata.site.settings.lang).trim() != ''
+      ) {
+        inLanguage = String(this.manifest.metadata.site.settings.lang).trim();
+      }
       let pageUrlForStructuredData = sanitizeUrl(canonicalUrl || domain);
       let siteUrlForStructuredData = sanitizeUrl(canonicalBase || domain);
       if (siteUrlForStructuredData == '') {
@@ -1687,8 +1712,27 @@ class HAXCMSSite
       if (pageUrlForStructuredData == '') {
         pageUrlForStructuredData = siteUrlForStructuredData;
       }
-      let socialShareImageForStructuredData = sanitizeUrl(this.getSocialShareImage(page));
+      const toAbsoluteStructuredDataUrl = (value = '') => {
+        const sanitizedValue = sanitizeUrl(value);
+        if (sanitizedValue == '') {
+          return '';
+        }
+        if (/^https?:\/\//i.test(sanitizedValue)) {
+          return sanitizedValue;
+        }
+        if (siteUrlForStructuredData != '') {
+          return sanitizeUrl(joinUrl(siteUrlForStructuredData, sanitizedValue));
+        }
+        return sanitizedValue;
+      };
+      let socialShareImageForStructuredData = toAbsoluteStructuredDataUrl(
+        this.getSocialShareImage(page),
+      );
+      let siteLogoForStructuredData = toAbsoluteStructuredDataUrl(
+        await this.getLogoSize('512', '512'),
+      );
       let pageUpdatedISO = '';
+      let pageCreatedISO = '';
       if (
         page &&
         page.metadata &&
@@ -1700,6 +1744,158 @@ class HAXCMSSite
         if (!isNaN(updatedTimestamp) && updatedTimestamp > 0) {
           pageUpdatedISO = new Date(updatedTimestamp * 1000).toISOString();
         }
+      }
+      if (
+        page &&
+        page.metadata &&
+        typeof page.metadata.created !== 'undefined' &&
+        page.metadata.created !== null &&
+        page.metadata.created !== ''
+      ) {
+        let createdTimestamp = parseInt(page.metadata.created, 10);
+        if (!isNaN(createdTimestamp) && createdTimestamp > 0) {
+          pageCreatedISO = new Date(createdTimestamp * 1000).toISOString();
+        }
+      }
+      const manifestAuthor =
+        this.manifest &&
+        this.manifest.metadata &&
+        this.manifest.metadata.author
+          ? this.manifest.metadata.author
+          : {};
+      let authorName = '';
+      if (manifestAuthor && manifestAuthor.name) {
+        authorName = String(manifestAuthor.name).trim();
+      } else if (
+        this.manifest &&
+        typeof this.manifest.author === 'string' &&
+        String(this.manifest.author).trim() != ''
+      ) {
+        authorName = String(this.manifest.author).trim();
+      } else if (
+        this.manifest &&
+        this.manifest.author &&
+        this.manifest.author.name
+      ) {
+        authorName = String(this.manifest.author.name).trim();
+      }
+      let authorEmail = '';
+      if (manifestAuthor && manifestAuthor.email) {
+        authorEmail = String(manifestAuthor.email).trim();
+      } else if (
+        this.manifest &&
+        this.manifest.author &&
+        this.manifest.author.email
+      ) {
+        authorEmail = String(this.manifest.author.email).trim();
+      }
+      let authorSocialLink = '';
+      if (manifestAuthor && manifestAuthor.socialLink) {
+        authorSocialLink = sanitizeUrl(String(manifestAuthor.socialLink).trim());
+      } else if (
+        this.manifest &&
+        this.manifest.author &&
+        this.manifest.author.socialLink
+      ) {
+        authorSocialLink = sanitizeUrl(
+          String(this.manifest.author.socialLink).trim(),
+        );
+      }
+      let authorImageForStructuredData = '';
+      if (manifestAuthor && manifestAuthor.image) {
+        authorImageForStructuredData = toAbsoluteStructuredDataUrl(
+          manifestAuthor.image,
+        );
+      } else if (
+        this.manifest &&
+        this.manifest.author &&
+        this.manifest.author.image
+      ) {
+        authorImageForStructuredData = toAbsoluteStructuredDataUrl(
+          this.manifest.author.image,
+        );
+      }
+      let breadcrumbTrail = [];
+      if (page && page.id && this.manifest && this.manifest.items) {
+        let itemBuilder = page;
+        if (typeof itemBuilder.title === 'undefined' || itemBuilder.title == '') {
+          let activeItemIndex = this.manifest.getItemKeyById(page.id);
+          if (
+            activeItemIndex !== false &&
+            this.manifest.items[activeItemIndex]
+          ) {
+            itemBuilder = this.manifest.items[activeItemIndex];
+          }
+        }
+        let safetyCounter = 0;
+        while (itemBuilder && safetyCounter < 200) {
+          breadcrumbTrail.unshift(itemBuilder);
+          if (itemBuilder.parent == null) {
+            break;
+          }
+          itemBuilder = this.manifest.items.find((i) => i.id == itemBuilder.parent);
+          safetyCounter++;
+        }
+      } else if (page && (page.title || page.slug)) {
+        breadcrumbTrail = [page];
+      }
+      let breadcrumbListElements = [];
+      let breadcrumbPosition = 1;
+      if (siteUrlForStructuredData != '') {
+        breadcrumbListElements.push({
+          '@type': 'ListItem',
+          'position': breadcrumbPosition,
+          'name':
+            this.manifest && this.manifest.title
+              ? String(this.manifest.title)
+              : 'Home',
+          'item': siteUrlForStructuredData,
+        });
+        breadcrumbPosition++;
+      }
+      for (let index = 0; index < breadcrumbTrail.length; index++) {
+        let breadcrumbItem = breadcrumbTrail[index];
+        if (!breadcrumbItem) {
+          continue;
+        }
+        let breadcrumbName = '';
+        if (breadcrumbItem.title && String(breadcrumbItem.title).trim() != '') {
+          breadcrumbName = String(breadcrumbItem.title).trim();
+        } else if (
+          breadcrumbItem.slug &&
+          String(breadcrumbItem.slug).trim() != ''
+        ) {
+          breadcrumbName = String(breadcrumbItem.slug).trim();
+        } else {
+          breadcrumbName = safeTitle;
+        }
+        let breadcrumbUrl = '';
+        if (breadcrumbItem.slug && String(breadcrumbItem.slug).trim() != '') {
+          breadcrumbUrl = toAbsoluteStructuredDataUrl(breadcrumbItem.slug);
+        }
+        if (breadcrumbUrl == '' && index === breadcrumbTrail.length - 1) {
+          breadcrumbUrl = pageUrlForStructuredData;
+        }
+        if (breadcrumbUrl == '') {
+          breadcrumbUrl = siteUrlForStructuredData;
+        }
+        if (
+          breadcrumbPosition === 2 &&
+          siteUrlForStructuredData != '' &&
+          breadcrumbUrl == siteUrlForStructuredData
+        ) {
+          continue;
+        }
+        if (breadcrumbUrl == '') {
+          continue;
+        }
+        breadcrumbListElements.push({
+          '@type': 'ListItem',
+          'position': breadcrumbPosition,
+          'name': breadcrumbName,
+          'item': breadcrumbUrl,
+        });
+        breadcrumbPosition++;
       }
       let metadata = `<meta charset="utf-8" />
   ${preconnect}
@@ -1759,15 +1955,113 @@ class HAXCMSSite
   <meta name=\"twitter:description\" property=\"twitter:description\" content=\"${safeDescription}\" />
   <meta name=\\\"twitter:image\\\" property=\\\"twitter:image\\\" content=\\\"${safeSocialShareImage}\\\" />`;  
       metadata = metadata.replace(new RegExp('\\\\+"', 'g'), '"');
+      let structuredDataBaseUrl = siteUrlForStructuredData || pageUrlForStructuredData;
       let siteStructuredDataId = String(siteUrlForStructuredData).replace(/\/$/, '') + '#website';
       let pageStructuredDataId = String(pageUrlForStructuredData).replace(/\/$/, '') + '#webpage';
+      let breadcrumbStructuredDataId = String(pageUrlForStructuredData).replace(/\/$/, '') + '#breadcrumb';
+      let authorStructuredDataId = String(structuredDataBaseUrl).replace(/\/$/, '') + '#author';
+      let publisherStructuredDataId = String(structuredDataBaseUrl).replace(/\/$/, '') + '#publisher';
       let jsonLdGraph = [];
+      let authorNode = null;
+      let publisherNode = null;
+      if (
+        authorName != '' ||
+        authorEmail != '' ||
+        authorSocialLink != '' ||
+        authorImageForStructuredData != ''
+      ) {
+        authorNode = {
+          '@type': 'Person',
+          '@id': authorStructuredDataId,
+        };
+        if (authorName != '') {
+          authorNode.name = authorName;
+        }
+        if (authorEmail != '') {
+          authorNode.email = authorEmail;
+        }
+        if (authorSocialLink != '') {
+          authorNode.sameAs = [authorSocialLink];
+        }
+        if (authorImageForStructuredData != '') {
+          authorNode.image = {
+            '@type': 'ImageObject',
+            'url': authorImageForStructuredData,
+          };
+        }
+        jsonLdGraph.push(authorNode);
+      }
       if (siteUrlForStructuredData != '') {
-        jsonLdGraph.push({
+        publisherNode = {
+          '@type': 'Organization',
+          '@id': publisherStructuredDataId,
+          'url': siteUrlForStructuredData,
+          'name':
+            this.manifest && this.manifest.title
+              ? String(this.manifest.title)
+              : title,
+        };
+        if (siteLogoForStructuredData != '') {
+          publisherNode.logo = {
+            '@type': 'ImageObject',
+            'url': siteLogoForStructuredData,
+          };
+        }
+        if (authorNode && authorNode['@id']) {
+          publisherNode.founder = {
+            '@id': authorNode['@id'],
+          };
+        }
+        jsonLdGraph.push(publisherNode);
+      }
+      if (siteUrlForStructuredData != '') {
+        let webSiteNode = {
           '@type': 'WebSite',
           '@id': siteStructuredDataId,
           'url': siteUrlForStructuredData,
-          'name': this.manifest.title,
+          'name':
+            this.manifest && this.manifest.title
+              ? String(this.manifest.title)
+              : title,
+          'inLanguage': inLanguage,
+        };
+        let searchTargetUrl = sanitizeUrl(
+          joinUrl(siteUrlForStructuredData, 'x/search') +
+            '?search={search_term_string}',
+        );
+        if (searchTargetUrl != '') {
+          webSiteNode.potentialAction = {
+            '@type': 'SearchAction',
+            'target': {
+              '@type': 'EntryPoint',
+              'urlTemplate': searchTargetUrl,
+            },
+            'query-input': 'required name=search_term_string',
+          };
+        }
+        if (publisherNode && publisherNode['@id']) {
+          webSiteNode.publisher = {
+            '@id': publisherNode['@id'],
+          };
+        }
+        if (authorNode && authorNode['@id']) {
+          webSiteNode.author = {
+            '@id': authorNode['@id'],
+          };
+        }
+        if (siteLogoForStructuredData != '') {
+          webSiteNode.image = {
+            '@type': 'ImageObject',
+            'url': siteLogoForStructuredData,
+          };
+        }
+        jsonLdGraph.push(webSiteNode);
+      }
+      if (breadcrumbListElements.length > 0 && pageUrlForStructuredData != '') {
+        jsonLdGraph.push({
+          '@type': 'BreadcrumbList',
+          '@id': breadcrumbStructuredDataId,
+          'itemListElement': breadcrumbListElements,
         });
       }
       if (pageUrlForStructuredData != '') {
@@ -1777,6 +2071,7 @@ class HAXCMSSite
           'url': pageUrlForStructuredData,
           'name': title,
           'description': description,
+          'inLanguage': inLanguage,
         };
         if (siteUrlForStructuredData != '') {
           webPageNode.isPartOf = {
@@ -1788,9 +2083,31 @@ class HAXCMSSite
             '@type': 'ImageObject',
             'url': socialShareImageForStructuredData,
           };
+          webPageNode.image = socialShareImageForStructuredData;
+        }
+        if (pageCreatedISO != '') {
+          webPageNode.datePublished = pageCreatedISO;
         }
         if (pageUpdatedISO != '') {
           webPageNode.dateModified = pageUpdatedISO;
+        }
+        if (authorNode && authorNode['@id']) {
+          webPageNode.author = {
+            '@id': authorNode['@id'],
+          };
+        }
+        if (publisherNode && publisherNode['@id']) {
+          webPageNode.publisher = {
+            '@id': publisherNode['@id'],
+          };
+        }
+        if (breadcrumbListElements.length > 0) {
+          webPageNode.breadcrumb = {
+            '@id': breadcrumbStructuredDataId,
+          };
+        }
+        if (page && page.id) {
+          webPageNode.identifier = String(page.id);
         }
         jsonLdGraph.push(webPageNode);
       }
