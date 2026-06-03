@@ -11,7 +11,7 @@
     "dev:build": "npm run build && nodemon dist/app.js",
     "dev": "nodemon src/app.js",
     "dev:nologin": "nodemon src/local.js",
-    "start": "open http://localhost:3000 && npm run dev",
+    "start": "node scripts/start-with-auto-open.js",
     "build": "rm -rf dist && babel src --out-dir dist --copy-files --include-dotfiles && chmod 774 dist/local.js && chmod 774 dist/app.js && chmod 774 dist/cli.js",
     "verify:sanitize-policy": "node scripts/verify-sanitize-policy.js",
     "release": "npm run build && commit-and-tag-version && git push --follow-tags origin main && npm publish",

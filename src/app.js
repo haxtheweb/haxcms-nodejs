@@ -110,7 +110,28 @@ app.options('*', function(req, res, next) {
 	res.sendStatus(200);
 });
 // attempt to establish context of site vs multi-site environment
-const port = process.env.PORT || 3000;
+const DEFAULT_PORT = 3000
+const MAX_PORT = 65535
+let currentPort = Number.parseInt(process.env.PORT, 10)
+if (Number.isNaN(currentPort)) {
+  currentPort = DEFAULT_PORT
+}
+let resolveServerReady
+const serverReady = new Promise((resolve) => {
+  resolveServerReady = resolve
+})
+let serverReadyResolved = false
+function getRuntimePort() {
+  const address = server.address()
+  if (
+    address &&
+    typeof address === 'object' &&
+    typeof address.port === 'number'
+  ) {
+    return address.port
+  }
+  return currentPort
+}
 systemStructureContext().then((site) => {
   // see if we have a single site context or if we need routes for multisite
   if (site) {
@@ -127,7 +148,7 @@ systemStructureContext().then((site) => {
       app.use(express.static(publicDir));
     }
     app.use('/', async (req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', `http://localhost:${port}`);
+      res.setHeader('Access-Control-Allow-Origin', `http://localhost:${currentPort}`);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
@@ -240,7 +261,7 @@ systemStructureContext().then((site) => {
           );
           // injects a websocket for livereload support when developing custom components
           if (process.env.NODE_ENV === "development") {
-            indexFile = injectDevReloadScript(indexFile, port);
+            indexFile = injectDevReloadScript(indexFile, currentPort);
           }
           res.send(indexFile);
         }
@@ -256,7 +277,7 @@ systemStructureContext().then((site) => {
   else {
     app.use(express.static(publicDir));
     app.use('/', (req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', `http://localhost:${port}`);
+      res.setHeader('Access-Control-Allow-Origin', `http://localhost:${currentPort}`);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
@@ -493,33 +514,56 @@ systemStructureContext().then((site) => {
     });
   }
 });
-server.listen(port, async (err) => {
-  if (err) {
-    throw err;
+server.on('listening', onServerListening);
+server.on('error', handleServerError);
+startServer(currentPort);
+
+function startServer(portToTry) {
+  currentPort = Number(portToTry)
+  server.listen(currentPort)
+}
+function onServerListening() {
+  const runtimePort = getRuntimePort()
+  currentPort = runtimePort
+  process.env.PORT = `${runtimePort}`
+  if (!serverReadyResolved) {
+    resolveServerReady(runtimePort)
+    serverReadyResolved = true
   }
   /* eslint-disable no-console */
-  console.log(`open: http://localhost:${port}`);  
-});
-
+  console.log(`open: http://localhost:${runtimePort}`);
+}
 
 function handleServerError(e) {
   if (e.syscall !== "listen") throw e;
 
   switch (e.code) {
     case "EACCES":
-      console.error(`${port} requires elevated privileges`);
+      console.error(`${currentPort} requires elevated privileges`);
       process.exit(1);
       break;
-    case "EADDRINUSE":
-      console.error(`${port} is already in use`);
-      process.exit(1);
+    case "EADDRINUSE": {
+      if (currentPort >= MAX_PORT) {
+        console.error(`No available port found after trying ${currentPort}`);
+        process.exit(1);
+        break;
+      }
+      const nextPort = currentPort + 1;
+      console.warn(`${currentPort} is already in use, trying ${nextPort}`);
+      setTimeout(() => {
+        startServer(nextPort);
+      }, 50);
       break;
+    }
     default:
-      throw error;
+      throw e;
   }
 }
-
-server.on("error", handleServerError);
+module.exports = {
+  app,
+  server,
+  serverReady
+};
 function isSiteScopedSystemApiRoutePattern(req) {
   if (!req || !req.route || typeof req.route.path !== 'string') {
     return false;
