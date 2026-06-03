@@ -4,6 +4,9 @@ const { courseStatsFromOutline, siteHTMLContent } = require('../lib/JOSHelpers.j
 let rs = null;
 try {
   rs = require('text-readability');
+  if (rs && rs.default) {
+    rs = rs.default;
+  }
 }
 catch (e) {
   rs = {
@@ -16,7 +19,7 @@ catch (e) {
 }
 
 function getGradeLevel(text) {
-  const score = rs.daleChallReadabilityScore(text);
+  const score = safeReadabilityMetric(rs.daleChallReadabilityScore, text);
   if (score <= 4.9) {
     return '4th grade or lower';
   }
