@@ -43,6 +43,7 @@ const RoutesMap = {
     // refreshAccessToken, and skeletonsList while still supporting GET
     // for other clients; systemStatus is intentionally POST-only
     connectionSettings: require('../routes/connectionSettings.js'),
+    connectionTest: require('../routes/connectionTest.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
     systemStatus: require('../routes/systemStatus.js'),
     getApiKeys: require('../routes/getApiKeys.js'),
@@ -67,6 +68,7 @@ const RoutesMap = {
     openapi: require('../routes/openapi.js'),
     "openapi/json": require('../routes/openapi.js'),
     connectionSettings: require('../routes/connectionSettings.js'),
+    connectionTest: require('../routes/connectionTest.js'),
     generateAppStore: require('../routes/generateAppStore.js'),
     systemBlocksList: require('../routes/systemBlocksList.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
@@ -80,6 +82,7 @@ const RoutesMap = {
 const OpenRoutes = [
   'generateAppStore',
   'connectionSettings',
+  'connectionTest',
   'getSitesList',
   'getSkeleton',
   'login',

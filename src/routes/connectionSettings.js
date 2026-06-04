@@ -110,6 +110,7 @@ async function connectionSettings(req, res) {
     refreshUrl: `${baseAPIPath}refreshAccessToken`,
     logout: `${baseAPIPath}logout`,
     connectionSettings: `${baseAPIPath}connectionSettings`,
+    connectionTest: `${baseAPIPath}connectionTest`,
     // enables redirecting back to site root if JWT really is dead
     redirectUrl: HAXCMS.basePath,
     saveNodePath: `${baseAPIPath}saveNode?site_token=${siteToken}`,
