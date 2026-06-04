@@ -551,7 +551,8 @@ class HAXCMSSite
               file != "." &&
               file != ".." &&
               file != '.gitkeep' &&
-              file != '.DS_Store'
+              file != '.DS_Store' &&
+              file != '.htaccess'
           ) {
             // ensure this is a file
             if (
