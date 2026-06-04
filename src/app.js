@@ -97,6 +97,15 @@ app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 500
 app.use(helmet(helmetPolicies));
 app.use(cookieParser());
 app.use(compression());
+app.use((req, res, next) => {
+  if (
+    isSystemAdminApiRequest(req) ||
+    shouldDisableResponseCache(req)
+  ) {
+    setNoStoreResponseHeaders(res);
+  }
+  next();
+});
 
 // Security: Force download of HTML files in sites' files directories to prevent XSS
 app.use((req, res, next) => {
@@ -575,6 +584,62 @@ function isDashboardRefererRequest(req) {
     return false;
   }
   return req.headers.referer.indexOf(`/${HAXCMS.sitesDirectory}/`) === -1;
+}
+function setNoStoreResponseHeaders(res) {
+  if (!res || typeof res.setHeader !== 'function') {
+    return;
+  }
+  res.setHeader(
+    'Cache-Control',
+    'no-store, no-cache, must-revalidate, proxy-revalidate',
+  );
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+}
+function normalizePathForCacheMatching(value = '') {
+  let normalized = String(value || '');
+  if (normalized === '') {
+    return '/';
+  }
+  normalized = normalized.replace(/\/+/g, '/');
+  if (normalized.charAt(0) !== '/') {
+    normalized = '/' + normalized;
+  }
+  if (normalized.length > 1 && normalized.charAt(normalized.length - 1) === '/') {
+    normalized = normalized.substring(0, normalized.length - 1);
+  }
+  return normalized;
+}
+function hasQueryParameter(req, key) {
+  if (!req || !req.query || typeof req.query !== 'object') {
+    return false;
+  }
+  return Object.prototype.hasOwnProperty.call(req.query, key);
+}
+function isSystemAdminApiRequest(req) {
+  if (!req) {
+    return false;
+  }
+  const requestPath = normalizePathForCacheMatching(
+    getRequestPathWithoutQuery(req.originalUrl || req.url),
+  );
+  const systemRequestBasePath = normalizePathForCacheMatching(
+    '/' + String(HAXCMS.systemRequestBase || '').replace(/^\/+/, ''),
+  );
+  if (systemRequestBasePath === '/') {
+    return false;
+  }
+  if (requestPath === systemRequestBasePath) {
+    return true;
+  }
+  return requestPath.indexOf(systemRequestBasePath + '/') !== -1;
+}
+function shouldDisableResponseCache(req) {
+  if (!req) {
+    return false;
+  }
+  return hasQueryParameter(req, 'cb') || hasQueryParameter(req, 't');
 }
 
 

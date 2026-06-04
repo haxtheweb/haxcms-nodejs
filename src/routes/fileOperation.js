@@ -554,6 +554,10 @@ async function rotateImageInPlace(sourcePath, rotation = 90) {
     const rotatedBuffer = await sharp(sourcePath).rotate(rotationValue).toBuffer();
     await fs.writeFile(temporaryPath, rotatedBuffer);
     fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
+    try {
+      const now = new Date();
+      fs.utimesSync(sourcePath, now, now);
+    } catch (mtimeError) {}
   } catch (e) {
     if (fs.pathExistsSync(temporaryPath)) {
       fs.removeSync(temporaryPath);
