@@ -1,6 +1,7 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const HAXAppStoreService = require('../lib/HAXAppStoreService.js');
 const AppStoreService = new HAXAppStoreService();
+const { readEffectiveApiKeys } = require('../lib/apiKeys.js');
 const fs = require('fs-extra');
 const path = require('path');
 
@@ -71,6 +72,143 @@ function filterAutoloaderList(autoloaderList, enabledSet) {
   }
   return autoloaderList;
 }
+
+function buildProviderConnectionMap() {
+  return {
+    'www.googleapis.com/youtube/v3|search': 'youtube',
+    'api.vimeo.com|videos': 'vimeo',
+    'api.giphy.com|v1/gifs/search': 'giphy',
+    'api.unsplash.com|search/photos': 'unsplash',
+    'api.flickr.com|services/rest': 'flickr',
+    'images-api.nasa.gov|search': 'nasa',
+    'api.sketchfab.com|v3/search': 'sketchfab',
+    'api.dailymotion.com|videos': 'dailymotion',
+    'en.wikipedia.org|w/api.php': 'wikipedia',
+    'ccmixter.org|api/query': 'ccmixter',
+  };
+}
+
+function normalizeConnectionSegment(value = '') {
+  return String(value || '')
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
+function resolveProviderForApp(app, providerConnectionMap) {
+  if (!app || !app.connection || typeof app.connection !== 'object') {
+    return '';
+  }
+  if (!app.connection.operations || !app.connection.operations.browse) {
+    return '';
+  }
+  const connectionUrl = normalizeConnectionSegment(app.connection.url);
+  const browseEndPoint = normalizeConnectionSegment(
+    app.connection.operations.browse.endPoint,
+  );
+  const signature = `${connectionUrl}|${browseEndPoint}`;
+  if (Object.prototype.hasOwnProperty.call(providerConnectionMap, signature)) {
+    return providerConnectionMap[signature];
+  }
+  return '';
+}
+
+function parseConnectionUrl(urlString = '') {
+  try {
+    let parseTarget = `${urlString || ''}`.trim();
+    if (!/^[a-z]+:\/\//i.test(parseTarget)) {
+      parseTarget = `https://${parseTarget.replace(/^\/+/, '')}`;
+    }
+    const parsed = new URL(parseTarget);
+    const params = {};
+    parsed.searchParams.forEach((value, key) => {
+      params[key] = value;
+    });
+    return {
+      valid: true,
+      params,
+    };
+  }
+  catch (e) {
+    return {
+      valid: false,
+      params: {},
+    };
+  }
+}
+
+function mergeConnectionData(base = {}, extra = {}) {
+  const merged = {};
+  const baseKeys = Object.keys(base || {});
+  for (let i = 0; i < baseKeys.length; i++) {
+    const key = baseKeys[i];
+    merged[key] = base[key];
+  }
+  const extraKeys = Object.keys(extra || {});
+  for (let i = 0; i < extraKeys.length; i++) {
+    const key = extraKeys[i];
+    merged[key] = extra[key];
+  }
+  return merged;
+}
+
+function sanitizeBrokerConnectionData(input = {}) {
+  const blockedAuthParams = {
+    key: true,
+    access_token: true,
+    api_key: true,
+    client_id: true,
+  };
+  const sanitized = {};
+  const keys = Object.keys(input || {});
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (blockedAuthParams[key]) {
+      continue;
+    }
+    sanitized[key] = input[key];
+  }
+  return sanitized;
+}
+
+function rewriteConnectionToBroker(connection, provider, req) {
+  const parsed = parseConnectionUrl(connection.url || '');
+  const mergedData = sanitizeBrokerConnectionData(
+    mergeConnectionData(parsed.params, connection.data || {}),
+  );
+  mergedData.provider = provider;
+  mergedData.appstore_token = req.query['appstore_token'];
+  mergedData.site_token = req.query['site_token'];
+  mergedData.siteName = req.query['siteName'];
+  mergedData.__HAXJWT__ = true;
+  const browseOperation = (
+    connection.operations &&
+    connection.operations.browse &&
+    typeof connection.operations.browse === 'object'
+  ) ? connection.operations.browse : {};
+  const normalizedDomain = String(HAXCMS.domain || '').replace(/\/+$/, '');
+  const normalizedBasePath = String(HAXCMS.basePath || '')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+  const rewrittenUrl = normalizedBasePath
+    ? `${normalizedDomain}/${normalizedBasePath}`
+    : normalizedDomain;
+  return {
+    ...connection,
+    protocol: HAXCMS.protocol,
+    url: rewrittenUrl,
+    data: mergedData,
+    operations: {
+      ...(connection.operations || {}),
+      browse: {
+        ...browseOperation,
+        method: browseOperation.method || 'GET',
+        endPoint: `${HAXCMS.systemRequestBase}appStoreSearch`,
+      },
+    },
+  };
+}
 /**
  * @OA\Get(
  *    path="/generateAppStore",
@@ -102,17 +240,37 @@ async function generateAppStore(req, res) {
       req.query
     )
   ) {
-    let apikeys = {};
-    let baseApps = AppStoreService.baseSupportedApps();
-    for (var key in baseApps) {
-      if (
-        HAXCMS.config.appStore.apiKeys[key] &&
-        HAXCMS.config.appStore.apiKeys[key] != ''
-      ) {
-        apikeys[key] = HAXCMS.config.appStore.apiKeys[key];
+    const effectiveApiKeys = await readEffectiveApiKeys(HAXCMS);
+    const baseApps = AppStoreService.baseSupportedApps();
+    const providerConnectionMap = buildProviderConnectionMap();
+    const loadKeys = {};
+    const baseAppKeys = Object.keys(baseApps || {});
+    for (let i = 0; i < baseAppKeys.length; i++) {
+      const key = baseAppKeys[i];
+      const value = effectiveApiKeys[key];
+      if (typeof value === 'string' && value !== '') {
+        loadKeys[key] = value;
       }
     }
-    let appStore = AppStoreService.loadBaseAppStore(apikeys);
+    let appStore = AppStoreService.loadBaseAppStore(loadKeys);
+    const rewrittenApps = [];
+    for (let i = 0; i < appStore.length; i++) {
+      const app = appStore[i];
+      if (!app || typeof app !== 'object') {
+        continue;
+      }
+      const provider = resolveProviderForApp(app, providerConnectionMap);
+      if (provider && app.connection && typeof app.connection === 'object') {
+        rewrittenApps.push({
+          ...app,
+          connection: rewriteConnectionToBroker(app.connection, provider, req),
+        });
+      }
+      else {
+        rewrittenApps.push(app);
+      }
+    }
+    appStore = rewrittenApps;
     // pull in the core one we supply, though only upload works currently
     let tmp = HAXCMS.siteConnectionJSON(req.query['site_token']);
     appStore.push(tmp);

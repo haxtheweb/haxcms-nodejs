@@ -72,6 +72,38 @@ async function readApiKeys(haxcms) {
   return normalizeApiKeys(existing);
 }
 
+function readConfigApiKeys(haxcms) {
+  if (
+    !haxcms ||
+    !haxcms.config ||
+    !haxcms.config.appStore ||
+    !haxcms.config.appStore.apiKeys
+  ) {
+    return normalizeApiKeys({});
+  }
+  return normalizeApiKeys(haxcms.config.appStore.apiKeys);
+}
+
+async function readEffectiveApiKeys(haxcms) {
+  const configApiKeys = readConfigApiKeys(haxcms);
+  const filePath = getApiKeysFilePath(haxcms);
+  if (!(await fs.pathExists(filePath))) {
+    return configApiKeys;
+  }
+  const fileApiKeys = await readApiKeys(haxcms);
+  const mergedApiKeys = {
+    ...configApiKeys,
+  };
+  for (let i = 0; i < SUPPORTED_API_KEY_PROVIDERS.length; i++) {
+    const provider = SUPPORTED_API_KEY_PROVIDERS[i];
+    const value = normalizeApiKeyValue(fileApiKeys[provider]);
+    if (value !== '') {
+      mergedApiKeys[provider] = value;
+    }
+  }
+  return normalizeApiKeys(mergedApiKeys);
+}
+
 async function writeApiKeys(haxcms, keys = {}) {
   const filePath = getApiKeysFilePath(haxcms);
   const normalized = normalizeApiKeys(keys);
@@ -85,6 +117,8 @@ module.exports = {
   normalizeApiKeys,
   hasSupportedApiKeyPayload,
   readApiKeys,
+  readConfigApiKeys,
+  readEffectiveApiKeys,
   writeApiKeys,
   getApiKeysFilePath,
 };

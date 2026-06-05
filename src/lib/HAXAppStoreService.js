@@ -706,63 +706,6 @@ class HAXAppStoreService
     }`;
         tmp = JSON.parse(jsonstring);
         jsonData.push(tmp);
-        // codepen
-        jsonstring = `{
-      "details": {
-        "title": "Codepen.io",
-        "icon": "code",
-        "color": "green",
-        "author": "Code pen",
-        "description": "HTML / CSS / JS sharing community",
-        "status": "available",
-        "rating": "0",
-        "tags": ["code", "development", "html", "js", "crowdsourced"]
-      },
-      "connection": {
-        "protocol": "https",
-        "url": "cpv2api.com",
-        "operations": {
-          "browse": {
-            "method": "GET",
-            "endPoint": "search/pens",
-            "pagination": {
-              "style": "page",
-              "props": {
-                "per_page": "photos.perpage",
-                "total_pages": "photos.pages",
-                "page": "photos.page"
-              }
-            },
-            "search": {
-              "q": {
-                "title": "Search",
-                "type": "string"
-              }
-            },
-            "resultMap": {
-              "defaultGizmoType": "video",
-              "items": "data",
-              "preview": {
-                "title": "title",
-                "details": "details",
-                "image": "images.small",
-                "id": "id"
-              },
-              "gizmo": {
-                "_url_source": "https://codepen.io/fchazal/embed/<%= id %>/?theme-id=0&default-tab=html,result&embed-version=2",
-                "id": "id",
-                "image": "images.large",
-                "title": "title",
-                "caption": "details",
-                "description": "details"
-              }
-            }
-          }
-        }
-      }
-    }`;
-        tmp = JSON.parse(jsonstring);
-        jsonData.push(tmp);
 
         return jsonData;
     }
