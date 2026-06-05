@@ -6,6 +6,8 @@ const SiteRoutesMap = {
     openapi: require('../siteRoutes/discovery/openapi.js'),
     'openapi.json': require('../siteRoutes/discovery/openapi.js'),
     'openapi.yaml': require('../siteRoutes/discovery/openapi.js'),
+    'v1/site': require('../siteRoutes/v1/site.js'),
+    'v1/entities': require('../siteRoutes/v1/entities.js'),
   },
 };
 
