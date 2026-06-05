@@ -1,0 +1,1359 @@
+openapi: 3.0.3
+info:
+  title: HAXcms Site API
+  description: Read-oriented site API for discovery, querying, and machine consumption of HAXcms site data.
+  termsOfService: https://haxtheweb.org
+  contact:
+    email: hax@psu.edu
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  version: 0.1.0
+servers:
+  - url: /
+    description: Site-relative base URL
+tags:
+  - name: discovery
+    description: API discovery and capability endpoints
+  - name: site
+    description: Site metadata and capability endpoints
+  - name: entities
+    description: Entity catalog endpoints
+  - name: schemas
+    description: Schema catalog endpoints
+  - name: items
+    description: Outline and item metadata endpoints
+  - name: content
+    description: Content retrieval endpoints
+  - name: files
+    description: Site file asset endpoints
+  - name: tags
+    description: Tag and taxonomy endpoints
+  - name: search
+    description: Search endpoints
+  - name: custom-elements
+    description: Custom element metadata endpoints
+  - name: blocks
+    description: Block usage and schema endpoints
+  - name: regions
+    description: Region-aware item grouping endpoints
+  - name: themes
+    description: Theme metadata endpoints
+  - name: reports
+    description: Report datasets for dashboards
+  - name: analytics
+    description: Future-facing analytics and xAPI-oriented endpoints
+  - name: views
+    description: Saved view and display data endpoints
+paths:
+  /x/api:
+    get:
+      tags:
+        - discovery
+      operationId: getSiteApiCapabilities
+      summary: Get site API capabilities and links
+      responses:
+        "200":
+          description: Site API capability document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiCapabilities"
+  /x/api/openapi:
+    get:
+      tags:
+        - discovery
+      operationId: getSiteOpenApiJson
+      summary: Get site API OpenAPI specification as JSON
+      responses:
+        "200":
+          description: OpenAPI JSON document
+          content:
+            application/json:
+              schema:
+                type: object
+  /x/api/openapi.json:
+    get:
+      tags:
+        - discovery
+      operationId: getSiteOpenApiJsonAlias
+      summary: Get site API OpenAPI specification as JSON alias
+      responses:
+        "200":
+          description: OpenAPI JSON document
+          content:
+            application/json:
+              schema:
+                type: object
+  /x/api/openapi.yaml:
+    get:
+      tags:
+        - discovery
+      operationId: getSiteOpenApiYaml
+      summary: Get site API OpenAPI specification as YAML
+      responses:
+        "200":
+          description: OpenAPI YAML document
+          content:
+            application/yaml:
+              schema:
+                type: string
+            text/yaml:
+              schema:
+                type: string
+  /.well-known/api-catalog:
+    get:
+      tags:
+        - discovery
+      operationId: getApiCatalog
+      summary: Get API catalog linkset
+      responses:
+        "200":
+          description: API catalog linkset document
+          content:
+            application/linkset+json:
+              schema:
+                $ref: "#/components/schemas/ApiCatalogLinkset"
+  /x/api/v1/site:
+    get:
+      tags:
+        - site
+      operationId: getSiteSummary
+      summary: Get site-level metadata and API capability summary
+      responses:
+        "200":
+          description: Site summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSummary"
+  /x/api/v1/entities:
+    get:
+      tags:
+        - entities
+      operationId: listEntities
+      summary: List entity descriptors available in this site API
+      responses:
+        "200":
+          description: Entity descriptor list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entities:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EntityDescriptor"
+  /x/api/v1/schemas:
+    get:
+      tags:
+        - schemas
+      operationId: listSchemas
+      summary: List schema descriptors supported by this site
+      parameters:
+        - $ref: "#/components/parameters/FilterSchemaKind"
+        - $ref: "#/components/parameters/FilterWebcomponentName"
+      responses:
+        "200":
+          description: Schema descriptor list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schemas:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SchemaDescriptor"
+  /x/api/v1/items:
+    get:
+      tags:
+        - items
+      operationId: listItems
+      summary: List site items with filter and pagination support
+      parameters:
+        - $ref: "#/components/parameters/FilterParent"
+        - $ref: "#/components/parameters/FilterAncestor"
+        - $ref: "#/components/parameters/FilterDepth"
+        - $ref: "#/components/parameters/FilterTags"
+        - $ref: "#/components/parameters/FilterPublished"
+        - $ref: "#/components/parameters/FilterPageType"
+        - $ref: "#/components/parameters/FilterRegion"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+        - $ref: "#/components/parameters/Format"
+      responses:
+        "200":
+          description: Item collection
+          headers:
+            Vary:
+              $ref: "#/components/headers/VaryAccept"
+            Content-Location:
+              $ref: "#/components/headers/ContentLocation"
+            Link:
+              $ref: "#/components/headers/AlternateLink"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ItemSummary"
+            text/markdown:
+              schema:
+                type: string
+            application/yaml:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            text/html:
+              schema:
+                type: string
+  /x/api/v1/items/{idOrSlug}:
+    get:
+      tags:
+        - items
+      operationId: getItemByIdOrSlug
+      summary: Get an item by id or slug
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+        - $ref: "#/components/parameters/Format"
+      responses:
+        "200":
+          description: Item record
+          headers:
+            Vary:
+              $ref: "#/components/headers/VaryAccept"
+            Content-Location:
+              $ref: "#/components/headers/ContentLocation"
+            Link:
+              $ref: "#/components/headers/AlternateLink"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemSummary"
+            text/markdown:
+              schema:
+                type: string
+            application/yaml:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            text/html:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/content:
+    get:
+      tags:
+        - content
+      operationId: listContent
+      summary: Query content collections across site pages
+      parameters:
+        - $ref: "#/components/parameters/FilterParent"
+        - $ref: "#/components/parameters/FilterAncestor"
+        - $ref: "#/components/parameters/FilterDepth"
+        - $ref: "#/components/parameters/FilterTags"
+        - $ref: "#/components/parameters/FilterPublished"
+        - $ref: "#/components/parameters/FilterRegion"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+        - $ref: "#/components/parameters/Format"
+        - $ref: "#/components/parameters/Mode"
+      responses:
+        "200":
+          description: Content collection
+          headers:
+            Vary:
+              $ref: "#/components/headers/VaryAccept"
+            Content-Location:
+              $ref: "#/components/headers/ContentLocation"
+            Link:
+              $ref: "#/components/headers/AlternateLink"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mode:
+                    type: string
+                    enum:
+                      - bundle
+                      - concat
+                  content:
+                    oneOf:
+                      - type: array
+                        items:
+                          $ref: "#/components/schemas/ContentRecord"
+                      - type: string
+            text/markdown:
+              schema:
+                type: string
+            application/yaml:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            text/html:
+              schema:
+                type: string
+  /x/api/v1/content/{idOrSlug}:
+    get:
+      tags:
+        - content
+      operationId: getContentByIdOrSlug
+      summary: Get content for a specific page by id or slug
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+        - $ref: "#/components/parameters/Format"
+        - $ref: "#/components/parameters/Mode"
+      responses:
+        "200":
+          description: Content record
+          headers:
+            Vary:
+              $ref: "#/components/headers/VaryAccept"
+            Content-Location:
+              $ref: "#/components/headers/ContentLocation"
+            Link:
+              $ref: "#/components/headers/AlternateLink"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentRecord"
+            text/markdown:
+              schema:
+                type: string
+            application/yaml:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+            text/html:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/files:
+    get:
+      tags:
+        - files
+      operationId: listFiles
+      summary: List file assets available in the site
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+        - $ref: "#/components/parameters/Format"
+      responses:
+        "200":
+          description: File collection
+          headers:
+            Vary:
+              $ref: "#/components/headers/VaryAccept"
+            Content-Location:
+              $ref: "#/components/headers/ContentLocation"
+            Link:
+              $ref: "#/components/headers/AlternateLink"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FileRecord"
+            text/markdown:
+              schema:
+                type: string
+            application/yaml:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+  /x/api/v1/tags:
+    get:
+      tags:
+        - tags
+      operationId: listTags
+      summary: List tags/facets used by site content
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Format"
+      responses:
+        "200":
+          description: Tag collection
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tags:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TagRecord"
+  /x/api/v1/search:
+    get:
+      tags:
+        - search
+      operationId: searchSiteData
+      summary: Search across site items and content
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+        - $ref: "#/components/parameters/Format"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SearchResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /x/api/v1/custom-elements:
+    get:
+      tags:
+        - custom-elements
+      operationId: listCustomElements
+      summary: List custom elements supported by this site
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: Custom element descriptor list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customElements:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CustomElementRecord"
+  /x/api/v1/custom-elements/{webcomponentName}:
+    get:
+      tags:
+        - custom-elements
+      operationId: getCustomElementByName
+      summary: Get metadata for a specific custom element
+      parameters:
+        - $ref: "#/components/parameters/WebcomponentName"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: Custom element descriptor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomElementRecord"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/blocks:
+    get:
+      tags:
+        - blocks
+      operationId: listBlocks
+      summary: List block usage and definitions
+      parameters:
+        - $ref: "#/components/parameters/FilterTag"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: Block records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blocks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BlockRecord"
+  /x/api/v1/blocks/{webcomponentName}:
+    get:
+      tags:
+        - blocks
+      operationId: getBlockByWebcomponentName
+      summary: Get block definition and schema details for a specific custom element tag
+      description: Include `haxProperties`, `haxSchema`, and `haxElementSchema` via the `include` parameter.
+      parameters:
+        - $ref: "#/components/parameters/WebcomponentName"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: Block descriptor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockRecord"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/regions:
+    get:
+      tags:
+        - regions
+      operationId: listRegions
+      summary: List available regions used in site data
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Region list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  regions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RegionRecord"
+  /x/api/v1/regions/{regionName}:
+    get:
+      tags:
+        - regions
+      operationId: getRegionByName
+      summary: Get data about items in a specific region
+      parameters:
+        - $ref: "#/components/parameters/RegionName"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: Region-scoped data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  region:
+                    $ref: "#/components/schemas/RegionRecord"
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ItemSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/themes:
+    get:
+      tags:
+        - themes
+      operationId: listThemes
+      summary: List themes available to this site
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+      responses:
+        "200":
+          description: Theme records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  themes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ThemeRecord"
+  /x/api/v1/themes/{themeName}:
+    get:
+      tags:
+        - themes
+      operationId: getThemeByName
+      summary: Get data about one theme
+      parameters:
+        - $ref: "#/components/parameters/ThemeName"
+      responses:
+        "200":
+          description: Theme record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThemeRecord"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/themes/active:
+    get:
+      tags:
+        - themes
+      operationId: getActiveTheme
+      summary: Get data about the active theme
+      responses:
+        "200":
+          description: Active theme record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThemeRecord"
+  /x/api/v1/reports:
+    get:
+      tags:
+        - reports
+      operationId: listReports
+      summary: List report datasets available for dashboards
+      responses:
+        "200":
+          description: Report descriptor list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reports:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReportRecord"
+  /x/api/v1/reports/{report}:
+    get:
+      tags:
+        - reports
+      operationId: getReportByName
+      summary: Get a specific report dataset
+      parameters:
+        - $ref: "#/components/parameters/ReportName"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+        - $ref: "#/components/parameters/Format"
+      responses:
+        "200":
+          description: Report payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportRecord"
+            text/markdown:
+              schema:
+                type: string
+            application/yaml:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/analytics:
+    get:
+      tags:
+        - analytics
+      operationId: getAnalyticsOverview
+      summary: Get analytics capability overview and future xAPI support contract
+      responses:
+        "200":
+          description: Analytics summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsRecord"
+  /x/api/v1/views:
+    get:
+      tags:
+        - views
+      operationId: listViews
+      summary: List saved views/displays
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+      responses:
+        "200":
+          description: View list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  views:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ViewRecord"
+  /x/api/v1/views/{viewId}:
+    get:
+      tags:
+        - views
+      operationId: getViewById
+      summary: Get a specific view/display definition
+      parameters:
+        - $ref: "#/components/parameters/ViewId"
+      responses:
+        "200":
+          description: View record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViewRecord"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/views/{viewId}/results:
+    get:
+      tags:
+        - views
+      operationId: getViewResults
+      summary: Resolve data for a saved view/display
+      parameters:
+        - $ref: "#/components/parameters/ViewId"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Include"
+        - $ref: "#/components/parameters/Format"
+      responses:
+        "200":
+          description: View result payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  view:
+                    $ref: "#/components/schemas/ViewRecord"
+                  results:
+                    type: array
+                    items:
+                      type: object
+            text/markdown:
+              schema:
+                type: string
+            application/yaml:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/displays:
+    get:
+      tags:
+        - views
+      operationId: listDisplaysAlias
+      summary: Alias of views list for display-driven integrations
+      responses:
+        "200":
+          description: View list alias
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  views:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ViewRecord"
+  /x/api/v1/displays/{viewId}/results:
+    get:
+      tags:
+        - views
+      operationId: getDisplayResultsAlias
+      summary: Alias of view results endpoint
+      parameters:
+        - $ref: "#/components/parameters/ViewId"
+      responses:
+        "200":
+          description: View result payload alias
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          $ref: "#/components/responses/NotFound"
+components:
+  headers:
+    VaryAccept:
+      description: Indicates response varies by Accept header
+      schema:
+        type: string
+        example: Accept
+    ContentLocation:
+      description: Canonical location for the returned representation
+      schema:
+        type: string
+        example: /x/api/v1/content/course-intro.json
+    AlternateLink:
+      description: Alternate representations available for the same resource
+      schema:
+        type: string
+        example: </x/api/v1/content/course-intro.md>; rel="alternate"; type="text/markdown"
+  parameters:
+    IdOrSlug:
+      name: idOrSlug
+      in: path
+      required: true
+      description: Item identifier or slug
+      schema:
+        type: string
+    WebcomponentName:
+      name: webcomponentName
+      in: path
+      required: true
+      description: Custom element tag name (e.g., video-player)
+      schema:
+        type: string
+    RegionName:
+      name: regionName
+      in: path
+      required: true
+      description: Region name to scope data (e.g., main, sidebar, footer)
+      schema:
+        type: string
+    ThemeName:
+      name: themeName
+      in: path
+      required: true
+      description: Theme machine name
+      schema:
+        type: string
+    ReportName:
+      name: report
+      in: path
+      required: true
+      description: Report identifier
+      schema:
+        type: string
+    ViewId:
+      name: viewId
+      in: path
+      required: true
+      description: Saved view/display identifier
+      schema:
+        type: string
+    SearchQuery:
+      name: q
+      in: query
+      description: Search query text
+      required: true
+      schema:
+        type: string
+    FilterParent:
+      name: filter.parent
+      in: query
+      description: Filter by parent item id
+      schema:
+        type: string
+    FilterAncestor:
+      name: filter.ancestor
+      in: query
+      description: Filter by ancestor item id
+      schema:
+        type: string
+    FilterDepth:
+      name: filter.depth
+      in: query
+      description: Maximum depth from root or ancestor
+      schema:
+        type: integer
+        minimum: 0
+    FilterTags:
+      name: filter.tags
+      in: query
+      description: Comma-separated tags
+      schema:
+        type: string
+    FilterPublished:
+      name: filter.published
+      in: query
+      description: Filter by published state
+      schema:
+        type: boolean
+    FilterPageType:
+      name: filter.pageType
+      in: query
+      description: Filter by page type metadata
+      schema:
+        type: string
+    FilterRegion:
+      name: filter.region
+      in: query
+      description: Filter by region name
+      schema:
+        type: string
+    FilterTag:
+      name: filter.tag
+      in: query
+      description: Filter by custom element tag name
+      schema:
+        type: string
+    FilterSchemaKind:
+      name: filter.kind
+      in: query
+      description: Schema kind filter (e.g., haxProperties, haxSchema)
+      schema:
+        type: string
+    FilterWebcomponentName:
+      name: filter.webcomponentName
+      in: query
+      description: Filter schema/block records by custom element tag name
+      schema:
+        type: string
+    PageLimit:
+      name: page.limit
+      in: query
+      description: Maximum number of records to return
+      schema:
+        type: integer
+        minimum: 1
+        default: 25
+    PageOffset:
+      name: page.offset
+      in: query
+      description: Zero-based offset into result set
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    Sort:
+      name: sort
+      in: query
+      description: Sort expression (e.g., title,-updated)
+      schema:
+        type: string
+    Fields:
+      name: fields
+      in: query
+      description: Sparse fieldset projection
+      schema:
+        type: string
+    Include:
+      name: include
+      in: query
+      description: Comma-separated related resources to include
+      schema:
+        type: string
+        example: item,region,haxProperties,haxSchema,haxElementSchema
+    Format:
+      name: format
+      in: query
+      description: Output format override (secondary to Accept negotiation)
+      schema:
+        type: string
+        enum:
+          - json
+          - md
+          - yaml
+          - xml
+          - html
+    Mode:
+      name: mode
+      in: query
+      description: Content collection response mode
+      schema:
+        type: string
+        enum:
+          - bundle
+          - concat
+        default: bundle
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalServerError:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    ApiCapabilities:
+      type: object
+      properties:
+        name:
+          type: string
+          example: HAXcms Site API
+        version:
+          type: string
+        mode:
+          type: string
+          example: read-only
+        links:
+          type: object
+          properties:
+            openapi:
+              type: string
+              example: /x/api/openapi
+            openapiJson:
+              type: string
+              example: /x/api/openapi.json
+            openapiYaml:
+              type: string
+              example: /x/api/openapi.yaml
+            entities:
+              type: string
+              example: /x/api/v1/entities
+            schemas:
+              type: string
+              example: /x/api/v1/schemas
+        supports:
+          type: object
+          properties:
+            formats:
+              type: array
+              items:
+                type: string
+            modes:
+              type: array
+              items:
+                type: string
+            queryGrammar:
+              type: array
+              items:
+                type: string
+    ApiCatalogLinkset:
+      type: object
+      properties:
+        linkset:
+          type: array
+          items:
+            type: object
+            properties:
+              anchor:
+                type: string
+              item:
+                type: array
+                items:
+                  type: object
+              service-desc:
+                type: array
+                items:
+                  type: object
+    SiteSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        language:
+          type: string
+        basePath:
+          type: string
+        theme:
+          type: string
+        updated:
+          type: string
+          format: date-time
+        counts:
+          type: object
+          additionalProperties:
+            type: integer
+    EntityDescriptor:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        primaryKey:
+          type: string
+        endpoints:
+          type: array
+          items:
+            type: string
+        filterableFields:
+          type: array
+          items:
+            type: string
+        sortableFields:
+          type: array
+          items:
+            type: string
+        selectableFields:
+          type: array
+          items:
+            type: string
+        includes:
+          type: array
+          items:
+            type: string
+        formats:
+          type: array
+          items:
+            type: string
+        modes:
+          type: array
+          items:
+            type: string
+    SchemaDescriptor:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        version:
+          type: string
+        kind:
+          type: string
+        mediaType:
+          type: string
+        appliesTo:
+          type: array
+          items:
+            type: string
+        schema:
+          type: object
+          additionalProperties: true
+    ItemSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        slug:
+          type: string
+        parent:
+          type: string
+          nullable: true
+        order:
+          type: number
+        indent:
+          type: number
+        description:
+          type: string
+        region:
+          type: string
+        tags:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        metadata:
+          type: object
+          additionalProperties: true
+    ContentRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        title:
+          type: string
+        format:
+          type: string
+        mode:
+          type: string
+        body:
+          type: string
+    FileRecord:
+      type: object
+      properties:
+        path:
+          type: string
+        fullUrl:
+          type: string
+        url:
+          type: string
+        mimetype:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+        dateCreated:
+          type: integer
+    TagRecord:
+      type: object
+      properties:
+        tag:
+          type: string
+        count:
+          type: integer
+    SearchResult:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        slug:
+          type: string
+        score:
+          type: number
+        snippet:
+          type: string
+        matches:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    CustomElementRecord:
+      type: object
+      properties:
+        tag:
+          type: string
+        import:
+          type: string
+        package:
+          type: string
+        description:
+          type: string
+        haxProperties:
+          type: object
+          additionalProperties: true
+    BlockRecord:
+      type: object
+      properties:
+        tag:
+          type: string
+        enabled:
+          type: boolean
+        usageCount:
+          type: integer
+        haxProperties:
+          type: object
+          additionalProperties: true
+        haxSchema:
+          type: object
+          additionalProperties: true
+        haxElementSchema:
+          type: object
+          additionalProperties: true
+    RegionRecord:
+      type: object
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
+    ThemeRecord:
+      type: object
+      properties:
+        machineName:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        active:
+          type: boolean
+        screenshot:
+          type: string
+    ReportRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        data:
+          type: object
+          additionalProperties: true
+    AnalyticsRecord:
+      type: object
+      properties:
+        mode:
+          type: string
+          example: read-only
+        xapi:
+          type: object
+          properties:
+            supported:
+              type: boolean
+            statementFormats:
+              type: array
+              items:
+                type: string
+        notes:
+          type: array
+          items:
+            type: string
+    ViewRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        query:
+          type: object
+          additionalProperties: true
+        display:
+          type: object
+          additionalProperties: true
+    Error:
+      type: object
+      properties:
+        status:
+          type: integer
+        message:
+          type: string
