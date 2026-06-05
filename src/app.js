@@ -56,6 +56,7 @@ if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT
 }
 // routes with all requires
 const { RoutesMap, OpenRoutes, SystemAdminRoutes } = require('./lib/RoutesMap.js');
+const { SiteRoutesMap } = require('./lib/SiteRoutesMap.js');
 // app settings
 const multer = require('multer');
 const { crossOriginOpenerPolicy } = require('helmet');
@@ -161,7 +162,7 @@ systemStructureContext().then((site) => {
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
-      if (req.url.includes('/system/api/')) {
+      if (req.url.includes('/system/api/') || isSiteApiRequestPath(req.url)) {
         next()
       }
       // previous will catch as json, undo that
@@ -310,7 +311,7 @@ systemStructureContext().then((site) => {
     // sites need rewriting to work with PWA routes without failing file location
     // similar to htaccess
     app.use(`/${HAXCMS.sitesDirectory}/`, async (req, res, next) => {
-      if (req.url.includes('/system/api/')) {
+      if (req.url.includes('/system/api/') || isSiteApiRequestPath(req.url)) {
         next()
       }
       // previous will catch as json, undo that
@@ -494,6 +495,20 @@ systemStructureContext().then((site) => {
       });
     }
   }
+  // loop through site API routes and register discovery/read paths under x/api
+  const siteApiBasePath = getSiteApiBasePath();
+  for (let siteMethod in SiteRoutesMap) {
+    for (let siteRoute in SiteRoutesMap[siteMethod]) {
+      const routeSuffix = siteRoute === '' ? '' : '/' + siteRoute;
+      const siteRoutePath = `${siteApiBasePath}${routeSuffix}`;
+      app[siteMethod](siteRoutePath, (req, res, next) => {
+        SiteRoutesMap[siteMethod][siteRoute](req, res, next);
+      });
+      app[siteMethod](`/${HAXCMS.sitesDirectory}/*${siteRoutePath}`, (req, res, next) => {
+        SiteRoutesMap[siteMethod][siteRoute](req, res, next);
+      });
+    }
+  }
   // can't do this for a site context
   if (!site) {
     // catch anything called on homepage that doens't match and ensure it still goes through so that it 404s correctly
@@ -655,8 +670,24 @@ function validateSystemAdminRouteAccess(req, op = '') {
   }
   return true;
 }
+function getNormalizedBasePath() {
+  let basePath = String(HAXCMS.basePath || '/');
+  if (basePath.charAt(0) !== '/') {
+    basePath = '/' + basePath;
+  }
+  if (basePath.charAt(basePath.length - 1) !== '/') {
+    basePath += '/';
+  }
+  return basePath;
+}
+function getSiteApiBasePath() {
+  return getNormalizedBasePath() + 'x/api';
+}
 function getRequestPathWithoutQuery(url = '') {
   return String(url || '').split('?')[0];
+}
+function isSiteApiRequestPath(url = '') {
+  return /\/x\/api(?:\/|$)/.test(getRequestPathWithoutQuery(url));
 }
 function setWellKnownContentType(res, requestPath = '') {
   const cleanRequestPath = getRequestPathWithoutQuery(requestPath);
