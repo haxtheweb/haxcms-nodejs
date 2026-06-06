@@ -89,6 +89,9 @@ function buildSchemaDescriptors(apiBasePath = '/x/api', webcomponentName = '') {
       kind: 'haxElementSchema',
       mediaType: 'application/json',
       appliesTo: ['block', 'customElement'],
+      links: {
+        spec: 'https://github.com/haxtheweb/hax-element-schema',
+      },
       schema: {
         tag: webcomponentTag,
         type: 'object',
@@ -127,6 +130,9 @@ function buildSchemaDescriptors(apiBasePath = '/x/api', webcomponentName = '') {
       kind: 'appStoreSchema',
       mediaType: 'application/json',
       appliesTo: ['customElement', 'block'],
+      links: {
+        spec: 'https://github.com/haxtheweb/appstore-spec',
+      },
       schema: {
         type: 'object',
         properties: {
