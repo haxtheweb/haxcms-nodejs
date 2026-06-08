@@ -13,25 +13,28 @@ async function analytics(req, res) {
     });
   }
   const apiBasePath = getApiBasePath(req);
+  const xapiSchemaLink = `${apiBasePath}/v1/schemas?filter.kind=xapi`;
   return sendFormattedResponse(
     req,
     res,
     {
       mode: 'read-only',
       xapi: {
-        supported: false,
-        statementFormats: ['application/json'],
+        supported: true,
+        schema: xapiSchemaLink,
+        statementFormats: ['application/xapi+json', 'application/json'],
         notes: [
-          'xAPI statement capture is planned for a future authenticated endpoint set.',
+          'xAPI statement payloads are defined through the linked schema descriptor.',
         ],
       },
       notes: [
         'This endpoint currently reports analytics capability metadata only.',
-        'User-level analytics and xAPI exports are intentionally deferred.',
+        'xAPI schema discovery is available through /x/api/v1/schemas.',
       ],
       links: {
         self: `${apiBasePath}/v1/analytics`,
         reports: `${apiBasePath}/v1/reports`,
+        xapiSchema: xapiSchemaLink,
       },
     },
     {

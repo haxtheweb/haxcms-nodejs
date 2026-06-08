@@ -1,5 +1,6 @@
 const fs = require('fs-extra');
 const path = require('path');
+const { parse } = require('node-html-parser');
 const { HAXCMS } = require('../../lib/HAXCMS.js');
 const {
   getApiBasePath,
@@ -119,8 +120,8 @@ function buildSchemaFragments(tag, importPath) {
     },
     haxElementSchema: {
       tag,
-      properties: [],
-      slots: [],
+      properties: {},
+      content: '',
     },
   };
 }
@@ -156,6 +157,44 @@ function countTagUsageInHtml(tag, html = '') {
   }
   return count;
 }
+function buildContextualHaxElementSchema(tag, element = null) {
+  const properties = {};
+  if (element && element.attributes && typeof element.attributes === 'object') {
+    const attributeNames = Object.keys(element.attributes);
+    for (let i = 0; i < attributeNames.length; i++) {
+      const name = attributeNames[i];
+      const value = element.getAttribute(name);
+      properties[name] = value === null ? true : value;
+    }
+  }
+  return {
+    tag,
+    properties,
+    content: element && element.innerHTML ? String(element.innerHTML) : '',
+  };
+}
+
+function extractTagUsageInstances(tag, html = '') {
+  const cleanTag = String(tag || '').trim().toLowerCase();
+  if (cleanTag === '') {
+    return [];
+  }
+  const source = String(html || '');
+  if (source === '') {
+    return [];
+  }
+  const wrapper = parse(`<div data-block-usage-wrapper>${source}</div>`);
+  const matches = wrapper.querySelectorAll(cleanTag);
+  const instances = [];
+  for (let i = 0; i < matches.length; i++) {
+    const element = matches[i];
+    instances.push({
+      instance: i + 1,
+      haxElementSchema: buildContextualHaxElementSchema(cleanTag, element),
+    });
+  }
+  return instances;
+}
 
 function isKnownBlockTag(webcomponentName, wcMap, usage = {}) {
   return (
@@ -188,15 +227,51 @@ async function buildBlockUsageRecords(
   return records;
 }
 
+async function buildBlockUsageDetails(
+  site,
+  items,
+  webcomponentName,
+  apiBasePath,
+) {
+  const details = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const html = await getItemContent(site, item);
+    const instances = extractTagUsageInstances(webcomponentName, html);
+    if (instances.length < 1) {
+      continue;
+    }
+    const summary = itemToSummary(item, apiBasePath);
+    details.push({
+      id: summary.id,
+      slug: summary.slug,
+      title: summary.title,
+      location: summary.location,
+      usageCount: instances.length,
+      instances,
+      links: {
+        self: summary.links.self,
+        content: summary.links.content,
+      },
+    });
+  }
+  return details;
+}
+
 function buildBlockRecord(
   tag,
   usageCount,
+  usageItemIds,
   include,
   enabledBlockSet,
   wcMap,
   apiBasePath,
+  options = {},
 ) {
   const importPath = parseImportPath(wcMap[tag]);
+  const normalizedUsageItemIds = Array.isArray(usageItemIds)
+    ? [...new Set(usageItemIds.filter((id) => typeof id === 'string' && id !== ''))]
+    : [];
   const hasExplicitEnabledList = enabledBlockSet && enabledBlockSet.size > 0;
   const enabled = hasExplicitEnabledList ? enabledBlockSet.has(tag) : true;
   const schemaLinks = getBlockSchemaLinks(apiBasePath, tag);
@@ -204,6 +279,8 @@ function buildBlockRecord(
     tag,
     enabled,
     usageCount: Number(usageCount || 0),
+    used: Number(usageCount || 0) > 0,
+    usedIn: normalizedUsageItemIds,
     import: importPath,
     package: parsePackageName(importPath),
     links: {
@@ -241,8 +318,8 @@ function buildBlockRecord(
   if (include.indexOf('haxSchema') !== -1) {
     record.haxSchema = schemaFragments.haxSchema;
   }
-  if (include.indexOf('haxElementSchema') !== -1) {
-    record.haxElementSchema = schemaFragments.haxElementSchema;
+  if (Array.isArray(options.usedInDetails)) {
+    record.usedInDetails = options.usedInDetails;
   }
   return record;
 }
@@ -280,7 +357,15 @@ async function listBlocks(req, res) {
   let records = Array.from(tagSet)
     .filter((tag) => tag !== '')
     .map((tag) =>
-      buildBlockRecord(tag, usage[tag] || 0, include, enabledBlockSet, wcMap, apiBasePath),
+      buildBlockRecord(
+        tag,
+        usage[tag] || 0,
+        [],
+        include,
+        enabledBlockSet,
+        wcMap,
+        apiBasePath,
+      ),
     );
   if (filterTag !== '') {
     records = records.filter((record) => record.tag.indexOf(filterTag) !== -1);
@@ -328,24 +413,41 @@ async function blockDetail(req, res) {
   const apiBasePath = getApiBasePath(req);
   const include = getCsvQuery(req, 'include');
   const fields = getCsvQuery(req, 'fields');
-  const usage = await collectCustomElementUsage(site, getOrderedItems(site));
+  const orderedItems = getOrderedItems(site);
   const wcMap = HAXCMS.getWCRegistryJson(site);
   const enabledBlocks = await readEnabledBlocksSetting();
   const enabledBlockSet = new Set(Array.isArray(enabledBlocks) ? enabledBlocks : []);
-  const known = isKnownBlockTag(webcomponentName, wcMap, usage);
+  const usageDetails = await buildBlockUsageDetails(
+    site,
+    orderedItems,
+    webcomponentName,
+    apiBasePath,
+  );
+  const known =
+    isKnownBlockTag(webcomponentName, wcMap, {}) || usageDetails.length > 0;
   if (!known) {
     return res.status(404).json({
       status: 404,
       message: `Block "${webcomponentName}" not found`,
     });
   }
+  const usageItemIds = usageDetails
+    .map((detail) => String(detail.id || '').trim())
+    .filter((id) => id !== '');
+  const usageCount = usageDetails.reduce((total, detail) => {
+    return total + Number(detail.usageCount || 0);
+  }, 0);
   const record = buildBlockRecord(
     webcomponentName,
-    usage[webcomponentName] || 0,
+    usageCount,
+    usageItemIds,
     include,
     enabledBlockSet,
     wcMap,
     apiBasePath,
+    {
+      usedInDetails: usageDetails,
+    },
   );
   const outputRecord = projectRecord(record, fields);
   return sendFormattedResponse(req, res, outputRecord, {

@@ -48,7 +48,10 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       name: 'site',
       description: 'Site-level metadata and API capability summary.',
       primaryKey: 'id',
-      endpoints: [`${apiBasePath}/v1/site`],
+      endpoints: [
+        `${apiBasePath}/v1/site`,
+        `${apiBasePath}/v1/site/export/{format}`,
+      ],
       filterableFields: [],
       sortableFields: ['title', 'updated'],
       selectableFields: [
@@ -61,6 +64,8 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
         'theme',
         'updated',
         'counts',
+        'links',
+        'jsonld',
       ],
       includes: [],
       formats: ['application/json'],
@@ -75,6 +80,7 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       endpoints: [
         `${apiBasePath}/v1/items`,
         `${apiBasePath}/v1/items/{idOrSlug}`,
+        `${apiBasePath}/v1/items/{idOrSlug}/export/{format}`,
       ],
       filterableFields: [
         'filter.parent',
@@ -95,8 +101,12 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
         'order',
         'description',
         'metadata',
+        'links',
+        'exports',
+        'jsonld',
+        'haxElementSchema',
       ],
-      includes: ['content', 'tags', 'region'],
+      includes: ['content', 'tags', 'region', 'jsonld', 'haxElementSchema'],
       formats: [
         'application/json',
         'text/markdown',
@@ -320,6 +330,13 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       modes: ['bundle'],
       auth: 'public',
       supportedOperations: ['read'],
+      related: [
+        {
+          rel: 'schema',
+          type: 'xapi',
+          href: `${apiBasePath}/v1/schemas?filter.kind=xapi`,
+        },
+      ],
     },
     {
       name: 'view',

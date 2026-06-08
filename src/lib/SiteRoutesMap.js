@@ -7,10 +7,13 @@ const SiteRoutesMap = {
     'openapi.json': require('../siteRoutes/discovery/openapi.js'),
     'openapi.yaml': require('../siteRoutes/discovery/openapi.js'),
     'v1/site': require('../siteRoutes/v1/site.js'),
+    'v1/site/export/:format': require('../siteRoutes/v1/exports.js').siteExport,
     'v1/entities': require('../siteRoutes/v1/entities.js'),
     'v1/schemas': require('../siteRoutes/v1/schemas.js'),
     'v1/items': require('../siteRoutes/v1/items.js').listItems,
     'v1/items/:idOrSlug': require('../siteRoutes/v1/items.js').itemDetail,
+    'v1/items/:idOrSlug/export/:format':
+      require('../siteRoutes/v1/exports.js').itemExport,
     'v1/content': require('../siteRoutes/v1/content.js').listContent,
     'v1/content/:idOrSlug': require('../siteRoutes/v1/content.js').contentDetail,
     'v1/files': require('../siteRoutes/v1/files.js'),

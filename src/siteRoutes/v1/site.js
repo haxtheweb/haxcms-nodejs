@@ -164,6 +164,26 @@ function getSiteBasePath(site) {
   return String(HAXCMS.basePath || '/');
 }
 
+function normalizeBasePath(basePath = '/') {
+  let output = String(basePath || '/').trim();
+  if (output === '') {
+    output = '/';
+  }
+  if (output.charAt(0) !== '/') {
+    output = '/' + output;
+  }
+  if (output.charAt(output.length - 1) !== '/') {
+    output += '/';
+  }
+  return output;
+}
+
+function joinRelativePath(basePath = '/', relativePath = '') {
+  const normalizedBasePath = normalizeBasePath(basePath);
+  const cleanRelativePath = String(relativePath || '').replace(/^\/+/, '');
+  return `${normalizedBasePath}${cleanRelativePath}`;
+}
+
 function buildCounts(site, items) {
   const tagSet = new Set();
   const regionSet = new Set();
@@ -193,17 +213,110 @@ function buildCounts(site, items) {
   };
 }
 
-function buildSiteLinks(req) {
+function buildSiteJsonLd(site, links, counts = {}) {
+  const siteName =
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    site.manifest.metadata.site.name
+      ? String(site.manifest.metadata.site.name)
+      : String(site && site.name ? site.name : 'site');
+  const siteTitle =
+    site && site.manifest && site.manifest.title
+      ? String(site.manifest.title)
+      : siteName;
+  const siteDescription =
+    site && site.manifest && site.manifest.description
+      ? String(site.manifest.description)
+      : '';
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'Dataset',
+    '@id': `${links.self}#site-summary`,
+    name: `${siteTitle} API summary`,
+    description: siteDescription,
+    url: links.self,
+    inLanguage: getSiteLanguage(site),
+    distribution: [
+      {
+        '@type': 'DataDownload',
+        name: 'Site manifest (site.json)',
+        encodingFormat: 'application/json',
+        contentUrl: links.siteJson,
+      },
+      {
+        '@type': 'DataDownload',
+        name: 'RSS feed',
+        encodingFormat: 'application/rss+xml',
+        contentUrl: links.rss,
+      },
+      {
+        '@type': 'DataDownload',
+        name: 'Sitemap',
+        encodingFormat: 'application/xml',
+        contentUrl: links.sitemap,
+      },
+    ],
+    variableMeasured: [
+      {
+        '@type': 'PropertyValue',
+        name: 'items',
+        value: Number(counts.items || 0),
+      },
+      {
+        '@type': 'PropertyValue',
+        name: 'publishedItems',
+        value: Number(counts.publishedItems || 0),
+      },
+      {
+        '@type': 'PropertyValue',
+        name: 'tags',
+        value: Number(counts.tags || 0),
+      },
+      {
+        '@type': 'PropertyValue',
+        name: 'regions',
+        value: Number(counts.regions || 0),
+      },
+      {
+        '@type': 'PropertyValue',
+        name: 'files',
+        value: Number(counts.files || 0),
+      },
+    ],
+  };
+}
+
+function buildSiteLinks(req, site) {
   const requestPath = getRequestPath(req);
   const matched = String(requestPath || '').match(/^(.*\/x\/api)(?:\/.*)?$/);
   const apiBasePath = matched && matched[1] ? matched[1] : '/x/api';
+  const siteBasePath = getSiteBasePath(site);
   return {
     self: `${apiBasePath}/v1/site`,
+    items: `${apiBasePath}/v1/items`,
     entities: `${apiBasePath}/v1/entities`,
     schemas: `${apiBasePath}/v1/schemas`,
     openapi: `${apiBasePath}/openapi`,
     openapiJson: `${apiBasePath}/openapi.json`,
     openapiYaml: `${apiBasePath}/openapi.yaml`,
+    manifest: joinRelativePath(siteBasePath, 'manifest.json'),
+    serviceWorker: joinRelativePath(siteBasePath, 'service-worker.js'),
+    serviceWorkerManifest: joinRelativePath(siteBasePath, 'push-manifest.json'),
+    rss: joinRelativePath(siteBasePath, 'rss.xml'),
+    atom: joinRelativePath(siteBasePath, 'atom.xml'),
+    siteJson: joinRelativePath(siteBasePath, 'site.json'),
+    sitemap: joinRelativePath(siteBasePath, 'sitemap.xml'),
+    sitemapIndex: joinRelativePath(siteBasePath, 'sitemap-index.xml'),
+    exports: {
+      zip: `${apiBasePath}/v1/site/export/zip`,
+      markdown: `${apiBasePath}/v1/site/export/markdown`,
+      pdf: `${apiBasePath}/v1/site/export/pdf`,
+      docx: `${apiBasePath}/v1/site/export/docx`,
+      epub: `${apiBasePath}/v1/site/export/epub`,
+      skeleton: `${apiBasePath}/v1/site/export/skeleton`,
+    },
   };
 }
 
@@ -225,6 +338,8 @@ async function siteSummary(req, res) {
     });
   }
   const items = normalizeManifestItems(site);
+  const counts = buildCounts(site, items);
+  const links = buildSiteLinks(req, site);
   return res.json({
     status: 200,
     data: {
@@ -247,8 +362,9 @@ async function siteSummary(req, res) {
         site.manifest.metadata.site
           ? toIsoDateFromUnixTime(site.manifest.metadata.site.updated)
           : null,
-      counts: buildCounts(site, items),
-      links: buildSiteLinks(req),
+      counts,
+      links,
+      jsonld: buildSiteJsonLd(site, links, counts),
     },
   });
 }

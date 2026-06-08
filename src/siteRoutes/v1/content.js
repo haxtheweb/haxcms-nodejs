@@ -13,6 +13,7 @@ const {
   sendFormattedResponse,
   findItemByIdOrSlug,
   getItemContent,
+  getSiteBasePath,
 } = require('./siteRouteUtils.js');
 
 function buildConcatMarkdown(records = []) {
@@ -38,6 +39,72 @@ function buildConcatHtml(records = []) {
   return sections.join('\n');
 }
 
+function getItemLookupValue(item) {
+  if (item && item.slug) {
+    return String(item.slug);
+  }
+  if (item && item.id) {
+    return String(item.id);
+  }
+  return '';
+}
+
+function normalizeBasePath(basePath = '/') {
+  let output = String(basePath || '/').trim();
+  if (output === '') {
+    output = '/';
+  }
+  if (output.charAt(0) !== '/') {
+    output = '/' + output;
+  }
+  if (output.charAt(output.length - 1) !== '/') {
+    output += '/';
+  }
+  return output;
+}
+
+function encodeSlugPath(slug = '') {
+  return String(slug || '')
+    .split('/')
+    .map((segment) => String(segment || '').trim())
+    .filter((segment) => segment !== '')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+function buildCanonicalPagePath(basePath = '/', slug = '') {
+  const normalizedBasePath = normalizeBasePath(basePath).replace(/\/+$/, '');
+  const encodedSlugPath = encodeSlugPath(slug);
+  if (encodedSlugPath === '') {
+    return normalizedBasePath === '' ? '/' : normalizedBasePath;
+  }
+  if (normalizedBasePath === '' || normalizedBasePath === '/') {
+    return `/${encodedSlugPath}`;
+  }
+  return `${normalizedBasePath}/${encodedSlugPath}`;
+}
+
+function buildContentLinks(
+  apiBasePath = '/x/api',
+  itemLookupValue = '',
+  siteBasePath = '/',
+  itemSlug = '',
+) {
+  const encodedLookup = encodeURIComponent(String(itemLookupValue || ''));
+  const selfLink = `${apiBasePath}/v1/content/${encodedLookup}`;
+  const canonicalPagePath = buildCanonicalPagePath(siteBasePath, itemSlug);
+  return {
+    self: selfLink,
+    item: `${apiBasePath}/v1/items/${encodedLookup}`,
+    page: canonicalPagePath,
+    json: `${canonicalPagePath}.json`,
+    md: `${canonicalPagePath}.md`,
+    yaml: `${canonicalPagePath}.yaml`,
+    xml: `${canonicalPagePath}.xml`,
+    html: `${canonicalPagePath}.html`,
+  };
+}
+
 async function listContent(req, res) {
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest) {
@@ -47,6 +114,7 @@ async function listContent(req, res) {
     });
   }
   const apiBasePath = getApiBasePath(req);
+  const siteBasePath = getSiteBasePath(site);
   const fields = getCsvQuery(req, 'fields');
   const modeValue = String(getQueryValue(req, 'mode', 'bundle') || '').trim();
   const mode = modeValue === 'concat' ? 'concat' : 'bundle';
@@ -57,10 +125,14 @@ async function listContent(req, res) {
     const item = filteredItems[i];
     const body = await getItemContent(site, item);
     const record = contentToRecord(item, body);
-    record.links = {
-      self: `${apiBasePath}/v1/content/${encodeURIComponent(item && item.slug ? item.slug : item && item.id ? item.id : '')}`,
-      item: `${apiBasePath}/v1/items/${encodeURIComponent(item && item.slug ? item.slug : item && item.id ? item.id : '')}`,
-    };
+    const itemLookupValue = getItemLookupValue(item);
+    const itemSlug = item && item.slug ? String(item.slug) : itemLookupValue;
+    record.links = buildContentLinks(
+      apiBasePath,
+      itemLookupValue,
+      siteBasePath,
+      itemSlug,
+    );
     records.push(record);
   }
   const sortedRecords = sortRecords(records, getQueryValue(req, 'sort', ''), 'title');
@@ -105,12 +177,20 @@ async function contentDetail(req, res) {
       message: `Content not found for idOrSlug "${idOrSlug}"`,
     });
   }
+  const apiBasePath = getApiBasePath(req);
+  const siteBasePath = getSiteBasePath(site);
   const fields = getCsvQuery(req, 'fields');
   const modeValue = String(getQueryValue(req, 'mode', 'bundle') || '').trim();
   const mode = modeValue === 'concat' ? 'concat' : 'bundle';
   const body = await getItemContent(site, item);
   let record = contentToRecord(item, body);
   record.mode = mode;
+  record.links = buildContentLinks(
+    apiBasePath,
+    getItemLookupValue(item),
+    siteBasePath,
+    item && item.slug ? String(item.slug) : getItemLookupValue(item),
+  );
   record = projectRecord(record, fields);
   const rawByFormat = {};
   if (mode === 'concat') {

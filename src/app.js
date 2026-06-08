@@ -230,7 +230,7 @@ systemStructureContext().then((site) => {
           notFound: false,
         };
         if (requestPath.indexOf('/x/') !== 0) {
-          variantResponse = tryServePageVariantRequest(
+          variantResponse = await tryServePageVariantRequest(
             req,
             res,
             site,
@@ -384,7 +384,7 @@ systemStructureContext().then((site) => {
           siteContext = await HAXCMS.loadSite(siteName);
           const siteSubPath = getMultisiteSiteSubPath(multisiteRequestPath);
           if (siteContext && siteSubPath.indexOf('/x/') !== 0) {
-              variantResponse = tryServePageVariantRequest(
+              variantResponse = await tryServePageVariantRequest(
                 req,
                 res,
                 siteContext,
@@ -838,9 +838,30 @@ function resolveVariantFilePath(site, item, format = 'json') {
   }
   return null;
 }
+async function ensurePageVariantFile(site, item, format = 'json') {
+  let variantFilePath = resolveVariantFilePath(site, item, format);
+  if (variantFilePath) {
+    return variantFilePath;
+  }
+  if (
+    site &&
+    item &&
+    typeof site.writePageAlternateFormats === 'function'
+  ) {
+    try {
+      await site.writePageAlternateFormats(item);
+    }
+    catch (e) {}
+    variantFilePath = resolveVariantFilePath(site, item, format);
+    if (variantFilePath) {
+      return variantFilePath;
+    }
+  }
+  return null;
+}
 
-function servePageVariantFile(res, site, item, format, canonicalPath, negotiated = false) {
-  const variantFilePath = resolveVariantFilePath(site, item, format);
+async function servePageVariantFile(res, site, item, format, canonicalPath, negotiated = false) {
+  const variantFilePath = await ensurePageVariantFile(site, item, format);
   if (!variantFilePath) {
     return false;
   }
@@ -877,8 +898,7 @@ function setPageAlternateHeaders(res, site, item, canonicalPath = '') {
     appendVaryHeader(res, 'Accept');
   }
 }
-
-function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefix = '') {
+async function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefix = '') {
   const explicitInfo = getExplicitVariantInfo(requestPath);
   const slug = normalizeSlugFromPath(explicitInfo.basePath);
   if (slug === '') {
@@ -912,7 +932,7 @@ function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefi
   }
   const canonicalPath = buildCanonicalPagePath(routePrefix, slug);
   if (explicitInfo.format) {
-    const servedExplicit = servePageVariantFile(
+    const servedExplicit = await servePageVariantFile(
       res,
       site,
       item,
@@ -933,7 +953,7 @@ function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefi
   }
   const negotiatedFormat = getNegotiatedVariantFormat(req.headers.accept);
   if (negotiatedFormat) {
-    const servedNegotiated = servePageVariantFile(
+    const servedNegotiated = await servePageVariantFile(
       res,
       site,
       item,

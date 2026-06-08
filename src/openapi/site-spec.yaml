@@ -122,6 +122,31 @@ paths:
                         $ref: "#/components/schemas/SiteSummary"
         "404":
           $ref: "#/components/responses/NotFound"
+  /x/api/v1/items/{idOrSlug}/export/{format}:
+    get:
+      tags:
+        - items
+      operationId: downloadItemExport
+      summary: Download an item export file (PDF or DOCX)
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+        - $ref: "#/components/parameters/ItemExportFormat"
+      responses:
+        "200":
+          description: Item export download
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /x/api/v1/entities:
     get:
       tags:
@@ -216,6 +241,39 @@ paths:
             text/html:
               schema:
                 type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/site/export/{format}:
+    get:
+      tags:
+        - site
+      operationId: getSiteExport
+      summary: Download a site export file (PDF or DOCX) or get descriptor metadata
+      parameters:
+        - $ref: "#/components/parameters/SiteExportFormat"
+      responses:
+        "200":
+          description: Site export download or descriptor metadata
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: true
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
   /x/api/v1/items/{idOrSlug}:
@@ -985,6 +1043,28 @@ components:
       required: true
       schema:
         type: string
+    SiteExportFormat:
+      name: format
+      in: path
+      required: true
+      schema:
+        type: string
+        enum:
+          - zip
+          - markdown
+          - pdf
+          - docx
+          - epub
+          - skeleton
+    ItemExportFormat:
+      name: format
+      in: path
+      required: true
+      schema:
+        type: string
+        enum:
+          - pdf
+          - docx
     WebcomponentName:
       name: webcomponentName
       in: path
@@ -1308,8 +1388,10 @@ components:
               type: integer
         links:
           type: object
-          additionalProperties:
-            type: string
+          additionalProperties: true
+        jsonld:
+          type: object
+          additionalProperties: true
     EntityCollection:
       type: object
       properties:
@@ -1470,6 +1552,18 @@ components:
           type: object
           additionalProperties:
             type: string
+        exports:
+          type: object
+          additionalProperties:
+            type: string
+        jsonld:
+          type: object
+          additionalProperties: true
+        haxElementSchema:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
         related:
           type: array
           items:
@@ -1693,6 +1787,49 @@ components:
           type: boolean
         usageCount:
           type: integer
+        used:
+          type: boolean
+        usedIn:
+          type: array
+          items:
+            type: string
+        usedInDetails:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                nullable: true
+              slug:
+                type: string
+              title:
+                type: string
+              location:
+                type: string
+              usageCount:
+                type: integer
+              instances:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    instance:
+                      type: integer
+                    haxElementSchema:
+                      type: object
+                      properties:
+                        tag:
+                          type: string
+                        properties:
+                          type: object
+                          additionalProperties: true
+                        content:
+                          type: string
+              links:
+                type: object
+                additionalProperties:
+                  type: string
         import:
           type: string
         package:
@@ -1701,9 +1838,6 @@ components:
           type: object
           additionalProperties: true
         haxSchema:
-          type: object
-          additionalProperties: true
-        haxElementSchema:
           type: object
           additionalProperties: true
         links:
