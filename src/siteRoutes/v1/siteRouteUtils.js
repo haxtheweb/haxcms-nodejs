@@ -707,6 +707,13 @@ function detectResponseFormat(req, allowedFormats = ['json'], defaultFormat = 'j
   if (queryFormat && normalizedAllowed.indexOf(queryFormat) !== -1) {
     return queryFormat;
   }
+  const normalizedDefault = normalizeFormatValue(defaultFormat);
+  if (
+    normalizedDefault &&
+    normalizedAllowed.indexOf(normalizedDefault) !== -1
+  ) {
+    return normalizedDefault;
+  }
   const requestedAccept = parseAcceptHeader(
     req && req.headers && typeof req.headers.accept === 'string'
       ? req.headers.accept
@@ -721,13 +728,6 @@ function detectResponseFormat(req, allowedFormats = ['json'], defaultFormat = 'j
     if (normalizedAccept && normalizedAllowed.indexOf(normalizedAccept) !== -1) {
       return normalizedAccept;
     }
-  }
-  const normalizedDefault = normalizeFormatValue(defaultFormat);
-  if (
-    normalizedDefault &&
-    normalizedAllowed.indexOf(normalizedDefault) !== -1
-  ) {
-    return normalizedDefault;
   }
   return normalizedAllowed[0];
 }
