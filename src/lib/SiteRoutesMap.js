@@ -21,6 +21,8 @@ const SiteRoutesMap = {
     'v1/custom-elements/:webcomponentName':
       require('../siteRoutes/v1/customElements.js').customElementDetail,
     'v1/blocks': require('../siteRoutes/v1/blocks.js').listBlocks,
+    'v1/blocks/:webcomponentName/usage':
+      require('../siteRoutes/v1/blocks.js').blockUsage,
     'v1/blocks/:webcomponentName':
       require('../siteRoutes/v1/blocks.js').blockDetail,
     'v1/regions': require('../siteRoutes/v1/regions.js').listRegions,

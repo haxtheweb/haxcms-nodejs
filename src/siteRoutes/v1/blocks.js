@@ -13,6 +13,8 @@ const {
   getOrderedItems,
   applyItemFilters,
   collectCustomElementUsage,
+  getItemContent,
+  itemToSummary,
   sendFormattedResponse,
 } = require('./siteRouteUtils.js');
 
@@ -123,6 +125,69 @@ function buildSchemaFragments(tag, importPath) {
   };
 }
 
+function getBlockSchemaLinks(apiBasePath, tag) {
+  const encodedTag = encodeURIComponent(tag);
+  return {
+    haxProperties: `${apiBasePath}/v1/schemas?filter.kind=haxProperties&filter.webcomponentName=${encodedTag}`,
+    haxSchema: `${apiBasePath}/v1/schemas?filter.kind=haxSchema&filter.webcomponentName=${encodedTag}`,
+    haxElementSchema: `${apiBasePath}/v1/schemas?filter.kind=haxElementSchema&filter.webcomponentName=${encodedTag}`,
+  };
+}
+
+function escapeForRegExp(value = '') {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function countTagUsageInHtml(tag, html = '') {
+  const cleanTag = String(tag || '').trim().toLowerCase();
+  if (cleanTag === '') {
+    return 0;
+  }
+  const source = String(html || '');
+  if (source === '') {
+    return 0;
+  }
+  const regex = new RegExp(`<${escapeForRegExp(cleanTag)}\\b`, 'gi');
+  let count = 0;
+  let matched = regex.exec(source);
+  while (matched) {
+    count += 1;
+    matched = regex.exec(source);
+  }
+  return count;
+}
+
+function isKnownBlockTag(webcomponentName, wcMap, usage = {}) {
+  return (
+    Object.prototype.hasOwnProperty.call(wcMap, webcomponentName) ||
+    Object.prototype.hasOwnProperty.call(usage, webcomponentName) ||
+    getAutoloaderList().indexOf(webcomponentName) !== -1
+  );
+}
+
+async function buildBlockUsageRecords(
+  site,
+  items,
+  webcomponentName,
+  apiBasePath,
+) {
+  const records = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const html = await getItemContent(site, item);
+    const usageCount = countTagUsageInHtml(webcomponentName, html);
+    if (usageCount < 1) {
+      continue;
+    }
+    const record = itemToSummary(item, apiBasePath);
+    record.usageCount = usageCount;
+    record.links.block = `${apiBasePath}/v1/blocks/${encodeURIComponent(webcomponentName)}`;
+    record.links.blockUsage = `${apiBasePath}/v1/blocks/${encodeURIComponent(webcomponentName)}/usage`;
+    records.push(record);
+  }
+  return records;
+}
+
 function buildBlockRecord(
   tag,
   usageCount,
@@ -134,6 +199,7 @@ function buildBlockRecord(
   const importPath = parseImportPath(wcMap[tag]);
   const hasExplicitEnabledList = enabledBlockSet && enabledBlockSet.size > 0;
   const enabled = hasExplicitEnabledList ? enabledBlockSet.has(tag) : true;
+  const schemaLinks = getBlockSchemaLinks(apiBasePath, tag);
   const record = {
     tag,
     enabled,
@@ -143,7 +209,30 @@ function buildBlockRecord(
     links: {
       self: `${apiBasePath}/v1/blocks/${encodeURIComponent(tag)}`,
       customElement: `${apiBasePath}/v1/custom-elements/${encodeURIComponent(tag)}`,
+      usage: `${apiBasePath}/v1/blocks/${encodeURIComponent(tag)}/usage`,
     },
+    related: [
+      {
+        rel: 'entity',
+        type: 'block',
+        href: `${apiBasePath}/v1/entities#block`,
+      },
+      {
+        rel: 'schema',
+        type: 'haxProperties',
+        href: schemaLinks.haxProperties,
+      },
+      {
+        rel: 'schema',
+        type: 'haxSchema',
+        href: schemaLinks.haxSchema,
+      },
+      {
+        rel: 'schema',
+        type: 'haxElementSchema',
+        href: schemaLinks.haxElementSchema,
+      },
+    ],
   };
   const schemaFragments = buildSchemaFragments(tag, importPath);
   if (include.indexOf('haxProperties') !== -1) {
@@ -243,10 +332,7 @@ async function blockDetail(req, res) {
   const wcMap = HAXCMS.getWCRegistryJson(site);
   const enabledBlocks = await readEnabledBlocksSetting();
   const enabledBlockSet = new Set(Array.isArray(enabledBlocks) ? enabledBlocks : []);
-  const known =
-    Object.prototype.hasOwnProperty.call(wcMap, webcomponentName) ||
-    Object.prototype.hasOwnProperty.call(usage, webcomponentName) ||
-    getAutoloaderList().indexOf(webcomponentName) !== -1;
+  const known = isKnownBlockTag(webcomponentName, wcMap, usage);
   if (!known) {
     return res.status(404).json({
       status: 404,
@@ -268,7 +354,68 @@ async function blockDetail(req, res) {
   });
 }
 
+async function blockUsage(req, res) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      message:
+        'Unable to resolve site context for /x/api/v1/blocks/:webcomponentName/usage',
+    });
+  }
+  const webcomponentName =
+    req && req.params && req.params.webcomponentName
+      ? String(req.params.webcomponentName).trim().toLowerCase()
+      : '';
+  if (webcomponentName === '') {
+    return res.status(404).json({
+      status: 404,
+      message: 'Block not found',
+    });
+  }
+  const apiBasePath = getApiBasePath(req);
+  const fields = getCsvQuery(req, 'fields');
+  const filteredItems = applyItemFilters(getOrderedItems(site), req, site);
+  const usageTotals = await collectCustomElementUsage(site, filteredItems);
+  const wcMap = HAXCMS.getWCRegistryJson(site);
+  if (!isKnownBlockTag(webcomponentName, wcMap, usageTotals)) {
+    return res.status(404).json({
+      status: 404,
+      message: `Block \"${webcomponentName}\" not found`,
+    });
+  }
+  let records = await buildBlockUsageRecords(
+    site,
+    filteredItems,
+    webcomponentName,
+    apiBasePath,
+  );
+  records = sortRecords(records, getQueryValue(req, 'sort', ''), '-usageCount');
+  const paged = paginateRecords(records, req, 25, 500);
+  const outputRecords = projectCollection(paged.records, fields);
+  return sendFormattedResponse(
+    req,
+    res,
+    {
+      block: webcomponentName,
+      count: outputRecords.length,
+      total: paged.page.total,
+      page: paged.page,
+      items: outputRecords,
+      links: {
+        self: `${apiBasePath}/v1/blocks/${encodeURIComponent(webcomponentName)}/usage`,
+        block: `${apiBasePath}/v1/blocks/${encodeURIComponent(webcomponentName)}`,
+      },
+    },
+    {
+      allowedFormats: ['json'],
+      defaultFormat: 'json',
+    },
+  );
+}
+
 module.exports = {
   listBlocks,
   blockDetail,
+  blockUsage,
 };

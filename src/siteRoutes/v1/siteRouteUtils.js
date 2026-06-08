@@ -867,6 +867,10 @@ function itemToSummary(item, apiBasePath = '/x/api') {
   const metadata = item && item.metadata && typeof item.metadata === 'object'
     ? item.metadata
     : {};
+  const itemLookupValue =
+    item && item.slug ? String(item.slug) : item && item.id ? String(item.id) : '';
+  const parentLookupValue = item && item.parent ? String(item.parent) : '';
+  const itemIdValue = item && item.id ? String(item.id) : '';
   return {
     id: item && item.id ? item.id : null,
     title: item && item.title ? item.title : '',
@@ -881,9 +885,34 @@ function itemToSummary(item, apiBasePath = '/x/api') {
     tags: normalizeTagList(metadata.tags),
     published: metadata.published !== false,
     links: {
-      self: `${apiBasePath}/v1/items/${encodeURIComponent(item && item.slug ? item.slug : item && item.id ? item.id : '')}`,
-      content: `${apiBasePath}/v1/content/${encodeURIComponent(item && item.slug ? item.slug : item && item.id ? item.id : '')}`,
+      self: `${apiBasePath}/v1/items/${encodeURIComponent(itemLookupValue)}`,
+      content: `${apiBasePath}/v1/content/${encodeURIComponent(itemLookupValue)}`,
+      parent:
+        parentLookupValue !== ''
+          ? `${apiBasePath}/v1/items/${encodeURIComponent(parentLookupValue)}`
+          : null,
+      children:
+        itemIdValue !== ''
+          ? `${apiBasePath}/v1/items?filter.parent=${encodeURIComponent(itemIdValue)}`
+          : null,
     },
+    related: [
+      {
+        rel: 'entity',
+        type: 'item',
+        href: `${apiBasePath}/v1/entities#item`,
+      },
+      {
+        rel: 'schema',
+        type: 'jsonOutlineSchema',
+        href: `${apiBasePath}/v1/schemas?filter.kind=jsonOutlineSchema`,
+      },
+      {
+        rel: 'schema',
+        type: 'jsonOutlineSchemaItem',
+        href: `${apiBasePath}/v1/schemas?filter.kind=jsonOutlineSchemaItem`,
+      },
+    ],
   };
 }
 

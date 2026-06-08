@@ -928,6 +928,39 @@ paths:
                 type: string
         "404":
           $ref: "#/components/responses/NotFound"
+  /x/api/v1/blocks/{webcomponentName}/usage:
+    get:
+      tags:
+        - blocks
+      operationId: getBlockUsage
+      summary: List pages where the block is used
+      parameters:
+        - $ref: "#/components/parameters/WebcomponentName"
+        - $ref: "#/components/parameters/FilterParent"
+        - $ref: "#/components/parameters/FilterAncestor"
+        - $ref: "#/components/parameters/FilterDepth"
+        - $ref: "#/components/parameters/FilterTags"
+        - $ref: "#/components/parameters/FilterPublished"
+        - $ref: "#/components/parameters/FilterPageType"
+        - $ref: "#/components/parameters/FilterRegion"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Fields"
+      responses:
+        "200":
+          description: Block usage collection
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/BlockUsageCollection"
+        "404":
+          $ref: "#/components/responses/NotFound"
 components:
   headers:
     VaryAccept:
@@ -1218,6 +1251,25 @@ components:
               type: string
             routeDriven:
               type: boolean
+    BlockUsageCollection:
+      type: object
+      properties:
+        block:
+          type: string
+        count:
+          type: integer
+        total:
+          type: integer
+        page:
+          $ref: "#/components/schemas/PageInfo"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemRecord"
+        links:
+          type: object
+          additionalProperties:
+            type: string
     SiteSummary:
       type: object
       properties:
@@ -1320,6 +1372,11 @@ components:
           type: array
           items:
             type: string
+        related:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
     SchemaCollection:
       type: object
       properties:
@@ -1413,6 +1470,11 @@ components:
           type: object
           additionalProperties:
             type: string
+        related:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
     ContentCollection:
       type: object
       properties:
@@ -1648,6 +1710,11 @@ components:
           type: object
           additionalProperties:
             type: string
+        related:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
     RegionCollection:
       type: object
       properties:

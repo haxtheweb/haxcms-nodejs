@@ -107,6 +107,23 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       modes: ['bundle'],
       auth: 'public',
       supportedOperations: ['read'],
+      related: [
+        {
+          rel: 'entity',
+          type: 'item',
+          href: `${apiBasePath}/v1/entities#item`,
+        },
+        {
+          rel: 'schema',
+          type: 'jsonOutlineSchema',
+          href: `${apiBasePath}/v1/schemas?filter.kind=jsonOutlineSchema`,
+        },
+        {
+          rel: 'schema',
+          type: 'jsonOutlineSchemaItem',
+          href: `${apiBasePath}/v1/schemas?filter.kind=jsonOutlineSchemaItem`,
+        },
+      ],
     },
     {
       name: 'content',
@@ -187,6 +204,33 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       modes: ['bundle'],
       auth: 'public',
       supportedOperations: ['read'],
+      related: [
+        {
+          rel: 'entity',
+          type: 'block',
+          href: `${apiBasePath}/v1/entities#block`,
+        },
+        {
+          rel: 'endpoint',
+          type: 'usage',
+          href: `${apiBasePath}/v1/blocks/{webcomponentName}/usage`,
+        },
+        {
+          rel: 'schema',
+          type: 'haxProperties',
+          href: `${apiBasePath}/v1/schemas?filter.kind=haxProperties`,
+        },
+        {
+          rel: 'schema',
+          type: 'haxSchema',
+          href: `${apiBasePath}/v1/schemas?filter.kind=haxSchema`,
+        },
+        {
+          rel: 'schema',
+          type: 'haxElementSchema',
+          href: `${apiBasePath}/v1/schemas?filter.kind=haxElementSchema`,
+        },
+      ],
     },
     {
       name: 'block',
@@ -195,6 +239,7 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       endpoints: [
         `${apiBasePath}/v1/blocks`,
         `${apiBasePath}/v1/blocks/{webcomponentName}`,
+        `${apiBasePath}/v1/blocks/{webcomponentName}/usage`,
       ],
       filterableFields: ['filter.tag', 'filter.enabled', 'filter.region'],
       sortableFields: ['tag', 'usageCount'],
