@@ -76,6 +76,436 @@ function parseSchemaFileOperationBody(req, res, next) {
   return jsonRequestParser(req, res, next);
 }
 let publicDir = path.join(__dirname, '/public');
+const WEBCOMPONENTS_ROOT_ENV_VAR = 'HAXCMS_WEBCOMPONENTS_ROOT';
+const linkedWebcomponentsRoot = getLinkedWebcomponentsRoot();
+const linkedWebcomponentsNodeModulesRoot = linkedWebcomponentsRoot
+  ? path.join(linkedWebcomponentsRoot, 'node_modules')
+  : null;
+const linkedDevImportMapMarkup = buildLinkedDevImportMapMarkup();
+
+function getLinkedWebcomponentsRoot() {
+  if (process.env.NODE_ENV !== "development") {
+    return null;
+  }
+  if (
+    !process.env[WEBCOMPONENTS_ROOT_ENV_VAR] ||
+    String(process.env[WEBCOMPONENTS_ROOT_ENV_VAR]).trim() === ''
+  ) {
+    return null;
+  }
+  const resolvedPath = path.resolve(
+    String(process.env[WEBCOMPONENTS_ROOT_ENV_VAR]).trim()
+  );
+  if (!fs.existsSync(resolvedPath)) {
+    return null;
+  }
+  if (!fs.lstatSync(resolvedPath).isDirectory()) {
+    return null;
+  }
+  return resolvedPath;
+}
+
+function isPathInsideDirectory(parentPath = '', targetPath = '') {
+  const relativePath = path.relative(parentPath, targetPath);
+  if (relativePath === '') {
+    return true;
+  }
+  return relativePath.indexOf('..') !== 0 && !path.isAbsolute(relativePath);
+}
+
+function getBuildAssetRequestPath(url = '') {
+  const requestPath = String(url || '').split('?')[0];
+  return requestPath
+    .replace(/\/(.*?)\/build\//g, "build/")
+    .replace(/\/(.*?)\/wc-registry.json/g, "wc-registry.json")
+    .replace(/\/(.*?)\/build.js/g, "build.js")
+    .replace(/\/(.*?)\/build-haxcms.js/g, "build-haxcms.js")
+    .replace(/\/(.*?)\/VERSION.txt/g, "VERSION.txt");
+}
+
+function isBuildAssetRequest(url = '') {
+  const requestPath = String(url || '').split('?')[0];
+  return (
+    requestPath.indexOf('/build/') !== -1 ||
+    requestPath.indexOf('wc-registry.json') !== -1 ||
+    requestPath.indexOf('build.js') !== -1 ||
+    requestPath.indexOf('build-haxcms.js') !== -1 ||
+    requestPath.indexOf('VERSION.txt') !== -1
+  );
+}
+
+function resolveLinkedNodeModuleAssetPath(modulePath = '') {
+  if (!linkedWebcomponentsNodeModulesRoot) {
+    return null;
+  }
+  const normalizedModulePath = String(modulePath || '').replace(/^\/+/, '');
+  if (normalizedModulePath === '') {
+    return null;
+  }
+  const baseCandidatePath = path.join(
+    linkedWebcomponentsNodeModulesRoot,
+    normalizedModulePath
+  );
+  const candidatePaths = [baseCandidatePath];
+  if (path.extname(normalizedModulePath) === '') {
+    candidatePaths.push(`${baseCandidatePath}.js`);
+    candidatePaths.push(`${baseCandidatePath}.mjs`);
+    candidatePaths.push(`${baseCandidatePath}.cjs`);
+    candidatePaths.push(path.join(baseCandidatePath, 'index.js'));
+    candidatePaths.push(path.join(baseCandidatePath, 'index.mjs'));
+    candidatePaths.push(path.join(baseCandidatePath, 'index.cjs'));
+    const packageEntryPath = resolvePackageEntryPath(baseCandidatePath);
+    if (packageEntryPath) {
+      candidatePaths.push(path.join(baseCandidatePath, packageEntryPath));
+    }
+  }
+  for (let i = 0; i < candidatePaths.length; i++) {
+    const candidatePath = candidatePaths[i];
+    if (
+      !isPathInsideDirectory(
+        linkedWebcomponentsNodeModulesRoot,
+        candidatePath
+      )
+    ) {
+      continue;
+    }
+    if (fs.existsSync(candidatePath) && fs.statSync(candidatePath).isFile()) {
+      return candidatePath;
+    }
+  }
+  return null;
+}
+
+function resolveLinkedDevAssetPath(cleanFilePath = '') {
+  if (!linkedWebcomponentsRoot) {
+    return null;
+  }
+  const normalizedPath = String(cleanFilePath || '').replace(/^\/+/, '');
+  if (normalizedPath.indexOf('build/es6/node_modules/') === 0) {
+    if (!linkedWebcomponentsNodeModulesRoot) {
+      return null;
+    }
+    const modulePath = normalizedPath.replace('build/es6/node_modules/', '');
+    const resolvedModulePath = resolveLinkedNodeModuleAssetPath(modulePath);
+    if (resolvedModulePath) {
+      return resolvedModulePath;
+    }
+    return null;
+  }
+  if (
+    normalizedPath === 'build.js' ||
+    normalizedPath === 'build-haxcms.js' ||
+    normalizedPath === 'wc-registry.json' ||
+    normalizedPath === 'VERSION.txt'
+  ) {
+    const candidatePath = path.join(linkedWebcomponentsRoot, normalizedPath);
+    if (!isPathInsideDirectory(linkedWebcomponentsRoot, candidatePath)) {
+      return null;
+    }
+    if (fs.existsSync(candidatePath) && fs.lstatSync(candidatePath).isFile()) {
+      return candidatePath;
+    }
+  }
+  return null;
+}
+
+function serveBuildAssetFile(req, res, fallbackRoot = '') {
+  const cleanFilePath = getBuildAssetRequestPath(req.url);
+  const linkedAssetPath = resolveLinkedDevAssetPath(cleanFilePath);
+  if (linkedAssetPath) {
+    res.sendFile(linkedAssetPath);
+    return;
+  }
+  res.sendFile(cleanFilePath, { root: fallbackRoot });
+}
+
+function safeReadJsonFile(filePath = '') {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  }
+  catch (e) {
+    return null;
+  }
+}
+
+function isDirectoryPath(targetPath = '') {
+  if (!targetPath || !fs.existsSync(targetPath)) {
+    return false;
+  }
+  try {
+    return fs.statSync(targetPath).isDirectory();
+  }
+  catch (e) {
+    return false;
+  }
+}
+
+function resolveExportsEntryPath(exportsField = null) {
+  if (!exportsField) {
+    return null;
+  }
+  if (typeof exportsField === 'string') {
+    return exportsField;
+  }
+  if (typeof exportsField !== 'object') {
+    return null;
+  }
+  if (Object.prototype.hasOwnProperty.call(exportsField, '.')) {
+    const rootEntry = resolveExportsEntryPath(exportsField['.']);
+    if (rootEntry) {
+      return rootEntry;
+    }
+  }
+  const preferredConditions = [
+    'import',
+    'browser',
+    'default',
+    'module',
+    'development',
+    'production',
+    'node'
+  ];
+  for (let i = 0; i < preferredConditions.length; i++) {
+    const condition = preferredConditions[i];
+    if (Object.prototype.hasOwnProperty.call(exportsField, condition)) {
+      const conditionEntry = resolveExportsEntryPath(exportsField[condition]);
+      if (conditionEntry) {
+        return conditionEntry;
+      }
+    }
+  }
+  const exportKeys = Object.keys(exportsField);
+  for (let i = 0; i < exportKeys.length; i++) {
+    const key = exportKeys[i];
+    if (key.indexOf('./') === 0) {
+      continue;
+    }
+    const entry = resolveExportsEntryPath(exportsField[key]);
+    if (entry) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+function normalizePackageEntryPath(entryPath = '') {
+  let normalizedPath = String(entryPath || '').replace(/\\/g, '/');
+  if (normalizedPath.indexOf('./') === 0) {
+    normalizedPath = normalizedPath.substring(2);
+  }
+  if (normalizedPath.indexOf('/') === 0) {
+    normalizedPath = normalizedPath.substring(1);
+  }
+  if (normalizedPath === '') {
+    normalizedPath = 'index.js';
+  }
+  if (normalizedPath.charAt(normalizedPath.length - 1) === '/') {
+    normalizedPath += 'index.js';
+  }
+  return normalizedPath;
+}
+
+function resolvePackageEntryPath(packageDirectory = '') {
+  const packageJsonPath = path.join(packageDirectory, 'package.json');
+  const packageJson = safeReadJsonFile(packageJsonPath);
+  let entryPath = null;
+  if (packageJson) {
+    entryPath = resolveExportsEntryPath(packageJson.exports);
+    if (!entryPath && packageJson.module) {
+      entryPath = packageJson.module;
+    }
+    if (!entryPath && packageJson['jsnext:main']) {
+      entryPath = packageJson['jsnext:main'];
+    }
+    if (!entryPath && typeof packageJson.browser === 'string') {
+      entryPath = packageJson.browser;
+    }
+    if (!entryPath && packageJson.main) {
+      entryPath = packageJson.main;
+    }
+  }
+  entryPath = normalizePackageEntryPath(entryPath || 'index.js');
+  let absoluteEntryPath = path.join(packageDirectory, entryPath);
+  if (fs.existsSync(absoluteEntryPath) && fs.statSync(absoluteEntryPath).isFile()) {
+    return entryPath;
+  }
+  if (path.extname(entryPath) === '') {
+    const extensionFallbacks = [
+      `${entryPath}.js`,
+      `${entryPath}.mjs`,
+      `${entryPath}.cjs`,
+      path.join(entryPath, 'index.js'),
+      path.join(entryPath, 'index.mjs')
+    ];
+    for (let i = 0; i < extensionFallbacks.length; i++) {
+      const candidate = extensionFallbacks[i];
+      absoluteEntryPath = path.join(packageDirectory, candidate);
+      if (fs.existsSync(absoluteEntryPath) && fs.statSync(absoluteEntryPath).isFile()) {
+        return candidate.replace(/\\/g, '/');
+      }
+    }
+  }
+  return null;
+}
+
+function discoverNodeModulePackages(nodeModulesRoot = '') {
+  const packages = [];
+  if (!isDirectoryPath(nodeModulesRoot)) {
+    return packages;
+  }
+  const topLevelEntries = fs.readdirSync(nodeModulesRoot);
+  for (let i = 0; i < topLevelEntries.length; i++) {
+    const entryName = topLevelEntries[i];
+    if (!entryName || entryName.charAt(0) === '.') {
+      continue;
+    }
+    const entryPath = path.join(nodeModulesRoot, entryName);
+    if (!isDirectoryPath(entryPath)) {
+      continue;
+    }
+    if (entryName.charAt(0) === '@') {
+      const scopedEntries = fs.readdirSync(entryPath);
+      for (let j = 0; j < scopedEntries.length; j++) {
+        const scopedName = scopedEntries[j];
+        if (!scopedName || scopedName.charAt(0) === '.') {
+          continue;
+        }
+        const scopedPath = path.join(entryPath, scopedName);
+        if (!isDirectoryPath(scopedPath)) {
+          continue;
+        }
+        packages.push({
+          packageName: `${entryName}/${scopedName}`,
+          packageDirectory: scopedPath
+        });
+      }
+    }
+    else {
+      packages.push({
+        packageName: entryName,
+        packageDirectory: entryPath
+      });
+    }
+  }
+  return packages;
+}
+
+function buildLinkedDevImportMapMarkup() {
+  if (!linkedWebcomponentsNodeModulesRoot) {
+    return '';
+  }
+  const imports = {};
+  const packages = discoverNodeModulePackages(linkedWebcomponentsNodeModulesRoot);
+  for (let i = 0; i < packages.length; i++) {
+    const packageName = packages[i].packageName;
+    const packageDirectory = packages[i].packageDirectory;
+    const packagePrefixPath = `/build/es6/node_modules/${packageName}/`;
+    imports[`${packageName}/`] = packagePrefixPath;
+    const packageEntryPath = resolvePackageEntryPath(packageDirectory);
+    if (packageEntryPath) {
+      imports[packageName] = packagePrefixPath + packageEntryPath;
+    }
+  }
+  return `<script type="importmap" data-haxcms-linked-dev-importmap>${JSON.stringify({ imports })}</script>`;
+}
+
+function getLinkedDevDedupingFixMarkup() {
+  if (!linkedWebcomponentsNodeModulesRoot) {
+    return '';
+  }
+  const dedupingFixPath = path.join(
+    linkedWebcomponentsNodeModulesRoot,
+    '@haxtheweb',
+    'deduping-fix',
+    'deduping-fix.js'
+  );
+  if (!fs.existsSync(dedupingFixPath)) {
+    return '';
+  }
+  return '<script src="./build/es6/node_modules/@haxtheweb/deduping-fix/deduping-fix.js" data-haxcms-linked-dev-deduping-fix></script>';
+}
+
+function injectLinkedDevDedupingFix(indexFile = '') {
+  let output = String(indexFile || '');
+  if (output.indexOf('build-haxcms.js') !== -1) {
+    return output;
+  }
+  const dedupingFixMarkup = getLinkedDevDedupingFixMarkup();
+  if (!dedupingFixMarkup) {
+    return output;
+  }
+  if (output.indexOf('data-haxcms-linked-dev-deduping-fix') !== -1) {
+    return output;
+  }
+  const earlyInjectionMarkers = [
+    '<script type="importmap"',
+    'rel="modulepreload"',
+    "rel='modulepreload'",
+    'type="module"',
+    "type='module'"
+  ];
+  let markerIndex = -1;
+  for (let i = 0; i < earlyInjectionMarkers.length; i++) {
+    const currentMarkerIndex = output.indexOf(earlyInjectionMarkers[i]);
+    if (
+      currentMarkerIndex !== -1 &&
+      (markerIndex === -1 || currentMarkerIndex < markerIndex)
+    ) {
+      markerIndex = currentMarkerIndex;
+    }
+  }
+  if (markerIndex !== -1) {
+    const tagStart = output.lastIndexOf('<', markerIndex);
+    if (tagStart !== -1) {
+      return `${output.substring(0, tagStart)}${dedupingFixMarkup}\n${output.substring(tagStart)}`;
+    }
+  }
+  if (output.indexOf('</head>') !== -1) {
+    return output.replace('</head>', `${dedupingFixMarkup}\n</head>`);
+  }
+  return `${dedupingFixMarkup}\n${output}`;
+}
+
+function injectLinkedDevImportMap(indexFile = '') {
+  let output = String(indexFile || '');
+  if (!linkedDevImportMapMarkup) {
+    return output;
+  }
+  if (output.indexOf('data-haxcms-linked-dev-importmap') !== -1) {
+    return output;
+  }
+  const firstImportMapScriptIndex = output.indexOf('<script type="importmap"');
+  if (firstImportMapScriptIndex !== -1) {
+    const firstImportMapScriptEndIndex = output.indexOf('</script>', firstImportMapScriptIndex);
+    if (firstImportMapScriptEndIndex !== -1) {
+      const insertAt = firstImportMapScriptEndIndex + '</script>'.length;
+      return `${output.substring(0, insertAt)}\n${linkedDevImportMapMarkup}${output.substring(insertAt)}`;
+    }
+  }
+  const earlyInjectionMarkers = [
+    'rel="modulepreload"',
+    "rel='modulepreload'",
+    'type="module"',
+    "type='module'"
+  ];
+  for (let i = 0; i < earlyInjectionMarkers.length; i++) {
+    const marker = earlyInjectionMarkers[i];
+    const markerIndex = output.indexOf(marker);
+    if (markerIndex !== -1) {
+      const tagStart = output.lastIndexOf('<', markerIndex);
+      if (tagStart !== -1) {
+        return `${output.substring(0, tagStart)}${linkedDevImportMapMarkup}\n${output.substring(tagStart)}`;
+      }
+    }
+  }
+  if (output.indexOf('</head>') !== -1) {
+    return output.replace('</head>', `${linkedDevImportMapMarkup}\n</head>`);
+  }
+  return `${linkedDevImportMapMarkup}\n${output}`;
+}
 // if in development, live reload
 if (process.env.NODE_ENV === "development") {
   const child_process = require("child_process");
@@ -83,16 +513,47 @@ if (process.env.NODE_ENV === "development") {
   const exec = util.promisify(child_process.exec);
   const ws = require("ws");
   const chokidar = require("chokidar");
+  const customSrcPath = path.join(process.cwd(), 'custom/src');
+  const linkedElementsPath = linkedWebcomponentsRoot
+    ? path.join(linkedWebcomponentsRoot, 'elements')
+    : null;
 
   const wsServer = new ws.Server({server: server});
-  wsServer.on("connection", (ws) => {
-    chokidar.watch(`${process.cwd()}/custom/src/`).on('change', async (path, stats) => {
-      path = path.replace(/.*(?=custom\/src)/, '');
-      await exec("cd custom && npm run build");
-      ws.send("theme reload")
+  const connectedClients = new Set();
+
+  function sendReloadToConnectedClients() {
+    connectedClients.forEach((client) => {
+      if (client.readyState === ws.OPEN) {
+        client.send("theme reload");
+      }
     });
   }
-  );
+
+  async function handleWatchedFileChange(filePath = '') {
+    if (isPathInsideDirectory(customSrcPath, filePath)) {
+      try {
+        await exec("cd custom && npm run build");
+      }
+      catch (e) {}
+    }
+    sendReloadToConnectedClients();
+  }
+
+  wsServer.on("connection", (socket) => {
+    connectedClients.add(socket);
+    socket.on('close', () => {
+      connectedClients.delete(socket);
+    });
+  });
+
+  const watchTargets = [customSrcPath];
+  if (linkedElementsPath && fs.existsSync(linkedElementsPath)) {
+    watchTargets.push(linkedElementsPath);
+  }
+  const watcher = chokidar.watch(watchTargets, { ignoreInitial: true });
+  watcher.on('change', handleWatchedFileChange);
+  watcher.on('add', handleWatchedFileChange);
+  watcher.on('unlink', handleWatchedFileChange);
 }
 app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
 app.use(helmet(helmetPolicies));
@@ -119,6 +580,21 @@ app.use((req, res, next) => {
 app.options('*', function(req, res, next) {
 	res.sendStatus(200);
 });
+if (linkedWebcomponentsRoot) {
+  app.use((req, res, next) => {
+    if (
+      !req.url.includes('/custom/build/') &&
+      isBuildAssetRequest(req.url)
+    ) {
+      if (mime.getType(req.url.split('?')[0])) {
+        res.setHeader('Content-Type', mime.getType(req.url.split('?')[0]));
+      }
+      serveBuildAssetFile(req, res, path.join(__dirname, '/public'));
+      return;
+    }
+    next();
+  });
+}
 // attempt to establish context of site vs multi-site environment
 const DEFAULT_PORT = 3000
 const MAX_PORT = 65535
@@ -179,16 +655,7 @@ systemStructureContext().then((site) => {
         if (mime.getType(req.url.split('?')[0])) {
           res.setHeader('Content-Type', mime.getType(req.url));
         }
-        let cleanFilePath = req.url
-        .replace(/\/(.*?)\/build\//g, "build/")
-        .replace(/\/(.*?)\/wc-registry.json/g, "wc-registry.json")
-          .replace(/\/(.*?)\/build.js/g, "build.js")
-          .replace(/\/(.*?)\/build-haxcms.js/g, "build-haxcms.js")
-          .replace(/\/(.*?)\/VERSION.txt/g, "VERSION.txt");
-        res.sendFile(cleanFilePath,
-        {
-          root: path.join(__dirname, '/public')
-        });
+        serveBuildAssetFile(req, res, path.join(__dirname, '/public'));
       }
       else if (
         !req.url.includes('/x/') && (
@@ -271,6 +738,8 @@ systemStructureContext().then((site) => {
           );
           // injects a websocket for livereload support when developing custom components
           if (process.env.NODE_ENV === "development") {
+            indexFile = injectLinkedDevDedupingFix(indexFile);
+            indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
           }
           res.send(indexFile);
@@ -285,25 +754,47 @@ systemStructureContext().then((site) => {
     });
   }
   else {
-    app.use(express.static(publicDir));
+    if (process.env.NODE_ENV === "development") {
+      app.use(express.static(publicDir, { index: false }));
+    }
+    else {
+      app.use(express.static(publicDir));
+    }
     app.use('/', (req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', `http://localhost:${currentPort}`);
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
       // dynamic step routes in HAXcms site list UI
-      if (!req.url.startsWith('/createSite-step-') && req.url !== "/home") {
+      const requestPath = getRequestPathWithoutQuery(req.url);
+      const isDashboardIndexRequest = (
+        requestPath === '/' ||
+        requestPath === '/home' ||
+        requestPath === '/index.html' ||
+        requestPath.indexOf('/createSite-step-') === 0
+      );
+      if (!isDashboardIndexRequest) {
         next();
       }
       else {
-        if (mime.getType(req.url)) {
-          res.setHeader('Content-Type', mime.getType(req.url));
+        if (mime.getType(requestPath)) {
+          res.setHeader('Content-Type', mime.getType(requestPath));
         }
         else {
           res.setHeader('Content-Type', 'text/html');
         }
-        res.sendFile(req.url.replace(/\/createSite-step-(.*)/, "/").replace(/\/home/, "/"),
-        {
+        if (process.env.NODE_ENV === "development") {
+          try {
+            let indexFile = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+            indexFile = injectLinkedDevDedupingFix(indexFile);
+            indexFile = injectLinkedDevImportMap(indexFile);
+            indexFile = injectDevReloadScript(indexFile, currentPort);
+            res.send(indexFile);
+            return;
+          }
+          catch (e) {}
+        }
+        res.sendFile(requestPath.replace(/\/createSite-step-(.*)/, '/').replace(/\/home/, '/'), {
           root: publicDir
         });
       }
@@ -311,6 +802,19 @@ systemStructureContext().then((site) => {
     // sites need rewriting to work with PWA routes without failing file location
     // similar to htaccess
     app.use(`/${HAXCMS.sitesDirectory}/`, async (req, res, next) => {
+      const multisiteRequestPath = getRequestPathWithoutQuery(req.url);
+      if (multisiteRequestPath === '/' || multisiteRequestPath === '') {
+        const queryIndex = req.url.indexOf('?');
+        const querySuffix = queryIndex !== -1 ? req.url.substring(queryIndex) : '';
+        res.redirect(302, `/${querySuffix}`);
+        return;
+      }
+      if (/^\/[^/]+$/.test(multisiteRequestPath)) {
+        const queryIndex = req.url.indexOf('?');
+        const querySuffix = queryIndex !== -1 ? req.url.substring(queryIndex) : '';
+        res.redirect(301, `${req.baseUrl}${multisiteRequestPath}/${querySuffix}`);
+        return;
+      }
       if (req.url.includes('/system/api/') || isSiteApiRequestPath(req.url)) {
         next()
       }
@@ -328,16 +832,7 @@ systemStructureContext().then((site) => {
         if (mime.getType(req.url.split('?')[0])) {
           res.setHeader('Content-Type', mime.getType(req.url));
         }
-        let cleanFilePath = req.url
-        .replace(/\/(.*?)\/build\//g, "build/")
-        .replace(/\/(.*?)\/wc-registry.json/g, "wc-registry.json")
-          .replace(/\/(.*?)\/build.js/g, "build.js")
-          .replace(/\/(.*?)\/build-haxcms.js/g, "build-haxcms.js")
-          .replace(/\/(.*?)\/VERSION.txt/g, "VERSION.txt");
-        res.sendFile(cleanFilePath,
-        {
-          root: publicDir
-        });
+        serveBuildAssetFile(req, res, publicDir);
       }
       else if (
         !req.url.includes('/x/') && (
@@ -371,7 +866,6 @@ systemStructureContext().then((site) => {
         });
       }
       else {
-        const multisiteRequestPath = getRequestPathWithoutQuery(req.url);
         const siteName = getMultisiteSiteName(multisiteRequestPath);
         let siteContext = null;
         let variantResponse = {
@@ -424,6 +918,11 @@ systemStructureContext().then((site) => {
               pageMiss,
               path.join(siteContext.siteDirectory, 'index.html')
             );
+            if (process.env.NODE_ENV === "development") {
+              indexFile = injectLinkedDevDedupingFix(indexFile);
+              indexFile = injectLinkedDevImportMap(indexFile);
+              indexFile = injectDevReloadScript(indexFile, currentPort);
+            }
             res.send(indexFile);
             return;
           }
@@ -527,8 +1026,18 @@ systemStructureContext().then((site) => {
         !req.url.startsWith('/llms.txt') &&
         !req.url.startsWith('/VERSION.txt')
       ) {
-        res.sendFile('/',
-        {
+        if (process.env.NODE_ENV === "development") {
+          try {
+            let indexFile = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+            indexFile = injectLinkedDevDedupingFix(indexFile);
+            indexFile = injectLinkedDevImportMap(indexFile);
+            indexFile = injectDevReloadScript(indexFile, currentPort);
+            res.send(indexFile);
+            return;
+          }
+          catch (e) {}
+        }
+        res.sendFile('/', {
           root: `${__dirname}/public/`
         });
       }
@@ -1060,20 +1569,32 @@ function replaceSiteBuilderContent(indexFile = '', pageContent = '') {
 }
 
 function injectDevReloadScript(indexFile = '', port = 3000) {
+  let output = String(indexFile || '');
+  if (output.indexOf('data-haxcms-dev-reload') !== -1) {
+    return output;
+  }
   const devScript = `
-  <script>
-    const socket = new WebSocket('ws://localhost:${port}');
+  <script data-haxcms-dev-reload>
+    const socketProtocol = globalThis.location.protocol === 'https:' ? 'wss' : 'ws';
+    const socketHost = globalThis.location.host || 'localhost:${port}';
+    const socket = new WebSocket(socketProtocol + '://' + socketHost);
     socket.addEventListener('open', function () {
       socket.send('connected to server successfully');
     });
     socket.addEventListener('message', function (event) {
       if (event.data === 'theme reload') {
-        globalThis.location.reload();
+        const nextLocation = new URL(globalThis.location.href);
+        nextLocation.searchParams.set('cb', String(Date.now()));
+        globalThis.location.href = nextLocation.toString();
       }
     });
   </script>`;
-  return String(indexFile || '').replace('</body>', `${devScript}
+  if (output.indexOf('</body>') !== -1) {
+    return output.replace('</body>', `${devScript}
 </body>`);
+  }
+  return `${output}
+${devScript}`;
 }
 
 async function renderDynamicSiteIndexResponse(req, site, item, canonicalPath = '', pageMiss = false, indexFilePath = '') {
