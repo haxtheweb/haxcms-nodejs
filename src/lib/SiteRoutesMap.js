@@ -12,6 +12,8 @@ const SiteRoutesMap = {
     'v1/schemas': require('../siteRoutes/v1/schemas.js'),
     'v1/items': require('../siteRoutes/v1/items.js').listItems,
     'v1/items/:idOrSlug': require('../siteRoutes/v1/items.js').itemDetail,
+    'v1/items/:idOrSlug/revisions':
+      require('../siteRoutes/v1/revisions.js').listItemRevisions,
     'v1/items/:idOrSlug/export/:format':
       require('../siteRoutes/v1/exports.js').itemExport,
     'v1/content': require('../siteRoutes/v1/content.js').listContent,

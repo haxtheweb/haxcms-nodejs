@@ -320,6 +320,37 @@ paths:
                 type: string
         "404":
           $ref: "#/components/responses/NotFound"
+  /x/api/v1/items/{idOrSlug}/revisions:
+    get:
+      tags:
+        - items
+      operationId: listItemRevisions
+      summary: List git-backed revision history for one item
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+        - $ref: "#/components/parameters/PageLimit"
+        - $ref: "#/components/parameters/PageOffset"
+      responses:
+        "200":
+          description: Revision collection
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/RevisionCollection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /x/api/v1/content:
     get:
       tags:
@@ -423,6 +454,9 @@ paths:
         - files
       operationId: listFiles
       summary: List site files and metadata
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
       parameters:
         - $ref: "#/components/parameters/FilterType"
         - $ref: "#/components/parameters/FilterExtension"
@@ -461,6 +495,10 @@ paths:
             application/xml:
               schema:
                 type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
   /x/api/v1/tags:
@@ -756,6 +794,9 @@ paths:
         - reports
       operationId: listReports
       summary: List report descriptors
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
       responses:
         "200":
           description: Report descriptor collection
@@ -768,6 +809,10 @@ paths:
                     properties:
                       data:
                         $ref: "#/components/schemas/ReportCollection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
   /x/api/v1/reports/{report}:
@@ -776,6 +821,9 @@ paths:
         - reports
       operationId: getReportByName
       summary: Get one report payload
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
       parameters:
         - $ref: "#/components/parameters/ReportName"
         - $ref: "#/components/parameters/FilterAncestor"
@@ -803,6 +851,10 @@ paths:
             application/xml:
               schema:
                 type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
   /x/api/v1/analytics:
@@ -1020,6 +1072,19 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    siteTokenHeader:
+      type: apiKey
+      in: header
+      name: X-HAXCMS-Site-Token
+    userTokenHeader:
+      type: apiKey
+      in: header
+      name: X-HAXCMS-User-Token
   headers:
     VaryAccept:
       description: Representation varies by Accept header
@@ -1259,6 +1324,18 @@ components:
   responses:
     BadRequest:
       description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    Unauthorized:
+      description: Authentication required or bearer token invalid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    Forbidden:
+      description: Authenticated request missing required site/user token header
       content:
         application/json:
           schema:
@@ -1979,6 +2056,50 @@ components:
           type: object
           additionalProperties:
             type: string
+    RevisionCollection:
+      type: object
+      properties:
+        nodeId:
+          type: string
+        nodeSlug:
+          type: string
+        nodeTitle:
+          type: string
+        jsonVariantLocation:
+          type: string
+        count:
+          type: integer
+        total:
+          type: integer
+        page:
+          $ref: "#/components/schemas/PageInfo"
+        revisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevisionRecord"
+        links:
+          type: object
+          additionalProperties:
+            type: string
+    RevisionRecord:
+      type: object
+      properties:
+        revisionNumber:
+          type: integer
+        hash:
+          type: string
+        shortHash:
+          type: string
+        author:
+          type: string
+        authorEmail:
+          type: string
+        timestamp:
+          type: integer
+        date:
+          type: string
+        message:
+          type: string
     AnalyticsRecord:
       type: object
       properties:

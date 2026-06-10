@@ -12,6 +12,7 @@ const app = express();
 const mime = require('mime');
 const path = require('path');
 const fs = require("fs-extra");
+const YAML = require('yaml');
 const server = require('http').Server(app);
 const PAGE_VARIANT_CONTENT_TYPES = {
   html: 'text/html; charset=utf-8',
@@ -82,6 +83,12 @@ const linkedWebcomponentsNodeModulesRoot = linkedWebcomponentsRoot
   ? path.join(linkedWebcomponentsRoot, 'node_modules')
   : null;
 const linkedDevImportMapMarkup = buildLinkedDevImportMapMarkup();
+const SITE_API_OPENAPI_SPEC_PATH = path.join(
+  __dirname,
+  'openapi',
+  'site-spec.yaml',
+);
+let siteApiAuthPoliciesByMethodAndRoute = null;
 
 function getLinkedWebcomponentsRoot() {
   if (process.env.NODE_ENV !== "development") {
@@ -1000,11 +1007,39 @@ systemStructureContext().then((site) => {
     for (let siteRoute in SiteRoutesMap[siteMethod]) {
       const routeSuffix = siteRoute === '' ? '' : '/' + siteRoute;
       const siteRoutePath = `${siteApiBasePath}${routeSuffix}`;
-      app[siteMethod](siteRoutePath, (req, res, next) => {
-        SiteRoutesMap[siteMethod][siteRoute](req, res, next);
+      app[siteMethod](siteRoutePath, async (req, res, next) => {
+        try {
+          const access = await validateSiteApiRouteAccess(req, siteRoute, siteMethod);
+          if (!access.allowed) {
+            return res.status(access.status).json({
+              status: access.status,
+              message: access.message,
+            });
+          }
+          SiteRoutesMap[siteMethod][siteRoute](req, res, next);
+        } catch (e) {
+          return res.status(500).json({
+            status: 500,
+            message: 'Unable to evaluate site API access policy',
+          });
+        }
       });
-      app[siteMethod](`/${HAXCMS.sitesDirectory}/*${siteRoutePath}`, (req, res, next) => {
-        SiteRoutesMap[siteMethod][siteRoute](req, res, next);
+      app[siteMethod](`/${HAXCMS.sitesDirectory}/*${siteRoutePath}`, async (req, res, next) => {
+        try {
+          const access = await validateSiteApiRouteAccess(req, siteRoute, siteMethod);
+          if (!access.allowed) {
+            return res.status(access.status).json({
+              status: access.status,
+              message: access.message,
+            });
+          }
+          SiteRoutesMap[siteMethod][siteRoute](req, res, next);
+        } catch (e) {
+          return res.status(500).json({
+            status: 500,
+            message: 'Unable to evaluate site API access policy',
+          });
+        }
       });
     }
   }
@@ -1178,6 +1213,287 @@ function validateSystemAdminRouteAccess(req, op = '') {
     return false;
   }
   return true;
+}
+function convertOpenApiPathToSiteRoute(openApiPath = '') {
+  let route = String(openApiPath || '');
+  if (route.indexOf('/x/api') !== 0) {
+    return '';
+  }
+  route = route.replace(/^\/x\/api\/?/, '');
+  route = route.replace(/^\//, '');
+  route = route.replace(/\{([A-Za-z0-9_]+)\}/g, ':$1');
+  return route;
+}
+function normalizeSiteApiSecurityPolicy(securityConfig = null) {
+  if (!Array.isArray(securityConfig)) {
+    return 'public';
+  }
+  if (securityConfig.length === 0) {
+    return 'public';
+  }
+  let requiresBearer = false;
+  let requiresUserToken = false;
+  for (let i = 0; i < securityConfig.length; i++) {
+    const requirement = securityConfig[i];
+    if (!requirement || typeof requirement !== 'object') {
+      continue;
+    }
+    const keys = Object.keys(requirement);
+    if (keys.length === 0) {
+      return 'public';
+    }
+    if (Object.prototype.hasOwnProperty.call(requirement, 'siteTokenHeader')) {
+      return 'authenticated-site';
+    }
+    if (Object.prototype.hasOwnProperty.call(requirement, 'userTokenHeader')) {
+      requiresUserToken = true;
+    }
+    if (Object.prototype.hasOwnProperty.call(requirement, 'bearerAuth')) {
+      requiresBearer = true;
+    }
+  }
+  if (requiresUserToken) {
+    return 'authenticated-user';
+  }
+  if (requiresBearer) {
+    return 'authenticated-user';
+  }
+  return 'public';
+}
+function readSiteApiAuthPoliciesFromOpenApiSpec() {
+  const policies = {};
+  if (!fs.existsSync(SITE_API_OPENAPI_SPEC_PATH)) {
+    return policies;
+  }
+  try {
+    const openApiSpec = YAML.parse(
+      fs.readFileSync(SITE_API_OPENAPI_SPEC_PATH, 'utf8'),
+    );
+    if (
+      !openApiSpec ||
+      typeof openApiSpec !== 'object' ||
+      !openApiSpec.paths ||
+      typeof openApiSpec.paths !== 'object'
+    ) {
+      return policies;
+    }
+    const methods = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'];
+    const pathKeys = Object.keys(openApiSpec.paths);
+    for (let p = 0; p < pathKeys.length; p++) {
+      const openApiPath = pathKeys[p];
+      if (String(openApiPath).indexOf('/x/api') !== 0) {
+        continue;
+      }
+      const routeKey = convertOpenApiPathToSiteRoute(openApiPath);
+      const pathConfig = openApiSpec.paths[openApiPath];
+      if (!pathConfig || typeof pathConfig !== 'object') {
+        continue;
+      }
+      const pathLevelPolicy = normalizeSiteApiSecurityPolicy(pathConfig.security);
+      for (let m = 0; m < methods.length; m++) {
+        const method = methods[m];
+        if (!Object.prototype.hasOwnProperty.call(pathConfig, method)) {
+          continue;
+        }
+        const operation = pathConfig[method];
+        if (!operation || typeof operation !== 'object') {
+          continue;
+        }
+        let policy = pathLevelPolicy;
+        if (Object.prototype.hasOwnProperty.call(operation, 'security')) {
+          policy = normalizeSiteApiSecurityPolicy(operation.security);
+        }
+        policies[`${method}:${routeKey}`] = policy;
+      }
+    }
+  } catch (e) {
+    console.warn('Unable to parse site OpenAPI auth policy map', e);
+  }
+  return policies;
+}
+function getSiteApiRouteAuthPolicy(route = '', method = 'get') {
+  if (!siteApiAuthPoliciesByMethodAndRoute) {
+    siteApiAuthPoliciesByMethodAndRoute = readSiteApiAuthPoliciesFromOpenApiSpec();
+  }
+  const lookupKey = `${String(method || 'get').toLowerCase()}:${String(route || '')}`;
+  if (
+    siteApiAuthPoliciesByMethodAndRoute &&
+    Object.prototype.hasOwnProperty.call(siteApiAuthPoliciesByMethodAndRoute, lookupKey)
+  ) {
+    return siteApiAuthPoliciesByMethodAndRoute[lookupKey];
+  }
+  return 'public';
+}
+function getRequestHeaderValue(req, headerName = '') {
+  if (!req || !req.headers || typeof req.headers !== 'object') {
+    return '';
+  }
+  const normalizedHeaderName = String(headerName || '').toLowerCase().trim();
+  if (normalizedHeaderName === '') {
+    return '';
+  }
+  const value = req.headers[normalizedHeaderName];
+  if (Array.isArray(value)) {
+    return value.length > 0 ? String(value[0] || '').trim() : '';
+  }
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  return '';
+}
+function getBearerJwtFromRequest(req) {
+  const authorizationHeader = getRequestHeaderValue(req, 'authorization');
+  if (authorizationHeader === '') {
+    return '';
+  }
+  if (authorizationHeader.toLowerCase().indexOf('bearer ') !== 0) {
+    return '';
+  }
+  return authorizationHeader.substring(7).trim();
+}
+function applyBearerJwtToRequest(req, jwt = '') {
+  const token = String(jwt || '').trim();
+  if (token === '' || !req) {
+    return;
+  }
+  if (!req.query || typeof req.query !== 'object') {
+    req.query = {};
+  }
+  if (!req.body || typeof req.body !== 'object') {
+    req.body = {};
+  }
+  if (!req.query.jwt) {
+    req.query.jwt = token;
+  }
+  if (!req.body.jwt) {
+    req.body.jwt = token;
+  }
+}
+function getSiteNameFromSiteApiRequestPath(url = '') {
+  const parts = String(getRequestPathWithoutQuery(url) || '')
+    .split('/')
+    .filter((part) => part !== '');
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] === HAXCMS.sitesDirectory && parts[i + 1]) {
+      return decodeURIComponent(parts[i + 1]);
+    }
+  }
+  return '';
+}
+async function resolveSiteApiRequestSiteName(req) {
+  const pathBasedSiteName = getSiteNameFromSiteApiRequestPath(
+    req && req.originalUrl ? req.originalUrl : req && req.url ? req.url : '',
+  );
+  if (pathBasedSiteName !== '') {
+    return pathBasedSiteName;
+  }
+  try {
+    const site = await systemStructureContext();
+    if (
+      site &&
+      site.manifest &&
+      site.manifest.metadata &&
+      site.manifest.metadata.site &&
+      site.manifest.metadata.site.name
+    ) {
+      return String(site.manifest.metadata.site.name);
+    }
+  } catch (e) {}
+  return '';
+}
+async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
+  const policy = getSiteApiRouteAuthPolicy(route, method);
+  if (policy === 'public') {
+    return {
+      allowed: true,
+      status: 200,
+      message: '',
+    };
+  }
+  if (HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
+    return {
+      allowed: true,
+      status: 200,
+      message: '',
+    };
+  }
+  const bearerJwt = getBearerJwtFromRequest(req);
+  if (bearerJwt === '') {
+    return {
+      allowed: false,
+      status: 401,
+      message: 'Authorization bearer token is required for this endpoint',
+    };
+  }
+  applyBearerJwtToRequest(req, bearerJwt);
+  if (!HAXCMS.validateJWT(req, null)) {
+    return {
+      allowed: false,
+      status: 401,
+      message: 'Invalid bearer token',
+    };
+  }
+  if (policy === 'authenticated-site') {
+    const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+    if (siteToken === '') {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+      };
+    }
+    const activeUserName = HAXCMS.getActiveUserName();
+    const siteName = await resolveSiteApiRequestSiteName(req);
+    if (!activeUserName || !siteName) {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'Unable to resolve site token context',
+      };
+    }
+    if (
+      !HAXCMS.validateRequestToken(
+        siteToken,
+        `${activeUserName}:${siteName}`,
+      )
+    ) {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'Invalid X-HAXCMS-Site-Token header',
+      };
+    }
+  }
+  if (policy === 'authenticated-user') {
+    const userToken = getRequestHeaderValue(req, 'x-haxcms-user-token');
+    if (userToken === '') {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'X-HAXCMS-User-Token header is required for this endpoint',
+      };
+    }
+    const activeUserName = HAXCMS.getActiveUserName();
+    if (!activeUserName) {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'Unable to resolve user token context',
+      };
+    }
+    if (!HAXCMS.validateRequestToken(userToken, activeUserName)) {
+      return {
+        allowed: false,
+        status: 403,
+        message: 'Invalid X-HAXCMS-User-Token header',
+      };
+    }
+  }
+  return {
+    allowed: true,
+    status: 200,
+    message: '',
+  };
 }
 function getNormalizedBasePath() {
   let basePath = String(HAXCMS.basePath || '/');

@@ -104,8 +104,23 @@ async function connectionSettings(req, res) {
   const siteToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName() + ':' + sitename);
   // user token is just the name of the logged in user
   const userToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName());
+  let normalizedBasePath = String(HAXCMS.basePath || '/');
+  if (normalizedBasePath.charAt(0) !== '/') {
+    normalizedBasePath = '/' + normalizedBasePath;
+  }
+  if (normalizedBasePath.charAt(normalizedBasePath.length - 1) !== '/') {
+    normalizedBasePath += '/';
+  }
+  let siteApiBasePath = `${normalizedBasePath}x/api`;
+  if (sitename) {
+    siteApiBasePath = `${normalizedBasePath}${HAXCMS.sitesDirectory}/${sitename}/x/api`;
+  }
   const returnDataObj = {
     token: HAXCMS.getRequestToken(),
+    siteToken: siteToken,
+    userToken: userToken,
+    siteApiBasePath: siteApiBasePath,
+    siteOpenApiPath: `${siteApiBasePath}/openapi.json`,
     login: `${baseAPIPath}login`,
     refreshUrl: `${baseAPIPath}refreshAccessToken`,
     logout: `${baseAPIPath}logout`,
@@ -137,7 +152,7 @@ async function connectionSettings(req, res) {
     getNodeRevisionsPath: `${baseAPIPath}getNodeRevisions?site_token=${siteToken}`,
     getNodeRevisionPath: `${baseAPIPath}getNodeRevision?site_token=${siteToken}`,
     restoreNodeRevisionPath: `${baseAPIPath}restoreNodeRevision?site_token=${siteToken}`,
-    listFilesPath: `${baseAPIPath}listFiles?site_token=${siteToken}`,
+    listFilesPath: `${siteApiBasePath}/v1/files`,
     saveFilePath: `${baseAPIPath}saveFile?site_token=${siteToken}`,
     fileOperationPath: `${baseAPIPath}fileOperation?site_token=${siteToken}`,
     appStore: {
