@@ -151,7 +151,7 @@ async function connectionSettings(req, res) {
     getNodeRevisionPath: `${baseAPIPath}getNodeRevision?site_token=${siteToken}`,
     restoreNodeRevisionPath: `${baseAPIPath}restoreNodeRevision?site_token=${siteToken}`,
     listFilesPath: `${siteApiBasePath}/v1/files`,
-    saveFilePath: `${baseAPIPath}saveFile?site_token=${siteToken}`,
+    saveFilePath: `${siteApiBasePath}/v1/files`,
     fileOperationPath: `${baseAPIPath}fileOperation?site_token=${siteToken}`,
     appStore: {
       url: `${baseAPIPath}generateAppStore`,

@@ -3804,7 +3804,7 @@ class HAXCMSClass {
           },
           "add": {
             "method": "POST",
-            "endPoint": this.systemRequestBase + "saveFile?site_token=" + siteToken,
+            "endPoint": browseEndPoint,
             "acceptsGizmoTypes": [
               "audio",
               "image",
