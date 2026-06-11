@@ -1,0 +1,1712 @@
+openapi: 3.0.3
+info:
+  title: HAXcms System API
+  description: Control-plane API scaffold for dashboard, admin, and authentication resources.
+  version: 0.0.0
+servers:
+  - url: /
+    description: System API base path
+tags:
+  - name: discovery
+  - name: auth
+  - name: dashboard
+  - name: admin
+  - name: sites
+  - name: templates
+  - name: session
+  - name: connection
+  - name: settings
+  - name: reports
+  - name: forms
+  - name: files
+  - name: revisions
+  - name: integrations
+  - name: metadata
+paths:
+  /system/api/v1/sites:
+    get:
+      tags:
+        - dashboard
+        - sites
+      operationId: listSites
+      summary: List all sites available to the authenticated user
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: Site listing payload
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ListSitesData"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - dashboard
+        - sites
+      operationId: createSite
+      summary: Create a new site
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSiteRequest"
+      responses:
+        "200":
+          description: Site creation result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SiteCreationRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /system/api/v1/sites/clone:
+    post:
+      tags:
+        - admin
+        - sites
+      operationId: cloneSite
+      summary: Clone an existing site
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteActionRequest"
+      responses:
+        "200":
+          description: Site clone result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SiteCloneResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /system/api/v1/sites/archive:
+    post:
+      tags:
+        - admin
+        - sites
+      operationId: archiveSite
+      summary: Archive a site
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteActionRequest"
+      responses:
+        "200":
+          description: Site archive result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SiteArchiveResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /system/api/v1/sites/download:
+    post:
+      tags:
+        - admin
+        - sites
+      operationId: downloadSite
+      summary: Generate and return a downloadable site archive reference
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteActionRequest"
+      responses:
+        "200":
+          description: Site download archive reference
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SiteDownloadResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /system/api/v1/sites/download-skeleton:
+    post:
+      tags:
+        - admin
+        - sites
+        - templates
+      operationId: downloadSiteSkeleton
+      summary: Generate and return a reusable skeleton for a site
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteActionRequest"
+      responses:
+        "200":
+          description: Site skeleton JSON payload
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SiteSkeletonDownloadResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /system/api/v1/sites/save-as-template:
+    post:
+      tags:
+        - admin
+        - sites
+        - templates
+      operationId: saveSiteAsTemplate
+      summary: Save a site as a reusable template skeleton
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteActionRequest"
+      responses:
+        "200":
+          description: Site template save result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SiteTemplateSaveResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /system/api/v1/session/login:
+    post:
+      tags:
+        - session
+        - auth
+      operationId: login
+      summary: Authenticate and return a JWT plus refresh token cookie
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionLoginRequest"
+      responses:
+        "200":
+          description: Authenticated session details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionAuthResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /system/api/v1/session/logout:
+    post:
+      tags:
+        - session
+        - auth
+      operationId: logout
+      summary: Clear refresh token cookie and logout the active session
+      security: []
+      responses:
+        "200":
+          description: Logout result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+  /system/api/v1/session/refresh:
+    get:
+      tags:
+        - session
+        - auth
+      operationId: refreshAccessToken
+      summary: Exchange refresh token cookie for a new JWT
+      security: []
+      responses:
+        "200":
+          description: Refreshed access token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionAuthResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /system/api/v1/session/user:
+    get:
+      tags:
+        - session
+        - dashboard
+      operationId: getUserData
+      summary: Return active user profile and dashboard preference data
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: Active user profile data
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/UserDataRecord"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/session/connection-settings:
+    get:
+      tags:
+        - session
+        - connection
+      operationId: connectionSettings
+      summary: Return frontend connection settings bootstrap payload
+      security: []
+      responses:
+        "200":
+          description: Frontend connection settings payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionSettingsRecord"
+            application/javascript:
+              schema:
+                type: string
+  /system/api/v1/session/connection-test:
+    get:
+      tags:
+        - session
+        - connection
+      operationId: connectionTest
+      summary: Validate current auth state for dashboard bootstrap
+      security: []
+      responses:
+        "200":
+          description: Session validity state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionTestResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/system/app-store:
+    get:
+      tags:
+        - integrations
+        - dashboard
+      operationId: generateAppStore
+      summary: Generate app-store provider manifest for the editor
+      security:
+        - appStoreTokenQuery: []
+          siteTokenQuery: []
+      responses:
+        "200":
+          description: App-store payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppStoreRecord"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/system/options:
+    get:
+      tags:
+        - metadata
+        - discovery
+      operationId: options
+      summary: List available system operations
+      security: []
+      responses:
+        "200":
+          description: Supported operation names
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /system/api/v1/openapi:
+    get:
+      tags:
+        - discovery
+        - metadata
+      operationId: openapi
+      summary: Return system API OpenAPI document (YAML by default)
+      security: []
+      responses:
+        "200":
+          description: OpenAPI document
+          content:
+            application/yaml:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+  /system/api/v1/openapi.json:
+    get:
+      tags:
+        - discovery
+        - metadata
+      operationId: openapiJson
+      summary: Return system API OpenAPI document as JSON
+      security: []
+      responses:
+        "200":
+          description: OpenAPI JSON document
+          content:
+            application/json:
+              schema:
+                type: object
+  /system/api/v1/openapi.yaml:
+    get:
+      tags:
+        - discovery
+        - metadata
+      operationId: api
+      summary: Return system API OpenAPI document as YAML
+      security: []
+      responses:
+        "200":
+          description: OpenAPI YAML document
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /system/api/v1/forms/{formId}:
+    post:
+      tags:
+        - forms
+        - dashboard
+      operationId: formLoad
+      summary: Load a system dashboard form by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/FormId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FormLoadRequest"
+      responses:
+        "200":
+          description: Form definition payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/forms/{formId}/process:
+    post:
+      tags:
+        - forms
+        - dashboard
+      operationId: formProcess
+      summary: Process a system dashboard form submission
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/FormId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FormProcessRequest"
+      responses:
+        "200":
+          description: Form process result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/sites/alternate-formats:
+    post:
+      tags:
+        - sites
+        - admin
+      operationId: siteUpdateAlternateFormats
+      summary: Rebuild alternate format outputs for a site
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteAlternateFormatsRequest"
+      responses:
+        "200":
+          description: Alternate format update result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/sites/node-details:
+    post:
+      tags:
+        - sites
+        - revisions
+      operationId: saveNodeDetails
+      summary: Apply one node metadata or ordering operation
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NodeDetailsRequest"
+      responses:
+        "200":
+          description: Node operation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /system/api/v1/sites/node-revisions:
+    post:
+      tags:
+        - sites
+        - revisions
+      operationId: getNodeRevisions
+      summary: List git revisions for one node
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NodeRevisionListRequest"
+      responses:
+        "200":
+          description: Node revision listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /system/api/v1/sites/node-revision:
+    post:
+      tags:
+        - sites
+        - revisions
+      operationId: getNodeRevision
+      summary: Read a specific node revision by hash
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NodeRevisionGetRequest"
+      responses:
+        "200":
+          description: Node revision detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /system/api/v1/sites/node-revisions/restore:
+    post:
+      tags:
+        - sites
+        - revisions
+      operationId: restoreNodeRevision
+      summary: Restore a node revision as a new commit
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NodeRevisionRestoreRequest"
+      responses:
+        "200":
+          description: Node revision restore result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /system/api/v1/reports/insights:
+    post:
+      tags:
+        - reports
+        - sites
+      operationId: insights
+      summary: Return insights report payload for a site
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteReportRequest"
+      responses:
+        "200":
+          description: Insights report payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/reports/link-checker:
+    post:
+      tags:
+        - reports
+        - sites
+      operationId: linkChecker
+      summary: Return broken-link report payload for a site
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteReportRequest"
+      responses:
+        "200":
+          description: Link checker report payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/reports/content-browser:
+    post:
+      tags:
+        - reports
+        - sites
+      operationId: contentBrowser
+      summary: Return content browser report payload for a site
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteReportRequest"
+      responses:
+        "200":
+          description: Content browser report payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/reports/media-browser:
+    post:
+      tags:
+        - reports
+        - sites
+      operationId: mediaBrowser
+      summary: Return media browser report payload for a site
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteReportRequest"
+      responses:
+        "200":
+          description: Media browser report payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/files:
+    get:
+      tags:
+        - files
+        - sites
+      operationId: listFiles
+      summary: List files attached to a site
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      parameters:
+        - $ref: "#/components/parameters/FilenameQuery"
+      responses:
+        "200":
+          description: Site file listing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FileListRecord"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - files
+        - sites
+      operationId: saveFile
+      summary: Upload one file to a site
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/SaveFileRequest"
+      responses:
+        "200":
+          description: File upload result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /system/api/v1/files/operations:
+    post:
+      tags:
+        - files
+        - sites
+      operationId: fileOperation
+      summary: Execute file transform or metadata operation
+      security:
+        - bearerAuth: []
+          siteTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileOperationRequest"
+      responses:
+        "200":
+          description: File operation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /system/api/v1/system/status:
+    post:
+      tags:
+        - admin
+        - settings
+      operationId: systemStatus
+      summary: Return consolidated system status report
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: System status payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/settings/api-keys:
+    get:
+      tags:
+        - settings
+        - admin
+      operationId: getApiKeys
+      summary: Load integration API key settings
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: API key settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - settings
+        - admin
+      operationId: saveApiKeys
+      summary: Persist integration API key settings
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiKeysRequest"
+      responses:
+        "200":
+          description: Updated API key settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/settings/media:
+    get:
+      tags:
+        - settings
+        - admin
+      operationId: getMediaSettings
+      summary: Load media settings
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: Media settings payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - settings
+        - admin
+      operationId: saveMediaSettings
+      summary: Persist media settings
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MediaSettingsRequest"
+      responses:
+        "200":
+          description: Updated media settings payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/settings/enabled-skeletons:
+    post:
+      tags:
+        - settings
+        - templates
+      operationId: saveEnabledSkeletons
+      summary: Persist enabled skeleton list
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnabledListRequest"
+      responses:
+        "200":
+          description: Enabled skeletons result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/settings/schema-files/operations:
+    post:
+      tags:
+        - settings
+        - templates
+      operationId: schemaFileOperation
+      summary: Upload, rename, or delete schema files
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SchemaFileOperationRequest"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/SchemaFileOperationUploadRequest"
+      responses:
+        "200":
+          description: Schema file operation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/settings/enabled-themes:
+    post:
+      tags:
+        - settings
+        - admin
+      operationId: saveEnabledThemes
+      summary: Persist enabled theme list
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnabledListRequest"
+      responses:
+        "200":
+          description: Enabled themes result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/settings/enabled-blocks:
+    post:
+      tags:
+        - settings
+        - admin
+      operationId: saveEnabledBlocks
+      summary: Persist enabled block list
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnabledListRequest"
+      responses:
+        "200":
+          description: Enabled blocks result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/system/blocks:
+    get:
+      tags:
+        - settings
+        - admin
+      operationId: systemBlocksList
+      summary: Return block inventory and enabled block settings
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: System blocks list payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemBlocksListResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/system/skeletons:
+    get:
+      tags:
+        - templates
+        - admin
+      operationId: skeletonsList
+      summary: List available site skeletons
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeDisabled"
+      responses:
+        "200":
+          description: Skeleton list payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/system/skeletons/{name}:
+    get:
+      tags:
+        - templates
+        - admin
+      operationId: getSkeleton
+      summary: Return one skeleton by machine name
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      parameters:
+        - $ref: "#/components/parameters/SkeletonName"
+      responses:
+        "200":
+          description: Skeleton payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /system/api/v1/system/themes:
+    get:
+      tags:
+        - settings
+        - admin
+      operationId: themesList
+      summary: List available themes and enabled status
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      parameters:
+        - $ref: "#/components/parameters/IncludeDisabled"
+      responses:
+        "200":
+          description: Theme list payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    userTokenQuery:
+      type: apiKey
+      in: query
+      name: user_token
+    siteTokenQuery:
+      type: apiKey
+      in: query
+      name: site_token
+    appStoreTokenQuery:
+      type: apiKey
+      in: query
+      name: appstore_token
+  parameters:
+    FormId:
+      name: formId
+      in: path
+      required: true
+      schema:
+        type: string
+    SkeletonName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+    IncludeDisabled:
+      name: includeDisabled
+      in: query
+      required: false
+      schema:
+        type: boolean
+    FilenameQuery:
+      name: filename
+      in: query
+      required: false
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    Unauthorized:
+      description: Authentication required or bearer token invalid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    Forbidden:
+      description: Request is authenticated but not authorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    NotFound:
+      description: Requested site resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    ServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    TooManyRequests:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+  schemas:
+    ApiEnvelope:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: integer
+          example: 200
+        data:
+          type: object
+          additionalProperties: true
+    ApiError:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: integer
+        message:
+          type: string
+    SiteActionRequest:
+      type: object
+      required:
+        - site
+      properties:
+        site:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+    CreateSiteRequest:
+      type: object
+      required:
+        - site
+        - token
+      properties:
+        token:
+          type: string
+        site:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+            domain:
+              type: string
+              nullable: true
+            description:
+              type: string
+            theme:
+              type: string
+            license:
+              type: string
+        build:
+          type: object
+          properties:
+            structure:
+              type: string
+            type:
+              type: string
+            skeletonMachineName:
+              type: string
+            items:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            files:
+              type: object
+              additionalProperties: true
+    ListSitesData:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        author:
+          type: string
+        description:
+          type: string
+        license:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteSummaryRecord"
+    SiteSummaryRecord:
+      type: object
+      additionalProperties: true
+    SiteCreationRecord:
+      type: object
+      additionalProperties: true
+    SiteCloneResult:
+      type: object
+      required:
+        - link
+        - name
+      properties:
+        link:
+          type: string
+        name:
+          type: string
+    SiteArchiveResult:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        detail:
+          type: string
+    SiteDownloadResult:
+      type: object
+      required:
+        - link
+        - name
+      properties:
+        link:
+          type: string
+        name:
+          type: string
+    SiteSkeletonDownloadResult:
+      type: object
+      required:
+        - skeleton
+        - filename
+      properties:
+        skeleton:
+          type: object
+          additionalProperties: true
+        filename:
+          type: string
+    SiteTemplateSaveResult:
+      type: object
+      required:
+        - name
+        - file
+      properties:
+        name:
+          type: string
+        file:
+          type: string
+        detail:
+          type: string
+        link:
+          type: string
+    SessionLoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        jwt:
+          type: string
+    SessionAuthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: integer
+        jwt:
+          type: string
+    ConnectionTestResponse:
+      type: object
+      required:
+        - status
+        - authenticated
+      properties:
+        status:
+          type: integer
+        authenticated:
+          type: boolean
+        refreshed:
+          type: boolean
+        user:
+          type: string
+        jwt:
+          type: string
+        reason:
+          type: string
+        message:
+          type: string
+    ConnectionSettingsRecord:
+      type: object
+      additionalProperties: true
+    UserDataRecord:
+      type: object
+      additionalProperties: true
+    AppStoreRecord:
+      type: object
+      properties:
+        status:
+          type: integer
+        apps:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        stax:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        autoloader:
+          oneOf:
+            - type: array
+              items:
+                type: string
+            - type: object
+              additionalProperties: true
+    FormLoadRequest:
+      type: object
+      properties:
+        token:
+          type: string
+        haxcms_form_id:
+          type: string
+        site:
+          type: object
+          additionalProperties: true
+        node:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+    FormProcessRequest:
+      type: object
+      required:
+        - haxcms_form_token
+      properties:
+        haxcms_form_token:
+          type: string
+        haxcms_form_id:
+          type: string
+        site:
+          type: object
+          additionalProperties: true
+        node:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+    SiteAlternateFormatsRequest:
+      type: object
+      required:
+        - site
+      properties:
+        site:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+        format:
+          type: string
+      additionalProperties: true
+    NodeDetailsRequest:
+      type: object
+      required:
+        - site
+        - node
+      properties:
+        site:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+        node:
+          type: object
+          required:
+            - id
+          properties:
+            id:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+      additionalProperties: true
+    NodeRevisionListRequest:
+      type: object
+      required:
+        - site
+        - node
+      properties:
+        site:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+        node:
+          type: object
+          required:
+            - id
+          properties:
+            id:
+              type: string
+        limit:
+          type: integer
+        offset:
+          type: integer
+    NodeRevisionGetRequest:
+      type: object
+      required:
+        - site
+        - node
+        - hash
+      properties:
+        site:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+        node:
+          type: object
+          required:
+            - id
+          properties:
+            id:
+              type: string
+        hash:
+          type: string
+    NodeRevisionRestoreRequest:
+      allOf:
+        - $ref: "#/components/schemas/NodeRevisionGetRequest"
+    SiteReportRequest:
+      type: object
+      required:
+        - site
+      properties:
+        site:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+        activeId:
+          type: string
+          nullable: true
+      additionalProperties: true
+    FileListRecord:
+      type: object
+      properties:
+        path:
+          type: string
+        fullUrl:
+          type: string
+        url:
+          type: string
+        mimetype:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+        dateCreated:
+          type: integer
+    SaveFileRequest:
+      type: object
+      properties:
+        file-upload:
+          type: string
+          format: binary
+        upload:
+          type: string
+          format: binary
+        file:
+          type: string
+          format: binary
+        siteName:
+          type: string
+        nodeId:
+          type: string
+        site:
+          type: object
+          additionalProperties: true
+        node:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+    FileOperationRequest:
+      type: object
+      properties:
+        site:
+          type: object
+          additionalProperties: true
+        file:
+          type: object
+          additionalProperties: true
+        operation:
+          type: string
+      additionalProperties: true
+    ApiKeysRequest:
+      type: object
+      properties:
+        apiKeys:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+    MediaSettingsRequest:
+      type: object
+      properties:
+        mediaSettings:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+    EnabledListRequest:
+      oneOf:
+        - type: array
+          items:
+            type: string
+        - type: object
+          additionalProperties: true
+    SchemaFileOperationRequest:
+      type: object
+      required:
+        - schema
+        - action
+      properties:
+        schema:
+          type: string
+        action:
+          type: string
+          enum:
+            - upload
+            - rename
+            - delete
+        name:
+          type: string
+        target:
+          type: string
+      additionalProperties: true
+    SchemaFileOperationUploadRequest:
+      allOf:
+        - $ref: "#/components/schemas/SchemaFileOperationRequest"
+        - type: object
+          properties:
+            file:
+              type: string
+              format: binary
+    SystemBlocksListResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+        apps:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        stax:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        autoloader:
+          oneOf:
+            - type: array
+              items:
+                type: string
+            - type: object
+              additionalProperties: true
+        enabledBlocks:
+          type: array
+          items:
+            type: string
