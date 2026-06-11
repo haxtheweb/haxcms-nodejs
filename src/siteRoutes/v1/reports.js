@@ -27,30 +27,40 @@ catch (e) {
 const REPORT_DEFINITIONS = {
   overview: {
     id: 'overview',
+    label: 'Stats',
+    icon: 'hax:graph',
     title: 'Overview report',
     description: 'Aggregate site statistics for dashboard overview cards.',
     includes: null,
   },
   insights: {
     id: 'insights',
+    label: 'Insights',
+    icon: 'icons:assessment',
     title: 'Insights report',
     description: 'Content insight metrics including readability and structure counts.',
     includes: null,
   },
   content: {
     id: 'content',
+    label: 'Content',
+    icon: 'icons:view-module',
     title: 'Content report',
     description: 'Detailed page-by-page content metrics for admin review.',
     includes: ['contentData'],
   },
   links: {
     id: 'links',
+    label: 'Links',
+    icon: 'icons:link',
     title: 'Links report',
     description: 'External link usage and grouping details.',
     includes: ['linkData'],
   },
   media: {
     id: 'media',
+    label: 'Media',
+    icon: 'icons:perm-media',
     title: 'Media report',
     description: 'Media usage and accessibility signal summary.',
     includes: ['mediaData'],
@@ -98,6 +108,8 @@ async function listReports(req, res) {
   const reportIds = Object.keys(REPORT_DEFINITIONS);
   const reports = reportIds.map((id) => ({
     id,
+    label: REPORT_DEFINITIONS[id].label,
+    icon: REPORT_DEFINITIONS[id].icon,
     title: REPORT_DEFINITIONS[id].title,
     description: REPORT_DEFINITIONS[id].description,
     links: {
@@ -162,6 +174,8 @@ async function reportDetail(req, res) {
   const fields = getCsvQuery(req, 'fields');
   let payload = {
     id: definition.id,
+    label: definition.label,
+    icon: definition.icon,
     title: definition.title,
     description: definition.description,
     generatedAt: new Date().toISOString(),

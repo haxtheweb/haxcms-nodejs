@@ -15,6 +15,7 @@
     "start": "node scripts/start-with-auto-open.js",
     "build": "rm -rf dist && babel src --out-dir dist --copy-files --include-dotfiles && chmod 774 dist/local.js && chmod 774 dist/app.js && chmod 774 dist/cli.js",
     "verify:sanitize-policy": "node scripts/verify-sanitize-policy.js",
+    "test:api-conformance": "node --test test/api-conformance/**/*.test.cjs",
     "release": "npm run build && commit-and-tag-version && git push --follow-tags origin main && npm publish",
     "haxcms-nodejs-cli": "haxcms-nodejs-cli"
   },
@@ -81,6 +82,8 @@
     "@babel/core": "7.29.0",
     "@babel/preset-env": "7.29.5",
     "@babel/register": "7.29.3",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
     "babel-plugin-transform-dynamic-import": "2.1.0",
     "commit-and-tag-version": "12.7.3",
     "nodemon": "3.1.14"

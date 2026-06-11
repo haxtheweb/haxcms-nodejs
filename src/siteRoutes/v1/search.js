@@ -98,7 +98,9 @@ async function search(req, res) {
   const apiBasePath = getApiBasePath(req);
   const queryLower = query.toLowerCase();
   const searchFields = normalizeSearchFields(getCsvQuery(req, 'fields'));
-  const filteredItems = applyItemFilters(getOrderedItems(site), req, site);
+  const filteredItems = applyItemFilters(getOrderedItems(site), req, site, {
+    enforceAnonymousVisibility: true,
+  });
   const results = [];
   for (let i = 0; i < filteredItems.length; i++) {
     const item = filteredItems[i];

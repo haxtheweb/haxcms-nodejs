@@ -17,6 +17,8 @@ const {
   getSiteBasePath,
   getSiteLanguage,
   toIsoDateFromUnixTime,
+  isItemVisibleToAnonymous,
+  isAnonymousSiteApiRequest,
 } = require('./siteRouteUtils.js');
 
 function getItemLookupValue(item) {
@@ -93,10 +95,30 @@ function appendItemNavigationLinks(records = [], navigationMap = {}) {
     const links =
       record.links && typeof record.links === 'object' ? { ...record.links } : {};
     const nav = navigationMap[id];
-    links.previous = nav.previous;
-    links.next = nav.next;
-    links.parent = nav.parent;
-    links.children = nav.children;
+    if (typeof nav.previous === 'string' && nav.previous !== '') {
+      links.previous = nav.previous;
+    }
+    else if (Object.prototype.hasOwnProperty.call(links, 'previous')) {
+      delete links.previous;
+    }
+    if (typeof nav.next === 'string' && nav.next !== '') {
+      links.next = nav.next;
+    }
+    else if (Object.prototype.hasOwnProperty.call(links, 'next')) {
+      delete links.next;
+    }
+    if (typeof nav.parent === 'string' && nav.parent !== '') {
+      links.parent = nav.parent;
+    }
+    else if (Object.prototype.hasOwnProperty.call(links, 'parent')) {
+      delete links.parent;
+    }
+    if (typeof nav.children === 'string' && nav.children !== '') {
+      links.children = nav.children;
+    }
+    else if (Object.prototype.hasOwnProperty.call(links, 'children')) {
+      delete links.children;
+    }
     return {
       ...record,
       links,
@@ -328,7 +350,9 @@ async function listItems(req, res) {
   const fields = getCsvQuery(req, 'fields');
   const orderedItems = getOrderedItems(site);
   const navigationMap = buildItemNavigationMap(orderedItems, apiBasePath);
-  const filteredItems = applyItemFilters(orderedItems, req, site);
+  const filteredItems = applyItemFilters(orderedItems, req, site, {
+    enforceAnonymousVisibility: true,
+  });
   let records = filteredItems.map((item) => itemToSummary(item, apiBasePath));
   records = appendItemNavigationLinks(records, navigationMap);
   records = await appendRequestedItemIncludes(site, records, includes, apiBasePath);
@@ -366,6 +390,15 @@ async function itemDetail(req, res) {
     req && req.params && req.params.idOrSlug ? req.params.idOrSlug : '';
   const item = findItemByIdOrSlug(site, idOrSlug);
   if (!item) {
+    return res.status(404).json({
+      status: 404,
+      message: `Item not found for idOrSlug "${idOrSlug}"`,
+    });
+  }
+  if (
+    isAnonymousSiteApiRequest(req) &&
+    !isItemVisibleToAnonymous(item)
+  ) {
     return res.status(404).json({
       status: 404,
       message: `Item not found for idOrSlug "${idOrSlug}"`,

@@ -14,6 +14,8 @@ const {
   findItemByIdOrSlug,
   getItemContent,
   getSiteBasePath,
+  isItemVisibleToAnonymous,
+  isAnonymousSiteApiRequest,
 } = require('./siteRouteUtils.js');
 
 function buildConcatMarkdown(records = []) {
@@ -119,7 +121,9 @@ async function listContent(req, res) {
   const modeValue = String(getQueryValue(req, 'mode', 'bundle') || '').trim();
   const mode = modeValue === 'concat' ? 'concat' : 'bundle';
   const orderedItems = getOrderedItems(site);
-  const filteredItems = applyItemFilters(orderedItems, req, site);
+  const filteredItems = applyItemFilters(orderedItems, req, site, {
+    enforceAnonymousVisibility: true,
+  });
   const records = [];
   for (let i = 0; i < filteredItems.length; i++) {
     const item = filteredItems[i];
@@ -172,6 +176,15 @@ async function contentDetail(req, res) {
     req && req.params && req.params.idOrSlug ? req.params.idOrSlug : '';
   const item = findItemByIdOrSlug(site, idOrSlug);
   if (!item) {
+    return res.status(404).json({
+      status: 404,
+      message: `Content not found for idOrSlug "${idOrSlug}"`,
+    });
+  }
+  if (
+    isAnonymousSiteApiRequest(req) &&
+    !isItemVisibleToAnonymous(item)
+  ) {
     return res.status(404).json({
       status: 404,
       message: `Content not found for idOrSlug "${idOrSlug}"`,

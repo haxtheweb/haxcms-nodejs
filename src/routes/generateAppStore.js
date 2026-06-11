@@ -272,7 +272,10 @@ async function generateAppStore(req, res) {
     }
     appStore = rewrittenApps;
     // pull in the core one we supply, though only upload works currently
-    let tmp = HAXCMS.siteConnectionJSON(req.query['site_token']);
+    let tmp = HAXCMS.siteConnectionJSON(
+      req.query['site_token'],
+      req.query['siteName'],
+    );
     appStore.push(tmp);
     let staxList,autoloaderList;
     if (HAXCMS.config.appStore && HAXCMS.config.appStore.stax) {

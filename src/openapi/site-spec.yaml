@@ -196,6 +196,8 @@ paths:
         - items
       operationId: listItems
       summary: List outline items
+      description: Anonymous requests only return published items that are not hidden from navigation.
+      security: []
       parameters:
         - $ref: "#/components/parameters/FilterParent"
         - $ref: "#/components/parameters/FilterAncestor"
@@ -282,6 +284,8 @@ paths:
         - items
       operationId: getItemByIdOrSlug
       summary: Get an item by id or slug
+      description: Anonymous requests only return items that are published and not hidden from navigation.
+      security: []
       parameters:
         - $ref: "#/components/parameters/IdOrSlug"
         - $ref: "#/components/parameters/Fields"
@@ -357,6 +361,8 @@ paths:
         - content
       operationId: listContent
       summary: List content records
+      description: Anonymous requests only return content for published items that are not hidden from navigation.
+      security: []
       parameters:
         - $ref: "#/components/parameters/FilterParent"
         - $ref: "#/components/parameters/FilterAncestor"
@@ -410,6 +416,8 @@ paths:
         - content
       operationId: getContentByIdOrSlug
       summary: Get content for an item by id or slug
+      description: Anonymous requests only return content for items that are published and not hidden from navigation.
+      security: []
       parameters:
         - $ref: "#/components/parameters/IdOrSlug"
         - $ref: "#/components/parameters/Fields"
@@ -501,6 +509,175 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+    post:
+      tags:
+        - files
+      operationId: createFile
+      summary: Upload a file to the site files directory
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file-upload:
+                  type: string
+                  format: binary
+                upload:
+                  type: string
+                  format: binary
+                file:
+                  type: string
+                  format: binary
+                nodeId:
+                  type: string
+      responses:
+        "200":
+          description: Uploaded file result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/files/{fileUuid}:
+    get:
+      tags:
+        - files
+      operationId: getFileByUuid
+      summary: Get one file record by UUID
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      parameters:
+        - $ref: "#/components/parameters/FileUuid"
+        - $ref: "#/components/parameters/Fields"
+        - $ref: "#/components/parameters/Format"
+      responses:
+        "200":
+          description: File detail
+          headers:
+            Vary:
+              $ref: "#/components/headers/VaryAccept"
+            Content-Location:
+              $ref: "#/components/headers/ContentLocation"
+            Link:
+              $ref: "#/components/headers/AlternateLink"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/FileRecord"
+            text/markdown:
+              schema:
+                type: string
+            application/yaml:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags:
+        - files
+      operationId: updateFileByUuid
+      summary: Update or transform a file by UUID
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      parameters:
+        - $ref: "#/components/parameters/FileUuid"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - operation
+              properties:
+                operation:
+                  type: string
+                size:
+                  type: string
+                newName:
+                  type: string
+      responses:
+        "200":
+          description: File operation result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags:
+        - files
+      operationId: deleteFileByUuid
+      summary: Delete a file by UUID
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      parameters:
+        - $ref: "#/components/parameters/FileUuid"
+      responses:
+        "200":
+          description: File deletion result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /x/api/v1/tags:
     get:
       tags:
@@ -534,6 +711,8 @@ paths:
         - search
       operationId: searchContent
       summary: Search item metadata and content
+      description: Anonymous requests only search published items that are not hidden from navigation.
+      security: []
       parameters:
         - $ref: "#/components/parameters/RequiredSearchQuery"
         - $ref: "#/components/parameters/FilterParent"
@@ -1108,6 +1287,13 @@ components:
       required: true
       schema:
         type: string
+    FileUuid:
+      name: fileUuid
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     SiteExportFormat:
       name: format
       in: path
@@ -1717,6 +1903,9 @@ components:
           type: string
         name:
           type: string
+        uuid:
+          type: string
+          format: uuid
         size:
           type: integer
         dateCreated:
@@ -2029,6 +2218,10 @@ components:
       properties:
         id:
           type: string
+        label:
+          type: string
+        icon:
+          type: string
         title:
           type: string
         description:
@@ -2041,6 +2234,10 @@ components:
       type: object
       properties:
         id:
+          type: string
+        label:
+          type: string
+        icon:
           type: string
         title:
           type: string

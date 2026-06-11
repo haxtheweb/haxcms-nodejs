@@ -237,23 +237,10 @@ async function ensureSiteHasInitialCommit(runtimeRoot, siteName) {
   ])
 }
 
-async function waitForSiteDirectory(runtimeRoot, siteName, timeoutMs = 5000) {
-  const siteDirectory = path.join(runtimeRoot, SITE_DIRECTORY_NAME, siteName)
-  const startedAt = Date.now()
-  while (Date.now() - startedAt < timeoutMs) {
-    if (fs.pathExistsSync(siteDirectory)) {
-      return siteDirectory
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50))
-  }
-  return siteDirectory
-}
 
 function ensureSiteApiCatalog(runtimeRoot, siteName) {
   const siteDirectory = path.join(runtimeRoot, SITE_DIRECTORY_NAME, siteName)
-  if (!fs.pathExistsSync(siteDirectory)) {
-    return
-  }
+  fs.ensureDirSync(siteDirectory)
   const sourceApiCatalogPath = path.join(
     REPO_ROOT,
     'src',
@@ -1018,14 +1005,6 @@ async function setupRuntime() {
     runtime.jwt,
     runtime.dashboardSettings,
     runtime.createdSiteName,
-  )
-  const runtimeSiteDirectory = await waitForSiteDirectory(
-    runtime.runtimeRoot,
-    runtime.createdSiteName,
-  )
-  assert.ok(
-    fs.pathExistsSync(runtimeSiteDirectory),
-    `Runtime harness site directory was not created: ${runtimeSiteDirectory}`,
   )
   ensureSiteApiCatalog(runtime.runtimeRoot, runtime.createdSiteName)
   await ensureSiteHasInitialCommit(runtime.runtimeRoot, runtime.createdSiteName)

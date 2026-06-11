@@ -76,6 +76,22 @@ function parseSchemaFileOperationBody(req, res, next) {
   }
   return jsonRequestParser(req, res, next);
 }
+function getSiteApiRouteParser(method = 'get', route = '') {
+  const normalizedMethod = String(method || 'get').toLowerCase();
+  const normalizedRoute = String(route || '');
+  if (normalizedMethod === 'post' && normalizedRoute === 'v1/files') {
+    return uploadAnyParser;
+  }
+  if (
+    normalizedMethod === 'post' ||
+    normalizedMethod === 'put' ||
+    normalizedMethod === 'patch' ||
+    normalizedMethod === 'delete'
+  ) {
+    return jsonRequestParser;
+  }
+  return null;
+}
 let publicDir = path.join(__dirname, '/public');
 const WEBCOMPONENTS_ROOT_ENV_VAR = 'HAXCMS_WEBCOMPONENTS_ROOT';
 const linkedWebcomponentsRoot = getLinkedWebcomponentsRoot();
@@ -690,10 +706,10 @@ systemStructureContext().then((site) => {
             res.setHeader('Content-Type', 'text/html');
           }
         }
-        res.sendFile(req.url.split('?')[0],
-        {
-          root: publicDir
-        });
+        res.sendFile(
+          req.url.split('?')[0],
+          getStaticSendFileOptions(publicDir, req.url)
+        );
       }
       else {
         const requestPath = getRequestPathWithoutQuery(req.url);
@@ -867,10 +883,13 @@ systemStructureContext().then((site) => {
             res.setHeader('Content-Type', 'text/html');
           }
         }
-        res.sendFile(req.url.split('?')[0],
-        {
-          root: process.cwd() + `/${HAXCMS.sitesDirectory}`
-        });
+        res.sendFile(
+          req.url.split('?')[0],
+          getStaticSendFileOptions(
+            process.cwd() + `/${HAXCMS.sitesDirectory}`,
+            req.url
+          )
+        );
       }
       else {
         const siteName = getMultisiteSiteName(multisiteRequestPath);
@@ -1007,7 +1026,8 @@ systemStructureContext().then((site) => {
     for (let siteRoute in SiteRoutesMap[siteMethod]) {
       const routeSuffix = siteRoute === '' ? '' : '/' + siteRoute;
       const siteRoutePath = `${siteApiBasePath}${routeSuffix}`;
-      app[siteMethod](siteRoutePath, async (req, res, next) => {
+      const siteRouteParser = getSiteApiRouteParser(siteMethod, siteRoute);
+      const siteRouteHandler = async (req, res, next) => {
         try {
           const access = await validateSiteApiRouteAccess(req, siteRoute, siteMethod);
           if (!access.allowed) {
@@ -1023,24 +1043,21 @@ systemStructureContext().then((site) => {
             message: 'Unable to evaluate site API access policy',
           });
         }
-      });
-      app[siteMethod](`/${HAXCMS.sitesDirectory}/*${siteRoutePath}`, async (req, res, next) => {
-        try {
-          const access = await validateSiteApiRouteAccess(req, siteRoute, siteMethod);
-          if (!access.allowed) {
-            return res.status(access.status).json({
-              status: access.status,
-              message: access.message,
-            });
-          }
-          SiteRoutesMap[siteMethod][siteRoute](req, res, next);
-        } catch (e) {
-          return res.status(500).json({
-            status: 500,
-            message: 'Unable to evaluate site API access policy',
-          });
-        }
-      });
+      };
+      if (siteRouteParser) {
+        app[siteMethod](siteRoutePath, siteRouteParser, siteRouteHandler);
+        app[siteMethod](
+          `/${HAXCMS.sitesDirectory}/*${siteRoutePath}`,
+          siteRouteParser,
+          siteRouteHandler,
+        );
+      } else {
+        app[siteMethod](siteRoutePath, siteRouteHandler);
+        app[siteMethod](
+          `/${HAXCMS.sitesDirectory}/*${siteRoutePath}`,
+          siteRouteHandler,
+        );
+      }
     }
   }
   // can't do this for a site context
@@ -1256,7 +1273,7 @@ function normalizeSiteApiSecurityPolicy(securityConfig = null) {
     return 'authenticated-user';
   }
   if (requiresBearer) {
-    return 'authenticated-user';
+    return 'authenticated';
   }
   return 'public';
 }
@@ -1351,6 +1368,85 @@ function getBearerJwtFromRequest(req) {
   }
   return authorizationHeader.substring(7).trim();
 }
+function decodeBasicAuthCredentials(authorizationHeader = '') {
+  const cleanHeader = String(authorizationHeader || '').trim();
+  if (cleanHeader.toLowerCase().indexOf('basic ') !== 0) {
+    return null;
+  }
+  const encodedCredentials = cleanHeader.substring(6).trim();
+  if (encodedCredentials === '') {
+    return null;
+  }
+  let decodedCredentials = '';
+  try {
+    decodedCredentials = Buffer.from(encodedCredentials, 'base64').toString(
+      'utf8',
+    );
+  } catch (e) {
+    return null;
+  }
+  const separatorIndex = decodedCredentials.indexOf(':');
+  if (separatorIndex === -1) {
+    return null;
+  }
+  return {
+    userName: decodedCredentials.substring(0, separatorIndex),
+    password: decodedCredentials.substring(separatorIndex + 1),
+  };
+}
+function authenticateBasicAuthorizationRequest(req) {
+  const authorizationHeader = getRequestHeaderValue(req, 'authorization');
+  const basicAuthCredentials = decodeBasicAuthCredentials(authorizationHeader);
+  if (!basicAuthCredentials) {
+    return {
+      attempted: false,
+      authenticated: false,
+      userName: '',
+    };
+  }
+  const userName = String(basicAuthCredentials.userName || '').trim();
+  const password = String(basicAuthCredentials.password || '');
+  if (userName === '' || password === '') {
+    return {
+      attempted: true,
+      authenticated: false,
+      userName: '',
+    };
+  }
+  if (
+    HAXCMS.testLogin(userName, password, true) &&
+    HAXCMS.validateUser(userName)
+  ) {
+    return {
+      attempted: true,
+      authenticated: true,
+      userName: userName,
+    };
+  }
+  return {
+    attempted: true,
+    authenticated: false,
+    userName: '',
+  };
+}
+function getDecodedBearerJwtPayload(jwt = '') {
+  const token = String(jwt || '').trim();
+  if (token === '') {
+    return null;
+  }
+  const decoded = HAXCMS.decodeJWT(token);
+  if (!decoded || typeof decoded !== 'object') {
+    return null;
+  }
+  return decoded;
+}
+function getAuthenticatedUserNameFromBearerJwt(jwt = '') {
+  const decoded = getDecodedBearerJwtPayload(jwt);
+  if (!decoded || !decoded.user) {
+    return '';
+  }
+  return String(decoded.user);
+}
 function applyBearerJwtToRequest(req, jwt = '') {
   const token = String(jwt || '').trim();
   if (token === '' || !req) {
@@ -1369,23 +1465,165 @@ function applyBearerJwtToRequest(req, jwt = '') {
     req.body.jwt = token;
   }
 }
+function setSiteApiAuthContext(req, authContext = {}) {
+  if (!req || typeof req !== 'object') {
+    return;
+  }
+  req.haxcmsSiteApiAuth = {
+    policy:
+      authContext && authContext.policy
+        ? String(authContext.policy)
+        : 'public',
+    authenticated:
+      authContext && authContext.authenticated === true,
+    userName:
+      authContext && authContext.userName
+        ? String(authContext.userName)
+        : '',
+    securityLevel:
+      authContext && authContext.securityLevel
+        ? String(authContext.securityLevel)
+        : 'public',
+  };
+}
+function normalizeSiteNameCandidate(siteName = '') {
+  const cleanSiteName = String(siteName || '').trim();
+  if (cleanSiteName === '') {
+    return '';
+  }
+  try {
+    return decodeURIComponent(cleanSiteName);
+  } catch (e) {
+    return cleanSiteName;
+  }
+}
 function getSiteNameFromSiteApiRequestPath(url = '') {
   const parts = String(getRequestPathWithoutQuery(url) || '')
     .split('/')
     .filter((part) => part !== '');
   for (let i = 0; i < parts.length; i++) {
     if (parts[i] === HAXCMS.sitesDirectory && parts[i + 1]) {
-      return decodeURIComponent(parts[i + 1]);
+      return normalizeSiteNameCandidate(parts[i + 1]);
     }
   }
   return '';
 }
-async function resolveSiteApiRequestSiteName(req) {
+function getSiteNameFromSiteApiRequestPayload(req) {
+  if (!req || typeof req !== 'object') {
+    return '';
+  }
+  const sources = [];
+  if (req.params && typeof req.params === 'object') {
+    sources.push(req.params);
+  }
+  if (req.query && typeof req.query === 'object') {
+    sources.push(req.query);
+  }
+  if (req.body && typeof req.body === 'object') {
+    sources.push(req.body);
+  }
+  const candidateKeys = [
+    'siteName',
+    'site',
+    'sitename',
+    'site_name',
+  ];
+  for (let s = 0; s < sources.length; s++) {
+    const source = sources[s];
+    for (let k = 0; k < candidateKeys.length; k++) {
+      const key = candidateKeys[k];
+      if (
+        Object.prototype.hasOwnProperty.call(source, key) &&
+        String(source[key] || '').trim() !== ''
+      ) {
+        return normalizeSiteNameCandidate(source[key]);
+      }
+    }
+  }
+  return '';
+}
+function getSiteNameFromSiteApiRequestReferer(req) {
+  const referer = getRequestHeaderValue(req, 'referer');
+  if (referer === '') {
+    return '';
+  }
+  try {
+    const parsed = new URL(referer);
+    const refererPathSiteName = getSiteNameFromSiteApiRequestPath(parsed.pathname);
+    if (refererPathSiteName !== '') {
+      return refererPathSiteName;
+    }
+  } catch (e) {}
+  return getSiteNameFromSiteApiRequestPath(referer);
+}
+function inferSiteNameFromSiteToken(siteToken = '', userName = '') {
+  const cleanSiteToken = String(siteToken || '').trim();
+  const cleanUserName = String(userName || '').trim();
+  if (cleanSiteToken === '' || cleanUserName === '') {
+    return '';
+  }
+  const sitesRoot = path.join(
+    String(HAXCMS.HAXCMS_ROOT || process.cwd()),
+    String(HAXCMS.sitesDirectory || '_sites'),
+  );
+  if (!fs.existsSync(sitesRoot)) {
+    return '';
+  }
+  let isSitesRootDirectory = false;
+  try {
+    isSitesRootDirectory = fs.lstatSync(sitesRoot).isDirectory();
+  } catch (e) {
+    isSitesRootDirectory = false;
+  }
+  if (!isSitesRootDirectory) {
+    return '';
+  }
+  let siteDirectoryEntries = [];
+  try {
+    siteDirectoryEntries = fs.readdirSync(sitesRoot);
+  } catch (e) {
+    siteDirectoryEntries = [];
+  }
+  for (let i = 0; i < siteDirectoryEntries.length; i++) {
+    const candidateSiteName = String(siteDirectoryEntries[i] || '').trim();
+    if (candidateSiteName === '') {
+      continue;
+    }
+    const candidateSiteDirectory = path.join(sitesRoot, candidateSiteName);
+    let isCandidateDirectory = false;
+    try {
+      isCandidateDirectory = fs.lstatSync(candidateSiteDirectory).isDirectory();
+    } catch (e) {
+      isCandidateDirectory = false;
+    }
+    if (!isCandidateDirectory) {
+      continue;
+    }
+    if (
+      HAXCMS.validateRequestToken(
+        cleanSiteToken,
+        `${cleanUserName}:${candidateSiteName}`,
+      )
+    ) {
+      return candidateSiteName;
+    }
+  }
+  return '';
+}
+async function resolveSiteApiRequestSiteName(req, authContext = {}) {
   const pathBasedSiteName = getSiteNameFromSiteApiRequestPath(
     req && req.originalUrl ? req.originalUrl : req && req.url ? req.url : '',
   );
   if (pathBasedSiteName !== '') {
     return pathBasedSiteName;
+  }
+  const payloadSiteName = getSiteNameFromSiteApiRequestPayload(req);
+  if (payloadSiteName !== '') {
+    return payloadSiteName;
+  }
+  const refererSiteName = getSiteNameFromSiteApiRequestReferer(req);
+  if (refererSiteName !== '') {
+    return refererSiteName;
   }
   try {
     const site = await systemStructureContext();
@@ -1399,18 +1637,92 @@ async function resolveSiteApiRequestSiteName(req) {
       return String(site.manifest.metadata.site.name);
     }
   } catch (e) {}
+  const inferredSiteName = inferSiteNameFromSiteToken(
+    authContext && authContext.siteToken ? authContext.siteToken : '',
+    authContext && authContext.userName ? authContext.userName : '',
+  );
+  if (inferredSiteName !== '') {
+    return inferredSiteName;
+  }
   return '';
 }
-async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
-  const policy = getSiteApiRouteAuthPolicy(route, method);
-  if (policy === 'public') {
+function normalizeIamAuthorizationResult(iamAuthorization = null) {
+  if (typeof iamAuthorization === 'boolean') {
+    if (iamAuthorization) {
+      return {
+        allowed: true,
+        status: 200,
+        message: '',
+      };
+    }
+    return {
+      allowed: false,
+      status: 403,
+      message: 'Access denied',
+    };
+  }
+  if (!iamAuthorization || typeof iamAuthorization !== 'object') {
     return {
       allowed: true,
       status: 200,
       message: '',
     };
   }
+  if (iamAuthorization.allowed === false) {
+    return {
+      allowed: false,
+      status: iamAuthorization.status || 403,
+      message: iamAuthorization.message || 'Access denied',
+    };
+  }
+  return {
+    allowed: true,
+    status: 200,
+    message: '',
+  };
+}
+function validateHaxiamManagedUserIdentityForRequest() {
+  if (
+    typeof HAXCMS.getDeploymentProfile !== 'function' ||
+    HAXCMS.getDeploymentProfile() !== 'haxiam-managed'
+  ) {
+    return {
+      allowed: true,
+      status: 200,
+      message: '',
+    };
+  }
+  if (typeof HAXCMS.validateIAMRouteAuthorization !== 'function') {
+    return {
+      allowed: true,
+      status: 200,
+      message: '',
+    };
+  }
+  try {
+    return normalizeIamAuthorizationResult(
+      HAXCMS.validateIAMRouteAuthorization(true),
+    );
+  } catch (e) {
+    return {
+      allowed: false,
+      status: 403,
+      message: 'Tenant identity validation failed',
+    };
+  }
+}
+async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
+  const policy = getSiteApiRouteAuthPolicy(route, method);
+  const authContext = {
+    policy,
+    authenticated: false,
+    userName: '',
+    securityLevel: 'public',
+  };
   if (HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
+    authContext.authenticated = true;
+    authContext.securityLevel = policy === 'public' ? 'authenticated' : policy;
+    setSiteApiAuthContext(req, authContext);
     return {
       allowed: true,
       status: 200,
@@ -1418,22 +1730,102 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
     };
   }
   const bearerJwt = getBearerJwtFromRequest(req);
-  if (bearerJwt === '') {
+  const hasBearerJwt = bearerJwt !== '';
+  let invalidBearerJwt = false;
+  if (hasBearerJwt) {
+    applyBearerJwtToRequest(req, bearerJwt);
+    const validBearer = HAXCMS.validateJWT(req, null);
+    if (!validBearer) {
+      invalidBearerJwt = true;
+    } else {
+      const authenticatedUserName = getAuthenticatedUserNameFromBearerJwt(
+        bearerJwt,
+      );
+      if (authenticatedUserName !== '') {
+        authContext.authenticated = true;
+        authContext.userName = authenticatedUserName;
+        authContext.securityLevel = 'authenticated';
+      }
+    }
+  }
+  const basicAuth = authenticateBasicAuthorizationRequest(req);
+  if (basicAuth.authenticated && !authContext.authenticated) {
+    authContext.authenticated = true;
+    authContext.userName = basicAuth.userName;
+    authContext.securityLevel = 'authenticated';
+  }
+  if (policy === 'public') {
+    setSiteApiAuthContext(req, authContext);
     return {
-      allowed: false,
-      status: 401,
-      message: 'Authorization bearer token is required for this endpoint',
+      allowed: true,
+      status: 200,
+      message: '',
     };
   }
-  applyBearerJwtToRequest(req, bearerJwt);
-  if (!HAXCMS.validateJWT(req, null)) {
+  if (!hasBearerJwt && !basicAuth.attempted) {
     return {
       allowed: false,
       status: 401,
-      message: 'Invalid bearer token',
+      message: 'Authorization bearer token or basic credentials are required for this endpoint',
     };
+  }
+  if (!authContext.authenticated) {
+    if (basicAuth.attempted) {
+      return {
+        allowed: false,
+        status: 401,
+        message: 'Invalid basic authorization credentials',
+      };
+    }
+    if (hasBearerJwt || invalidBearerJwt) {
+      return {
+        allowed: false,
+        status: 401,
+        message: 'Invalid bearer token',
+      };
+    }
+    return {
+      allowed: false,
+      status: 401,
+      message: 'Unable to authenticate request',
+    };
+  }
+  if (authContext.userName === '') {
+    return {
+      allowed: false,
+      status: 403,
+      message: 'Unable to resolve authenticated user context',
+    };
+  }
+  if (policy === 'authenticated') {
+    authContext.securityLevel = 'authenticated';
   }
   if (policy === 'authenticated-site') {
+    if (basicAuth.authenticated) {
+      const siteName = await resolveSiteApiRequestSiteName(req, authContext);
+      if (!siteName) {
+        return {
+          allowed: false,
+          status: 403,
+          message: 'Unable to resolve site context for authenticated request',
+        };
+      }
+      const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
+      if (!iamAuthorization.allowed) {
+        return {
+          allowed: false,
+          status: iamAuthorization.status || 403,
+          message: iamAuthorization.message || 'Access denied',
+        };
+      }
+      authContext.securityLevel = 'authenticated-site';
+      setSiteApiAuthContext(req, authContext);
+      return {
+        allowed: true,
+        status: 200,
+        message: '',
+      };
+    }
     const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
     if (siteToken === '') {
       return {
@@ -1442,9 +1834,11 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
         message: 'X-HAXCMS-Site-Token header is required for this endpoint',
       };
     }
-    const activeUserName = HAXCMS.getActiveUserName();
-    const siteName = await resolveSiteApiRequestSiteName(req);
-    if (!activeUserName || !siteName) {
+    const siteName = await resolveSiteApiRequestSiteName(req, {
+      userName: authContext.userName,
+      siteToken: siteToken,
+    });
+    if (!authContext.userName || !siteName) {
       return {
         allowed: false,
         status: 403,
@@ -1454,7 +1848,7 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
     if (
       !HAXCMS.validateRequestToken(
         siteToken,
-        `${activeUserName}:${siteName}`,
+        `${authContext.userName}:${siteName}`,
       )
     ) {
       return {
@@ -1463,8 +1857,26 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
         message: 'Invalid X-HAXCMS-Site-Token header',
       };
     }
+    authContext.securityLevel = 'authenticated-site';
   }
   if (policy === 'authenticated-user') {
+    if (basicAuth.authenticated) {
+      const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
+      if (!iamAuthorization.allowed) {
+        return {
+          allowed: false,
+          status: iamAuthorization.status || 403,
+          message: iamAuthorization.message || 'Access denied',
+        };
+      }
+      authContext.securityLevel = 'authenticated-user';
+      setSiteApiAuthContext(req, authContext);
+      return {
+        allowed: true,
+        status: 200,
+        message: '',
+      };
+    }
     const userToken = getRequestHeaderValue(req, 'x-haxcms-user-token');
     if (userToken === '') {
       return {
@@ -1473,22 +1885,24 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
         message: 'X-HAXCMS-User-Token header is required for this endpoint',
       };
     }
-    const activeUserName = HAXCMS.getActiveUserName();
-    if (!activeUserName) {
-      return {
-        allowed: false,
-        status: 403,
-        message: 'Unable to resolve user token context',
-      };
-    }
-    if (!HAXCMS.validateRequestToken(userToken, activeUserName)) {
+    if (!HAXCMS.validateRequestToken(userToken, authContext.userName)) {
       return {
         allowed: false,
         status: 403,
         message: 'Invalid X-HAXCMS-User-Token header',
       };
     }
+    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
+    if (!iamAuthorization.allowed) {
+      return {
+        allowed: false,
+        status: iamAuthorization.status || 403,
+        message: iamAuthorization.message || 'Access denied',
+      };
+    }
+    authContext.securityLevel = 'authenticated-user';
   }
+  setSiteApiAuthContext(req, authContext);
   return {
     allowed: true,
     status: 200,
@@ -1528,6 +1942,19 @@ function setWellKnownContentType(res, requestPath = '') {
     return true;
   }
   return false;
+}
+function shouldAllowWellKnownDotfiles(requestPath = '') {
+  const cleanRequestPath = getRequestPathWithoutQuery(requestPath);
+  return /\/\.well-known(?:\/|$)/.test(cleanRequestPath);
+}
+function getStaticSendFileOptions(rootPath = '', requestPath = '') {
+  const options = {
+    root: rootPath,
+  };
+  if (shouldAllowWellKnownDotfiles(requestPath)) {
+    options.dotfiles = 'allow';
+  }
+  return options;
 }
 
 function getExplicitVariantInfo(pathname = '') {

@@ -2611,6 +2611,79 @@ class HAXCMSClass {
     const allowedValues = ['1', 'true', 'yes'];
     return allowedValues.indexOf(String(process.env.HAXCMS_ALLOW_DEFAULT_CREDS).toLowerCase()) !== -1;
   }
+  getRuntimeCredentialOverride() {
+    if (typeof globalThis === 'undefined' || !globalThis) {
+      return null;
+    }
+    let runtimeUserName = '';
+    let runtimePassword = '';
+    if (
+      globalThis.HAXCMS_RUNTIME_CREDENTIALS &&
+      typeof globalThis.HAXCMS_RUNTIME_CREDENTIALS === 'object'
+    ) {
+      const runtimeCredentials = globalThis.HAXCMS_RUNTIME_CREDENTIALS;
+      if (
+        typeof runtimeCredentials.username === 'string' &&
+        runtimeCredentials.username.trim() !== ''
+      ) {
+        runtimeUserName = runtimeCredentials.username.trim();
+      }
+      else if (
+        typeof runtimeCredentials.name === 'string' &&
+        runtimeCredentials.name.trim() !== ''
+      ) {
+        runtimeUserName = runtimeCredentials.name.trim();
+      }
+      if (
+        typeof runtimeCredentials.password === 'string' &&
+        runtimeCredentials.password.trim() !== ''
+      ) {
+        runtimePassword = runtimeCredentials.password;
+      }
+      else if (
+        typeof runtimeCredentials.pass === 'string' &&
+        runtimeCredentials.pass.trim() !== ''
+      ) {
+        runtimePassword = runtimeCredentials.pass;
+      }
+    }
+    if (
+      runtimeUserName === '' &&
+      typeof globalThis.HAXCMS_RUNTIME_USERNAME === 'string' &&
+      globalThis.HAXCMS_RUNTIME_USERNAME.trim() !== ''
+    ) {
+      runtimeUserName = globalThis.HAXCMS_RUNTIME_USERNAME.trim();
+    }
+    if (
+      runtimePassword === '' &&
+      typeof globalThis.HAXCMS_RUNTIME_PASSWORD === 'string' &&
+      globalThis.HAXCMS_RUNTIME_PASSWORD.trim() !== ''
+    ) {
+      runtimePassword = globalThis.HAXCMS_RUNTIME_PASSWORD;
+    }
+    if (runtimeUserName === '' || runtimePassword === '') {
+      return null;
+    }
+    return {
+      name: runtimeUserName,
+      password: runtimePassword,
+    };
+  }
+  applyRuntimeCredentialOverride() {
+    const runtimeCredentialOverride = this.getRuntimeCredentialOverride();
+    if (!runtimeCredentialOverride) {
+      return false;
+    }
+    this.superUser = {
+      name: runtimeCredentialOverride.name,
+      password: runtimeCredentialOverride.password,
+    };
+    this.user = {
+      name: runtimeCredentialOverride.name,
+      password: runtimeCredentialOverride.password,
+    };
+    return true;
+  }
   generateSecurePassword() {
     return crypto.randomBytes(16).toString('hex');
   }
@@ -2899,6 +2972,8 @@ class HAXCMSClass {
         console.error('\n***************************************************************');
       }
     }
+    // allow runtime overrides for isolated testing or orchestration scenarios
+    this.applyRuntimeCredentialOverride();
     // refuse to start web runtime with known default credentials unless explicitly overridden
     if (this.hasDefaultCredentials() && !this.isCLI() && !this.shouldAllowDefaultCredentials()) {
       console.error('***************************************************************');
@@ -3654,8 +3729,24 @@ class HAXCMSClass {
     /**
      * Generate a valid HAX App store specification schema for connecting to this site via JSON.
      */
-    siteConnectionJSON(siteToken = '')
+    siteConnectionJSON(siteToken = '', siteName = '')
     {
+        const isMultisite = (
+          this.operatingContext === 'multisite' ||
+          (
+            typeof this.getDeploymentProfile === 'function' &&
+            this.getDeploymentProfile() === 'self-hosted-multi-site'
+          )
+        );
+        const normalizedSiteName = String(siteName || '').trim();
+        let browseEndPoint = 'x/api/v1/files';
+        if (isMultisite && normalizedSiteName !== '') {
+          browseEndPoint =
+            this.sitesDirectory +
+            '/' +
+            encodeURIComponent(normalizedSiteName) +
+            '/x/api/v1/files';
+        }
         return {
       "details": {
         "title": "Local files",
@@ -3668,10 +3759,13 @@ class HAXCMSClass {
       "connection": {
         "protocol": this.protocol,
         "url": this.domain + this.basePath,
+        "headers": {
+          "X-HAXCMS-Site-Token": siteToken
+        },
         "operations": {
           "browse": {
             "method": "GET",
-            "endPoint": this.systemRequestBase + "listFiles?site_token=" + siteToken,
+            "endPoint": browseEndPoint,
             "pagination": {
               "style": "link",
               "props": {
@@ -3693,15 +3787,15 @@ class HAXCMSClass {
             },
             "resultMap": {
               "defaultGizmoType": "image",
-              "items": "list",
+              "items": "data.files",
               "preview": {
                 "title": "name",
-                "details": "mime",
-                "image": "url",
+                "details": "mimetype",
+                "image": "fullUrl",
                 "id": "uuid"
               },
               "gizmo": {
-                "source": "url",
+                "source": "fullUrl",
                 "id": "uuid",
                 "title": "name",
                 "mimetype": "mimetype"

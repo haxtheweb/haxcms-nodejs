@@ -22,6 +22,24 @@ npm start
 ```
 
 Visit http://localhost:3000 if it doesn't automatically open
+## API conformance testing
+Run endpoint conformance checks against `src/openapi/site-spec.yaml`:
+```bash
+npm run test:api-conformance
+```
+
+The runner creates an isolated runtime workspace, then bootstraps a real site via API before endpoint checks run.
+- The first bootstrap step calls `createSite` and generates a runtime site name:
+  - `haxcms-test-harness-{timestampStartOfTest}`
+- All conformance calls then run against that real site path.
+- Optional runtime login override values:
+  - `HAXCMS_TEST_USERNAME`
+  - `HAXCMS_TEST_PASSWORD`
+
+Runtime credential overrides are also supported in-process via globals:
+- `globalThis.HAXCMS_RUNTIME_CREDENTIALS = { username, password }`
+- `globalThis.HAXCMS_RUNTIME_USERNAME`
+- `globalThis.HAXCMS_RUNTIME_PASSWORD`
 ## MCP and deployment profiles
 - MCP policy defaults are controlled via `_config/config.json`.
 - New installs include:

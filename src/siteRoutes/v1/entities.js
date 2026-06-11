@@ -117,6 +117,9 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       modes: ['bundle'],
       auth: 'public',
       supportedOperations: ['read'],
+      notes: [
+        'Anonymous reads are restricted to published items where metadata.hideInMenu is not true.',
+      ],
       related: [
         {
           rel: 'entity',
@@ -164,15 +167,21 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       modes: ['bundle', 'concat'],
       auth: 'public',
       supportedOperations: ['read'],
+      notes: [
+        'Anonymous reads are restricted to content from published items where metadata.hideInMenu is not true.',
+      ],
     },
     {
       name: 'file',
       description: 'File assets available in the site files directory.',
-      primaryKey: 'path',
-      endpoints: [`${apiBasePath}/v1/files`],
+      primaryKey: 'uuid',
+      endpoints: [
+        `${apiBasePath}/v1/files`,
+        `${apiBasePath}/v1/files/{fileUuid}`,
+      ],
       filterableFields: ['filter.type', 'filter.extension', 'filter.startsWith', 'filter.nameContains'],
       sortableFields: ['name', 'path', 'dateCreated', 'size'],
-      selectableFields: ['path', 'url', 'fullUrl', 'name', 'mimetype', 'size', 'dateCreated'],
+      selectableFields: ['uuid', 'path', 'url', 'fullUrl', 'name', 'mimetype', 'size', 'dateCreated'],
       includes: [],
       formats: [
         'application/json',
@@ -182,7 +191,7 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       ],
       modes: ['bundle'],
       auth: 'authenticated-site',
-      supportedOperations: ['read'],
+      supportedOperations: ['read', 'create', 'update', 'delete'],
     },
     {
       name: 'tag',
@@ -305,7 +314,7 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       ],
       filterableFields: ['filter.report', 'filter.parent', 'filter.ancestor'],
       sortableFields: ['id', 'generatedAt'],
-      selectableFields: ['id', 'title', 'description', 'generatedAt', 'data'],
+      selectableFields: ['id', 'label', 'icon', 'title', 'description', 'generatedAt', 'data'],
       includes: ['items', 'links', 'content', 'media'],
       formats: [
         'application/json',
@@ -397,10 +406,13 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       includes: [],
       formats: ['application/json'],
       modes: [],
-      auth: 'authenticated',
+      auth: 'authenticated-user',
       supportedOperations: [],
       enabled: false,
-      notes: ['Reserved for future secured routes; not exposed on public site API in read-only phase.'],
+      notes: [
+        'Reserved for future secured routes; not exposed on public site API in read-only phase.',
+        'Session and identity routes are expected to require bearer JWT plus X-HAXCMS-User-Token when enabled.',
+      ],
     },
   ];
 }

@@ -99,12 +99,194 @@ function getMultisiteSiteNameFromPath(requestPath = '') {
   }
   return '';
 }
+function normalizeSiteNameCandidate(siteName = '') {
+  const cleanSiteName = String(siteName || '').trim();
+  if (cleanSiteName === '') {
+    return '';
+  }
+  try {
+    return decodeURIComponent(cleanSiteName);
+  } catch (e) {
+    return cleanSiteName;
+  }
+}
+
+function getSiteNameFromRequestPayload(req) {
+  if (!req || typeof req !== 'object') {
+    return '';
+  }
+  const candidateKeys = ['siteName', 'site', 'sitename', 'site_name'];
+  const sources = [];
+  if (req.params && typeof req.params === 'object') {
+    sources.push(req.params);
+  }
+  if (req.query && typeof req.query === 'object') {
+    sources.push(req.query);
+  }
+  if (req.body && typeof req.body === 'object') {
+    sources.push(req.body);
+  }
+  for (let s = 0; s < sources.length; s++) {
+    const source = sources[s];
+    for (let k = 0; k < candidateKeys.length; k++) {
+      const key = candidateKeys[k];
+      if (
+        Object.prototype.hasOwnProperty.call(source, key) &&
+        String(source[key] || '').trim() !== ''
+      ) {
+        return normalizeSiteNameCandidate(source[key]);
+      }
+    }
+  }
+  return '';
+}
+
+function getSiteNameFromRequestReferer(req) {
+  const referer = getRequestHeaderValue(req, 'referer');
+  if (referer === '') {
+    return '';
+  }
+  try {
+    const parsed = new URL(referer);
+    const refererSiteName = getMultisiteSiteNameFromPath(parsed.pathname);
+    if (refererSiteName !== '') {
+      return refererSiteName;
+    }
+  } catch (e) {}
+  return getMultisiteSiteNameFromPath(referer);
+}
+
+function getSiteNameFromAuthContext(req) {
+  if (
+    req &&
+    req.haxcmsSiteApiAuth &&
+    typeof req.haxcmsSiteApiAuth === 'object' &&
+    req.haxcmsSiteApiAuth.siteName
+  ) {
+    return normalizeSiteNameCandidate(req.haxcmsSiteApiAuth.siteName);
+  }
+  return '';
+}
+
+function getAuthenticatedUserNameFromRequestContext(req) {
+  if (!req || typeof req !== 'object') {
+    return '';
+  }
+  if (
+    req.haxcmsSiteApiAuth &&
+    typeof req.haxcmsSiteApiAuth === 'object' &&
+    req.haxcmsSiteApiAuth.userName
+  ) {
+    return String(req.haxcmsSiteApiAuth.userName || '').trim();
+  }
+  return '';
+}
+
+function inferSiteNameFromSiteToken(req) {
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  const userName = getAuthenticatedUserNameFromRequestContext(req);
+  if (siteToken === '' || userName === '') {
+    return '';
+  }
+  const sitesRoot = path.join(
+    String(HAXCMS.HAXCMS_ROOT || process.cwd()),
+    String(HAXCMS.sitesDirectory || '_sites'),
+  );
+  if (!fs.existsSync(sitesRoot)) {
+    return '';
+  }
+  let isSitesRootDirectory = false;
+  try {
+    isSitesRootDirectory = fs.lstatSync(sitesRoot).isDirectory();
+  } catch (e) {
+    isSitesRootDirectory = false;
+  }
+  if (!isSitesRootDirectory) {
+    return '';
+  }
+  let siteEntries = [];
+  try {
+    siteEntries = fs.readdirSync(sitesRoot);
+  } catch (e) {
+    siteEntries = [];
+  }
+  for (let i = 0; i < siteEntries.length; i++) {
+    const candidateSiteName = String(siteEntries[i] || '').trim();
+    if (candidateSiteName === '') {
+      continue;
+    }
+    const candidateSitePath = path.join(sitesRoot, candidateSiteName);
+    let isCandidateDirectory = false;
+    try {
+      isCandidateDirectory = fs.lstatSync(candidateSitePath).isDirectory();
+    } catch (e) {
+      isCandidateDirectory = false;
+    }
+    if (!isCandidateDirectory) {
+      continue;
+    }
+    if (
+      HAXCMS.validateRequestToken(
+        siteToken,
+        `${userName}:${candidateSiteName}`,
+      )
+    ) {
+      return candidateSiteName;
+    }
+  }
+  return '';
+}
+
+async function loadResolvedSiteByName(siteName = '') {
+  const normalizedSiteName = normalizeSiteNameCandidate(siteName);
+  if (normalizedSiteName === '') {
+    return null;
+  }
+  try {
+    const site = await HAXCMS.loadSite(normalizedSiteName);
+    if (site && site.manifest && site.siteDirectory) {
+      return site;
+    }
+  } catch (e) {}
+  return null;
+}
 
 async function resolveSiteForRequest(req) {
   const requestPath = getRequestPath(req);
-  const siteName = getMultisiteSiteNameFromPath(requestPath);
-  if (siteName !== '') {
-    return await HAXCMS.loadSite(siteName);
+  const pathSiteName = getMultisiteSiteNameFromPath(requestPath);
+  if (pathSiteName !== '') {
+    const pathResolvedSite = await loadResolvedSiteByName(pathSiteName);
+    if (pathResolvedSite) {
+      return pathResolvedSite;
+    }
+  }
+  const authContextSiteName = getSiteNameFromAuthContext(req);
+  if (authContextSiteName !== '') {
+    const authResolvedSite = await loadResolvedSiteByName(authContextSiteName);
+    if (authResolvedSite) {
+      return authResolvedSite;
+    }
+  }
+  const payloadSiteName = getSiteNameFromRequestPayload(req);
+  if (payloadSiteName !== '') {
+    const payloadResolvedSite = await loadResolvedSiteByName(payloadSiteName);
+    if (payloadResolvedSite) {
+      return payloadResolvedSite;
+    }
+  }
+  const refererSiteName = getSiteNameFromRequestReferer(req);
+  if (refererSiteName !== '') {
+    const refererResolvedSite = await loadResolvedSiteByName(refererSiteName);
+    if (refererResolvedSite) {
+      return refererResolvedSite;
+    }
+  }
+  const tokenInferredSiteName = inferSiteNameFromSiteToken(req);
+  if (tokenInferredSiteName !== '') {
+    const tokenResolvedSite = await loadResolvedSiteByName(tokenInferredSiteName);
+    if (tokenResolvedSite) {
+      return tokenResolvedSite;
+    }
   }
   return await systemStructureContext();
 }
@@ -226,6 +408,70 @@ function getQueryObject(req) {
     return req.query;
   }
   return {};
+}
+
+function ensureRequestQueryObject(req) {
+  if (!req.query || typeof req.query !== 'object') {
+    req.query = {};
+  }
+  return req.query;
+}
+
+function ensureRequestBodyObject(req) {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    req.body = {};
+  }
+  return req.body;
+}
+
+function getRequestHeaderValue(req, headerName = '') {
+  if (!req || !req.headers || typeof req.headers !== 'object') {
+    return '';
+  }
+  const normalizedName = String(headerName || '').toLowerCase().trim();
+  if (normalizedName === '') {
+    return '';
+  }
+  const value = req.headers[normalizedName];
+  if (Array.isArray(value)) {
+    return value.length > 0 ? String(value[0] || '').trim() : '';
+  }
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  return '';
+}
+
+function getSiteNameFromResolvedSite(site) {
+  if (
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    typeof site.manifest.metadata.site.name === 'string' &&
+    site.manifest.metadata.site.name.trim() !== ''
+  ) {
+    return site.manifest.metadata.site.name.trim();
+  }
+  return '';
+}
+
+function decodePathToken(value = '') {
+  let normalized = String(value || '').trim();
+  if (normalized === '') {
+    return '';
+  }
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch (e) {}
+  normalized = normalizePathForResponse(normalized).replace(/^\/+/, '');
+  return normalized;
+}
+
+function normalizeOperationName(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
 }
 
 function getQueryValue(req, key, fallbackValue = '') {
@@ -871,6 +1117,16 @@ function itemToSummary(item, apiBasePath = '/x/api') {
     item && item.slug ? String(item.slug) : item && item.id ? String(item.id) : '';
   const parentLookupValue = item && item.parent ? String(item.parent) : '';
   const itemIdValue = item && item.id ? String(item.id) : '';
+  const links = {
+    self: `${apiBasePath}/v1/items/${encodeURIComponent(itemLookupValue)}`,
+    content: `${apiBasePath}/v1/content/${encodeURIComponent(itemLookupValue)}`,
+  };
+  if (parentLookupValue !== '') {
+    links.parent = `${apiBasePath}/v1/items/${encodeURIComponent(parentLookupValue)}`;
+  }
+  if (itemIdValue !== '') {
+    links.children = `${apiBasePath}/v1/items?filter.parent=${encodeURIComponent(itemIdValue)}`;
+  }
   return {
     id: item && item.id ? item.id : null,
     title: item && item.title ? item.title : '',
@@ -884,18 +1140,7 @@ function itemToSummary(item, apiBasePath = '/x/api') {
     region: metadata.region ? String(metadata.region) : null,
     tags: normalizeTagList(metadata.tags),
     published: metadata.published !== false,
-    links: {
-      self: `${apiBasePath}/v1/items/${encodeURIComponent(itemLookupValue)}`,
-      content: `${apiBasePath}/v1/content/${encodeURIComponent(itemLookupValue)}`,
-      parent:
-        parentLookupValue !== ''
-          ? `${apiBasePath}/v1/items/${encodeURIComponent(parentLookupValue)}`
-          : null,
-      children:
-        itemIdValue !== ''
-          ? `${apiBasePath}/v1/items?filter.parent=${encodeURIComponent(itemIdValue)}`
-          : null,
-    },
+    links,
     related: [
       {
         rel: 'entity',
@@ -926,9 +1171,98 @@ function contentToRecord(item, body = '') {
     body: typeof body === 'string' ? body : '',
   };
 }
+function isMetadataBooleanTrue(value = null) {
+  if (value === true || value === 1) {
+    return true;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (
+      normalized === '1' ||
+      normalized === 'true' ||
+      normalized === 'yes' ||
+      normalized === 'on'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
-function applyItemFilters(items = [], req, site = null) {
+function isMetadataBooleanFalse(value = null) {
+  if (value === false || value === 0) {
+    return true;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (
+      normalized === '0' ||
+      normalized === 'false' ||
+      normalized === 'no' ||
+      normalized === 'off'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getItemMetadata(item = null) {
+  if (
+    item &&
+    item.metadata &&
+    typeof item.metadata === 'object'
+  ) {
+    return item.metadata;
+  }
+  return {};
+}
+
+function isItemPublished(item = null) {
+  const metadata = getItemMetadata(item);
+  if (!Object.prototype.hasOwnProperty.call(metadata, 'published')) {
+    return true;
+  }
+  return !isMetadataBooleanFalse(metadata.published);
+}
+
+function isItemHiddenFromMenu(item = null) {
+  const metadata = getItemMetadata(item);
+  if (!Object.prototype.hasOwnProperty.call(metadata, 'hideInMenu')) {
+    return false;
+  }
+  return isMetadataBooleanTrue(metadata.hideInMenu);
+}
+
+function isItemVisibleToAnonymous(item = null) {
+  return isItemPublished(item) && !isItemHiddenFromMenu(item);
+}
+
+function isAnonymousSiteApiRequest(req) {
+  if (
+    req &&
+    req.haxcmsSiteApiAuth &&
+    req.haxcmsSiteApiAuth.authenticated === true
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function filterItemsForAnonymousAccess(items = [], req) {
+  if (!isAnonymousSiteApiRequest(req)) {
+    return [...items];
+  }
+  return items.filter((item) => isItemVisibleToAnonymous(item));
+}
+
+function applyItemFilters(items = [], req, site = null, options = {}) {
+  const enforceAnonymousVisibility =
+    options && options.enforceAnonymousVisibility === true;
   let output = [...items];
+  if (enforceAnonymousVisibility) {
+    output = filterItemsForAnonymousAccess(output, req);
+  }
   const filterParent = getQueryValue(req, 'filter.parent', '');
   const filterAncestor = getQueryValue(req, 'filter.ancestor', '');
   const filterDepth = getNumberQuery(req, 'filter.depth', null, 0);
@@ -987,12 +1321,7 @@ function applyItemFilters(items = [], req, site = null) {
   }
   if (filterPublished !== null) {
     output = output.filter((item) => {
-      const itemPublished = !(
-        item &&
-        item.metadata &&
-        Object.prototype.hasOwnProperty.call(item.metadata, 'published') &&
-        item.metadata.published === false
-      );
+      const itemPublished = isItemPublished(item);
       return itemPublished === filterPublished;
     });
   }
@@ -1031,6 +1360,12 @@ module.exports = {
   getSiteLanguage,
   getSiteTheme,
   getSiteBasePath,
+  ensureRequestQueryObject,
+  ensureRequestBodyObject,
+  getRequestHeaderValue,
+  getSiteNameFromResolvedSite,
+  decodePathToken,
+  normalizeOperationName,
   getQueryValue,
   getCsvQuery,
   getNumberQuery,
@@ -1053,5 +1388,8 @@ module.exports = {
   sendFormattedResponse,
   itemToSummary,
   contentToRecord,
+  isItemPublished,
+  isItemVisibleToAnonymous,
+  isAnonymousSiteApiRequest,
   applyItemFilters,
 };
