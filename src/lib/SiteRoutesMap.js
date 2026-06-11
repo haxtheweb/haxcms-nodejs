@@ -81,6 +81,7 @@ const v1RevisionRoutes = require('../siteRoutes/v1/revisions.js');
 const v1ViewsRoutes = require('../siteRoutes/v1/views.js');
 const v1BlocksRoutes = require('../siteRoutes/v1/blocks.js');
 const v1ThemesRoutes = require('../siteRoutes/v1/themes.js');
+const v1IntegrationRoutes = require('../siteRoutes/v1/integrations.js');
 
 const V1_ENTITY_ROUTE_DEFINITIONS = [
   { route: 'site', file: 'site', detailParam: '' },
@@ -229,6 +230,12 @@ addRouteHandler(
   'get',
   'v1/displays/:viewId/results',
   v1ViewsRoutes.displayResults,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'get',
+  'v1/integrations/app-store/providers/:provider/search',
+  v1IntegrationRoutes.appStoreProviderSearch,
 );
 
 module.exports = { SiteRoutesMap };

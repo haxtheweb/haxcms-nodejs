@@ -44,7 +44,6 @@ const RoutesMap = {
     // for other clients; systemStatus is intentionally POST-only
     connectionSettings: require('../routes/connectionSettings.js'),
     connectionTest: require('../routes/connectionTest.js'),
-    appStoreSearch: require('../routes/appStoreSearch.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
     systemStatus: require('../routes/systemStatus.js'),
     getApiKeys: require('../routes/getApiKeys.js'),
@@ -70,7 +69,6 @@ const RoutesMap = {
     "openapi/json": require('../routes/openapi.js'),
     connectionSettings: require('../routes/connectionSettings.js'),
     connectionTest: require('../routes/connectionTest.js'),
-    appStoreSearch: require('../routes/appStoreSearch.js'),
     generateAppStore: require('../routes/generateAppStore.js'),
     systemBlocksList: require('../routes/systemBlocksList.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),

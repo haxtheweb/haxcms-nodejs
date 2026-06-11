@@ -159,6 +159,12 @@ function sanitizeBrokerConnectionData(input = {}) {
     access_token: true,
     api_key: true,
     client_id: true,
+    provider: true,
+    appstore_token: true,
+    site_token: true,
+    siteToken: true,
+    siteName: true,
+    __HAXJWT__: true,
   };
   const sanitized = {};
   const keys = Object.keys(input || {});
@@ -170,6 +176,18 @@ function sanitizeBrokerConnectionData(input = {}) {
     sanitized[key] = input[key];
   }
   return sanitized;
+}
+function getSiteApiPathForBroker(req) {
+  const siteName =
+    req &&
+    req.query &&
+    req.query.siteName
+      ? String(req.query.siteName).trim()
+      : '';
+  if (siteName !== '') {
+    return `${HAXCMS.sitesDirectory}/${encodeURIComponent(siteName)}/x/api`;
+  }
+  return 'x/api';
 }
 
 function rewriteConnectionToBroker(connection, provider, req) {
@@ -197,9 +215,6 @@ function rewriteConnectionToBroker(connection, provider, req) {
   ) {
     rewrittenHeaders['X-HAXCMS-Site-Token'] = siteToken;
   }
-  mergedData.provider = provider;
-  mergedData.appstore_token = req.query['appstore_token'];
-  mergedData.siteName = req.query['siteName'];
   mergedData.__HAXJWT__ = true;
   const browseOperation = (
     connection.operations &&
@@ -224,7 +239,7 @@ function rewriteConnectionToBroker(connection, provider, req) {
       browse: {
         ...browseOperation,
         method: browseOperation.method || 'GET',
-        endPoint: `${HAXCMS.systemRequestBase}appStoreSearch`,
+        endPoint: `${getSiteApiPathForBroker(req)}/v1/integrations/app-store/providers/${encodeURIComponent(provider)}/search`,
       },
     },
   };

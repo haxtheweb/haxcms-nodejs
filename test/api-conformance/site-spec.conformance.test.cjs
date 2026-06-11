@@ -1145,6 +1145,7 @@ test('site API conformance against site-spec', async (t) => {
     'listItemRevisions',
     'getItemRevisionById',
     'restoreItemRevision',
+    'searchAppStoreProvider',
   ]
   for (let i = 0; i < requiredOperationIds.length; i++) {
     const operationId = requiredOperationIds[i]
@@ -1235,6 +1236,28 @@ test('site API conformance against site-spec', async (t) => {
         result.bodyJson.data &&
         Array.isArray(result.bodyJson.data.entities),
       'Expected entity descriptors array',
+    )
+    const integrationDescriptor = result.bodyJson.data.entities.find(
+      (entity) => entity && entity.name === 'integration',
+    )
+    assert.ok(
+      integrationDescriptor,
+      'Expected integration entity descriptor to be present',
+    )
+    assert.equal(
+      integrationDescriptor.auth,
+      'authenticated-site',
+      'Expected integration entity descriptor to require authenticated-site auth',
+    )
+    assert.ok(
+      Array.isArray(integrationDescriptor.endpoints) &&
+        integrationDescriptor.endpoints.some(
+          (endpoint) =>
+            String(endpoint || '').indexOf(
+              '/v1/integrations/app-store/providers/{provider}/search',
+            ) !== -1,
+        ),
+      'Expected integration descriptor to include app-store provider search endpoint',
     )
     assertSchemaConformance(runtime, 'listEntityDescriptors', 200, result)
   })
@@ -1673,6 +1696,23 @@ test('site API conformance against site-spec', async (t) => {
     })
     assert.equal(result.status, 200, result.bodyText)
     assertSchemaConformance(runtime, 'getDisplayResultsAlias', 200, result)
+  })
+  await t.test('searchAppStoreProvider enforces bearer and site token auth matrix', async () => {
+    await assertSecuredOperationAuthMatrix(runtime, 'searchAppStoreProvider', {
+      pathParams: {
+        provider: 'nasa',
+      },
+    })
+  })
+  await t.test('searchAppStoreProvider rejects unknown provider with site auth', async () => {
+    const result = await invokeOperation(runtime, 'searchAppStoreProvider', {
+      pathParams: {
+        provider: `missing-provider-${runtime.testStartTimestamp}`,
+      },
+      headers: getSiteAuthHeaders(runtime),
+    })
+    assert.equal(result.status, 400, result.bodyText)
+    assertSchemaConformance(runtime, 'searchAppStoreProvider', 400, result)
   })
 
   await t.test('listFiles enforces bearer and site token auth matrix', async () => {

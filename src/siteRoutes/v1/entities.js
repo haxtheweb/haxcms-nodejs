@@ -378,6 +378,29 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
       ],
     },
     {
+      name: 'integration',
+      description: 'External provider integration endpoints used by site features.',
+      primaryKey: 'provider',
+      endpoints: [
+        `${apiBasePath}/v1/integrations/app-store/providers/{provider}/search`,
+      ],
+      filterableFields: [],
+      sortableFields: ['provider'],
+      selectableFields: ['provider'],
+      includes: [],
+      formats: ['application/json'],
+      modes: ['bundle'],
+      auth: 'authenticated-site',
+      supportedOperations: ['read'],
+      related: [
+        {
+          rel: 'entity',
+          type: 'file',
+          href: `${apiBasePath}/v1/entities#file`,
+        },
+      ],
+    },
+    {
       name: 'view',
       description: 'Saved display/view definitions and resolved results.',
       primaryKey: 'id',
