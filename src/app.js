@@ -993,6 +993,7 @@ systemStructureContext().then((site) => {
             message: 'system admin route requires system dashboard access',
           });
         }
+        applyBearerJwtSystemApiShim(req);
         if (OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
           // call the method
           RoutesMap[rMethod][op](req, res, next);
@@ -1010,6 +1011,7 @@ systemStructureContext().then((site) => {
             message: 'system admin route requires system dashboard access',
           });
         }
+        applyBearerJwtSystemApiShim(req);
         if (OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
           // call the method
           RoutesMap[rMethod][op](req, res, next);
@@ -1447,7 +1449,7 @@ function getAuthenticatedUserNameFromBearerJwt(jwt = '') {
   }
   return String(decoded.user);
 }
-function applyBearerJwtToRequest(req, jwt = '') {
+function applyBearerJwtToRequest(req, jwt = '', replaceExistingJwt = false) {
   const token = String(jwt || '').trim();
   if (token === '' || !req) {
     return;
@@ -1458,12 +1460,19 @@ function applyBearerJwtToRequest(req, jwt = '') {
   if (!req.body || typeof req.body !== 'object') {
     req.body = {};
   }
-  if (!req.query.jwt) {
+  if (replaceExistingJwt || !req.query.jwt) {
     req.query.jwt = token;
   }
-  if (!req.body.jwt) {
+  if (replaceExistingJwt || !req.body.jwt) {
     req.body.jwt = token;
   }
+}
+function applyBearerJwtSystemApiShim(req) {
+  const bearerJwt = getBearerJwtFromRequest(req);
+  if (bearerJwt === '') {
+    return;
+  }
+  applyBearerJwtToRequest(req, bearerJwt, true);
 }
 function setSiteApiAuthContext(req, authContext = {}) {
   if (!req || typeof req !== 'object') {

@@ -177,9 +177,28 @@ function rewriteConnectionToBroker(connection, provider, req) {
   const mergedData = sanitizeBrokerConnectionData(
     mergeConnectionData(parsed.params, connection.data || {}),
   );
+  const rewrittenHeaders =
+    connection.headers && typeof connection.headers === 'object'
+      ? { ...connection.headers }
+      : {};
+  const siteToken = req.query['site_token']
+    ? String(req.query['site_token']).trim()
+    : '';
+  if (
+    siteToken !== '' &&
+    !Object.prototype.hasOwnProperty.call(
+      rewrittenHeaders,
+      'X-HAXCMS-Site-Token',
+    ) &&
+    !Object.prototype.hasOwnProperty.call(
+      rewrittenHeaders,
+      'x-haxcms-site-token',
+    )
+  ) {
+    rewrittenHeaders['X-HAXCMS-Site-Token'] = siteToken;
+  }
   mergedData.provider = provider;
   mergedData.appstore_token = req.query['appstore_token'];
-  mergedData.site_token = req.query['site_token'];
   mergedData.siteName = req.query['siteName'];
   mergedData.__HAXJWT__ = true;
   const browseOperation = (
@@ -198,6 +217,7 @@ function rewriteConnectionToBroker(connection, provider, req) {
     ...connection,
     protocol: HAXCMS.protocol,
     url: rewrittenUrl,
+    headers: rewrittenHeaders,
     data: mergedData,
     operations: {
       ...(connection.operations || {}),

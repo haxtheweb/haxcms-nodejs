@@ -105,6 +105,23 @@ function mergeRequestParams(req) {
   }
   return merged;
 }
+function getRequestHeaderValue(req, headerName = '') {
+  if (!req || !req.headers || typeof req.headers !== 'object') {
+    return '';
+  }
+  const normalizedName = String(headerName || '').toLowerCase().trim();
+  if (normalizedName === '') {
+    return '';
+  }
+  const value = req.headers[normalizedName];
+  if (Array.isArray(value)) {
+    return value.length > 0 ? String(value[0] || '').trim() : '';
+  }
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  return '';
+}
 
 function appendSearchParam(params, key, value) {
   if (Array.isArray(value)) {
@@ -174,9 +191,12 @@ async function appStoreSearch(req, res) {
   const appStoreToken = requestParams.appstore_token
     ? `${requestParams.appstore_token}`.trim()
     : '';
-  const siteToken = requestParams.site_token
-    ? `${requestParams.site_token}`.trim()
-    : '';
+  const siteTokenFromHeader = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  const siteToken = siteTokenFromHeader
+    ? `${siteTokenFromHeader}`.trim()
+    : requestParams.site_token
+      ? `${requestParams.site_token}`.trim()
+      : '';
   const siteName = requestParams.siteName ? `${requestParams.siteName}`.trim() : '';
   if (
     !appStoreToken ||

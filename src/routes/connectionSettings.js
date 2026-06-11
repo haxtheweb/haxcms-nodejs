@@ -129,8 +129,6 @@ async function connectionSettings(req, res) {
     // enables redirecting back to site root if JWT really is dead
     redirectUrl: HAXCMS.basePath,
     saveNodePath: `${baseAPIPath}saveNode?site_token=${siteToken}`,
-    // Singular node operations (moveUp, setTitle, etc.)
-    saveNodeDetailsPath: `${baseAPIPath}saveNodeDetails?site_token=${siteToken}`,
     saveManifestPath: `${baseAPIPath}saveManifest?site_token=${siteToken}`,
     saveAppearanceSettingsPath: `${baseAPIPath}saveAppearanceSettings?site_token=${siteToken}`,
     savePlatformSettingsPath: `${baseAPIPath}savePlatformSettings?site_token=${siteToken}`,

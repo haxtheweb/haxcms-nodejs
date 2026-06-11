@@ -19,7 +19,14 @@ const {
   toIsoDateFromUnixTime,
   isItemVisibleToAnonymous,
   isAnonymousSiteApiRequest,
+  ensureRequestBodyObject,
 } = require('./siteRouteUtils.js');
+const {
+  applyNodeDetailOperation,
+} = require('../../lib/nodeDetailOperations.js');
+const {
+  featureDisabledResponse,
+} = require('../../lib/platformFeatures.js');
 
 function getItemLookupValue(item) {
   if (!item || typeof item !== 'object') {
@@ -429,7 +436,58 @@ async function itemDetail(req, res) {
   });
 }
 
+async function updateItem(req, res) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug',
+    });
+  }
+  const idOrSlug =
+    req && req.params && req.params.idOrSlug ? req.params.idOrSlug : '';
+  const existingItem = findItemByIdOrSlug(site, idOrSlug);
+  if (!existingItem) {
+    return res.status(404).json({
+      status: 404,
+      message: `Item not found for idOrSlug "${idOrSlug}"`,
+    });
+  }
+  const payload = ensureRequestBodyObject(req);
+  const operation =
+    payload && typeof payload.operation === 'string'
+      ? payload.operation.trim()
+      : '';
+  if (operation === '') {
+    return res.status(400).json({
+      status: 400,
+      message: 'Operation is required',
+    });
+  }
+  try {
+    const result = await applyNodeDetailOperation(site, existingItem.id, payload);
+    const apiBasePath = getApiBasePath(req);
+    const navigationMap = buildItemNavigationMap(getOrderedItems(site), apiBasePath);
+    let record = itemToSummary(result.item, apiBasePath);
+    record = appendItemNavigationLinks([record], navigationMap)[0];
+    return res.status(200).json({
+      status: 200,
+      data: record,
+    });
+  }
+  catch (e) {
+    if (e && e.featureDisabled === true) {
+      return featureDisabledResponse(res, e.message);
+    }
+    return res.status(e && e.status ? e.status : 500).json({
+      status: e && e.status ? e.status : 500,
+      message: e && e.message ? e.message : 'Unable to update item',
+    });
+  }
+}
+
 module.exports = {
   listItems,
   itemDetail,
+  updateItem,
 };

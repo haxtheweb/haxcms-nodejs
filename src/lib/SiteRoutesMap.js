@@ -179,6 +179,18 @@ addRouteHandler(
 addRouteHandler(
   SiteRoutesMap,
   'get',
+  'v1/items/:idOrSlug/revisions/:revisionId',
+  v1RevisionRoutes.itemRevisionDetail,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'post',
+  'v1/items/:idOrSlug/revisions/:revisionId/restore',
+  v1RevisionRoutes.restoreItemRevision,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'get',
   'v1/items/:idOrSlug/export/:format',
   v1ExportRoutes.itemExport,
 );

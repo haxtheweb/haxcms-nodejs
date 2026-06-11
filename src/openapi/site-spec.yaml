@@ -324,6 +324,99 @@ paths:
                 type: string
         "404":
           $ref: "#/components/responses/NotFound"
+    patch:
+      tags:
+        - items
+      operationId: updateItem
+      summary: Update an item using outline and page detail operations
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - operation
+              properties:
+                operation:
+                  type: string
+                  enum:
+                    - moveUp
+                    - moveDown
+                    - indent
+                    - outdent
+                    - setParent
+                    - setTitle
+                    - setDescription
+                    - setTags
+                    - setIcon
+                    - setMedia
+                    - setImage
+                    - setRelatedItems
+                    - setLocked
+                    - setPublished
+                    - setHideInMenu
+                    - setSlug
+                parent:
+                  type: string
+                  nullable: true
+                order:
+                  type: integer
+                title:
+                  type: string
+                description:
+                  type: string
+                tags:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: string
+                icon:
+                  type: string
+                media:
+                  type: string
+                image:
+                  type: string
+                relatedItems:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: string
+                locked:
+                  type: boolean
+                published:
+                  type: boolean
+                hideInMenu:
+                  type: boolean
+                slug:
+                  type: string
+      responses:
+        "200":
+          description: Item update result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ItemRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /x/api/v1/items/{idOrSlug}/revisions:
     get:
       tags:
@@ -349,6 +442,66 @@ paths:
                     properties:
                       data:
                         $ref: "#/components/schemas/RevisionCollection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/items/{idOrSlug}/revisions/{revisionId}:
+    get:
+      tags:
+        - items
+      operationId: getItemRevisionById
+      summary: Get one item revision payload by git hash
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+        - $ref: "#/components/parameters/RevisionId"
+      responses:
+        "200":
+          description: Revision detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/RevisionDetailRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /x/api/v1/items/{idOrSlug}/revisions/{revisionId}/restore:
+    post:
+      tags:
+        - items
+      operationId: restoreItemRevision
+      summary: Restore one item revision as a new commit
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+        - $ref: "#/components/parameters/RevisionId"
+      responses:
+        "200":
+          description: Revision restore result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/RevisionRestoreRecord"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1287,6 +1440,14 @@ components:
       required: true
       schema:
         type: string
+    RevisionId:
+      name: revisionId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 7
+        maxLength: 64
     FileUuid:
       name: fileUuid
       in: path
@@ -2297,6 +2458,52 @@ components:
           type: string
         message:
           type: string
+    RevisionDetailRecord:
+      type: object
+      properties:
+        nodeId:
+          type: string
+        nodeSlug:
+          type: string
+        nodeTitle:
+          type: string
+        revision:
+          $ref: "#/components/schemas/RevisionRecord"
+        content:
+          type: string
+        jsonVariantLocation:
+          type: string
+        hasItemMetadata:
+          type: boolean
+        itemMetadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+        links:
+          type: object
+          additionalProperties:
+            type: string
+    RevisionRestoreRecord:
+      type: object
+      properties:
+        nodeId:
+          type: string
+        nodeSlug:
+          type: string
+        nodeTitle:
+          type: string
+        restoredFromHash:
+          type: string
+        jsonVariantLocation:
+          type: string
+        hasItemMetadata:
+          type: boolean
+        itemMetadataRestored:
+          type: boolean
+        links:
+          type: object
+          additionalProperties:
+            type: string
     AnalyticsRecord:
       type: object
       properties:

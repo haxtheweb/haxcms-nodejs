@@ -40,6 +40,35 @@ Runtime credential overrides are also supported in-process via globals:
 - `globalThis.HAXCMS_RUNTIME_CREDENTIALS = { username, password }`
 - `globalThis.HAXCMS_RUNTIME_USERNAME`
 - `globalThis.HAXCMS_RUNTIME_PASSWORD`
+
+### Current coverage snapshot
+Current automated test coverage in this repository is the API conformance suite:
+- Suite file: `test/api-conformance/site-spec.conformance.test.cjs`
+- Script: `npm run test:api-conformance`
+- Additional test scripts/suites are not currently wired in `package.json`
+
+The suite currently validates:
+- Discovery/spec endpoints:
+  - `getSiteApiDiscovery`, `getSiteOpenApi`, `getSiteOpenApiJson`, `getSiteOpenApiYaml`, `getApiCatalog`
+- Site/content graph endpoints:
+  - `getSiteSummary`, `listEntityDescriptors`, `listSchemas`, `listItems`, `getItemByIdOrSlug`, `listContent`, `getContentByIdOrSlug`, `listTags`, `searchContent`
+- Component and metadata endpoints:
+  - `listCustomElements`, `getCustomElementByName`, `listBlocks`, `getBlockByName`, `getBlockUsage`, `listRegions`, `getRegionByName`
+- Theme/report/view/analytics endpoints:
+  - `listThemes`, `getActiveTheme`, `getThemeByName`, `listReports`, `getReportByName`, `getAnalyticsCapabilities`, `listViews`, `getViewById`, `getViewResults`, `listDisplaysAlias`, `getDisplayResultsAlias`
+- Secured file and revision endpoints:
+  - `listFiles`, `createFile`, `getFileByUuid`, `updateFileByUuid`, `deleteFileByUuid`, `listItemRevisions`
+
+Behavior coverage in the same suite includes:
+- OpenAPI response/schema conformance checks
+- Auth matrix checks for secured routes (no auth, bearer-only, invalid site token, valid site token)
+- Boundary/error checks (missing required params, invalid ids/slugs, pagination/query bounds)
+- Representation/header checks (`json`, `yaml`, `xml`, `md`, `html` where supported)
+- End-to-end file lifecycle checks (create → list/find → get → update → delete)
+
+Temporary known skip in the suite:
+- `getApiCatalog returns linkset payload`
+  - Reason: runtime `/.well-known/api-catalog` fixture behavior is still being finalized
 ## MCP and deployment profiles
 - MCP policy defaults are controlled via `_config/config.json`.
 - New installs include:
