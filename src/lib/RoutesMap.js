@@ -24,9 +24,6 @@ const RoutesMap = {
     linkChecker: require('../routes/linkChecker.js'),
     contentBrowser: require('../routes/contentBrowser.js'),
     mediaBrowser: require('../routes/mediaBrowser.js'),
-    listFiles: require('../routes/listFiles.js'),
-    saveFile: require('../routes/saveFile.js'),
-    fileOperation: require('../routes/fileOperation.js'),
     // allow AppHax API (which defaults to POST) to call connectionSettings,
     // refreshAccessToken, and skeletonsList while still supporting GET
     // for other clients; systemStatus is intentionally POST-only
@@ -52,7 +49,6 @@ const RoutesMap = {
   },
   get: {
     logout: require('../routes/logout.js'),
-    listFiles: require('../routes/listFiles.js'),
     openapi: require('../routes/openapi.js'),
     "openapi/json": require('../routes/openapi.js'),
     connectionSettings: require('../routes/connectionSettings.js'),

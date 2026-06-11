@@ -978,10 +978,7 @@ systemStructureContext().then((site) => {
   for (var method in RoutesMap) {
     for (var route in RoutesMap[method]) {
       let extra = jsonRequestParser;
-      if (route === "saveFile") {
-        extra = uploadAnyParser;
-      }
-      else if (route === "schemaFileOperation") {
+      if (route === "schemaFileOperation") {
         extra = parseSchemaFileOperationBody;
       }
       app[method](`${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, extra ,(req, res, next) => {
