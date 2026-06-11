@@ -16,7 +16,34 @@ const {
   getSiteBasePath,
   isItemVisibleToAnonymous,
   isAnonymousSiteApiRequest,
+  ensureRequestQueryObject,
+  ensureRequestBodyObject,
+  getRequestHeaderValue,
+  getSiteNameFromResolvedSite,
 } = require('./siteRouteUtils.js');
+const saveNodeRoute = require('../../routes/saveNode.js');
+const siteSearchRoute = require('../../routes/siteSearch.js');
+function ensureLegacySiteTokenQuery(req) {
+  const query = ensureRequestQueryObject(req);
+  if (!query.site_token || String(query.site_token).trim() === '') {
+    const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+    if (headerToken !== '') {
+      query.site_token = headerToken;
+    }
+  }
+  return query;
+}
+
+function ensureLegacySiteRequestBody(req, siteName = '') {
+  const body = ensureRequestBodyObject(req);
+  if (!body.site || typeof body.site !== 'object' || Array.isArray(body.site)) {
+    body.site = {};
+  }
+  if ((!body.site.name || String(body.site.name).trim() === '') && siteName !== '') {
+    body.site.name = siteName;
+  }
+  return body;
+}
 
 function buildConcatMarkdown(records = []) {
   const sections = [];
@@ -217,7 +244,108 @@ async function contentDetail(req, res) {
   });
 }
 
+async function updateContent(req, res, next) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      message: 'Unable to resolve site context for /x/api/v1/content/:idOrSlug',
+    });
+  }
+  const idOrSlug =
+    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : '';
+  const item = findItemByIdOrSlug(site, idOrSlug);
+  if (!item || !item.id) {
+    return res.status(404).json({
+      status: 404,
+      message: `Content not found for idOrSlug "${idOrSlug}"`,
+    });
+  }
+  const siteName = getSiteNameFromResolvedSite(site);
+  if (siteName === '') {
+    return res.status(400).json({
+      status: 400,
+      message: 'Unable to resolve site name for content update operation',
+    });
+  }
+  ensureLegacySiteTokenQuery(req);
+  const body = ensureLegacySiteRequestBody(req, siteName);
+  let bodyContent = '';
+  if (typeof body.body === 'string') {
+    bodyContent = body.body;
+  }
+  else if (typeof body.content === 'string') {
+    bodyContent = body.content;
+  }
+  else if (
+    body.node &&
+    typeof body.node === 'object' &&
+    !Array.isArray(body.node) &&
+    typeof body.node.body === 'string'
+  ) {
+    bodyContent = body.node.body;
+  }
+  if (bodyContent === '') {
+    return res.status(400).json({
+      status: 400,
+      message: 'Content body is required',
+    });
+  }
+  let schema = [];
+  if (Array.isArray(body.schema)) {
+    schema = body.schema;
+  }
+  else if (
+    body.node &&
+    typeof body.node === 'object' &&
+    !Array.isArray(body.node) &&
+    Array.isArray(body.node.schema)
+  ) {
+    schema = body.node.schema;
+  }
+  if (!body.node || typeof body.node !== 'object' || Array.isArray(body.node)) {
+    body.node = {};
+  }
+  body.node.id = String(item.id);
+  body.node.body = bodyContent;
+  body.node.schema = schema;
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'details') &&
+    typeof body.details === 'object' &&
+    body.details &&
+    !Array.isArray(body.details)
+  ) {
+    body.node.details = body.details;
+  }
+  return saveNodeRoute(req, res, next);
+}
+
+async function replaceContent(req, res, next) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      message: 'Unable to resolve site context for /x/api/v1/content',
+    });
+  }
+  const siteName = getSiteNameFromResolvedSite(site);
+  if (siteName === '') {
+    return res.status(400).json({
+      status: 400,
+      message: 'Unable to resolve site name for content replace operation',
+    });
+  }
+  ensureLegacySiteTokenQuery(req);
+  const body = ensureLegacySiteRequestBody(req, siteName);
+  if (!body.operation || String(body.operation).trim() === '') {
+    body.operation = 'replace';
+  }
+  return siteSearchRoute(req, res, next);
+}
+
 module.exports = {
   listContent,
   contentDetail,
+  updateContent,
+  replaceContent,
 };

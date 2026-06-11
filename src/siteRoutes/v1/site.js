@@ -1,6 +1,13 @@
 const fs = require('fs-extra');
 const path = require('path');
 const { HAXCMS, systemStructureContext } = require('../../lib/HAXCMS.js');
+const saveManifestRoute = require('../../routes/saveManifest.js');
+const saveAppearanceSettingsRoute = require('../../routes/saveAppearanceSettings.js');
+const savePlatformSettingsRoute = require('../../routes/savePlatformSettings.js');
+const saveAllowedBlocksRoute = require('../../routes/saveAllowedBlocks.js');
+const saveEditorSettingsRoute = require('../../routes/saveEditorSettings.js');
+const saveSeoSettingsRoute = require('../../routes/saveSeoSettings.js');
+const saveOutlineRoute = require('../../routes/saveOutline.js');
 
 function getRequestPath(req) {
   if (req && typeof req.originalUrl === 'string' && req.originalUrl !== '') {
@@ -22,6 +29,77 @@ function getMultisiteSiteNameFromPath(requestPath = '') {
     }
   }
   return '';
+}
+
+function getRequestHeaderValue(req, headerName = '') {
+  if (!req || !req.headers || typeof req.headers !== 'object') {
+    return '';
+  }
+  const normalizedHeaderName = String(headerName || '').toLowerCase().trim();
+  if (normalizedHeaderName === '') {
+    return '';
+  }
+  const value = req.headers[normalizedHeaderName];
+  if (Array.isArray(value)) {
+    if (value.length > 0) {
+      return String(value[0] || '').trim();
+    }
+    return '';
+  }
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  return '';
+}
+
+function ensureRequestQueryObject(req) {
+  if (!req.query || typeof req.query !== 'object') {
+    req.query = {};
+  }
+  return req.query;
+}
+
+function ensureRequestBodyObject(req) {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    req.body = {};
+  }
+  return req.body;
+}
+
+function getSiteNameFromResolvedSite(site) {
+  if (
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    typeof site.manifest.metadata.site.name === 'string' &&
+    site.manifest.metadata.site.name.trim() !== ''
+  ) {
+    return site.manifest.metadata.site.name.trim();
+  }
+  return '';
+}
+
+function ensureLegacySiteTokenQuery(req) {
+  const query = ensureRequestQueryObject(req);
+  if (!query.site_token || String(query.site_token).trim() === '') {
+    const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+    if (headerToken !== '') {
+      query.site_token = headerToken;
+    }
+  }
+  return query;
+}
+
+function ensureLegacySiteRequestBody(req, siteName = '') {
+  const body = ensureRequestBodyObject(req);
+  if (!body.site || typeof body.site !== 'object' || Array.isArray(body.site)) {
+    body.site = {};
+  }
+  if ((!body.site.name || String(body.site.name).trim() === '') && siteName !== '') {
+    body.site.name = siteName;
+  }
+  return body;
 }
 
 function toIsoDateFromUnixTime(value) {
@@ -369,4 +447,129 @@ async function siteSummary(req, res) {
   });
 }
 
-module.exports = siteSummary;
+async function delegateToLegacySiteWrite(
+  req,
+  res,
+  next,
+  routeLabel,
+  legacyHandler,
+  validateBody = null,
+) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      message: `Unable to resolve site context for ${routeLabel}`,
+    });
+  }
+  const siteName = getSiteNameFromResolvedSite(site);
+  if (siteName === '') {
+    return res.status(400).json({
+      status: 400,
+      message: `Unable to resolve site name for ${routeLabel}`,
+    });
+  }
+  ensureLegacySiteTokenQuery(req);
+  const body = ensureLegacySiteRequestBody(req, siteName);
+  if (typeof validateBody === 'function') {
+    const validationResult = validateBody(body);
+    if (validationResult && validationResult.valid === false) {
+      return res.status(validationResult.status || 400).json({
+        status: validationResult.status || 400,
+        message: validationResult.message || 'Invalid request payload',
+      });
+    }
+  }
+  return legacyHandler(req, res, next);
+}
+
+async function updateSite(req, res, next) {
+  return delegateToLegacySiteWrite(
+    req,
+    res,
+    next,
+    '/x/api/v1/site',
+    saveManifestRoute,
+  );
+}
+
+async function updateSiteAppearance(req, res, next) {
+  return delegateToLegacySiteWrite(
+    req,
+    res,
+    next,
+    '/x/api/v1/site/appearance',
+    saveAppearanceSettingsRoute,
+  );
+}
+
+async function updateSitePlatform(req, res, next) {
+  return delegateToLegacySiteWrite(
+    req,
+    res,
+    next,
+    '/x/api/v1/site/platform',
+    savePlatformSettingsRoute,
+  );
+}
+
+async function updateSiteBlocks(req, res, next) {
+  return delegateToLegacySiteWrite(
+    req,
+    res,
+    next,
+    '/x/api/v1/site/blocks',
+    saveAllowedBlocksRoute,
+  );
+}
+
+async function updateSiteEditor(req, res, next) {
+  return delegateToLegacySiteWrite(
+    req,
+    res,
+    next,
+    '/x/api/v1/site/editor',
+    saveEditorSettingsRoute,
+  );
+}
+
+async function updateSiteSeo(req, res, next) {
+  return delegateToLegacySiteWrite(
+    req,
+    res,
+    next,
+    '/x/api/v1/site/seo',
+    saveSeoSettingsRoute,
+  );
+}
+
+async function updateSiteOutline(req, res, next) {
+  return delegateToLegacySiteWrite(
+    req,
+    res,
+    next,
+    '/x/api/v1/site/outline',
+    saveOutlineRoute,
+    (body) => {
+      if (!body || !Array.isArray(body.items)) {
+        return {
+          valid: false,
+          status: 400,
+          message: 'Outline payload requires an items array',
+        };
+      }
+      return { valid: true };
+    },
+  );
+}
+
+module.exports = {
+  listSite: siteSummary,
+  updateSite,
+  updateSiteAppearance,
+  updateSitePlatform,
+  updateSiteBlocks,
+  updateSiteEditor,
+  updateSiteSeo,
+  updateSiteOutline,
+};

@@ -82,6 +82,8 @@ const v1ViewsRoutes = require('../siteRoutes/v1/views.js');
 const v1BlocksRoutes = require('../siteRoutes/v1/blocks.js');
 const v1ThemesRoutes = require('../siteRoutes/v1/themes.js');
 const v1IntegrationRoutes = require('../siteRoutes/v1/integrations.js');
+const v1SiteRoutes = require('../siteRoutes/v1/site.js');
+const v1ContentRoutes = require('../siteRoutes/v1/content.js');
 
 const V1_ENTITY_ROUTE_DEFINITIONS = [
   { route: 'site', file: 'site', detailParam: '' },
@@ -165,6 +167,54 @@ for (let i = 0; i < V1_ENTITY_ROUTE_DEFINITIONS.length; i++) {
   }
 }
 
+addRouteHandler(
+  SiteRoutesMap,
+  'patch',
+  'v1/site',
+  v1SiteRoutes.updateSite,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'patch',
+  'v1/site/appearance',
+  v1SiteRoutes.updateSiteAppearance,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'patch',
+  'v1/site/platform',
+  v1SiteRoutes.updateSitePlatform,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'patch',
+  'v1/site/blocks',
+  v1SiteRoutes.updateSiteBlocks,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'patch',
+  'v1/site/editor',
+  v1SiteRoutes.updateSiteEditor,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'patch',
+  'v1/site/seo',
+  v1SiteRoutes.updateSiteSeo,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'patch',
+  'v1/site/outline',
+  v1SiteRoutes.updateSiteOutline,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'patch',
+  'v1/content',
+  v1ContentRoutes.replaceContent,
+);
 addRouteHandler(
   SiteRoutesMap,
   'get',

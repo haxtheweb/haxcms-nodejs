@@ -19,7 +19,10 @@ const {
   toIsoDateFromUnixTime,
   isItemVisibleToAnonymous,
   isAnonymousSiteApiRequest,
+  ensureRequestQueryObject,
   ensureRequestBodyObject,
+  getRequestHeaderValue,
+  getSiteNameFromResolvedSite,
 } = require('./siteRouteUtils.js');
 const {
   applyNodeDetailOperation,
@@ -27,6 +30,30 @@ const {
 const {
   featureDisabledResponse,
 } = require('../../lib/platformFeatures.js');
+const createNodeRoute = require('../../routes/createNode.js');
+const deleteNodeRoute = require('../../routes/deleteNode.js');
+
+function ensureLegacySiteTokenQuery(req) {
+  const query = ensureRequestQueryObject(req);
+  if (!query.site_token || String(query.site_token).trim() === '') {
+    const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+    if (headerToken !== '') {
+      query.site_token = headerToken;
+    }
+  }
+  return query;
+}
+
+function ensureLegacySiteRequestBody(req, siteName = '') {
+  const body = ensureRequestBodyObject(req);
+  if (!body.site || typeof body.site !== 'object' || Array.isArray(body.site)) {
+    body.site = {};
+  }
+  if ((!body.site.name || String(body.site.name).trim() === '') && siteName !== '') {
+    body.site.name = siteName;
+  }
+  return body;
+}
 
 function getItemLookupValue(item) {
   if (!item || typeof item !== 'object') {
@@ -486,8 +513,72 @@ async function updateItem(req, res) {
   }
 }
 
+async function createItem(req, res, next) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      message: 'Unable to resolve site context for /x/api/v1/items',
+    });
+  }
+  const siteName = getSiteNameFromResolvedSite(site);
+  if (siteName === '') {
+    return res.status(400).json({
+      status: 400,
+      message: 'Unable to resolve site name for create item operation',
+    });
+  }
+  ensureLegacySiteTokenQuery(req);
+  const body = ensureLegacySiteRequestBody(req, siteName);
+  const hasItemsPayload = Array.isArray(body.items) && body.items.length > 0;
+  const hasNodePayload =
+    body.node && typeof body.node === 'object' && !Array.isArray(body.node);
+  if (!hasItemsPayload && !hasNodePayload) {
+    return res.status(400).json({
+      status: 400,
+      message: 'Node payload is required',
+    });
+  }
+  return createNodeRoute(req, res, next);
+}
+
+async function deleteItem(req, res, next) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug',
+    });
+  }
+  const idOrSlug =
+    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : '';
+  const item = findItemByIdOrSlug(site, idOrSlug);
+  if (!item || !item.id) {
+    return res.status(404).json({
+      status: 404,
+      message: `Item not found for idOrSlug "${idOrSlug}"`,
+    });
+  }
+  const siteName = getSiteNameFromResolvedSite(site);
+  if (siteName === '') {
+    return res.status(400).json({
+      status: 400,
+      message: 'Unable to resolve site name for delete item operation',
+    });
+  }
+  ensureLegacySiteTokenQuery(req);
+  const body = ensureLegacySiteRequestBody(req, siteName);
+  if (!body.node || typeof body.node !== 'object' || Array.isArray(body.node)) {
+    body.node = {};
+  }
+  body.node.id = String(item.id);
+  return deleteNodeRoute(req, res, next);
+}
+
 module.exports = {
   listItems,
   itemDetail,
+  createItem,
   updateItem,
+  deleteItem,
 };
