@@ -1,178 +1,23 @@
-
 openapi: 3.0.0
 info:
-  title: 'HAXcms API'
-  description: 'API for interfacing with HAXcms end points'
-  termsOfService: 'https://haxtheweb.org'
+  title: HAXcms API
+  description: Legacy HAXcms API routes that are not yet ported to v1
+  termsOfService: https://haxtheweb.org
   contact:
     email: hax@psu.edu
   license:
-    name: 'Apache 2.0'
-    url: 'http://www.apache.org/licenses/LICENSE-2.0.html'
-  version: 
-servers:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  version: null
+servers: null
 paths:
-  /options:
-    post:
-      tags:
-        - api
-      operationId: 'Operations::options'
-      responses:
-        '200':
-          description: 'API bandaid till we get all the APIs documented. This is an array of callbacks'
-  /:
-    post:
-      tags:
-        - api
-      summary: 'Generate the swagger API documentation for this site'
-      operationId: 'Operations::api'
-      responses:
-        '200':
-          description: 'API documentation in YAML'
-  /openapi:
-    get:
-      tags:
-        - api
-      summary: 'Generate the swagger API documentation for this site'
-      operationId: 'Operations::openapi'
-      responses:
-        '200':
-          description: 'API documentation in YAML'
-  /getNodeRevisions:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - node
-        - git
-      operationId: 'Operations::getNodeRevisions'
-      parameters:
-        -
-          name: site_token
-          in: query
-          description: 'Site-specific validation token'
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - site
-                - node
-              properties:
-                site:
-                  type: object
-                  properties:
-                    name:
-                      type: string
-                node:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                limit:
-                  type: integer
-                  description: 'Optional max revisions to return (default 25)'
-                offset:
-                  type: integer
-                  description: 'Optional zero-based offset into revision history (default 0)'
-              type: object
-      responses:
-        '200':
-          description: 'List git revisions for a single node file'
-  /getNodeRevision:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - node
-        - git
-      operationId: 'Operations::getNodeRevision'
-      parameters:
-        -
-          name: site_token
-          in: query
-          description: 'Site-specific validation token'
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - site
-                - node
-                - hash
-              properties:
-                site:
-                  type: object
-                  properties:
-                    name:
-                      type: string
-                node:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                hash:
-                  type: string
-                  description: 'Commit hash for the requested page revision'
-              type: object
-      responses:
-        '200':
-          description: 'Load the HTML content snapshot for a specific node revision hash'
-  /restoreNodeRevision:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - node
-        - git
-      operationId: 'Operations::restoreNodeRevision'
-      parameters:
-        -
-          name: site_token
-          in: query
-          description: 'Site-specific validation token'
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - site
-                - node
-                - hash
-              properties:
-                site:
-                  type: object
-                  properties:
-                    name:
-                      type: string
-                node:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                hash:
-                  type: string
-                  description: 'Commit hash to restore content from'
-              type: object
-      responses:
-        '200':
-          description: 'Restore a node revision by writing historical content as a new commit'
   /siteUpdateAlternateFormats:
     post:
       tags:
         - cms
         - authenticated
         - meta
-      operationId: 'Operations::siteUpdateAlternateFormats'
+      operationId: Operations::siteUpdateAlternateFormats
       requestBody:
         content:
           application/json:
@@ -186,30 +31,15 @@ paths:
                   type: string
               type: object
       responses:
-        '200':
-          description: 'Update the alternative formats surrounding a site'
-  /connectionSettings:
-    get:
-      tags:
-        - cms
-      operationId: 'Operations::connectionSettings'
-      responses:
-        '200':
-          description: 'Generate the connection settings dynamically for implying we have a PHP backend'
-    post:
-      tags:
-        - cms
-      operationId: 'Operations::connectionSettings'
-      responses:
-        '200':
-          description: 'Generate the connection settings dynamically for implying we have a PHP backend'
+        "200":
+          description: Update the alternative formats surrounding a site
   /formLoad:
     post:
       tags:
         - cms
         - authenticated
         - form
-      operationId: 'Operations::formLoad'
+      operationId: Operations::formLoad
       requestBody:
         content:
           application/json:
@@ -228,15 +58,15 @@ paths:
                   type: object
               type: object
       responses:
-        '200':
-          description: 'Load a form based on ID'
+        "200":
+          description: Load a form based on ID
   /formProcess:
     post:
       tags:
         - cms
         - authenticated
         - form
-      operationId: 'Operations::formProcess'
+      operationId: Operations::formProcess
       requestBody:
         content:
           application/json:
@@ -255,204 +85,36 @@ paths:
                   type: object
               type: object
       responses:
-        '200':
-          description: 'Process a form based on ID and input data'
-  /listFiles:
-    get:
-      tags:
-        - hax
-        - authenticated
-        - file
-      operationId: 'Operations::listFiles'
-      parameters:
-        -
-          name: site_token
-          in: query
-          description: 'Site-specific validation token'
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 'Load existing files for presentation in HAX find area'
-  /login:
-    post:
-      tags:
-        - cms
-        - user
-      description: 'Attempt a user login'
-      operationId: 'Operations::login'
-      requestBody:
-        content:
-          application/json:
-            schema:
-              properties:
-                username:
-                  type: string
-                password:
-                  type: string
-                jwt:
-                  type: string
-              type: object
-              example:
-                username: admin
-                password: admin
-      responses:
-        '200':
-          description: 'JWT token as response'
-        '403':
-          description: 'Invalid token / Login is required'
-  /logout:
-    post:
-      tags:
-        - cms
-        - user
-      operationId: 'Operations::logout'
-      responses:
-        '200':
-          description: 'User logout, front end will kill token'
-    get:
-      tags:
-        - cms
-        - user
-      operationId: 'Operations::logout'
-      responses:
-        '200':
-          description: 'User logout, front end will kill token'
-  /refreshAccessToken:
-    post:
-      tags:
-        - cms
-        - user
-      operationId: 'Operations::refreshAccessToken'
-      responses:
-        '200':
-          description: 'User access token for refreshing JWT when it goes stale'
-    get:
-      tags:
-        - cms
-        - user
-      operationId: 'Operations::refreshAccessToken'
-      responses:
-        '200':
-          description: 'User access token for refreshing JWT when it goes stale'
-  /saveFile:
-    post:
-      tags:
-        - hax
-        - authenticated
-        - file
-      operationId: 'Operations::saveFile'
-      parameters:
-        -
-          name: site_token
-          in: query
-          description: 'Site-specific validation token'
-          required: true
-          schema:
-            type: string
-        -
-          name: siteName
-          in: query
-          description: 'Name of the site to upload the file to'
-          required: true
-          schema:
-            type: string
-        -
-          name: nodeId
-          in: query
-          description: 'ID of the node/page to associate the file with'
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          multipart/form-data:
-            schema:
-              required:
-                - file-upload
-              properties:
-                file-upload:
-                  type: string
-                  format: binary
-                  description: 'File to upload'
-              type: object
-      responses:
-        '200':
-          description: 'User is uploading a file to present in a site'
-        '500':
-          description: 'Error uploading file'
-  /saveNodeDetails:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - node
-      operationId: 'Operations::saveNodeDetails'
-      parameters:
-        -
-          name: site_token
-          in: query
-          description: 'Site-specific validation token'
-          required: true
-          schema:
-            type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - site
-                - node
-              properties:
-                site:
-                  type: object
-                node:
-                  type: object
-              type: object
-      responses:
-        '200':
-          description: 'Perform a singular node operation'
+        "200":
+          description: Process a form based on ID and input data
 tags:
-  -
-    name: hax
-    description: 'Operations required for HAX editor to work'
+  - name: hax
+    description: Operations required for HAX editor to work
     externalDocs:
-      description: 'Find out more about hax editor integrations'
-      url: 'https://haxtheweb.org/integrations/create-new-ones'
-  -
-    name: cms
-    description: 'Operations for the CMS side'
-  -
-    name: site
-    description: 'Operations for sites'
-  -
-    name: node
-    description: 'Operations for individual nodes in a site'
-  -
-    name: file
-    description: 'Operations for files related to CMS or HAX'
-  -
-    name: form
-    description: 'Operations related to form submission or generation'
-  -
-    name: meta
-    description: 'Operations related to metadata management or processes'
-  -
-    name: git
-    description: 'Operations related to git / version control of the site'
-  -
-    name: user
-    description: 'Operations for the user account / object'
-  -
-    name: api
-    description: 'endpoint to generate the API or surrounding API callbacks'
-  -
-    name: settings
-    description: 'Internal settings related to configuration of this HAXcms deployment'
-  -
-    name: authenticated
-    description: 'Operations requiring authentication'
+      description: Find out more about hax editor integrations
+      url: https://haxtheweb.org/integrations/create-new-ones
+  - name: cms
+    description: Operations for the CMS side
+  - name: site
+    description: Operations for sites
+  - name: node
+    description: Operations for individual nodes in a site
+  - name: file
+    description: Operations for files related to CMS or HAX
+  - name: form
+    description: Operations related to form submission or generation
+  - name: meta
+    description: Operations related to metadata management or processes
+  - name: git
+    description: Operations related to git / version control of the site
+  - name: user
+    description: Operations for the user account / object
+  - name: api
+    description: endpoint to generate the API or surrounding API callbacks
+  - name: settings
+    description: Internal settings related to configuration of this HAXcms deployment
+  - name: authenticated
+    description: Operations requiring authentication
 externalDocs:
-  description: 'HAXcms and all things HAX documentations'
-  url: 'https://haxtheweb.org/'
+  description: HAXcms and all things HAX documentations
+  url: https://haxtheweb.org/
