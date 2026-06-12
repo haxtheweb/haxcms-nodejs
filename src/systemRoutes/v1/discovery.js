@@ -79,7 +79,11 @@ function buildLinkMap(apiBasePath = '') {
     openapiYaml: `${apiBasePath}/openapi.yaml`,
     sites: `${apiBasePath}/sites`,
     session: `${apiBasePath}/session`,
-    settings: `${apiBasePath}/settings/api-keys`,
+    configuration: `${apiBasePath}/configuration`,
+    integrations: `${apiBasePath}/integrations`,
+    entities: `${apiBasePath}/entities`,
+    schemas: `${apiBasePath}/schemas`,
+    system: `${apiBasePath}/system`,
   };
 }
 

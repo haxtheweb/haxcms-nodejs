@@ -322,7 +322,50 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/sites/clone:
+  /system/api/v1/sites/{siteName}:
+    parameters:
+      - $ref: "#/components/parameters/SiteName"
+    get:
+      tags:
+        - lifecycle
+      operationId: siteInfoGet
+      summary: Return metadata for a specific site
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: Site metadata response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - lifecycle
+      operationId: siteInfoPost
+      summary: Return metadata for a specific site
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: Site metadata response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/sites/{siteName}/clone:
+    parameters:
+      - $ref: "#/components/parameters/SiteName"
     post:
       tags:
         - lifecycle
@@ -348,7 +391,9 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/sites/archive:
+  /system/api/v1/sites/{siteName}/archive:
+    parameters:
+      - $ref: "#/components/parameters/SiteName"
     post:
       tags:
         - lifecycle
@@ -374,7 +419,9 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/sites/download:
+  /system/api/v1/sites/{siteName}/download:
+    parameters:
+      - $ref: "#/components/parameters/SiteName"
     post:
       tags:
         - lifecycle
@@ -400,7 +447,9 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/sites/download-skeleton:
+  /system/api/v1/sites/{siteName}/download-skeleton:
+    parameters:
+      - $ref: "#/components/parameters/SiteName"
     post:
       tags:
         - lifecycle
@@ -426,7 +475,9 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/sites/save-as-template:
+  /system/api/v1/sites/{siteName}/save-as-template:
+    parameters:
+      - $ref: "#/components/parameters/SiteName"
     post:
       tags:
         - lifecycle
@@ -833,7 +884,7 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/system/skeletons:
+  /system/api/v1/skeletons:
     get:
       tags:
         - settings
@@ -841,7 +892,7 @@ paths:
       summary: Return available system skeletons
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: Available skeleton list
@@ -855,20 +906,31 @@ paths:
       tags:
         - settings
       operationId: systemSkeletonsPost
-      summary: Return available system skeletons
+      summary: Upload a skeleton resource or perform skeleton collection operations
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/SkeletonUploadRequest"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkeletonMutationRequest"
       responses:
         "200":
-          description: Available skeleton list
+          description: Skeleton resource operation response
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/system/skeletons/{name}:
+  /system/api/v1/skeletons/{skeletonName}:
     parameters:
       - $ref: "#/components/parameters/SkeletonName"
     get:
@@ -878,7 +940,7 @@ paths:
       summary: Return details for a named skeleton
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: Skeleton details
@@ -890,17 +952,83 @@ paths:
           $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
-    post:
+    patch:
       tags:
         - settings
-      operationId: systemSkeletonDetailPost
-      summary: Return details for a named skeleton
+      operationId: systemSkeletonDetailPatch
+      summary: Rename a named skeleton
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkeletonRenameRequest"
       responses:
         "200":
-          description: Skeleton details
+          description: Skeleton rename response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Target skeleton name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags:
+        - settings
+      operationId: systemSkeletonDetailPut
+      summary: Rename a named skeleton (compatibility alias for PATCH)
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkeletonRenameRequest"
+      responses:
+        "200":
+          description: Skeleton rename response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Target skeleton name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags:
+        - settings
+      operationId: systemSkeletonDetailDelete
+      summary: Delete a named skeleton
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      responses:
+        "200":
+          description: Skeleton delete response
           content:
             application/json:
               schema:
@@ -946,9 +1074,16 @@ paths:
           $ref: "#/components/responses/Forbidden"
 components:
   parameters:
+    SiteName:
+      in: path
+      name: siteName
+      required: true
+      schema:
+        type: string
+      description: Machine name of the site
     SkeletonName:
       in: path
-      name: name
+      name: skeletonName
       required: true
       schema:
         type: string
@@ -1005,8 +1140,7 @@ components:
       properties:
         status:
           type: integer
-        data:
-          nullable: true
+        data: {}
       additionalProperties: true
     ErrorEnvelope:
       allOf:
@@ -1042,4 +1176,52 @@ components:
     EnabledCollectionSettings:
       type: object
       description: Enabled item map payload
+      additionalProperties: true
+    SkeletonUploadRequest:
+      type: object
+      description: Multipart payload for uploading a new skeleton resource
+      properties:
+        file:
+          type: string
+          format: binary
+          description: Skeleton JSON file upload
+        name:
+          type: string
+          description: Optional target skeleton machine name override
+        schema:
+          type: string
+          description: Optional schema selector (defaults to skeleton)
+        action:
+          type: string
+          description: Optional action hint (upload)
+      additionalProperties: true
+    SkeletonMutationRequest:
+      type: object
+      description: JSON mutation payload for skeleton resource operations
+      properties:
+        schema:
+          type: string
+        action:
+          type: string
+        name:
+          type: string
+        oldName:
+          type: string
+        skeletonName:
+          type: string
+        newName:
+          type: string
+        displayName:
+          type: string
+      additionalProperties: true
+    SkeletonRenameRequest:
+      type: object
+      description: Rename payload for skeleton resource detail mutation
+      required:
+        - newName
+      properties:
+        newName:
+          type: string
+        displayName:
+          type: string
       additionalProperties: true

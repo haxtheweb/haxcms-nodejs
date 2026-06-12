@@ -6,15 +6,9 @@ const RoutesMap = {
     logout: require('../routes/logout.js'),
     formLoad: require('../routes/formLoad.js'),
     formProcess: require('../routes/formProcess.js'),
-    listSites: require('../routes/listSites.js'),
 
     siteUpdateAlternateFormats: require('../routes/siteUpdateAlternateFormats.js'),
-    createSite: require('../routes/createSite.js'),
-    cloneSite: require('../routes/cloneSite.js'),
-    archiveSite: require('../routes/archiveSite.js'),
-    downloadSite: require('../routes/downloadSite.js'),
     downloadSiteSkeleton: require('../routes/downloadSiteSkeleton.js'),
-    saveSiteAsTemplate: require('../routes/saveSiteAsTemplate.js'),
     saveNodeDetails: require('../routes/saveNodeDetails.js'),
     getNodeRevisions: require('../routes/getNodeRevisions.js'),
     getNodeRevision: require('../routes/getNodeRevision.js'),
@@ -23,8 +17,8 @@ const RoutesMap = {
     linkChecker: require('../routes/linkChecker.js'),
     contentBrowser: require('../routes/contentBrowser.js'),
     mediaBrowser: require('../routes/mediaBrowser.js'),
-    // allow AppHax API (which defaults to POST) to call connectionSettings,
-    // refreshAccessToken, and skeletonsList while still supporting GET
+    // allow AppHax API (which defaults to POST) to call connectionSettings
+    // and refreshAccessToken while still supporting GET
     // for other clients; systemStatus is intentionally POST-only
     connectionSettings: require('../routes/connectionSettings.js'),
     connectionTest: require('../routes/connectionTest.js'),
@@ -39,9 +33,7 @@ const RoutesMap = {
     saveEnabledThemes: require('../routes/saveEnabledThemes.js'),
     saveEnabledBlocks: require('../routes/saveEnabledBlocks.js'),
     systemBlocksList: require('../routes/systemBlocksList.js'),
-    skeletonsList: require('../routes/skeletonsList.js'),
     themesList: require('../routes/themesList.js'),
-    getSkeleton: require('../routes/getSkeleton.js'),
     // meta endpoints mirroring PHP Operations::options and ::api
     options: require('../routes/options.js'),
     api: require('../routes/api.js'),
@@ -53,9 +45,7 @@ const RoutesMap = {
     connectionTest: require('../routes/connectionTest.js'),
     systemBlocksList: require('../routes/systemBlocksList.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
-    skeletonsList: require('../routes/skeletonsList.js'),
     themesList: require('../routes/themesList.js'),
-    getSkeleton: require('../routes/getSkeleton.js'),
   },
 };
 
@@ -63,8 +53,6 @@ const RoutesMap = {
 const OpenRoutes = [
   'connectionSettings',
   'connectionTest',
-  'getSitesList',
-  'getSkeleton',
   'login',
   'logout',
   'api',
@@ -75,13 +63,7 @@ const OpenRoutes = [
 // haxcms system-admin routes should only be available from system dashboard context
 // future system-admin endpoints should be added here
 const SystemAdminRoutes = [
-  'listSites',
-  'createSite',
-  'cloneSite',
-  'archiveSite',
-  'downloadSite',
   'downloadSiteSkeleton',
-  'saveSiteAsTemplate',
   'systemStatus',
   'getApiKeys',
   'saveApiKeys',
@@ -92,9 +74,7 @@ const SystemAdminRoutes = [
   'saveEnabledThemes',
   'saveEnabledSkeletons',
   'schemaFileOperation',
-  'skeletonsList',
   'themesList',
-  'getSkeleton',
 ];
 
 module.exports = {RoutesMap, OpenRoutes, SystemAdminRoutes};

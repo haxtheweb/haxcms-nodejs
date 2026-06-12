@@ -102,7 +102,11 @@ function getSystemV1RouteParser(method = 'get', route = '') {
   const normalizedRoute = String(route || '');
   if (
     normalizedMethod === 'post' &&
-    normalizedRoute === 'settings/schema-files/operations'
+    (
+      normalizedRoute === 'configuration/schema-files/operations' ||
+      normalizedRoute === 'configuration/skeletons' ||
+      normalizedRoute === 'skeletons'
+    )
   ) {
     return parseSchemaFileOperationBody;
   }

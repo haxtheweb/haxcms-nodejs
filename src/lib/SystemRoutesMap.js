@@ -18,34 +18,42 @@ const SystemRoutesMap = {
   get: {},
   post: {},
   patch: {},
+  put: {},
   delete: {},
 };
 
 addRouteHandler(SystemRoutesMap, 'get', 'sites', lifecycleRoutes.listSites);
 addRouteHandler(SystemRoutesMap, 'post', 'sites', lifecycleRoutes.createSite);
-addRouteHandler(SystemRoutesMap, 'post', 'sites/clone', lifecycleRoutes.cloneSite);
+addRouteHandler(SystemRoutesMap, 'get', 'sites/:siteName', lifecycleRoutes.siteInfo);
+addRouteHandler(SystemRoutesMap, 'post', 'sites/:siteName', lifecycleRoutes.siteInfo);
 addRouteHandler(
   SystemRoutesMap,
   'post',
-  'sites/archive',
+  'sites/:siteName/clone',
+  lifecycleRoutes.cloneSite,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'post',
+  'sites/:siteName/archive',
   lifecycleRoutes.archiveSite,
 );
 addRouteHandler(
   SystemRoutesMap,
   'post',
-  'sites/download',
+  'sites/:siteName/download',
   lifecycleRoutes.downloadSite,
 );
 addRouteHandler(
   SystemRoutesMap,
   'post',
-  'sites/download-skeleton',
+  'sites/:siteName/download-skeleton',
   lifecycleRoutes.downloadSiteSkeleton,
 );
 addRouteHandler(
   SystemRoutesMap,
   'post',
-  'sites/save-as-template',
+  'sites/:siteName/save-as-template',
   lifecycleRoutes.saveSiteAsTemplate,
 );
 
@@ -95,7 +103,7 @@ addRouteHandler(
 addRouteHandler(
   SystemRoutesMap,
   'get',
-  'system/app-store',
+  'integrations/app-store',
   settingsRoutes.generateAppStore,
 );
 addRouteHandler(SystemRoutesMap, 'get', 'system/status', settingsRoutes.systemStatus);
@@ -105,121 +113,219 @@ addRouteHandler(
   'system/status',
   settingsRoutes.systemStatus,
 );
-
-addRouteHandler(SystemRoutesMap, 'get', 'settings/api-keys', settingsRoutes.getApiKeys);
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'settings/api-keys',
-  settingsRoutes.saveApiKeys,
+  'get',
+  'system/version',
+  settingsRoutes.systemVersion,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'patch',
-  'settings/api-keys',
-  settingsRoutes.saveApiKeys,
+  'post',
+  'system/version',
+  settingsRoutes.systemVersion,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'get',
+  'entities',
+  settingsRoutes.systemEntities,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'post',
+  'entities',
+  settingsRoutes.systemEntities,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'get',
+  'schemas',
+  settingsRoutes.systemSchemas,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'post',
+  'schemas',
+  settingsRoutes.systemSchemas,
 );
 
 addRouteHandler(
   SystemRoutesMap,
   'get',
-  'settings/media',
-  settingsRoutes.getMediaSettings,
+  'configuration/api-keys',
+  settingsRoutes.configurationApiKeys,
 );
 addRouteHandler(
   SystemRoutesMap,
   'post',
-  'settings/media',
-  settingsRoutes.saveMediaSettings,
+  'configuration/api-keys',
+  settingsRoutes.configurationApiKeys,
 );
 addRouteHandler(
   SystemRoutesMap,
   'patch',
-  'settings/media',
-  settingsRoutes.saveMediaSettings,
+  'configuration/api-keys',
+  settingsRoutes.configurationApiKeys,
 );
 
 addRouteHandler(
   SystemRoutesMap,
+  'get',
+  'configuration/media',
+  settingsRoutes.configurationMedia,
+);
+addRouteHandler(
+  SystemRoutesMap,
   'post',
-  'settings/enabled-skeletons',
-  settingsRoutes.saveEnabledSkeletons,
+  'configuration/media',
+  settingsRoutes.configurationMedia,
 );
 addRouteHandler(
   SystemRoutesMap,
   'patch',
-  'settings/enabled-skeletons',
-  settingsRoutes.saveEnabledSkeletons,
+  'configuration/media',
+  settingsRoutes.configurationMedia,
 );
 addRouteHandler(
   SystemRoutesMap,
   'post',
-  'settings/schema-files/operations',
+  'configuration/schema-files/operations',
   settingsRoutes.schemaFileOperation,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'settings/enabled-themes',
-  settingsRoutes.saveEnabledThemes,
-);
-addRouteHandler(
-  SystemRoutesMap,
-  'patch',
-  'settings/enabled-themes',
-  settingsRoutes.saveEnabledThemes,
+  'get',
+  'configuration/themes',
+  settingsRoutes.configurationThemes,
 );
 addRouteHandler(
   SystemRoutesMap,
   'post',
-  'settings/enabled-blocks',
-  settingsRoutes.saveEnabledBlocks,
+  'configuration/themes',
+  settingsRoutes.configurationThemes,
 );
 addRouteHandler(
   SystemRoutesMap,
   'patch',
-  'settings/enabled-blocks',
-  settingsRoutes.saveEnabledBlocks,
+  'configuration/themes',
+  settingsRoutes.configurationThemes,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'get',
+  'configuration/blocks',
+  settingsRoutes.configurationBlocks,
 );
 
 addRouteHandler(
   SystemRoutesMap,
+  'post',
+  'configuration/blocks',
+  settingsRoutes.configurationBlocks,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'patch',
+  'configuration/blocks',
+  settingsRoutes.configurationBlocks,
+);
+addRouteHandler(
+  SystemRoutesMap,
   'get',
-  'system/blocks',
-  settingsRoutes.systemBlocksList,
+  'configuration/skeletons',
+  settingsRoutes.configurationSkeletons,
 );
 addRouteHandler(
   SystemRoutesMap,
   'post',
-  'system/blocks',
-  settingsRoutes.systemBlocksList,
+  'configuration/skeletons',
+  settingsRoutes.configurationSkeletons,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'patch',
+  'configuration/skeletons',
+  settingsRoutes.configurationSkeletons,
 );
 addRouteHandler(
   SystemRoutesMap,
   'get',
-  'system/skeletons',
-  settingsRoutes.skeletonsList,
-);
-addRouteHandler(
-  SystemRoutesMap,
-  'post',
-  'system/skeletons',
-  settingsRoutes.skeletonsList,
-);
-addRouteHandler(
-  SystemRoutesMap,
-  'get',
-  'system/skeletons/:name',
+  'configuration/skeletons/:skeletonName',
   settingsRoutes.getSkeleton,
 );
 addRouteHandler(
   SystemRoutesMap,
   'post',
-  'system/skeletons/:name',
+  'configuration/skeletons/:skeletonName',
   settingsRoutes.getSkeleton,
 );
-addRouteHandler(SystemRoutesMap, 'get', 'system/themes', settingsRoutes.themesList);
-addRouteHandler(SystemRoutesMap, 'post', 'system/themes', settingsRoutes.themesList);
+addRouteHandler(
+  SystemRoutesMap,
+  'patch',
+  'configuration/skeletons/:skeletonName',
+  settingsRoutes.schemaFileOperation,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'put',
+  'configuration/skeletons/:skeletonName',
+  settingsRoutes.schemaFileOperation,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'delete',
+  'configuration/skeletons/:skeletonName',
+  settingsRoutes.schemaFileOperation,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'get',
+  'skeletons',
+  settingsRoutes.configurationSkeletons,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'post',
+  'skeletons',
+  settingsRoutes.configurationSkeletons,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'patch',
+  'skeletons',
+  settingsRoutes.configurationSkeletons,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'get',
+  'skeletons/:skeletonName',
+  settingsRoutes.getSkeleton,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'post',
+  'skeletons/:skeletonName',
+  settingsRoutes.getSkeleton,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'patch',
+  'skeletons/:skeletonName',
+  settingsRoutes.schemaFileOperation,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'put',
+  'skeletons/:skeletonName',
+  settingsRoutes.schemaFileOperation,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'delete',
+  'skeletons/:skeletonName',
+  settingsRoutes.schemaFileOperation,
+);
 
 addRouteHandler(SystemRoutesMap, 'get', '', discoveryRoutes.api);
 addRouteHandler(SystemRoutesMap, 'get', 'openapi', discoveryRoutes.openapi);
@@ -233,7 +339,7 @@ const SystemV1OpenRoutes = [
   'session/refresh',
   'session/connection-settings',
   'session/connection-test',
-  'system/app-store',
+  'integrations/app-store',
   '',
   'openapi',
   'openapi.json',
@@ -242,22 +348,25 @@ const SystemV1OpenRoutes = [
 
 const SystemV1AdminRoutes = [
   'sites',
-  'sites/clone',
-  'sites/archive',
-  'sites/download',
-  'sites/download-skeleton',
-  'sites/save-as-template',
+  'sites/:siteName',
+  'sites/:siteName/clone',
+  'sites/:siteName/archive',
+  'sites/:siteName/download',
+  'sites/:siteName/download-skeleton',
+  'sites/:siteName/save-as-template',
   'system/status',
-  'settings/api-keys',
-  'settings/media',
-  'settings/enabled-skeletons',
-  'settings/schema-files/operations',
-  'settings/enabled-themes',
-  'settings/enabled-blocks',
-  'system/blocks',
-  'system/skeletons',
-  'system/skeletons/:name',
-  'system/themes',
+  'system/version',
+  'entities',
+  'schemas',
+  'configuration/api-keys',
+  'configuration/media',
+  'configuration/schema-files/operations',
+  'configuration/themes',
+  'configuration/blocks',
+  'configuration/skeletons',
+  'configuration/skeletons/:skeletonName',
+  'skeletons',
+  'skeletons/:skeletonName',
 ];
 
 module.exports = {

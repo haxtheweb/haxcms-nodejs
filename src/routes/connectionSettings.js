@@ -73,6 +73,30 @@ function appendQueryParams(pathValue = '', params = {}) {
   return `${basePath}${query ? `?${query}` : ''}${hash}`;
 }
 
+function applyPathTemplateParams(pathValue = '', params = {}) {
+  const target = typeof pathValue === 'string' ? pathValue.trim() : '';
+  if (!target) {
+    return '';
+  }
+  return target.replace(/\{([^}]+)\}/g, (match, key) => {
+    if (!params || typeof params !== 'object') {
+      return match;
+    }
+    if (!Object.prototype.hasOwnProperty.call(params, key)) {
+      return match;
+    }
+    const value = params[key];
+    if (typeof value === 'undefined' || value === null) {
+      return match;
+    }
+    const normalizedValue = `${value}`.trim();
+    if (normalizedValue === '') {
+      return match;
+    }
+    return encodeURIComponent(normalizedValue);
+  });
+}
+
 function getSystemOpenApiOperationPaths() {
   if (cachedSystemOpenApiOperationPaths) {
     return cachedSystemOpenApiOperationPaths;
@@ -244,11 +268,12 @@ async function connectionSettings(req, res) {
     HAXCMS.protocol = details.protocol.replace(':', '');
     HAXCMS.domain = details.host;
     HAXCMS.request_url = details;
-
-    const sitepath = req.headers.referer.replace(`${HAXCMS.protocol}://${HAXCMS.domain}${HAXCMS.basePath}${HAXCMS.sitesDirectory}/`, '');
-    const siteparts = sitepath.split('/');
-    // should always be at the base here
-    sitename = siteparts[0];
+    const siteContextPrefix = `${HAXCMS.protocol}://${HAXCMS.domain}${HAXCMS.basePath}${HAXCMS.sitesDirectory}/`;
+    if (req.headers.referer.indexOf(siteContextPrefix) === 0) {
+      const sitepath = req.headers.referer.replace(siteContextPrefix, '');
+      const siteparts = sitepath.split('/');
+      sitename = siteparts[0];
+    }
   }
   const siteToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName() + ':' + sitename);
   // user token is just the name of the logged in user
@@ -265,15 +290,160 @@ async function connectionSettings(req, res) {
     siteApiBasePath = `${normalizedBasePath}${HAXCMS.sitesDirectory}/${sitename}/x/api`;
   }
   const systemApiV1BasePath = `${baseAPIPath}v1/`;
+  const sitePathParams = {};
+  if (typeof sitename === 'string' && sitename.trim() !== '') {
+    sitePathParams.siteName = sitename.trim();
+  }
+  const userTokenHeaderName = 'X-HAXCMS-User-Token';
   const getUserDataPath = resolveSystemOperationPath(
     'sessionUserGet',
     systemApiV1BasePath,
     'session/user',
   );
+  const createSitePath = resolveSystemOperationPath(
+    'createSite',
+    systemApiV1BasePath,
+    'sites',
+  );
+  const copySitePath = applyPathTemplateParams(
+    resolveSystemOperationPath(
+      'cloneSite',
+      systemApiV1BasePath,
+      'sites/{siteName}/clone',
+    ),
+    sitePathParams,
+  );
+  const archiveSitePath = applyPathTemplateParams(
+    resolveSystemOperationPath(
+      'archiveSite',
+      systemApiV1BasePath,
+      'sites/{siteName}/archive',
+    ),
+    sitePathParams,
+  );
+  const downloadSitePath = applyPathTemplateParams(
+    resolveSystemOperationPath(
+      'downloadSite',
+      systemApiV1BasePath,
+      'sites/{siteName}/download',
+    ),
+    sitePathParams,
+  );
+  const downloadSiteSkeletonPath = applyPathTemplateParams(
+    resolveSystemOperationPath(
+      'downloadSiteSkeleton',
+      systemApiV1BasePath,
+      'sites/{siteName}/download-skeleton',
+    ),
+    sitePathParams,
+  );
+  const saveSiteAsTemplatePath = applyPathTemplateParams(
+    resolveSystemOperationPath(
+      'saveSiteAsTemplate',
+      systemApiV1BasePath,
+      'sites/{siteName}/save-as-template',
+    ),
+    sitePathParams,
+  );
+  const listSitesPath = resolveSystemOperationPath(
+    'listSites',
+    systemApiV1BasePath,
+    'sites',
+  );
+  const skeletonsListPath = appendQueryParams(
+    resolveSystemOperationPath(
+      'systemSkeletonsPost',
+      systemApiV1BasePath,
+      'configuration/skeletons',
+    ),
+    {
+      includeDisabled: true,
+    },
+  );
+  const getSkeletonPath = resolveSystemOperationPath(
+    '',
+    systemApiV1BasePath,
+    'skeletons/{skeletonName}',
+  );
   const appStorePath = resolveSystemOperationPath(
     'generateAppStore',
     systemApiV1BasePath,
-    'system/app-store',
+    'integrations/app-store',
+  );
+  const themesListPath = appendQueryParams(
+    resolveSystemOperationPath(
+      'systemThemesGet',
+      systemApiV1BasePath,
+      'configuration/themes',
+    ),
+    {
+      includeDisabled: true,
+    },
+  );
+  const systemStatusPath = resolveSystemOperationPath(
+    'systemStatusGet',
+    systemApiV1BasePath,
+    'system/status',
+  );
+  const systemVersionPath = resolveSystemOperationPath(
+    'systemVersionGet',
+    systemApiV1BasePath,
+    'system/version',
+  );
+  const getApiKeysPath = resolveSystemOperationPath(
+    'getApiKeys',
+    systemApiV1BasePath,
+    'configuration/api-keys',
+  );
+  const saveApiKeysPath = resolveSystemOperationPath(
+    'saveApiKeysPost',
+    systemApiV1BasePath,
+    'configuration/api-keys',
+  );
+  const getMediaSettingsPath = resolveSystemOperationPath(
+    'getMediaSettings',
+    systemApiV1BasePath,
+    'configuration/media',
+  );
+  const saveMediaSettingsPath = resolveSystemOperationPath(
+    'saveMediaSettingsPost',
+    systemApiV1BasePath,
+    'configuration/media',
+  );
+  const systemBlocksPath = resolveSystemOperationPath(
+    'systemBlocksGet',
+    systemApiV1BasePath,
+    'configuration/blocks',
+  );
+  const schemaFileOperationPath = resolveSystemOperationPath(
+    '',
+    systemApiV1BasePath,
+    'skeletons',
+  );
+  const renameSkeletonPath = resolveSystemOperationPath(
+    '',
+    systemApiV1BasePath,
+    'skeletons/{skeletonName}',
+  );
+  const deleteSkeletonPath = resolveSystemOperationPath(
+    '',
+    systemApiV1BasePath,
+    'skeletons/{skeletonName}',
+  );
+  const saveEnabledSkeletonsPath = resolveSystemOperationPath(
+    'saveEnabledSkeletonsPost',
+    systemApiV1BasePath,
+    'configuration/skeletons',
+  );
+  const saveEnabledThemesPath = resolveSystemOperationPath(
+    'saveEnabledThemesPost',
+    systemApiV1BasePath,
+    'configuration/themes',
+  );
+  const saveEnabledBlocksPath = resolveSystemOperationPath(
+    'saveEnabledBlocksPost',
+    systemApiV1BasePath,
+    'configuration/blocks',
   );
   const returnDataObj = {
     token: HAXCMS.getRequestToken(),
@@ -287,14 +457,11 @@ async function connectionSettings(req, res) {
     sessionPath: `${systemApiV1BasePath}session`,
     connectionSettings: `${systemApiV1BasePath}session/connection-settings`,
     connectionTest: `${systemApiV1BasePath}session/connection-test`,
-    userTokenHeader: 'X-HAXCMS-User-Token',
-    // enables redirecting back to site root if JWT really is dead
+    userTokenHeader: userTokenHeaderName,
     redirectUrl: HAXCMS.basePath,
     getSiteFieldsPath: `${baseAPIPath}formLoad?haxcms_form_id=siteSettings`,
     // form token to validate form submissions as unique to the session
     getFormToken: HAXCMS.getRequestToken('form'),
-    listFilesPath: `${siteApiBasePath}/v1/files`,
-    saveFilePath: `${siteApiBasePath}/v1/files`,
     appStore: {
       url: appStorePath,
       params: {
@@ -307,30 +474,64 @@ async function connectionSettings(req, res) {
     },
     themes: themes,
   };
-  returnDataObj.getUserDataPath = getUserDataPath;
-  returnDataObj.getUserDataHeaders = {
-    'X-HAXCMS-User-Token': userToken,
+  const userTokenHeaders = {
+    [userTokenHeaderName]: userToken,
   };
-  returnDataObj.createSite = `${baseAPIPath}createSite?user_token=${userToken}`;
-  returnDataObj.downloadSite = `${baseAPIPath}downloadSite?user_token=${userToken}`;
-  returnDataObj.downloadSiteSkeleton = `${baseAPIPath}downloadSiteSkeleton?user_token=${userToken}`;
-  returnDataObj.saveSiteAsTemplate = `${baseAPIPath}saveSiteAsTemplate?user_token=${userToken}`;
-  returnDataObj.archiveSite = `${baseAPIPath}archiveSite?user_token=${userToken}`;
-  returnDataObj.copySite = `${baseAPIPath}cloneSite?user_token=${userToken}`;
-  returnDataObj.getSitesList = `${baseAPIPath}listSites?user_token=${userToken}`;
-  returnDataObj.skeletonsList = `${baseAPIPath}skeletonsList?user_token=${userToken}`;
-  returnDataObj.themesList = `${baseAPIPath}themesList?user_token=${userToken}`;
+  returnDataObj.getUserDataPath = getUserDataPath;
+  returnDataObj.getUserDataHeaders = userTokenHeaders;
+  returnDataObj.createSite = createSitePath;
+  returnDataObj.createSiteHeaders = userTokenHeaders;
+  returnDataObj.downloadSite = downloadSitePath;
+  returnDataObj.downloadSiteHeaders = userTokenHeaders;
+  returnDataObj.downloadSiteSkeleton = downloadSiteSkeletonPath;
+  returnDataObj.saveSiteAsTemplate = saveSiteAsTemplatePath;
+  returnDataObj.saveSiteAsTemplateHeaders = userTokenHeaders;
+  returnDataObj.archiveSite = archiveSitePath;
+  returnDataObj.archiveSiteHeaders = userTokenHeaders;
+  returnDataObj.copySite = copySitePath;
+  returnDataObj.copySiteHeaders = userTokenHeaders;
+  returnDataObj.getSitesList = listSitesPath;
+  returnDataObj.getSitesListHeaders = userTokenHeaders;
+  returnDataObj.getSitesListMethod = 'GET';
+  returnDataObj.skeletonsList = skeletonsListPath;
+  returnDataObj.skeletonsListHeaders = userTokenHeaders;
+  returnDataObj.getSkeleton = getSkeletonPath;
+  returnDataObj.getSkeletonHeaders = userTokenHeaders;
+  returnDataObj.getSkeletonMethod = 'GET';
+  returnDataObj.themesList = themesListPath;
+  returnDataObj.themesListHeaders = userTokenHeaders;
   if (HAXCMS.getDeploymentProfile() !== 'haxiam-managed') {
-    returnDataObj.systemStatus = `${baseAPIPath}systemStatus?user_token=${userToken}`;
-    returnDataObj.getApiKeys = `${baseAPIPath}getApiKeys?user_token=${userToken}`;
-    returnDataObj.saveApiKeys = `${baseAPIPath}saveApiKeys?user_token=${userToken}`;
-    returnDataObj.getMediaSettings = `${baseAPIPath}getMediaSettings?user_token=${userToken}`;
-    returnDataObj.saveMediaSettings = `${baseAPIPath}saveMediaSettings?user_token=${userToken}`;
-    returnDataObj.systemBlocksList = `${baseAPIPath}systemBlocksList?user_token=${userToken}`;
-    returnDataObj.schemaFileOperation = `${baseAPIPath}schemaFileOperation?user_token=${userToken}`;
-    returnDataObj.saveEnabledSkeletons = `${baseAPIPath}saveEnabledSkeletons?user_token=${userToken}`;
-    returnDataObj.saveEnabledThemes = `${baseAPIPath}saveEnabledThemes?user_token=${userToken}`;
-    returnDataObj.saveEnabledBlocks = `${baseAPIPath}saveEnabledBlocks?user_token=${userToken}`;
+    returnDataObj.systemStatus = systemStatusPath;
+    returnDataObj.systemStatusHeaders = userTokenHeaders;
+    returnDataObj.systemVersion = systemVersionPath;
+    returnDataObj.systemVersionHeaders = userTokenHeaders;
+    returnDataObj.getApiKeys = getApiKeysPath;
+    returnDataObj.getApiKeysHeaders = userTokenHeaders;
+    returnDataObj.getApiKeysMethod = 'GET';
+    returnDataObj.saveApiKeys = saveApiKeysPath;
+    returnDataObj.saveApiKeysHeaders = userTokenHeaders;
+    returnDataObj.getMediaSettings = getMediaSettingsPath;
+    returnDataObj.getMediaSettingsHeaders = userTokenHeaders;
+    returnDataObj.getMediaSettingsMethod = 'GET';
+    returnDataObj.saveMediaSettings = saveMediaSettingsPath;
+    returnDataObj.saveMediaSettingsHeaders = userTokenHeaders;
+    returnDataObj.systemBlocksList = systemBlocksPath;
+    returnDataObj.systemBlocksListHeaders = userTokenHeaders;
+    returnDataObj.schemaFileOperation = schemaFileOperationPath;
+    returnDataObj.schemaFileOperationHeaders = userTokenHeaders;
+    returnDataObj.schemaFileOperationMethod = 'POST';
+    returnDataObj.renameSkeleton = renameSkeletonPath;
+    returnDataObj.renameSkeletonHeaders = userTokenHeaders;
+    returnDataObj.renameSkeletonMethod = 'PATCH';
+    returnDataObj.deleteSkeleton = deleteSkeletonPath;
+    returnDataObj.deleteSkeletonHeaders = userTokenHeaders;
+    returnDataObj.deleteSkeletonMethod = 'DELETE';
+    returnDataObj.saveEnabledSkeletons = saveEnabledSkeletonsPath;
+    returnDataObj.saveEnabledSkeletonsHeaders = userTokenHeaders;
+    returnDataObj.saveEnabledThemes = saveEnabledThemesPath;
+    returnDataObj.saveEnabledThemesHeaders = userTokenHeaders;
+    returnDataObj.saveEnabledBlocks = saveEnabledBlocksPath;
+    returnDataObj.saveEnabledBlocksHeaders = userTokenHeaders;
   }
   const returnData = JSON.stringify(returnDataObj);
   let after='';

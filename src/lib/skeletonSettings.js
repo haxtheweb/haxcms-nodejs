@@ -181,16 +181,10 @@ async function writeEnabledSkeletonMap(haxcms, enabledSkeletons = {}) {
   return sorted;
 }
 
-async function discoverSkeletons(haxcms, userToken = '') {
+async function discoverSkeletons(haxcms) {
   const items = [];
   const seen = new Set();
   const dirs = getSkeletonDirectories(haxcms);
-  let baseAPIPath = `${haxcms.basePath}${haxcms.systemRequestBase}`;
-  if (baseAPIPath.slice(-1) !== '/') {
-    baseAPIPath = `${baseAPIPath}/`;
-  }
-  const normalizedUserToken =
-    typeof userToken === 'string' ? userToken : '';
   for (let i = 0; i < dirs.length; i++) {
     const entry = dirs[i];
     if (!(await fs.pathExists(entry.dir))) {
@@ -268,10 +262,7 @@ async function discoverSkeletons(haxcms, userToken = '') {
       }
       const attributes = Array.isArray(meta.attributes) ? meta.attributes : [];
       const demo = meta.sourceUrl || '#';
-      const userTokenQuery = normalizedUserToken
-        ? `&user_token=${encodeURIComponent(normalizedUserToken)}`
-        : '';
-      const skeletonUrl = `${baseAPIPath}getSkeleton?name=${encodeURIComponent(skeletonName)}${userTokenQuery}`;
+      const skeletonUrl = `${haxcms.basePath}${haxcms.systemRequestBase}v1/skeletons/${encodeURIComponent(skeletonName)}`;
       items.push({
         title,
         description,

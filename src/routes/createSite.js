@@ -334,6 +334,44 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
   }
   return theme;
 }
+function isSystemV1Request(req) {
+  const requestPath = (
+    req &&
+    typeof req.originalUrl === 'string' &&
+    req.originalUrl !== ''
+  ) ? req.originalUrl : (
+    req &&
+    typeof req.url === 'string' &&
+    req.url !== ''
+  ) ? req.url : '';
+  return requestPath.indexOf('/system/api/v1/') !== -1;
+}
+function hasValidCreateSiteRequestToken(req) {
+  const bodyToken = (
+    req &&
+    req.body &&
+    Object.prototype.hasOwnProperty.call(req.body, 'token')
+  ) ? req.body.token : null;
+  if (HAXCMS.validateRequestToken(bodyToken)) {
+    return true;
+  }
+  // v1 routes are already JWT-gated in app.js before this handler runs
+  if (isSystemV1Request(req)) {
+    return true;
+  }
+  return false;
+}
+function hasValidCreateSiteUserToken(req) {
+  const userToken = (
+    req &&
+    req.query &&
+    Object.prototype.hasOwnProperty.call(req.query, 'user_token')
+  ) ? req.query.user_token : null;
+  if (!userToken) {
+    return false;
+  }
+  return HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName());
+}
 
 /**
    * @OA\Post(
@@ -385,7 +423,7 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
    * )
    */
 async function createSite(req, res) {
-  if (HAXCMS.validateRequestToken(req.body.token) && req.query['user_token'] && HAXCMS.validateRequestToken(req.query['user_token'], HAXCMS.getActiveUserName())){
+  if (hasValidCreateSiteRequestToken(req) && hasValidCreateSiteUserToken(req)) {
     let domain = null;
     // woohoo we can edit this thing!
     if (req.body['site']['domain'] && req.body['site']['domain'] != null && req.body['site']['domain'] != '') {

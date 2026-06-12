@@ -70,7 +70,7 @@ async function saveEnabledSkeletons(req, res) {
     });
   }
   try {
-    const discovered = await discoverSkeletons(HAXCMS, req.query.user_token);
+    const discovered = await discoverSkeletons(HAXCMS);
     const enabledSet = new Set(enabledSkeletons);
     const enabledMap = {};
     for (let i = 0; i < discovered.length; i++) {

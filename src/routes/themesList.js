@@ -11,7 +11,21 @@ const {
   getThemeScreenshot,
 } = require('../lib/themeSettings.js');
 
-function shouldIncludeDisabled(req) {
+function resolveEnabledFilter(req) {
+  const hasEnabledQuery = (
+    req &&
+    req.query &&
+    Object.prototype.hasOwnProperty.call(req.query, 'enabled')
+  );
+  const hasEnabledBody = (
+    req &&
+    req.body &&
+    Object.prototype.hasOwnProperty.call(req.body, 'enabled')
+  );
+  if (hasEnabledQuery || hasEnabledBody) {
+    const rawEnabled = hasEnabledQuery ? req.query.enabled : req.body.enabled;
+    return normalizeBoolean(rawEnabled, true) ? 'enabled' : 'disabled';
+  }
   const fromQuery = (
     req &&
     req.query &&
@@ -22,7 +36,10 @@ function shouldIncludeDisabled(req) {
     req.body &&
     Object.prototype.hasOwnProperty.call(req.body, 'includeDisabled')
   ) ? normalizeBoolean(req.body.includeDisabled, false) : false;
-  return fromQuery || fromBody;
+  if (fromQuery || fromBody) {
+    return 'all';
+  }
+  return 'enabled';
 }
 
 /**
@@ -49,7 +66,7 @@ async function themesList(req, res) {
     });
   }
 
-  const includeDisabled = shouldIncludeDisabled(req);
+  const enabledFilter = resolveEnabledFilter(req);
   try {
     const discovered = await discoverThemes(HAXCMS);
     const detectedNames = discovered.map((item) => item.machineName);
@@ -75,7 +92,10 @@ async function themesList(req, res) {
         item.machineName,
         enabledThemes,
       );
-      if (!includeDisabled && !enabled) {
+      if (enabledFilter === 'enabled' && !enabled) {
+        continue;
+      }
+      if (enabledFilter === 'disabled' && enabled) {
         continue;
       }
       items.push({

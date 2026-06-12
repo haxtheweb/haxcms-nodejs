@@ -16,6 +16,7 @@ const addFormats = require('ajv-formats')
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const APP_ENTRY_PATH = path.join(REPO_ROOT, 'src', 'app.js')
 const SITE_SPEC_PATH = path.join(REPO_ROOT, 'src', 'openapi', 'site-spec.yaml')
+const SYSTEM_SPEC_PATH = path.join(REPO_ROOT, 'src', 'openapi', 'system-spec.yaml')
 const SITE_DIRECTORY_NAME = '_sites'
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head']
 const TEST_USER_NAME = process.env.HAXCMS_TEST_USERNAME || 'api-conformance-user'
@@ -158,13 +159,41 @@ async function requestConnectionSettings(baseUrl, refererPath = '') {
 }
 
 async function createHarnessSite(baseUrl, jwt, dashboardSettings, siteName) {
+  const createSitePath =
+    dashboardSettings &&
+    typeof dashboardSettings.createSite === 'string' &&
+    dashboardSettings.createSite.trim() !== ''
+      ? dashboardSettings.createSite
+      : '/system/api/v1/sites'
+  const createSiteHeaders =
+    dashboardSettings &&
+    dashboardSettings.createSiteHeaders &&
+    typeof dashboardSettings.createSiteHeaders === 'object'
+      ? dashboardSettings.createSiteHeaders
+      : {}
+  const requestHeaders = {
+    accept: 'application/json',
+    'content-type': 'application/json',
+    ...createSiteHeaders,
+  }
+  const normalizedCreateSitePath = String(createSitePath || '').trim()
+  const createSiteUrl = /^https?:\/\//i.test(normalizedCreateSitePath)
+    ? normalizedCreateSitePath
+    : `${baseUrl}${normalizedCreateSitePath.charAt(0) === '/' ? '' : '/'}${normalizedCreateSitePath}`
+  if (
+    (!requestHeaders || typeof requestHeaders !== 'object' || Object.keys(requestHeaders).length <= 2) &&
+    dashboardSettings &&
+    typeof dashboardSettings.userTokenHeader === 'string' &&
+    dashboardSettings.userTokenHeader.trim() !== '' &&
+    typeof dashboardSettings.userToken === 'string' &&
+    dashboardSettings.userToken.trim() !== ''
+  ) {
+    requestHeaders[dashboardSettings.userTokenHeader] = dashboardSettings.userToken
+  }
   const createSiteResponse = await sendHttpRequest({
     method: 'POST',
-    url: `${baseUrl}/system/api/createSite?user_token=${encodeURIComponent(dashboardSettings.userToken)}`,
-    headers: {
-      accept: 'application/json',
-      'content-type': 'application/json',
-    },
+    url: createSiteUrl,
+    headers: requestHeaders,
     body: JSON.stringify({
       jwt,
       token: dashboardSettings.token,
@@ -323,6 +352,20 @@ function readSiteSpecDocument() {
     'Parsed site-spec is missing paths',
   )
   return siteSpec
+}
+
+function readSystemSpecDocument() {
+  const specRaw = fs.readFileSync(SYSTEM_SPEC_PATH, 'utf8')
+  const systemSpec = YAML.parse(specRaw)
+  assert.ok(
+    systemSpec && typeof systemSpec === 'object',
+    'Unable to parse system-spec',
+  )
+  assert.ok(
+    systemSpec.paths && typeof systemSpec.paths === 'object',
+    'Parsed system-spec is missing paths',
+  )
+  return systemSpec
 }
 
 function decodeJsonPointerToken(value) {
@@ -956,6 +999,226 @@ async function assertSecuredOperationAuthMatrix(
   assertSchemaConformance(runtime, operationId, 403, invalidSiteTokenResult)
 }
 
+function getSystemUserAuthHeaders(runtime) {
+  return {
+    Authorization: `Bearer ${runtime.auth.jwt}`,
+    'X-HAXCMS-User-Token': runtime.auth.userToken,
+  }
+}
+
+function getInvalidSystemUserAuthHeaders(runtime) {
+  return {
+    Authorization: `Bearer ${runtime.auth.jwt}`,
+    'X-HAXCMS-User-Token': `invalid-${runtime.testStartTimestamp}`,
+  }
+}
+
+function getSystemResponseValidator(runtime, operationId, statusCode) {
+  const cacheKey = `${operationId}:${statusCode}`
+  if (
+    Object.prototype.hasOwnProperty.call(
+      runtime.systemValidatorState.cache,
+      cacheKey,
+    )
+  ) {
+    return runtime.systemValidatorState.cache[cacheKey]
+  }
+  const operationMeta = runtime.systemOperationIndex[operationId]
+  if (!operationMeta) {
+    return null
+  }
+  const schema = getResponseSchemaForStatus(
+    runtime.systemSpec,
+    operationMeta,
+    statusCode,
+  )
+  if (!schema) {
+    runtime.systemValidatorState.cache[cacheKey] = null
+    return null
+  }
+  const validator = runtime.systemValidatorState.ajv.compile(schema)
+  runtime.systemValidatorState.cache[cacheKey] = validator
+  return validator
+}
+
+function assertSystemSchemaConformance(
+  runtime,
+  operationId,
+  statusCode,
+  invocationResult,
+) {
+  const validator = getSystemResponseValidator(runtime, operationId, statusCode)
+  if (!validator) {
+    return
+  }
+  if (!invocationResult.bodyJson || typeof invocationResult.bodyJson !== 'object') {
+    return
+  }
+  const valid = validator(invocationResult.bodyJson)
+  if (valid) {
+    return
+  }
+  assert.fail(
+    `${operationId} response did not match system-spec schema:\n${JSON.stringify(validator.errors, null, 2)}\nResponse:\n${invocationResult.bodyText}`,
+  )
+}
+
+function buildSystemOperationUrl(runtime, operationMeta, pathParams, query) {
+  const renderedPath = String(operationMeta.path || '').replace(
+    /\{([A-Za-z0-9_]+)\}/g,
+    (fullMatch, token) => {
+      if (!Object.prototype.hasOwnProperty.call(pathParams, token)) {
+        throw new Error(
+          `${operationMeta.operationId} missing path parameter \"${token}\"`,
+        )
+      }
+      return encodeURIComponent(String(pathParams[token]))
+    },
+  )
+  const requestUrl = new URL(`${runtime.baseUrl}${renderedPath}`)
+  const queryKeys = Object.keys(query)
+  for (let i = 0; i < queryKeys.length; i++) {
+    const key = queryKeys[i]
+    const value = query[key]
+    if (typeof value === 'undefined' || value === null || value === '') {
+      continue
+    }
+    setQueryValue(requestUrl.searchParams, key, value)
+  }
+  return requestUrl
+}
+
+async function invokeSystemOperation(runtime, operationId, options = {}) {
+  const operationMeta = runtime.systemOperationIndex[operationId]
+  assert.ok(operationMeta, `Unknown system operationId: ${operationId}`)
+  const pathParams =
+    options.pathParams && typeof options.pathParams === 'object'
+      ? options.pathParams
+      : {}
+  const query =
+    options.query && typeof options.query === 'object' ? options.query : {}
+  assertRequiredParametersProvided(
+    operationMeta,
+    runtime.systemSpec,
+    pathParams,
+    query,
+    {
+      skipRequiredPath: options.skipRequiredPath === true,
+      skipRequiredQuery: options.skipRequiredQuery === true,
+    },
+  )
+  const requestUrl = buildSystemOperationUrl(
+    runtime,
+    operationMeta,
+    pathParams,
+    query,
+  )
+  const headers = {}
+  headers.accept =
+    typeof options.accept === 'string' && options.accept.trim() !== ''
+      ? options.accept
+      : 'application/json'
+  if (options.headers && typeof options.headers === 'object') {
+    const headerNames = Object.keys(options.headers)
+    for (let i = 0; i < headerNames.length; i++) {
+      const headerName = headerNames[i]
+      headers[headerName] = options.headers[headerName]
+    }
+  }
+  let requestBody = undefined
+  if (Object.prototype.hasOwnProperty.call(options, 'body')) {
+    const bodyValue = options.body
+    if (
+      bodyValue &&
+      typeof bodyValue === 'object' &&
+      !Array.isArray(bodyValue) &&
+      !Buffer.isBuffer(bodyValue)
+    ) {
+      if (!Object.prototype.hasOwnProperty.call(headers, 'content-type')) {
+        headers['content-type'] = 'application/json'
+      }
+      requestBody = JSON.stringify(bodyValue)
+    }
+    else {
+      requestBody = bodyValue
+    }
+  }
+  const response = await sendHttpRequest({
+    method: String(operationMeta.method).toUpperCase(),
+    url: String(requestUrl),
+    headers,
+    body: requestBody,
+  })
+  return {
+    operationMeta,
+    requestUrl: String(requestUrl),
+    status: response.status,
+    bodyText: response.bodyText,
+    bodyJson: parseJsonSafely(response.bodyText),
+    responseHeaders: response.headers,
+  }
+}
+
+async function assertSystemUserSecuredOperationAuthMatrix(
+  runtime,
+  operationId,
+  baseOptions = {},
+) {
+  const unauthorizedResult = await invokeSystemOperation(
+    runtime,
+    operationId,
+    mergeInvocationOptions(baseOptions, {
+      headers: {},
+    }),
+  )
+  assert.ok(
+    unauthorizedResult.status === 401 || unauthorizedResult.status === 403,
+    `${operationId} should return 401 or 403 without auth headers`,
+  )
+  assertSystemSchemaConformance(
+    runtime,
+    operationId,
+    unauthorizedResult.status,
+    unauthorizedResult,
+  )
+
+  const bearerOnlyResult = await invokeSystemOperation(
+    runtime,
+    operationId,
+    mergeInvocationOptions(baseOptions, {
+      headers: getBearerAuthHeaders(runtime),
+    }),
+  )
+  assert.ok(
+    bearerOnlyResult.status === 401 || bearerOnlyResult.status === 403,
+    `${operationId} should return 401 or 403 with bearer token only`,
+  )
+  assertSystemSchemaConformance(
+    runtime,
+    operationId,
+    bearerOnlyResult.status,
+    bearerOnlyResult,
+  )
+
+  const invalidUserTokenResult = await invokeSystemOperation(
+    runtime,
+    operationId,
+    mergeInvocationOptions(baseOptions, {
+      headers: getInvalidSystemUserAuthHeaders(runtime),
+    }),
+  )
+  assert.ok(
+    invalidUserTokenResult.status === 401 || invalidUserTokenResult.status === 403,
+    `${operationId} should return 401 or 403 with invalid user token`,
+  )
+  assertSystemSchemaConformance(
+    runtime,
+    operationId,
+    invalidUserTokenResult.status,
+    invalidUserTokenResult,
+  )
+}
+
 async function setupRuntime() {
   const runtime = {
     originalCwd: process.cwd(),
@@ -1037,6 +1300,9 @@ async function setupRuntime() {
   runtime.siteSpec = readSiteSpecDocument()
   runtime.operationIndex = buildOperationIndex(runtime.siteSpec)
   runtime.validatorState = createValidatorState()
+  runtime.systemSpec = readSystemSpecDocument()
+  runtime.systemOperationIndex = buildOperationIndex(runtime.systemSpec)
+  runtime.systemValidatorState = createValidatorState()
   runtime.dynamicContext = {}
 
   return runtime
@@ -2018,5 +2284,224 @@ test('site API conformance against site-spec', async (t) => {
     })
     assert.equal(deletedLookupResult.status, 404, deletedLookupResult.bodyText)
     assertSchemaConformance(runtime, 'getFileByUuid', 404, deletedLookupResult)
+  })
+})
+test('system API site lifecycle routes use siteName path templates', async () => {
+  const expectedOperationPaths = {
+    siteInfoGet: '/system/api/v1/sites/{siteName}',
+    siteInfoPost: '/system/api/v1/sites/{siteName}',
+    cloneSite: '/system/api/v1/sites/{siteName}/clone',
+    archiveSite: '/system/api/v1/sites/{siteName}/archive',
+    downloadSite: '/system/api/v1/sites/{siteName}/download',
+    downloadSiteSkeleton: '/system/api/v1/sites/{siteName}/download-skeleton',
+    saveSiteAsTemplate: '/system/api/v1/sites/{siteName}/save-as-template',
+  }
+  const operationIds = Object.keys(expectedOperationPaths)
+  for (let i = 0; i < operationIds.length; i++) {
+    const operationId = operationIds[i]
+    const operationMeta = runtime.systemOperationIndex[operationId]
+    assert.ok(
+      operationMeta,
+      `Missing required operationId "${operationId}" in system-spec`,
+    )
+    assert.equal(
+      operationMeta.path,
+      expectedOperationPaths[operationId],
+      `${operationId} must use ${expectedOperationPaths[operationId]}`,
+    )
+  }
+  const legacyPaths = [
+    '/system/api/v1/sites/clone',
+    '/system/api/v1/sites/archive',
+    '/system/api/v1/sites/download',
+    '/system/api/v1/sites/download-skeleton',
+    '/system/api/v1/sites/save-as-template',
+  ]
+  for (let i = 0; i < legacyPaths.length; i++) {
+    const legacyPath = legacyPaths[i]
+    assert.ok(
+      !Object.prototype.hasOwnProperty.call(runtime.systemSpec.paths, legacyPath),
+      `Legacy system-spec path should be removed: ${legacyPath}`,
+    )
+  }
+})
+test('system API conformance for skeleton resource semantics', async (t) => {
+  const requiredOperationIds = [
+    'systemSkeletonsGet',
+    'systemSkeletonsPost',
+    'systemSkeletonDetailGet',
+    'systemSkeletonDetailPatch',
+    'systemSkeletonDetailPut',
+    'systemSkeletonDetailDelete',
+  ]
+  for (let i = 0; i < requiredOperationIds.length; i++) {
+    const operationId = requiredOperationIds[i]
+    assert.ok(
+      runtime.systemOperationIndex[operationId],
+      `Missing required operationId "${operationId}" in system-spec`,
+    )
+  }
+
+  await t.test(
+    'skeleton operations declare bearer plus user token header security in system-spec',
+    async () => {
+      for (let i = 0; i < requiredOperationIds.length; i++) {
+        const operationId = requiredOperationIds[i]
+        const operationMeta = runtime.systemOperationIndex[operationId]
+        const security = Array.isArray(operationMeta.operation.security)
+          ? operationMeta.operation.security
+          : []
+        assert.ok(
+          security.some(
+            (entry) =>
+              entry &&
+              typeof entry === 'object' &&
+              Object.prototype.hasOwnProperty.call(entry, 'bearerAuth') &&
+              Object.prototype.hasOwnProperty.call(entry, 'userTokenHeader'),
+          ),
+          `${operationId} must declare bearerAuth + userTokenHeader security`,
+        )
+      }
+    },
+  )
+
+  await t.test('systemSkeletonsGet enforces auth matrix and returns data', async () => {
+    await assertSystemUserSecuredOperationAuthMatrix(runtime, 'systemSkeletonsGet')
+    const listResult = await invokeSystemOperation(runtime, 'systemSkeletonsGet', {
+      headers: getSystemUserAuthHeaders(runtime),
+    })
+    assert.equal(listResult.status, 200, listResult.bodyText)
+    assertSystemSchemaConformance(runtime, 'systemSkeletonsGet', 200, listResult)
+  })
+
+  await t.test('systemSkeletonsPost uploads a skeleton resource', async () => {
+    const upload = buildMultipartBody({
+      fieldName: 'file',
+      fileName: `api-conformance-skeleton-${runtime.testStartTimestamp}.json`,
+      mimeType: 'application/json',
+      fileContents: JSON.stringify({
+        title: 'Conformance Skeleton',
+        metadata: {
+          generatedBy: 'api-conformance',
+        },
+      }),
+      extraFields: {
+        action: 'upload',
+        schema: 'skeleton',
+      },
+    })
+    const uploadBaseOptions = {
+      headers: {
+        'content-type': `multipart/form-data; boundary=${upload.boundary}`,
+      },
+      body: upload.body,
+    }
+
+    await assertSystemUserSecuredOperationAuthMatrix(
+      runtime,
+      'systemSkeletonsPost',
+      uploadBaseOptions,
+    )
+
+    const uploadResult = await invokeSystemOperation(
+      runtime,
+      'systemSkeletonsPost',
+      mergeInvocationOptions(uploadBaseOptions, {
+        headers: getSystemUserAuthHeaders(runtime),
+      }),
+    )
+    assert.equal(uploadResult.status, 200, uploadResult.bodyText)
+    assertSystemSchemaConformance(runtime, 'systemSkeletonsPost', 200, uploadResult)
+    const uploadedMachineName =
+      uploadResult &&
+      uploadResult.bodyJson &&
+      uploadResult.bodyJson.data &&
+      typeof uploadResult.bodyJson.data.machineName === 'string' &&
+      uploadResult.bodyJson.data.machineName.trim() !== ''
+        ? uploadResult.bodyJson.data.machineName.trim()
+        : ''
+    assert.ok(uploadedMachineName !== '', 'Expected uploaded skeleton machineName')
+    runtime.dynamicContext.systemSkeletonName = uploadedMachineName
+  })
+
+  await t.test('systemSkeletonDetailGet returns uploaded skeleton detail', async () => {
+    const detailBaseOptions = {
+      pathParams: {
+        skeletonName: runtime.dynamicContext.systemSkeletonName,
+      },
+    }
+    await assertSystemUserSecuredOperationAuthMatrix(
+      runtime,
+      'systemSkeletonDetailGet',
+      detailBaseOptions,
+    )
+
+    const detailResult = await invokeSystemOperation(
+      runtime,
+      'systemSkeletonDetailGet',
+      mergeInvocationOptions(detailBaseOptions, {
+        headers: getSystemUserAuthHeaders(runtime),
+      }),
+    )
+    assert.equal(detailResult.status, 200, detailResult.bodyText)
+    assertSystemSchemaConformance(runtime, 'systemSkeletonDetailGet', 200, detailResult)
+  })
+
+  await t.test('systemSkeletonDetailPatch renames uploaded skeleton', async () => {
+    const renamedMachineName = `api-conformance-skeleton-renamed-${runtime.testStartTimestamp}`
+    const renameBaseOptions = {
+      pathParams: {
+        skeletonName: runtime.dynamicContext.systemSkeletonName,
+      },
+      body: {
+        newName: renamedMachineName,
+      },
+    }
+    await assertSystemUserSecuredOperationAuthMatrix(
+      runtime,
+      'systemSkeletonDetailPatch',
+      renameBaseOptions,
+    )
+    const renameResult = await invokeSystemOperation(
+      runtime,
+      'systemSkeletonDetailPatch',
+      mergeInvocationOptions(renameBaseOptions, {
+        headers: getSystemUserAuthHeaders(runtime),
+      }),
+    )
+    assert.equal(renameResult.status, 200, renameResult.bodyText)
+    assertSystemSchemaConformance(runtime, 'systemSkeletonDetailPatch', 200, renameResult)
+    runtime.dynamicContext.systemSkeletonRenamed = renamedMachineName
+  })
+
+  await t.test('systemSkeletonDetailDelete removes renamed skeleton', async () => {
+    const deleteBaseOptions = {
+      pathParams: {
+        skeletonName: runtime.dynamicContext.systemSkeletonRenamed,
+      },
+    }
+    await assertSystemUserSecuredOperationAuthMatrix(
+      runtime,
+      'systemSkeletonDetailDelete',
+      deleteBaseOptions,
+    )
+    const deleteResult = await invokeSystemOperation(
+      runtime,
+      'systemSkeletonDetailDelete',
+      mergeInvocationOptions(deleteBaseOptions, {
+        headers: getSystemUserAuthHeaders(runtime),
+      }),
+    )
+    assert.equal(deleteResult.status, 200, deleteResult.bodyText)
+    assertSystemSchemaConformance(runtime, 'systemSkeletonDetailDelete', 200, deleteResult)
+
+    const deletedLookup = await invokeSystemOperation(runtime, 'systemSkeletonDetailGet', {
+      pathParams: {
+        skeletonName: runtime.dynamicContext.systemSkeletonRenamed,
+      },
+      headers: getSystemUserAuthHeaders(runtime),
+    })
+    assert.equal(deletedLookup.status, 404, deletedLookup.bodyText)
+    assertSystemSchemaConformance(runtime, 'systemSkeletonDetailGet', 404, deletedLookup)
   })
 })

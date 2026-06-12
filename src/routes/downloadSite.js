@@ -1,6 +1,49 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
 const fs = require('fs-extra');
-const archiver = require('archiver');
+const archiverModule = require('archiver');
+function createArchiver(format, options = {}) {
+  const normalizedFormat = String(format || '').trim().toLowerCase();
+  if (typeof archiverModule === 'function') {
+    return archiverModule(format, options);
+  }
+  if (
+    archiverModule &&
+    typeof archiverModule.default === 'function'
+  ) {
+    return archiverModule.default(format, options);
+  }
+  if (
+    archiverModule &&
+    typeof archiverModule.create === 'function'
+  ) {
+    return archiverModule.create(format, options);
+  }
+  if (
+    archiverModule &&
+    typeof archiverModule === 'object' &&
+    normalizedFormat === 'zip' &&
+    typeof archiverModule.ZipArchive === 'function'
+  ) {
+    return new archiverModule.ZipArchive(options);
+  }
+  if (
+    archiverModule &&
+    typeof archiverModule === 'object' &&
+    normalizedFormat === 'tar' &&
+    typeof archiverModule.TarArchive === 'function'
+  ) {
+    return new archiverModule.TarArchive(options);
+  }
+  if (
+    archiverModule &&
+    typeof archiverModule === 'object' &&
+    normalizedFormat === 'json' &&
+    typeof archiverModule.JsonArchive === 'function'
+  ) {
+    return new archiverModule.JsonArchive(options);
+  }
+  throw new Error('archiver module does not expose a compatible factory');
+}
 /**
    * @OA\Post(
    *    path="/downloadSite",
@@ -79,7 +122,7 @@ const archiver = require('archiver');
  * @returns {Promise}
  */
 function zipDirectory(sourceDir, outPath) {
-  const archive = archiver('zip', { zlib: { level: 9 }});
+  const archive = createArchiver('zip', { zlib: { level: 9 }});
   const stream = fs.createWriteStream(outPath);
 
   return new Promise((resolve, reject) => {

@@ -23,6 +23,35 @@ function normalizeEnabledBlocks(input = []) {
   return [...new Set(output)].sort();
 }
 
+function normalizeBoolean(value, defaultValue = false) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (
+      normalized === 'true' ||
+      normalized === '1' ||
+      normalized === 'yes' ||
+      normalized === 'on'
+    ) {
+      return true;
+    }
+    if (
+      normalized === 'false' ||
+      normalized === '0' ||
+      normalized === 'no' ||
+      normalized === 'off'
+    ) {
+      return false;
+    }
+  }
+  return defaultValue;
+}
+
 async function readEnabledBlocksSetting() {
   const filePath = path.join(
     HAXCMS.configDirectory,
@@ -41,6 +70,59 @@ function defaultAutoloaderList() {
   return [
     'grid-plate',
   ];
+}
+
+function resolveEnabledFilter(req) {
+  const hasEnabledQuery = (
+    req &&
+    req.query &&
+    Object.prototype.hasOwnProperty.call(req.query, 'enabled')
+  );
+  const hasEnabledBody = (
+    req &&
+    req.body &&
+    Object.prototype.hasOwnProperty.call(req.body, 'enabled')
+  );
+  if (hasEnabledQuery || hasEnabledBody) {
+    const rawEnabled = hasEnabledQuery ? req.query.enabled : req.body.enabled;
+    return normalizeBoolean(rawEnabled, true) ? 'enabled' : 'disabled';
+  }
+  return 'all';
+}
+
+function filterAutoloaderByEnabledState(autoloader, enabledFilter, enabledSet) {
+  if (enabledFilter === 'all') {
+    return autoloader;
+  }
+  const hasEnabledSet = enabledSet && enabledSet.size > 0;
+  if (Array.isArray(autoloader)) {
+    if (!hasEnabledSet) {
+      return enabledFilter === 'enabled' ? [] : autoloader;
+    }
+    return autoloader.filter((item) => {
+      if (typeof item !== 'string') {
+        return false;
+      }
+      const isEnabled = enabledSet.has(item.toLowerCase());
+      return enabledFilter === 'enabled' ? isEnabled : !isEnabled;
+    });
+  }
+  if (autoloader && typeof autoloader === 'object') {
+    const filtered = {};
+    const keys = Object.keys(autoloader);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const isEnabled = hasEnabledSet && enabledSet.has(String(key).toLowerCase());
+      if (
+        (enabledFilter === 'enabled' && isEnabled) ||
+        (enabledFilter === 'disabled' && !isEnabled)
+      ) {
+        filtered[key] = autoloader[key];
+      }
+    }
+    return filtered;
+  }
+  return autoloader;
 }
 
 /**
@@ -73,11 +155,18 @@ async function systemBlocksList(req, res) {
     autoloader = HAXCMS.config.appStore.autoloader;
   }
   const enabledBlocks = await readEnabledBlocksSetting();
+  const enabledFilter = resolveEnabledFilter(req);
+  const enabledSet = new Set(Array.isArray(enabledBlocks) ? enabledBlocks : []);
+  const filteredAutoloader = filterAutoloaderByEnabledState(
+    autoloader,
+    enabledFilter,
+    enabledSet,
+  );
   return res.json({
     status: 200,
     apps: [],
     stax: [],
-    autoloader,
+    autoloader: filteredAutoloader,
     enabledBlocks: Array.isArray(enabledBlocks) ? enabledBlocks : [],
   });
 }

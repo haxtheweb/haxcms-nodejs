@@ -64,6 +64,15 @@ function normalizeMachineName(value = '') {
 function getRequestValue(req, key) {
   if (
     req &&
+    req.params &&
+    Object.prototype.hasOwnProperty.call(req.params, key) &&
+    typeof req.params[key] !== 'undefined' &&
+    req.params[key] !== null
+  ) {
+    return req.params[key];
+  }
+  if (
+    req &&
     req.body &&
     Object.prototype.hasOwnProperty.call(req.body, key) &&
     typeof req.body[key] !== 'undefined' &&
@@ -79,6 +88,34 @@ function getRequestValue(req, key) {
     req.query[key] !== null
   ) {
     return req.query[key];
+  }
+  return '';
+}
+function hasUploadFile(req) {
+  return getUploadFile(req) !== null;
+}
+function inferSchemaValue(req, value) {
+  const requested = normalizeText(value);
+  if (requested !== '') {
+    return normalizeSchema(requested);
+  }
+  // skeleton operations are the only supported schema in this route family
+  return 'skeleton';
+}
+function inferActionValue(req, value) {
+  const requested = normalizeText(value);
+  if (requested !== '') {
+    return normalizeAction(requested);
+  }
+  const method = String(req && req.method ? req.method : '').toUpperCase();
+  if (method === 'DELETE') {
+    return 'delete';
+  }
+  if (method === 'PATCH' || method === 'PUT') {
+    return 'rename';
+  }
+  if (method === 'POST' && hasUploadFile(req)) {
+    return 'upload';
   }
   return '';
 }
@@ -237,11 +274,11 @@ async function schemaFileOperation(req, res) {
   ) {
     return fail(res, 403, 'invalid request token');
   }
-  const schema = normalizeSchema(getRequestValue(req, 'schema'));
+  const schema = inferSchemaValue(req, getRequestValue(req, 'schema'));
   if (!schema) {
     return fail(res, 400, 'invalid schema');
   }
-  const action = normalizeAction(getRequestValue(req, 'action'));
+  const action = inferActionValue(req, getRequestValue(req, 'action'));
   if (!action) {
     return fail(res, 400, 'invalid action');
   }
@@ -312,7 +349,9 @@ async function schemaFileOperation(req, res) {
   if (action === 'rename') {
     const existing = await resolveExistingSchemaFile(
       schema,
-      getRequestValue(req, 'name') || getRequestValue(req, 'oldName'),
+      getRequestValue(req, 'name') ||
+        getRequestValue(req, 'oldName') ||
+        getRequestValue(req, 'skeletonName'),
     );
     if (!existing) {
       return fail(res, 404, 'file not found');
@@ -345,7 +384,9 @@ async function schemaFileOperation(req, res) {
   }
   const existing = await resolveExistingSchemaFile(
     schema,
-    getRequestValue(req, 'name') || getRequestValue(req, 'oldName'),
+    getRequestValue(req, 'name') ||
+      getRequestValue(req, 'oldName') ||
+      getRequestValue(req, 'skeletonName'),
   );
   if (!existing) {
     return fail(res, 404, 'file not found');
