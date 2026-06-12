@@ -50,7 +50,6 @@ const RoutesMap = {
   get: {
     logout: require('../routes/logout.js'),
     openapi: require('../routes/openapi.js'),
-    "openapi/json": require('../routes/openapi.js'),
     connectionSettings: require('../routes/connectionSettings.js'),
     connectionTest: require('../routes/connectionTest.js'),
     generateAppStore: require('../routes/generateAppStore.js'),
@@ -74,7 +73,6 @@ const OpenRoutes = [
   'api',
   'options',
   'openapi',
-  'openapi/json',
   'refreshAccessToken'
 ];
 // haxcms system-admin routes should only be available from system dashboard context

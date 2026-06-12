@@ -38,23 +38,6 @@ paths:
       responses:
         '200':
           description: 'API documentation in YAML'
-  /openapi/json:
-    get:
-      tags:
-        - api
-      summary: 'Generate the swagger API documentation for this site'
-      operationId: 'Operations::openapi'
-      responses:
-        '200':
-          description: 'API documentation in JSON'
-    post:
-      tags:
-        - api
-      summary: 'Generate the swagger API documentation for this site'
-      operationId: 'Operations::openapi'
-      responses:
-        '200':
-          description: 'API documentation in JSON'
   /getNodeRevisions:
     post:
       tags:

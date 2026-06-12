@@ -58,6 +58,11 @@ if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT
 // routes with all requires
 const { RoutesMap, OpenRoutes, SystemAdminRoutes } = require('./lib/RoutesMap.js');
 const { SiteRoutesMap } = require('./lib/SiteRoutesMap.js');
+const {
+  SystemRoutesMap,
+  SystemV1OpenRoutes,
+  SystemV1AdminRoutes,
+} = require('./lib/SystemRoutesMap.js');
 // app settings
 const multer = require('multer');
 const { crossOriginOpenerPolicy } = require('helmet');
@@ -81,6 +86,25 @@ function getSiteApiRouteParser(method = 'get', route = '') {
   const normalizedRoute = String(route || '');
   if (normalizedMethod === 'post' && normalizedRoute === 'v1/files') {
     return uploadAnyParser;
+  }
+  if (
+    normalizedMethod === 'post' ||
+    normalizedMethod === 'put' ||
+    normalizedMethod === 'patch' ||
+    normalizedMethod === 'delete'
+  ) {
+    return jsonRequestParser;
+  }
+  return null;
+}
+function getSystemV1RouteParser(method = 'get', route = '') {
+  const normalizedMethod = String(method || 'get').toLowerCase();
+  const normalizedRoute = String(route || '');
+  if (
+    normalizedMethod === 'post' &&
+    normalizedRoute === 'settings/schema-files/operations'
+  ) {
+    return parseSchemaFileOperationBody;
   }
   if (
     normalizedMethod === 'post' ||
@@ -1019,6 +1043,68 @@ systemStructureContext().then((site) => {
       });
     }
   }
+  // loop through scoped system API routes and register under /system/api/v1
+  const systemApiV1BasePath = `${HAXCMS.basePath}${HAXCMS.systemRequestBase}v1/`;
+  for (let systemMethod in SystemRoutesMap) {
+    for (let systemRoute in SystemRoutesMap[systemMethod]) {
+      const systemRoutePath = `${systemApiV1BasePath}${systemRoute}`;
+      const systemRouteParser = getSystemV1RouteParser(systemMethod, systemRoute);
+      const systemRouteHandler = (req, res, next) => {
+        const op = req.route.path.replace(systemApiV1BasePath, '');
+        const rMethod = req.method.toLowerCase();
+        if (!validateSystemV1RouteAccess(req, op)) {
+          return res.status(403).json({
+            status: 403,
+            message: 'system admin route requires system dashboard access',
+          });
+        }
+        applyBearerJwtSystemApiShim(req);
+        applySystemV1TokenShims(req);
+        if (SystemV1OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
+          return SystemRoutesMap[rMethod][op](req, res, next);
+        }
+        return res.sendStatus(403);
+      };
+      const siteScopedSystemRouteHandler = (req, res, next) => {
+        const op = req.route.path.replace(
+          `/${HAXCMS.sitesDirectory}/*${systemApiV1BasePath}`,
+          '',
+        );
+        const rMethod = req.method.toLowerCase();
+        if (!validateSystemV1RouteAccess(req, op)) {
+          return res.status(403).json({
+            status: 403,
+            message: 'system admin route requires system dashboard access',
+          });
+        }
+        applyBearerJwtSystemApiShim(req);
+        applySystemV1TokenShims(req);
+        if (SystemV1OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
+          return SystemRoutesMap[rMethod][op](req, res, next);
+        }
+        return res.sendStatus(403);
+      };
+      if (systemRouteParser) {
+        app[systemMethod](
+          systemRoutePath,
+          systemRouteParser,
+          systemRouteHandler,
+        );
+        app[systemMethod](
+          `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
+          systemRouteParser,
+          siteScopedSystemRouteHandler,
+        );
+      }
+      else {
+        app[systemMethod](systemRoutePath, systemRouteHandler);
+        app[systemMethod](
+          `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
+          siteScopedSystemRouteHandler,
+        );
+      }
+    }
+  }
   // loop through site API routes and register discovery/read paths under x/api
   const siteApiBasePath = getSiteApiBasePath();
   for (let siteMethod in SiteRoutesMap) {
@@ -1220,6 +1306,18 @@ function shouldDisableResponseCache(req) {
 
 function validateSystemAdminRouteAccess(req, op = '') {
   if (SystemAdminRoutes.indexOf(op) === -1) {
+    return true;
+  }
+  if (
+    isSiteScopedSystemApiRoutePattern(req) &&
+    !isDashboardRefererRequest(req)
+  ) {
+    return false;
+  }
+  return true;
+}
+function validateSystemV1RouteAccess(req, op = '') {
+  if (SystemV1AdminRoutes.indexOf(op) === -1) {
     return true;
   }
   if (
@@ -1470,6 +1568,41 @@ function applyBearerJwtSystemApiShim(req) {
     return;
   }
   applyBearerJwtToRequest(req, bearerJwt, true);
+}
+function applySystemV1TokenShims(req) {
+  const userToken = getRequestHeaderValue(req, 'x-haxcms-user-token');
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  const appStoreToken = getRequestHeaderValue(req, 'x-haxcms-appstore-token');
+  if (!req.query || typeof req.query !== 'object') {
+    req.query = {};
+  }
+  if (!req.body || typeof req.body !== 'object') {
+    req.body = {};
+  }
+  if (userToken !== '') {
+    if (!req.query.user_token) {
+      req.query.user_token = userToken;
+    }
+    if (!req.body.user_token) {
+      req.body.user_token = userToken;
+    }
+  }
+  if (siteToken !== '') {
+    if (!req.query.site_token) {
+      req.query.site_token = siteToken;
+    }
+    if (!req.body.site_token) {
+      req.body.site_token = siteToken;
+    }
+  }
+  if (appStoreToken !== '') {
+    if (!req.query.appstore_token) {
+      req.query.appstore_token = appStoreToken;
+    }
+    if (!req.body.appstore_token) {
+      req.body.appstore_token = appStoreToken;
+    }
+  }
 }
 function setSiteApiAuthContext(req, authContext = {}) {
   if (!req || typeof req !== 'object') {

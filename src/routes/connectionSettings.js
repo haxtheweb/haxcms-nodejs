@@ -115,17 +115,19 @@ async function connectionSettings(req, res) {
   if (sitename) {
     siteApiBasePath = `${normalizedBasePath}${HAXCMS.sitesDirectory}/${sitename}/x/api`;
   }
+  const systemApiV1BasePath = `${baseAPIPath}v1/`;
   const returnDataObj = {
     token: HAXCMS.getRequestToken(),
     siteToken: siteToken,
     userToken: userToken,
     siteApiBasePath: siteApiBasePath,
     siteOpenApiPath: `${siteApiBasePath}/openapi.json`,
-    login: `${baseAPIPath}login`,
-    refreshUrl: `${baseAPIPath}refreshAccessToken`,
-    logout: `${baseAPIPath}logout`,
-    connectionSettings: `${baseAPIPath}connectionSettings`,
-    connectionTest: `${baseAPIPath}connectionTest`,
+    login: `${systemApiV1BasePath}session/login`,
+    refreshUrl: `${systemApiV1BasePath}session/refresh`,
+    logout: `${systemApiV1BasePath}session/logout`,
+    sessionPath: `${systemApiV1BasePath}session`,
+    connectionSettings: `${systemApiV1BasePath}session/connection-settings`,
+    connectionTest: `${systemApiV1BasePath}session/connection-test`,
     // enables redirecting back to site root if JWT really is dead
     redirectUrl: HAXCMS.basePath,
     getSiteFieldsPath: `${baseAPIPath}formLoad?haxcms_form_id=siteSettings`,
@@ -150,7 +152,7 @@ async function connectionSettings(req, res) {
     },
     themes: themes,
   };
-  returnDataObj.getUserDataPath = `${baseAPIPath}getUserData?user_token=${userToken}`;
+  returnDataObj.getUserDataPath = `${systemApiV1BasePath}session/user?user_token=${userToken}`;
   returnDataObj.createSite = `${baseAPIPath}createSite?user_token=${userToken}`;
   returnDataObj.downloadSite = `${baseAPIPath}downloadSite?user_token=${userToken}`;
   returnDataObj.downloadSiteSkeleton = `${baseAPIPath}downloadSiteSkeleton?user_token=${userToken}`;

@@ -1,6 +1,7 @@
 const loginRoute = require('../../routes/login.js');
 const logoutRoute = require('../../routes/logout.js');
 const refreshAccessTokenRoute = require('../../routes/refreshAccessToken.js');
+const sessionRoute = require('../../routes/session.js');
 const connectionSettingsRoute = require('../../routes/connectionSettings.js');
 const connectionTestRoute = require('../../routes/connectionTest.js');
 const getUserDataRoute = require('../../routes/getUserData.js');
@@ -15,6 +16,9 @@ async function logout(req, res, next) {
 
 async function refreshAccessToken(req, res, next) {
   return refreshAccessTokenRoute(req, res, next);
+}
+async function session(req, res, next) {
+  return sessionRoute(req, res, next);
 }
 
 async function connectionSettings(req, res, next) {
@@ -33,6 +37,7 @@ module.exports = {
   login,
   logout,
   refreshAccessToken,
+  session,
   connectionSettings,
   connectionTest,
   getUserData,
