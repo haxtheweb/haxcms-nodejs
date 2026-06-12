@@ -6,7 +6,6 @@ const RoutesMap = {
     logout: require('../routes/logout.js'),
     formLoad: require('../routes/formLoad.js'),
     formProcess: require('../routes/formProcess.js'),
-    getUserData: require('../routes/getUserData.js'),
     listSites: require('../routes/listSites.js'),
 
     siteUpdateAlternateFormats: require('../routes/siteUpdateAlternateFormats.js'),
@@ -52,7 +51,6 @@ const RoutesMap = {
     openapi: require('../routes/openapi.js'),
     connectionSettings: require('../routes/connectionSettings.js'),
     connectionTest: require('../routes/connectionTest.js'),
-    generateAppStore: require('../routes/generateAppStore.js'),
     systemBlocksList: require('../routes/systemBlocksList.js'),
     refreshAccessToken: require('../routes/refreshAccessToken.js'),
     skeletonsList: require('../routes/skeletonsList.js'),
@@ -63,7 +61,6 @@ const RoutesMap = {
 
 // these routes need to return a response without a JWT validation
 const OpenRoutes = [
-  'generateAppStore',
   'connectionSettings',
   'connectionTest',
   'getSitesList',

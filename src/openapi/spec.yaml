@@ -203,42 +203,6 @@ paths:
       responses:
         '200':
           description: 'Generate the connection settings dynamically for implying we have a PHP backend'
-  /generateAppStore:
-    get:
-      tags:
-        - hax
-        - api
-      operationId: 'Operations::generateAppStore'
-      parameters:
-        -
-          name: appstore_token
-          in: query
-          description: 'security token for appstore'
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 'Generate the AppStore spec for HAX editor directions'
-  /getUserData:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - user
-        - settings
-      operationId: 'Operations::getUserData'
-      parameters:
-        -
-          name: user_token
-          in: query
-          description: 'User validation token'
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 'Load data about the logged in user'
   /formLoad:
     post:
       tags:

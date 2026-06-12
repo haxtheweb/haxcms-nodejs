@@ -7,7 +7,156 @@ const {
   isThemeEnabled,
   themesToMap,
 } = require('../lib/themeSettings.js');
+const fs = require('fs');
+const path = require('path');
 const url = require('url');
+const YAML = require('yaml');
+
+let cachedSystemOpenApiOperationPaths = null;
+
+function stripLeadingSlash(pathValue = '') {
+  return String(pathValue || '').replace(/^\/+/, '');
+}
+
+function normalizePath(pathValue = '') {
+  let normalized = String(pathValue || '');
+  if (normalized === '') {
+    return '/';
+  }
+  normalized = normalized.replace(/\/+/g, '/');
+  if (normalized.charAt(0) !== '/') {
+    normalized = '/' + normalized;
+  }
+  if (
+    normalized.length > 1 &&
+    normalized.charAt(normalized.length - 1) === '/'
+  ) {
+    normalized = normalized.substring(0, normalized.length - 1);
+  }
+  return normalized;
+}
+
+function appendQueryParams(pathValue = '', params = {}) {
+  const target = typeof pathValue === 'string' ? pathValue.trim() : '';
+  if (!target) {
+    return '';
+  }
+  const hashIndex = target.indexOf('#');
+  const baseWithQuery = hashIndex === -1 ? target : target.substring(0, hashIndex);
+  const hash = hashIndex === -1 ? '' : target.substring(hashIndex);
+  const queryIndex = baseWithQuery.indexOf('?');
+  const basePath =
+    queryIndex === -1
+      ? baseWithQuery
+      : baseWithQuery.substring(0, queryIndex);
+  const existingQuery =
+    queryIndex === -1 ? '' : baseWithQuery.substring(queryIndex + 1);
+  const searchParams = new URLSearchParams(existingQuery);
+  const payload =
+    params && typeof params === 'object' && !Array.isArray(params)
+      ? params
+      : {};
+  const keys = Object.keys(payload);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const value = payload[key];
+    if (typeof value === 'undefined' || value === null) {
+      continue;
+    }
+    const normalizedValue = `${value}`.trim();
+    if (!normalizedValue) {
+      continue;
+    }
+    searchParams.set(key, normalizedValue);
+  }
+  const query = searchParams.toString();
+  return `${basePath}${query ? `?${query}` : ''}${hash}`;
+}
+
+function getSystemOpenApiOperationPaths() {
+  if (cachedSystemOpenApiOperationPaths) {
+    return cachedSystemOpenApiOperationPaths;
+  }
+  const operationPaths = {};
+  try {
+    const systemSpecPath = path.join(
+      __dirname,
+      '..',
+      'openapi',
+      'system-spec.yaml',
+    );
+    const systemSpecFile = fs.readFileSync(systemSpecPath, 'utf8');
+    const parsedSpec = YAML.parse(systemSpecFile);
+    const specPaths =
+      parsedSpec &&
+      parsedSpec.paths &&
+      typeof parsedSpec.paths === 'object'
+        ? parsedSpec.paths
+        : {};
+    const httpMethods = ['get', 'post', 'put', 'patch', 'delete'];
+    const specPathKeys = Object.keys(specPaths);
+    for (let i = 0; i < specPathKeys.length; i++) {
+      const specPathKey = specPathKeys[i];
+      const pathConfig = specPaths[specPathKey];
+      if (!pathConfig || typeof pathConfig !== 'object') {
+        continue;
+      }
+      for (let methodIndex = 0; methodIndex < httpMethods.length; methodIndex++) {
+        const httpMethod = httpMethods[methodIndex];
+        const operationConfig = pathConfig[httpMethod];
+        if (!operationConfig || typeof operationConfig !== 'object') {
+          continue;
+        }
+        const operationId =
+          typeof operationConfig.operationId === 'string'
+            ? operationConfig.operationId.trim()
+            : '';
+        if (operationId === '') {
+          continue;
+        }
+        if (!operationPaths[operationId]) {
+          operationPaths[operationId] = specPathKey;
+        }
+      }
+    }
+  }
+  catch (e) {}
+  cachedSystemOpenApiOperationPaths = operationPaths;
+  return cachedSystemOpenApiOperationPaths;
+}
+
+function resolveSystemOperationPath(
+  operationId = '',
+  systemApiV1BasePath = '',
+  fallbackRelativePath = '',
+) {
+  const normalizedSystemBasePath =
+    String(systemApiV1BasePath || '').replace(/\/+$/, '') + '/';
+  const fallbackPath = stripLeadingSlash(fallbackRelativePath);
+  const fallbackRoute = `${normalizedSystemBasePath}${fallbackPath}`;
+  const operationPaths = getSystemOpenApiOperationPaths();
+  const configuredPath =
+    operationPaths && operationPaths[operationId]
+      ? String(operationPaths[operationId]).trim()
+      : '';
+  if (configuredPath === '') {
+    return fallbackRoute;
+  }
+  const normalizedConfiguredPath = normalizePath(configuredPath);
+  const normalizedSpecBasePath = '/system/api/v1';
+  if (normalizedConfiguredPath === normalizedSpecBasePath) {
+    return normalizedSystemBasePath.replace(/\/$/, '');
+  }
+  if (
+    normalizedConfiguredPath.indexOf(`${normalizedSpecBasePath}/`) === 0
+  ) {
+    const routeSuffix = stripLeadingSlash(
+      normalizedConfiguredPath.substring(normalizedSpecBasePath.length),
+    );
+    return `${normalizedSystemBasePath}${routeSuffix}`;
+  }
+  return fallbackRoute;
+}
 
 async function loadThemeMapFromSettings() {
   const discovered = await discoverThemes(HAXCMS);
@@ -116,6 +265,16 @@ async function connectionSettings(req, res) {
     siteApiBasePath = `${normalizedBasePath}${HAXCMS.sitesDirectory}/${sitename}/x/api`;
   }
   const systemApiV1BasePath = `${baseAPIPath}v1/`;
+  const getUserDataPath = resolveSystemOperationPath(
+    'sessionUserGet',
+    systemApiV1BasePath,
+    'session/user',
+  );
+  const appStorePath = resolveSystemOperationPath(
+    'generateAppStore',
+    systemApiV1BasePath,
+    'system/app-store',
+  );
   const returnDataObj = {
     token: HAXCMS.getRequestToken(),
     siteToken: siteToken,
@@ -132,26 +291,23 @@ async function connectionSettings(req, res) {
     // enables redirecting back to site root if JWT really is dead
     redirectUrl: HAXCMS.basePath,
     getSiteFieldsPath: `${baseAPIPath}formLoad?haxcms_form_id=siteSettings`,
-    contentBrowserPath: `${baseAPIPath}contentBrowser?site_token=${siteToken}`,
-    mediaBrowserPath: `${baseAPIPath}mediaBrowser?site_token=${siteToken}`,
     // form token to validate form submissions as unique to the session
     getFormToken: HAXCMS.getRequestToken('form'),
-    getNodeRevisionsPath: `${baseAPIPath}getNodeRevisions?site_token=${siteToken}`,
-    getNodeRevisionPath: `${baseAPIPath}getNodeRevision?site_token=${siteToken}`,
-    restoreNodeRevisionPath: `${baseAPIPath}restoreNodeRevision?site_token=${siteToken}`,
     listFilesPath: `${siteApiBasePath}/v1/files`,
     saveFilePath: `${siteApiBasePath}/v1/files`,
     appStore: {
-      url: `${baseAPIPath}generateAppStore`,
+      url: appStorePath,
       params: {
         'appstore_token': HAXCMS.getRequestToken('appstore'),
-        'site_token': siteToken,
         'siteName': sitename,
+      },
+      headers: {
+        'X-HAXCMS-Site-Token': siteToken,
       }
     },
     themes: themes,
   };
-  returnDataObj.getUserDataPath = `${systemApiV1BasePath}session/user`;
+  returnDataObj.getUserDataPath = getUserDataPath;
   returnDataObj.getUserDataHeaders = {
     'X-HAXCMS-User-Token': userToken,
   };
