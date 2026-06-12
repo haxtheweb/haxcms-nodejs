@@ -153,6 +153,57 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /x/api/v1/site/updateAlternativeFormats:
+    post:
+      tags:
+        - site
+      operationId: updateSiteAlternativeFormats
+      summary: Regenerate alternative output formats for the current site
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                format:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Alternative format generation result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          updated:
+                            type: boolean
+                          site:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                          format:
+                            type: string
+                            nullable: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /x/api/v1/site/appearance:
     patch:
       tags:

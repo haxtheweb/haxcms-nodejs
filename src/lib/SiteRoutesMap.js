@@ -211,6 +211,12 @@ addRouteHandler(
 );
 addRouteHandler(
   SiteRoutesMap,
+  'post',
+  'v1/site/updateAlternativeFormats',
+  v1SiteRoutes.updateSiteAlternativeFormats,
+);
+addRouteHandler(
+  SiteRoutesMap,
   'patch',
   'v1/content',
   v1ContentRoutes.replaceContent,

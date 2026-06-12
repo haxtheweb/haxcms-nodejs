@@ -11,28 +11,6 @@ info:
   version: null
 servers: null
 paths:
-  /siteUpdateAlternateFormats:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - meta
-      operationId: Operations::siteUpdateAlternateFormats
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - site
-              properties:
-                site:
-                  type: object
-                format:
-                  type: string
-              type: object
-      responses:
-        "200":
-          description: Update the alternative formats surrounding a site
   /formLoad:
     post:
       tags:

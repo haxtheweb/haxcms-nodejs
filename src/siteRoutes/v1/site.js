@@ -563,6 +563,57 @@ async function updateSiteOutline(req, res, next) {
   );
 }
 
+async function updateSiteAlternativeFormats(req, res) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      message:
+        'Unable to resolve site context for /x/api/v1/site/updateAlternativeFormats',
+    });
+  }
+  const siteName = getSiteNameFromResolvedSite(site);
+  if (siteName === '') {
+    return res.status(400).json({
+      status: 400,
+      message:
+        'Unable to resolve site name for /x/api/v1/site/updateAlternativeFormats',
+    });
+  }
+  let format = null;
+  if (
+    req &&
+    req.body &&
+    typeof req.body === 'object' &&
+    !Array.isArray(req.body) &&
+    Object.prototype.hasOwnProperty.call(req.body, 'format')
+  ) {
+    const requestedFormat = String(req.body.format || '').trim();
+    if (requestedFormat !== '') {
+      format = requestedFormat;
+    }
+  }
+  try {
+    await site.updateAlternateFormats(format);
+  }
+  catch (e) {
+    return res.status(500).json({
+      status: 500,
+      message: 'Unable to update alternative formats for this site',
+    });
+  }
+  return res.json({
+    status: 200,
+    data: {
+      updated: true,
+      site: {
+        name: siteName,
+      },
+      format: format,
+    },
+  });
+}
+
 module.exports = {
   listSite: siteSummary,
   updateSite,
@@ -572,4 +623,5 @@ module.exports = {
   updateSiteEditor,
   updateSiteSeo,
   updateSiteOutline,
+  updateSiteAlternativeFormats,
 };
