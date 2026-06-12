@@ -4,8 +4,6 @@ const RoutesMap = {
   post: {
     login: require('../routes/login.js'),
     logout: require('../routes/logout.js'),
-    formLoad: require('../routes/formLoad.js'),
-    formProcess: require('../routes/formProcess.js'),
 
     siteUpdateAlternateFormats: require('../routes/siteUpdateAlternateFormats.js'),
     downloadSiteSkeleton: require('../routes/downloadSiteSkeleton.js'),

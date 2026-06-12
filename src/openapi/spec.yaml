@@ -10,61 +10,7 @@ info:
     url: http://www.apache.org/licenses/LICENSE-2.0.html
   version: null
 servers: null
-paths:
-  /formLoad:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - form
-      operationId: Operations::formLoad
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - token
-                - haxcms_form_id
-              properties:
-                token:
-                  type: string
-                haxcms_form_id:
-                  type: string
-                site:
-                  type: object
-                node:
-                  type: object
-              type: object
-      responses:
-        "200":
-          description: Load a form based on ID
-  /formProcess:
-    post:
-      tags:
-        - cms
-        - authenticated
-        - form
-      operationId: Operations::formProcess
-      requestBody:
-        content:
-          application/json:
-            schema:
-              required:
-                - haxcms_form_id
-                - haxcms_form_token
-              properties:
-                haxcms_form_id:
-                  type: string
-                haxcms_form_token:
-                  type: string
-                site:
-                  type: object
-                node:
-                  type: object
-              type: object
-      responses:
-        "200":
-          description: Process a form based on ID and input data
+paths: {}
 tags:
   - name: hax
     description: Operations required for HAX editor to work

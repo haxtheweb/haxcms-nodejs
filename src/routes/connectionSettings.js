@@ -459,9 +459,6 @@ async function connectionSettings(req, res) {
     connectionTest: `${systemApiV1BasePath}session/connection-test`,
     userTokenHeader: userTokenHeaderName,
     redirectUrl: HAXCMS.basePath,
-    getSiteFieldsPath: `${baseAPIPath}formLoad?haxcms_form_id=siteSettings`,
-    // form token to validate form submissions as unique to the session
-    getFormToken: HAXCMS.getRequestToken('form'),
     appStore: {
       url: appStorePath,
       params: {
