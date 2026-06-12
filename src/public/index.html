@@ -188,15 +188,28 @@
       <div class="subtitle">HAX is loading</div>
     </div>
     <script>
-      // very trusting but it's us so...
-      let script = document.createElement("script");
-      // IF we're in a live environment this will always be 2 levels back
-      script.src = `/system/api/connectionSettings`;
-      fetch(script.src).then(response => {
-        if (response.status != 404) {
-          document.documentElement.appendChild(script);
+      // load connection settings for dashboard bootstrap once
+      if (
+        !(
+          globalThis.appSettings &&
+          typeof globalThis.appSettings === "object" &&
+          Object.keys(globalThis.appSettings).length > 0
+        )
+      ) {
+        let connectionSettingsScript = document.querySelector(
+          "script[data-haxcms-connection-settings]",
+        );
+        if (!connectionSettingsScript) {
+          connectionSettingsScript = document.createElement("script");
+          connectionSettingsScript.setAttribute(
+            "data-haxcms-connection-settings",
+            "true",
+          );
+          connectionSettingsScript.src =
+            "/system/api/v1/session/connection-settings";
+          document.documentElement.appendChild(connectionSettingsScript);
         }
-      });
+      }
       // get the version
       fetch("/VERSION.txt")
       .then(function(response) {

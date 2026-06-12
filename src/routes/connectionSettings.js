@@ -128,11 +128,10 @@ async function connectionSettings(req, res) {
     sessionPath: `${systemApiV1BasePath}session`,
     connectionSettings: `${systemApiV1BasePath}session/connection-settings`,
     connectionTest: `${systemApiV1BasePath}session/connection-test`,
+    userTokenHeader: 'X-HAXCMS-User-Token',
     // enables redirecting back to site root if JWT really is dead
     redirectUrl: HAXCMS.basePath,
     getSiteFieldsPath: `${baseAPIPath}formLoad?haxcms_form_id=siteSettings`,
-    insightsPath: `${baseAPIPath}insights?site_token=${siteToken}`,
-    linkCheckerPath: `${baseAPIPath}linkChecker?site_token=${siteToken}`,
     contentBrowserPath: `${baseAPIPath}contentBrowser?site_token=${siteToken}`,
     mediaBrowserPath: `${baseAPIPath}mediaBrowser?site_token=${siteToken}`,
     // form token to validate form submissions as unique to the session
@@ -152,7 +151,10 @@ async function connectionSettings(req, res) {
     },
     themes: themes,
   };
-  returnDataObj.getUserDataPath = `${systemApiV1BasePath}session/user?user_token=${userToken}`;
+  returnDataObj.getUserDataPath = `${systemApiV1BasePath}session/user`;
+  returnDataObj.getUserDataHeaders = {
+    'X-HAXCMS-User-Token': userToken,
+  };
   returnDataObj.createSite = `${baseAPIPath}createSite?user_token=${userToken}`;
   returnDataObj.downloadSite = `${baseAPIPath}downloadSite?user_token=${userToken}`;
   returnDataObj.downloadSiteSkeleton = `${baseAPIPath}downloadSiteSkeleton?user_token=${userToken}`;

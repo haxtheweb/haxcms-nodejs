@@ -16,16 +16,50 @@ const { HAXCMS } = require('../lib/HAXCMS.js');
  *   )
  * )
  */
-  function getUserData(req, res) {
-    if (req.query['user_token'] && HAXCMS.validateRequestToken(req.query['user_token'], HAXCMS.getActiveUserName())) {
-      const returnData = {
-        status: 200,
-        data: HAXCMS.userData
-      };
-      res.send(returnData);
-    } else {
-      res.sendStatus(403);
-    }
+function getUserTokenFromHeader(req) {
+  if (!req || !req.headers || typeof req.headers !== 'object') {
+    return '';
   }
+  const rawValue = req.headers['x-haxcms-user-token'];
+  if (Array.isArray(rawValue)) {
+    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
+  }
+  if (typeof rawValue === 'string') {
+    return rawValue.trim();
+  }
+  return '';
+}
+
+function getUserTokenFromRequest(req) {
+  const headerToken = getUserTokenFromHeader(req);
+  if (headerToken !== '') {
+    return headerToken;
+  }
+  if (
+    req &&
+    req.query &&
+    typeof req.query === 'object' &&
+    req.query['user_token']
+  ) {
+    return String(req.query['user_token']).trim();
+  }
+  return '';
+}
+
+function getUserData(req, res) {
+  const userToken = getUserTokenFromRequest(req);
+  if (
+    userToken !== '' &&
+    HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName())
+  ) {
+    const returnData = {
+      status: 200,
+      data: HAXCMS.userData,
+    };
+    res.send(returnData);
+  } else {
+    res.sendStatus(403);
+  }
+}
 
 module.exports = getUserData;

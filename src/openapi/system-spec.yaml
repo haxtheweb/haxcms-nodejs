@@ -192,7 +192,7 @@ paths:
       summary: Return active user profile and dashboard preference data
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: Active user profile data
@@ -209,7 +209,7 @@ paths:
       summary: Return active user profile and dashboard preference data
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: Active user profile data
@@ -987,6 +987,10 @@ components:
       type: apiKey
       in: query
       name: user_token
+    userTokenHeader:
+      type: apiKey
+      in: header
+      name: X-HAXCMS-User-Token
     siteTokenQuery:
       type: apiKey
       in: query
