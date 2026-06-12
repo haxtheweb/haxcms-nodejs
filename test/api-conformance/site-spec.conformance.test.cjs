@@ -2325,6 +2325,54 @@ test('system API site lifecycle routes use siteName path templates', async () =>
     )
   }
 })
+test('system API route groups match normalized v1 path structure', async () => {
+  const expectedOperationPaths = {
+    generateAppStore: '/system/api/v1/integrations/app-store',
+    systemStatusGet: '/system/api/v1/status',
+    getApiKeys: '/system/api/v1/configuration/api-keys',
+    getMediaSettings: '/system/api/v1/configuration/media',
+    schemaFileOperation: '/system/api/v1/configuration/schema-files/operations',
+    systemThemesGet: '/system/api/v1/themes',
+    saveEnabledThemesPost: '/system/api/v1/themes',
+    systemBlocksGet: '/system/api/v1/blocks',
+    saveEnabledBlocksPost: '/system/api/v1/blocks',
+    systemSkeletonsPost: '/system/api/v1/skeletons',
+    saveEnabledSkeletonsPatch: '/system/api/v1/skeletons',
+  }
+  const operationIds = Object.keys(expectedOperationPaths)
+  for (let i = 0; i < operationIds.length; i++) {
+    const operationId = operationIds[i]
+    const operationMeta = runtime.systemOperationIndex[operationId]
+    assert.ok(
+      operationMeta,
+      `Missing required operationId "${operationId}" in system-spec`,
+    )
+    assert.equal(
+      operationMeta.path,
+      expectedOperationPaths[operationId],
+      `${operationId} must use ${expectedOperationPaths[operationId]}`,
+    )
+  }
+  const legacyPaths = [
+    '/system/api/v1/system/app-store',
+    '/system/api/v1/system/status',
+    '/system/api/v1/settings/api-keys',
+    '/system/api/v1/settings/media',
+    '/system/api/v1/settings/schema-files/operations',
+    '/system/api/v1/settings/enabled-themes',
+    '/system/api/v1/settings/enabled-blocks',
+    '/system/api/v1/settings/enabled-skeletons',
+    '/system/api/v1/system/themes',
+    '/system/api/v1/system/blocks',
+  ]
+  for (let i = 0; i < legacyPaths.length; i++) {
+    const legacyPath = legacyPaths[i]
+    assert.ok(
+      !Object.prototype.hasOwnProperty.call(runtime.systemSpec.paths, legacyPath),
+      `Legacy system-spec path should be removed: ${legacyPath}`,
+    )
+  }
+})
 test('system API conformance for skeleton resource semantics', async (t) => {
   const requiredOperationIds = [
     'systemSkeletonsGet',

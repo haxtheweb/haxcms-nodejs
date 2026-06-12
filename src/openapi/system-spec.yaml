@@ -1,7 +1,8 @@
 openapi: 3.0.3
 info:
   title: HAXcms System API
-  description: Control-plane API for authentication, lifecycle/admin, discovery/meta, and system settings/configuration.
+  description: Control-plane API for authentication, lifecycle/admin,
+    discovery/meta, and system settings/configuration.
   version: 0.0.0
 servers:
   - url: /
@@ -340,10 +341,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiEnvelope"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
       tags:
         - lifecycle
@@ -359,10 +360,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiEnvelope"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /system/api/v1/sites/{siteName}/clone:
     parameters:
       - $ref: "#/components/parameters/SiteName"
@@ -503,7 +504,7 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/system/app-store:
+  /system/api/v1/integrations/app-store:
     get:
       tags:
         - settings
@@ -521,7 +522,7 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/system/status:
+  /system/api/v1/status:
     get:
       tags:
         - settings
@@ -556,7 +557,7 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/settings/api-keys:
+  /system/api/v1/configuration/api-keys:
     get:
       tags:
         - settings
@@ -620,7 +621,7 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/settings/media:
+  /system/api/v1/configuration/media:
     get:
       tags:
         - settings
@@ -684,54 +685,7 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/settings/enabled-skeletons:
-    post:
-      tags:
-        - settings
-      operationId: saveEnabledSkeletonsPost
-      summary: Update enabled skeleton configuration
-      security:
-        - bearerAuth: []
-          userTokenQuery: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EnabledCollectionSettings"
-      responses:
-        "200":
-          description: Enabled skeletons update response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiEnvelope"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-    patch:
-      tags:
-        - settings
-      operationId: saveEnabledSkeletonsPatch
-      summary: Update enabled skeleton configuration
-      security:
-        - bearerAuth: []
-          userTokenQuery: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EnabledCollectionSettings"
-      responses:
-        "200":
-          description: Enabled skeletons update response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiEnvelope"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-  /system/api/v1/settings/schema-files/operations:
+  /system/api/v1/configuration/schema-files/operations:
     post:
       tags:
         - settings
@@ -755,101 +709,7 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/settings/enabled-themes:
-    post:
-      tags:
-        - settings
-      operationId: saveEnabledThemesPost
-      summary: Update enabled theme configuration
-      security:
-        - bearerAuth: []
-          userTokenQuery: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EnabledCollectionSettings"
-      responses:
-        "200":
-          description: Enabled themes update response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiEnvelope"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-    patch:
-      tags:
-        - settings
-      operationId: saveEnabledThemesPatch
-      summary: Update enabled theme configuration
-      security:
-        - bearerAuth: []
-          userTokenQuery: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EnabledCollectionSettings"
-      responses:
-        "200":
-          description: Enabled themes update response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiEnvelope"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-  /system/api/v1/settings/enabled-blocks:
-    post:
-      tags:
-        - settings
-      operationId: saveEnabledBlocksPost
-      summary: Update enabled block configuration
-      security:
-        - bearerAuth: []
-          userTokenQuery: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EnabledCollectionSettings"
-      responses:
-        "200":
-          description: Enabled blocks update response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiEnvelope"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-    patch:
-      tags:
-        - settings
-      operationId: saveEnabledBlocksPatch
-      summary: Update enabled block configuration
-      security:
-        - bearerAuth: []
-          userTokenQuery: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EnabledCollectionSettings"
-      responses:
-        "200":
-          description: Enabled blocks update response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiEnvelope"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-  /system/api/v1/system/blocks:
+  /system/api/v1/blocks:
     get:
       tags:
         - settings
@@ -870,20 +730,46 @@ paths:
     post:
       tags:
         - settings
-      operationId: systemBlocksPost
-      summary: Return available system blocks
+      operationId: saveEnabledBlocksPost
+      summary: Update enabled block configuration using the blocks collection endpoint
       security:
         - bearerAuth: []
           userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: &a1
+              $ref: "#/components/schemas/EnabledCollectionSettings"
       responses:
         "200":
-          description: Available block list
+          description: Enabled collection update response
           content:
             application/json:
-              schema:
+              schema: &a2
                 $ref: "#/components/schemas/ApiEnvelope"
-        "403":
+        "403": &a3
           $ref: "#/components/responses/Forbidden"
+    patch:
+      tags:
+        - settings
+      operationId: saveEnabledBlocksPatch
+      summary: Update enabled block configuration using the blocks collection endpoint
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *a1
+      responses:
+        "200":
+          description: Enabled collection update response
+          content:
+            application/json:
+              schema: *a2
+        "403": *a3
   /system/api/v1/skeletons:
     get:
       tags:
@@ -930,6 +816,27 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
+    patch:
+      tags:
+        - settings
+      operationId: saveEnabledSkeletonsPatch
+      summary: Update enabled skeleton configuration using the skeletons collection
+        endpoint
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *a1
+      responses:
+        "200":
+          description: Enabled collection update response
+          content:
+            application/json:
+              schema: *a2
+        "403": *a3
   /system/api/v1/skeletons/{skeletonName}:
     parameters:
       - $ref: "#/components/parameters/SkeletonName"
@@ -948,10 +855,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiEnvelope"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     patch:
       tags:
         - settings
@@ -975,6 +882,8 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -983,8 +892,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          $ref: "#/components/responses/Forbidden"
     put:
       tags:
         - settings
@@ -1008,6 +915,8 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -1016,8 +925,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-        "403":
-          $ref: "#/components/responses/Forbidden"
     delete:
       tags:
         - settings
@@ -1033,11 +940,11 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiEnvelope"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/system/themes:
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /system/api/v1/themes:
     get:
       tags:
         - settings
@@ -1058,20 +965,43 @@ paths:
     post:
       tags:
         - settings
-      operationId: systemThemesPost
-      summary: Return available system themes
+      operationId: saveEnabledThemesPost
+      summary: Update enabled theme configuration using the themes collection endpoint
       security:
         - bearerAuth: []
           userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *a1
       responses:
         "200":
-          description: Available theme list
+          description: Enabled collection update response
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/ApiEnvelope"
-        "403":
-          $ref: "#/components/responses/Forbidden"
+              schema: *a2
+        "403": *a3
+    patch:
+      tags:
+        - settings
+      operationId: saveEnabledThemesPatch
+      summary: Update enabled theme configuration using the themes collection endpoint
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: *a1
+      responses:
+        "200":
+          description: Enabled collection update response
+          content:
+            application/json:
+              schema: *a2
+        "403": *a3
 components:
   parameters:
     SiteName:

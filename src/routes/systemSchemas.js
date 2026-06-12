@@ -133,7 +133,7 @@ function buildSystemSchemaDescriptors(apiBasePath = '/system/api/v1') {
       mediaType: 'application/json',
       appliesTo: ['configuration'],
       links: {
-        endpoint: `${apiBasePath}/configuration/themes`,
+        endpoint: `${apiBasePath}/themes`,
       },
       schema: {
         type: 'object',
@@ -150,7 +150,7 @@ function buildSystemSchemaDescriptors(apiBasePath = '/system/api/v1') {
       mediaType: 'application/json',
       appliesTo: ['configuration'],
       links: {
-        endpoint: `${apiBasePath}/configuration/blocks`,
+        endpoint: `${apiBasePath}/blocks`,
       },
       schema: {
         type: 'object',
@@ -172,7 +172,7 @@ function buildSystemSchemaDescriptors(apiBasePath = '/system/api/v1') {
       mediaType: 'application/json',
       appliesTo: ['configuration'],
       links: {
-        endpoint: `${apiBasePath}/configuration/skeletons`,
+        endpoint: `${apiBasePath}/skeletons`,
       },
       schema: {
         type: 'object',

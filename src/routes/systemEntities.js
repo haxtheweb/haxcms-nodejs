@@ -65,7 +65,7 @@ function buildSystemEntityDescriptors(apiBasePath = '/system/api/v1') {
       description: 'System theme catalog and enabled state configuration.',
       primaryKey: 'machineName',
       endpoints: [
-        `${apiBasePath}/configuration/themes`,
+        `${apiBasePath}/themes`,
       ],
       auth: 'authenticated-user',
       supportedOperations: ['read', 'update'],
@@ -75,7 +75,7 @@ function buildSystemEntityDescriptors(apiBasePath = '/system/api/v1') {
       description: 'System block catalog and enabled block configuration.',
       primaryKey: 'tag',
       endpoints: [
-        `${apiBasePath}/configuration/blocks`,
+        `${apiBasePath}/blocks`,
       ],
       auth: 'authenticated-user',
       supportedOperations: ['read', 'update'],
@@ -88,8 +88,6 @@ function buildSystemEntityDescriptors(apiBasePath = '/system/api/v1') {
       endpoints: [
         `${apiBasePath}/skeletons`,
         `${apiBasePath}/skeletons/{skeletonName}`,
-        `${apiBasePath}/configuration/skeletons`,
-        `${apiBasePath}/configuration/skeletons/{skeletonName}`,
       ],
       auth: 'authenticated-user',
       supportedOperations: ['read', 'update'],

@@ -354,7 +354,7 @@ async function connectionSettings(req, res) {
     resolveSystemOperationPath(
       'systemSkeletonsPost',
       systemApiV1BasePath,
-      'configuration/skeletons',
+      'skeletons',
     ),
     {
       includeDisabled: true,
@@ -374,7 +374,7 @@ async function connectionSettings(req, res) {
     resolveSystemOperationPath(
       'systemThemesGet',
       systemApiV1BasePath,
-      'configuration/themes',
+      'themes',
     ),
     {
       includeDisabled: true,
@@ -383,7 +383,7 @@ async function connectionSettings(req, res) {
   const systemStatusPath = resolveSystemOperationPath(
     'systemStatusGet',
     systemApiV1BasePath,
-    'system/status',
+    'status',
   );
   const systemVersionPath = resolveSystemOperationPath(
     'systemVersionGet',
@@ -413,12 +413,12 @@ async function connectionSettings(req, res) {
   const systemBlocksPath = resolveSystemOperationPath(
     'systemBlocksGet',
     systemApiV1BasePath,
-    'configuration/blocks',
+    'blocks',
   );
   const schemaFileOperationPath = resolveSystemOperationPath(
-    '',
+    'schemaFileOperation',
     systemApiV1BasePath,
-    'skeletons',
+    'configuration/schema-files/operations',
   );
   const renameSkeletonPath = resolveSystemOperationPath(
     '',
@@ -431,19 +431,19 @@ async function connectionSettings(req, res) {
     'skeletons/{skeletonName}',
   );
   const saveEnabledSkeletonsPath = resolveSystemOperationPath(
-    'saveEnabledSkeletonsPost',
+    'systemSkeletonsPost',
     systemApiV1BasePath,
-    'configuration/skeletons',
+    'skeletons',
   );
   const saveEnabledThemesPath = resolveSystemOperationPath(
     'saveEnabledThemesPost',
     systemApiV1BasePath,
-    'configuration/themes',
+    'themes',
   );
   const saveEnabledBlocksPath = resolveSystemOperationPath(
     'saveEnabledBlocksPost',
     systemApiV1BasePath,
-    'configuration/blocks',
+    'blocks',
   );
   const returnDataObj = {
     token: HAXCMS.getRequestToken(),

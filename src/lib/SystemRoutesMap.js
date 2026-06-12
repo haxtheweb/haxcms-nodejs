@@ -113,6 +113,8 @@ addRouteHandler(
   'system/status',
   settingsRoutes.systemStatus,
 );
+addRouteHandler(SystemRoutesMap, 'get', 'status', settingsRoutes.systemStatus);
+addRouteHandler(SystemRoutesMap, 'post', 'status', settingsRoutes.systemStatus);
 addRouteHandler(
   SystemRoutesMap,
   'get',
@@ -199,24 +201,28 @@ addRouteHandler(
   'configuration/themes',
   settingsRoutes.configurationThemes,
 );
+addRouteHandler(SystemRoutesMap, 'get', 'themes', settingsRoutes.configurationThemes);
 addRouteHandler(
   SystemRoutesMap,
   'post',
   'configuration/themes',
   settingsRoutes.configurationThemes,
 );
+addRouteHandler(SystemRoutesMap, 'post', 'themes', settingsRoutes.configurationThemes);
 addRouteHandler(
   SystemRoutesMap,
   'patch',
   'configuration/themes',
   settingsRoutes.configurationThemes,
 );
+addRouteHandler(SystemRoutesMap, 'patch', 'themes', settingsRoutes.configurationThemes);
 addRouteHandler(
   SystemRoutesMap,
   'get',
   'configuration/blocks',
   settingsRoutes.configurationBlocks,
 );
+addRouteHandler(SystemRoutesMap, 'get', 'blocks', settingsRoutes.configurationBlocks);
 
 addRouteHandler(
   SystemRoutesMap,
@@ -224,12 +230,14 @@ addRouteHandler(
   'configuration/blocks',
   settingsRoutes.configurationBlocks,
 );
+addRouteHandler(SystemRoutesMap, 'post', 'blocks', settingsRoutes.configurationBlocks);
 addRouteHandler(
   SystemRoutesMap,
   'patch',
   'configuration/blocks',
   settingsRoutes.configurationBlocks,
 );
+addRouteHandler(SystemRoutesMap, 'patch', 'blocks', settingsRoutes.configurationBlocks);
 addRouteHandler(
   SystemRoutesMap,
   'get',
@@ -355,13 +363,16 @@ const SystemV1AdminRoutes = [
   'sites/:siteName/download-skeleton',
   'sites/:siteName/save-as-template',
   'system/status',
+  'status',
   'system/version',
   'entities',
   'schemas',
   'configuration/api-keys',
   'configuration/media',
   'configuration/schema-files/operations',
+  'themes',
   'configuration/themes',
+  'blocks',
   'configuration/blocks',
   'configuration/skeletons',
   'configuration/skeletons/:skeletonName',
