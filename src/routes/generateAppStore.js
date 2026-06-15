@@ -249,8 +249,15 @@ function rewriteConnectionToBroker(connection, provider, req) {
  *    path="/generateAppStore",
  *    tags={"hax","api"},
  *    @OA\Parameter(
- *         name="appstore_token",
- *         description="security token for appstore",
+ *         name="site_token",
+ *         description="security token for appstore generation",
+ *         in="query",
+ *         required=true,
+ *         @OA\Schema(type="string")
+ *    ),
+ *    @OA\Parameter(
+ *         name="siteName",
+ *         description="site context used to validate site token",
  *         in="query",
  *         required=true,
  *         @OA\Schema(type="string")
@@ -265,8 +272,6 @@ async function generateAppStore(req, res) {
   let returnData = {};
   // test if this is a valid user login with this specialty token that HAX looks for
   if (
-    req.query['appstore_token'] &&
-    HAXCMS.validateRequestToken(req.query['appstore_token'], 'appstore', req.query) &&
     req.query['site_token'] &&
     req.query['siteName'] &&
     HAXCMS.validateRequestToken(

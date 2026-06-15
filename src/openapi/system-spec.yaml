@@ -535,9 +535,15 @@ paths:
         - settings
       operationId: generateAppStore
       summary: Generate app-store provider manifest for the editor
+      parameters:
+        - name: siteName
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Site machine name used to validate site token scope
       security:
-        - appStoreTokenQuery: []
-          siteTokenQuery: []
+        - siteTokenQuery: []
       responses:
         "200":
           description: App-store payload
@@ -1202,10 +1208,6 @@ components:
       type: apiKey
       in: query
       name: site_token
-    appStoreTokenQuery:
-      type: apiKey
-      in: query
-      name: appstore_token
   schemas:
     ApiEnvelope:
       type: object

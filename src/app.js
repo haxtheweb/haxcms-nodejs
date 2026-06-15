@@ -170,8 +170,7 @@ function getBuildAssetRequestPath(url = '') {
     .replace(/\/(.*?)\/build\//g, "build/")
     .replace(/\/(.*?)\/wc-registry.json/g, "wc-registry.json")
     .replace(/\/(.*?)\/build.js/g, "build.js")
-    .replace(/\/(.*?)\/build-haxcms.js/g, "build-haxcms.js")
-    .replace(/\/(.*?)\/VERSION.txt/g, "VERSION.txt");
+    .replace(/\/(.*?)\/build-haxcms.js/g, "build-haxcms.js");
 }
 
 function isBuildAssetRequest(url = '') {
@@ -180,8 +179,7 @@ function isBuildAssetRequest(url = '') {
     requestPath.indexOf('/build/') !== -1 ||
     requestPath.indexOf('wc-registry.json') !== -1 ||
     requestPath.indexOf('build.js') !== -1 ||
-    requestPath.indexOf('build-haxcms.js') !== -1 ||
-    requestPath.indexOf('VERSION.txt') !== -1
+    requestPath.indexOf('build-haxcms.js') !== -1
   );
 }
 
@@ -246,8 +244,7 @@ function resolveLinkedDevAssetPath(cleanFilePath = '') {
   if (
     normalizedPath === 'build.js' ||
     normalizedPath === 'build-haxcms.js' ||
-    normalizedPath === 'wc-registry.json' ||
-    normalizedPath === 'VERSION.txt'
+    normalizedPath === 'wc-registry.json'
   ) {
     const candidatePath = path.join(linkedWebcomponentsRoot, normalizedPath);
     if (!isPathInsideDirectory(linkedWebcomponentsRoot, candidatePath)) {
@@ -699,8 +696,7 @@ systemStructureContext().then((site) => {
           req.url.includes('/build/') || 
           req.url.includes('wc-registry.json') ||
           req.url.includes('build.js') ||
-          req.url.includes('build-haxcms.js') ||
-          req.url.includes('VERSION.txt')
+          req.url.includes('build-haxcms.js')
         )
       ) {
         if (mime.getType(req.url.split('?')[0])) {
@@ -876,8 +872,7 @@ systemStructureContext().then((site) => {
           req.url.includes('/build/') || 
           req.url.includes('wc-registry.json') ||
           req.url.includes('build.js') ||
-          req.url.includes('build-haxcms.js') ||
-          req.url.includes('VERSION.txt')
+          req.url.includes('build-haxcms.js')
         )
       ) {
         if (mime.getType(req.url.split('?')[0])) {
@@ -1164,8 +1159,7 @@ systemStructureContext().then((site) => {
         !req.url.startsWith('/favicon.ico') &&
         !req.url.startsWith('/manifest.json') &&
         !req.url.startsWith('/robots.txt') &&
-        !req.url.startsWith('/llms.txt') &&
-        !req.url.startsWith('/VERSION.txt')
+        !req.url.startsWith('/llms.txt')
       ) {
         if (process.env.NODE_ENV === "development") {
           try {
@@ -1576,7 +1570,6 @@ function applyBearerJwtSystemApiShim(req) {
 function applySystemV1TokenShims(req) {
   const userToken = getRequestHeaderValue(req, 'x-haxcms-user-token');
   const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-  const appStoreToken = getRequestHeaderValue(req, 'x-haxcms-appstore-token');
   if (!req.query || typeof req.query !== 'object') {
     req.query = {};
   }
@@ -1597,14 +1590,6 @@ function applySystemV1TokenShims(req) {
     }
     if (!req.body.site_token) {
       req.body.site_token = siteToken;
-    }
-  }
-  if (appStoreToken !== '') {
-    if (!req.query.appstore_token) {
-      req.query.appstore_token = appStoreToken;
-    }
-    if (!req.body.appstore_token) {
-      req.body.appstore_token = appStoreToken;
     }
   }
 }

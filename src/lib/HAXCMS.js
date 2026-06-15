@@ -3488,11 +3488,23 @@ class HAXCMSClass {
     {
       let version = null;
       if (!version) {
-        // sanity but this lives in the public directory relative to root
-        let vFile = await fs.readFileSync(path.join(__dirname, "/../public", "VERSION.txt"),
-        {encoding:'utf8', flag:'r'}, 'utf8');
-        if (vFile) {
-          return filter_var(vFile);
+        const versionFilePaths = [
+          path.join(__dirname, '/../.version'),
+          path.join(__dirname, '/../public', 'VERSION.txt'),
+        ];
+        for (let i = 0; i < versionFilePaths.length; i++) {
+          const versionFilePath = versionFilePaths[i];
+          if (!fs.existsSync(versionFilePath)) {
+            continue;
+          }
+          let vFile = await fs.readFileSync(
+            versionFilePath,
+            {encoding:'utf8', flag:'r'},
+            'utf8'
+          );
+          if (vFile) {
+            return filter_var(vFile);
+          }
         }
       }
       return version;

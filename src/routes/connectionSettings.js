@@ -1,12 +1,4 @@
 const { HAXCMS } = require('../lib/HAXCMS.js');
-const {
-  discoverThemes,
-  readEnabledThemeMap,
-  writeEnabledThemeMap,
-  applyDetectedThemeDefaults,
-  isThemeEnabled,
-  themesToMap,
-} = require('../lib/themeSettings.js');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
@@ -122,35 +114,6 @@ function resolveSystemOperationPath(
   return fallbackRoute;
 }
 
-async function loadThemeMapFromSettings() {
-  const discovered = await discoverThemes(HAXCMS);
-  const detectedNames = discovered.map((item) => item.machineName);
-  let enabledThemes = await readEnabledThemeMap(HAXCMS);
-  const withDefaults = applyDetectedThemeDefaults(
-    HAXCMS,
-    enabledThemes,
-    detectedNames,
-  );
-  enabledThemes = withDefaults.enabledThemes;
-  if (withDefaults.changed) {
-    await writeEnabledThemeMap(HAXCMS, enabledThemes);
-  }
-  const themes = [];
-  for (let i = 0; i < discovered.length; i++) {
-    const item = discovered[i];
-    const enabled = isThemeEnabled(
-      HAXCMS,
-      item.machineName,
-      enabledThemes,
-    );
-    themes.push({
-      ...item,
-      enabled,
-      hidden: item.hidden === true || !enabled,
-    });
-  }
-  return themesToMap(themes);
-}
 
 /**
  * @OA\Get(
@@ -172,21 +135,6 @@ async function loadThemeMapFromSettings() {
  */
 async function connectionSettings(req, res) {
   res.setHeader('Content-Type', 'application/javascript');
-  let themes = {};
-  try {
-    themes = await loadThemeMapFromSettings();
-  }
-  catch (e) {
-    const fallbackThemes = (
-      HAXCMS &&
-      typeof HAXCMS.getThemes === 'function'
-    ) ? HAXCMS.getThemes() : {};
-    themes = (
-      fallbackThemes &&
-      typeof fallbackThemes === 'object' &&
-      !Array.isArray(fallbackThemes)
-    ) ? fallbackThemes : {};
-  }
   const isDashboardRequest = (
     HAXCMS &&
     HAXCMS.operatingContext !== 'single' &&
@@ -242,11 +190,6 @@ async function connectionSettings(req, res) {
     systemApiV1BasePath,
     'integrations/app-store',
   );
-  const schemaFileOperationPath = resolveSystemOperationPath(
-    'schemaFileOperation',
-    systemApiV1BasePath,
-    'configuration/schema-files/operations',
-  );
   const returnDataObj = {
     token: HAXCMS.getRequestToken(),
     siteToken: siteToken,
@@ -258,25 +201,19 @@ async function connectionSettings(req, res) {
     login: `${systemApiV1BasePath}session/login`,
     refreshUrl: `${systemApiV1BasePath}session/refresh`,
     logout: `${systemApiV1BasePath}session/logout`,
-    connectionSettings: `${systemApiV1BasePath}session/connection-settings`,
     connectionTest: `${systemApiV1BasePath}session/connection-test`,
     userTokenHeader: userTokenHeaderName,
     redirectUrl: HAXCMS.basePath,
     appStore: {
       url: appStorePath,
       params: {
-        'appstore_token': HAXCMS.getRequestToken('appstore'),
         'siteName': sitename,
       },
       headers: {
         'X-HAXCMS-Site-Token': siteToken,
       }
     },
-    themes: themes,
   };
-  if (HAXCMS.getDeploymentProfile() !== 'haxiam-managed') {
-    returnDataObj.schemaFileOperation = schemaFileOperationPath;
-  }
   const returnData = JSON.stringify(returnDataObj);
   let after='';
   if (HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {

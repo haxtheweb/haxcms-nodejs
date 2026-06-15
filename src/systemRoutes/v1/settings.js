@@ -180,7 +180,6 @@ async function configurationApiKeys(req, res, next) {
       'token',
       'user_token',
       'site_token',
-      'appstore_token',
     ])
   ) {
     return saveApiKeysRoute(req, res, next);
@@ -210,7 +209,6 @@ async function configurationMedia(req, res, next) {
       'token',
       'user_token',
       'site_token',
-      'appstore_token',
     ])
   ) {
     return saveMediaSettingsRoute(req, res, next);

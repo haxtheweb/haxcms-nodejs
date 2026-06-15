@@ -1359,7 +1359,7 @@ async function teardownRuntime(runtime) {
 }
 
 let runtime = null
-const SKIP_GET_API_CATALOG_SUBTEST = true
+const SKIP_GET_API_CATALOG_SUBTEST = false
 
 test.before(async () => {
   runtime = await setupRuntime()
