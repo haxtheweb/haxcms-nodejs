@@ -3,15 +3,22 @@ info:
   title: HAXcms System API
   description: Control-plane API for authentication, lifecycle/admin,
     discovery/meta, and system settings/configuration.
-  version: 0.0.0
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
 servers:
   - url: /
     description: System API base path
 tags:
   - name: discovery
+    description: System API discovery and OpenAPI document endpoints
   - name: session
+    description: Authentication, token, and dashboard session bootstrap endpoints
   - name: lifecycle
+    description: Site lifecycle management operations
   - name: settings
+    description: System configuration and integration endpoints
 paths:
   /system/api/v1:
     get:
@@ -27,6 +34,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /system/api/v1/openapi:
     get:
       tags:
@@ -44,6 +53,8 @@ paths:
             application/yaml:
               schema:
                 type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /system/api/v1/openapi.json:
     get:
       tags:
@@ -58,6 +69,8 @@ paths:
             application/json:
               schema:
                 type: object
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /system/api/v1/openapi.yaml:
     get:
       tags:
@@ -72,6 +85,8 @@ paths:
             application/yaml:
               schema:
                 type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /system/api/v1/session/login:
     post:
       tags:
@@ -154,6 +169,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /system/api/v1/session/refresh:
     get:
       tags:
@@ -237,6 +254,8 @@ paths:
             application/json:
               schema:
                 type: object
+        "400":
+          $ref: "#/components/responses/BadRequest"
     post:
       tags:
         - session
@@ -253,6 +272,8 @@ paths:
             application/json:
               schema:
                 type: object
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /system/api/v1/session/connection-test:
     get:
       tags:
@@ -267,6 +288,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
     post:
       tags:
         - session
@@ -280,6 +303,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /system/api/v1/sites:
     get:
       tags:
@@ -739,16 +764,16 @@ paths:
         required: true
         content:
           application/json:
-            schema: &a1
+            schema:
               $ref: "#/components/schemas/EnabledCollectionSettings"
       responses:
         "200":
           description: Enabled collection update response
           content:
             application/json:
-              schema: &a2
+              schema:
                 $ref: "#/components/schemas/ApiEnvelope"
-        "403": &a3
+        "403":
           $ref: "#/components/responses/Forbidden"
     patch:
       tags:
@@ -762,14 +787,17 @@ paths:
         required: true
         content:
           application/json:
-            schema: *a1
+            schema:
+              $ref: "#/components/schemas/EnabledCollectionSettings"
       responses:
         "200":
           description: Enabled collection update response
           content:
             application/json:
-              schema: *a2
-        "403": *a3
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /system/api/v1/skeletons:
     get:
       tags:
@@ -829,14 +857,17 @@ paths:
         required: true
         content:
           application/json:
-            schema: *a1
+            schema:
+              $ref: "#/components/schemas/EnabledCollectionSettings"
       responses:
         "200":
           description: Enabled collection update response
           content:
             application/json:
-              schema: *a2
-        "403": *a3
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /system/api/v1/skeletons/{skeletonName}:
     parameters:
       - $ref: "#/components/parameters/SkeletonName"
@@ -974,14 +1005,17 @@ paths:
         required: true
         content:
           application/json:
-            schema: *a1
+            schema:
+              $ref: "#/components/schemas/EnabledCollectionSettings"
       responses:
         "200":
           description: Enabled collection update response
           content:
             application/json:
-              schema: *a2
-        "403": *a3
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     patch:
       tags:
         - settings
@@ -994,14 +1028,17 @@ paths:
         required: true
         content:
           application/json:
-            schema: *a1
+            schema:
+              $ref: "#/components/schemas/EnabledCollectionSettings"
       responses:
         "200":
           description: Enabled collection update response
           content:
             application/json:
-              schema: *a2
-        "403": *a3
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 components:
   parameters:
     SiteName:

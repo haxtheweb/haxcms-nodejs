@@ -2,28 +2,49 @@ openapi: 3.0.3
 info:
   title: HAXcms Site API
   description: Read-only site API for discovery, metadata, and content/query surfaces.
-  version: 0.0.0
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
 servers:
   - url: /
     description: Site base path
 tags:
   - name: discovery
+    description: API discovery and OpenAPI document endpoints.
   - name: site
+    description: Site-level metadata and configuration operations.
   - name: entities
+    description: Entity catalog and descriptor endpoints.
   - name: schemas
+    description: Schema descriptor and JSON schema endpoints.
   - name: items
+    description: Outline item records, revisions, and export endpoints.
   - name: content
+    description: Content retrieval and content mutation endpoints.
   - name: files
+    description: File listing, upload, retrieval, and management endpoints.
   - name: tags
+    description: Tag listing and tag frequency endpoints.
   - name: search
+    description: Full-text and metadata search endpoints.
   - name: custom-elements
+    description: Custom element registry and descriptor endpoints.
   - name: blocks
+    description: Block catalog, usage analytics, and block descriptor endpoints.
   - name: regions
+    description: Region listing and region member endpoints.
   - name: themes
+    description: Theme listing and active theme endpoints.
   - name: reports
+    description: Report descriptor and report payload endpoints.
   - name: analytics
+    description: Analytics capability and integration metadata endpoints.
   - name: views
+    description: Saved view definitions and resolved results endpoints.
   - name: integrations
+    description: Third-party integration and provider broker endpoints.
+security: []
 paths:
   /x/api:
     get:
@@ -43,6 +64,8 @@ paths:
                     properties:
                       data:
                         $ref: "#/components/schemas/ApiCapabilities"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /x/api/openapi:
     get:
       tags:
@@ -61,6 +84,8 @@ paths:
             application/yaml:
               schema:
                 type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
   /x/api/openapi.json:
     get:
       tags:
@@ -74,6 +99,8 @@ paths:
             application/json:
               schema:
                 type: object
+        "404":
+          $ref: "#/components/responses/NotFound"
   /x/api/openapi.yaml:
     get:
       tags:
@@ -90,6 +117,8 @@ paths:
             text/yaml:
               schema:
                 type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
   /.well-known/api-catalog:
     get:
       tags:
@@ -103,6 +132,8 @@ paths:
             application/linkset+json:
               schema:
                 $ref: "#/components/schemas/ApiCatalogLinkset"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /x/api/v1/site:
     get:
       tags:
@@ -732,13 +763,6 @@ paths:
           siteTokenHeader: []
       parameters:
         - $ref: "#/components/parameters/IdOrSlug"
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
       responses:
         "200":
           description: Item deletion result
@@ -1876,10 +1900,6 @@ components:
       type: apiKey
       in: header
       name: X-HAXCMS-Site-Token
-    userTokenHeader:
-      type: apiKey
-      in: header
-      name: X-HAXCMS-User-Token
   headers:
     VaryAccept:
       description: Representation varies by Accept header
@@ -2151,7 +2171,7 @@ components:
           schema:
             $ref: "#/components/schemas/ApiError"
     Forbidden:
-      description: Authenticated request missing required site/user token header
+      description: Authenticated request missing required site token header
       content:
         application/json:
           schema:
