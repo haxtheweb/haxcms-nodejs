@@ -36,66 +36,6 @@ function normalizePath(pathValue = '') {
   return normalized;
 }
 
-function appendQueryParams(pathValue = '', params = {}) {
-  const target = typeof pathValue === 'string' ? pathValue.trim() : '';
-  if (!target) {
-    return '';
-  }
-  const hashIndex = target.indexOf('#');
-  const baseWithQuery = hashIndex === -1 ? target : target.substring(0, hashIndex);
-  const hash = hashIndex === -1 ? '' : target.substring(hashIndex);
-  const queryIndex = baseWithQuery.indexOf('?');
-  const basePath =
-    queryIndex === -1
-      ? baseWithQuery
-      : baseWithQuery.substring(0, queryIndex);
-  const existingQuery =
-    queryIndex === -1 ? '' : baseWithQuery.substring(queryIndex + 1);
-  const searchParams = new URLSearchParams(existingQuery);
-  const payload =
-    params && typeof params === 'object' && !Array.isArray(params)
-      ? params
-      : {};
-  const keys = Object.keys(payload);
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[i];
-    const value = payload[key];
-    if (typeof value === 'undefined' || value === null) {
-      continue;
-    }
-    const normalizedValue = `${value}`.trim();
-    if (!normalizedValue) {
-      continue;
-    }
-    searchParams.set(key, normalizedValue);
-  }
-  const query = searchParams.toString();
-  return `${basePath}${query ? `?${query}` : ''}${hash}`;
-}
-
-function applyPathTemplateParams(pathValue = '', params = {}) {
-  const target = typeof pathValue === 'string' ? pathValue.trim() : '';
-  if (!target) {
-    return '';
-  }
-  return target.replace(/\{([^}]+)\}/g, (match, key) => {
-    if (!params || typeof params !== 'object') {
-      return match;
-    }
-    if (!Object.prototype.hasOwnProperty.call(params, key)) {
-      return match;
-    }
-    const value = params[key];
-    if (typeof value === 'undefined' || value === null) {
-      return match;
-    }
-    const normalizedValue = `${value}`.trim();
-    if (normalizedValue === '') {
-      return match;
-    }
-    return encodeURIComponent(normalizedValue);
-  });
-}
 
 function getSystemOpenApiOperationPaths() {
   if (cachedSystemOpenApiOperationPaths) {
@@ -296,155 +236,16 @@ async function connectionSettings(req, res) {
     systemApiV1BasePath,
     'openapi.json',
   );
-  const sitePathParams = {};
-  if (typeof sitename === 'string' && sitename.trim() !== '') {
-    sitePathParams.siteName = sitename.trim();
-  }
   const userTokenHeaderName = 'X-HAXCMS-User-Token';
-  const getUserDataPath = resolveSystemOperationPath(
-    'sessionUserGet',
-    systemApiV1BasePath,
-    'session/user',
-  );
-  const createSitePath = resolveSystemOperationPath(
-    'createSite',
-    systemApiV1BasePath,
-    'sites',
-  );
-  const copySitePath = applyPathTemplateParams(
-    resolveSystemOperationPath(
-      'cloneSite',
-      systemApiV1BasePath,
-      'sites/{siteName}/clone',
-    ),
-    sitePathParams,
-  );
-  const archiveSitePath = applyPathTemplateParams(
-    resolveSystemOperationPath(
-      'archiveSite',
-      systemApiV1BasePath,
-      'sites/{siteName}/archive',
-    ),
-    sitePathParams,
-  );
-  const downloadSitePath = applyPathTemplateParams(
-    resolveSystemOperationPath(
-      'downloadSite',
-      systemApiV1BasePath,
-      'sites/{siteName}/download',
-    ),
-    sitePathParams,
-  );
-  const downloadSiteSkeletonPath = applyPathTemplateParams(
-    resolveSystemOperationPath(
-      'downloadSiteSkeleton',
-      systemApiV1BasePath,
-      'sites/{siteName}/download-skeleton',
-    ),
-    sitePathParams,
-  );
-  const saveSiteAsTemplatePath = applyPathTemplateParams(
-    resolveSystemOperationPath(
-      'saveSiteAsTemplate',
-      systemApiV1BasePath,
-      'sites/{siteName}/save-as-template',
-    ),
-    sitePathParams,
-  );
-  const listSitesPath = resolveSystemOperationPath(
-    'listSites',
-    systemApiV1BasePath,
-    'sites',
-  );
-  const skeletonsListPath = appendQueryParams(
-    resolveSystemOperationPath(
-      'systemSkeletonsPost',
-      systemApiV1BasePath,
-      'skeletons',
-    ),
-    {
-      includeDisabled: true,
-    },
-  );
-  const getSkeletonPath = resolveSystemOperationPath(
-    'systemSkeletonDetailGet',
-    systemApiV1BasePath,
-    'skeletons/{skeletonName}',
-  );
   const appStorePath = resolveSystemOperationPath(
     'generateAppStore',
     systemApiV1BasePath,
     'integrations/app-store',
   );
-  const themesListPath = appendQueryParams(
-    resolveSystemOperationPath(
-      'systemThemesGet',
-      systemApiV1BasePath,
-      'themes',
-    ),
-    {
-      includeDisabled: true,
-    },
-  );
-  const systemStatusPath = resolveSystemOperationPath(
-    'systemStatusGet',
-    systemApiV1BasePath,
-    'status',
-  );
-  const getApiKeysPath = resolveSystemOperationPath(
-    'getApiKeys',
-    systemApiV1BasePath,
-    'configuration/api-keys',
-  );
-  const saveApiKeysPath = resolveSystemOperationPath(
-    'saveApiKeysPost',
-    systemApiV1BasePath,
-    'configuration/api-keys',
-  );
-  const getMediaSettingsPath = resolveSystemOperationPath(
-    'getMediaSettings',
-    systemApiV1BasePath,
-    'configuration/media',
-  );
-  const saveMediaSettingsPath = resolveSystemOperationPath(
-    'saveMediaSettingsPost',
-    systemApiV1BasePath,
-    'configuration/media',
-  );
-  const systemBlocksPath = resolveSystemOperationPath(
-    'systemBlocksGet',
-    systemApiV1BasePath,
-    'blocks',
-  );
   const schemaFileOperationPath = resolveSystemOperationPath(
     'schemaFileOperation',
     systemApiV1BasePath,
     'configuration/schema-files/operations',
-  );
-  const renameSkeletonPath = resolveSystemOperationPath(
-    'systemSkeletonDetailPatch',
-    systemApiV1BasePath,
-    'skeletons/{skeletonName}',
-  );
-  const deleteSkeletonPath = resolveSystemOperationPath(
-    'systemSkeletonDetailDelete',
-    systemApiV1BasePath,
-    'skeletons/{skeletonName}',
-  );
-  const saveEnabledSkeletonsPath = resolveSystemOperationPath(
-    'systemSkeletonsPost',
-    systemApiV1BasePath,
-    'skeletons',
-  );
-  const saveEnabledThemesPath = resolveSystemOperationPath(
-    'saveEnabledThemesPost',
-    systemApiV1BasePath,
-    'themes',
-  );
-  const saveEnabledBlocksPath = resolveSystemOperationPath(
-    'saveEnabledBlocksPost',
-    systemApiV1BasePath,
-    'blocks',
   );
   const returnDataObj = {
     token: HAXCMS.getRequestToken(),
@@ -473,62 +274,8 @@ async function connectionSettings(req, res) {
     },
     themes: themes,
   };
-  const userTokenHeaders = {
-    [userTokenHeaderName]: userToken,
-  };
-  returnDataObj.getUserDataPath = getUserDataPath;
-  returnDataObj.getUserDataHeaders = userTokenHeaders;
-  returnDataObj.createSite = createSitePath;
-  returnDataObj.createSiteHeaders = userTokenHeaders;
-  returnDataObj.downloadSite = downloadSitePath;
-  returnDataObj.downloadSiteHeaders = userTokenHeaders;
-  returnDataObj.downloadSiteSkeleton = downloadSiteSkeletonPath;
-  returnDataObj.saveSiteAsTemplate = saveSiteAsTemplatePath;
-  returnDataObj.saveSiteAsTemplateHeaders = userTokenHeaders;
-  returnDataObj.archiveSite = archiveSitePath;
-  returnDataObj.archiveSiteHeaders = userTokenHeaders;
-  returnDataObj.copySite = copySitePath;
-  returnDataObj.copySiteHeaders = userTokenHeaders;
-  returnDataObj.getSitesList = listSitesPath;
-  returnDataObj.getSitesListHeaders = userTokenHeaders;
-  returnDataObj.getSitesListMethod = 'GET';
-  returnDataObj.skeletonsList = skeletonsListPath;
-  returnDataObj.skeletonsListHeaders = userTokenHeaders;
-  returnDataObj.getSkeleton = getSkeletonPath;
-  returnDataObj.getSkeletonHeaders = userTokenHeaders;
-  returnDataObj.getSkeletonMethod = 'GET';
-  returnDataObj.themesList = themesListPath;
-  returnDataObj.themesListHeaders = userTokenHeaders;
   if (HAXCMS.getDeploymentProfile() !== 'haxiam-managed') {
-    returnDataObj.systemStatus = systemStatusPath;
-    returnDataObj.systemStatusHeaders = userTokenHeaders;
-    returnDataObj.getApiKeys = getApiKeysPath;
-    returnDataObj.getApiKeysHeaders = userTokenHeaders;
-    returnDataObj.getApiKeysMethod = 'GET';
-    returnDataObj.saveApiKeys = saveApiKeysPath;
-    returnDataObj.saveApiKeysHeaders = userTokenHeaders;
-    returnDataObj.getMediaSettings = getMediaSettingsPath;
-    returnDataObj.getMediaSettingsHeaders = userTokenHeaders;
-    returnDataObj.getMediaSettingsMethod = 'GET';
-    returnDataObj.saveMediaSettings = saveMediaSettingsPath;
-    returnDataObj.saveMediaSettingsHeaders = userTokenHeaders;
-    returnDataObj.systemBlocksList = systemBlocksPath;
-    returnDataObj.systemBlocksListHeaders = userTokenHeaders;
     returnDataObj.schemaFileOperation = schemaFileOperationPath;
-    returnDataObj.schemaFileOperationHeaders = userTokenHeaders;
-    returnDataObj.schemaFileOperationMethod = 'POST';
-    returnDataObj.renameSkeleton = renameSkeletonPath;
-    returnDataObj.renameSkeletonHeaders = userTokenHeaders;
-    returnDataObj.renameSkeletonMethod = 'PATCH';
-    returnDataObj.deleteSkeleton = deleteSkeletonPath;
-    returnDataObj.deleteSkeletonHeaders = userTokenHeaders;
-    returnDataObj.deleteSkeletonMethod = 'DELETE';
-    returnDataObj.saveEnabledSkeletons = saveEnabledSkeletonsPath;
-    returnDataObj.saveEnabledSkeletonsHeaders = userTokenHeaders;
-    returnDataObj.saveEnabledThemes = saveEnabledThemesPath;
-    returnDataObj.saveEnabledThemesHeaders = userTokenHeaders;
-    returnDataObj.saveEnabledBlocks = saveEnabledBlocksPath;
-    returnDataObj.saveEnabledBlocksHeaders = userTokenHeaders;
   }
   const returnData = JSON.stringify(returnDataObj);
   let after='';
