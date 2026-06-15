@@ -190,6 +190,13 @@ async function connectionSettings(req, res) {
     systemApiV1BasePath,
     'integrations/app-store',
   );
+  const userDataPath = resolveSystemOperationPath(
+    'sessionUserGet',
+    systemApiV1BasePath,
+    'session/user',
+  );
+  const userDataHeaders = {};
+  userDataHeaders[userTokenHeaderName] = userToken;
   const returnDataObj = {
     token: HAXCMS.getRequestToken(),
     siteToken: siteToken,
@@ -202,6 +209,8 @@ async function connectionSettings(req, res) {
     refreshUrl: `${systemApiV1BasePath}session/refresh`,
     logout: `${systemApiV1BasePath}session/logout`,
     connectionTest: `${systemApiV1BasePath}session/connection-test`,
+    getUserDataPath: userDataPath,
+    getUserDataHeaders: userDataHeaders,
     userTokenHeader: userTokenHeaderName,
     redirectUrl: HAXCMS.basePath,
     appStore: {
