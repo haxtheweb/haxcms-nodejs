@@ -582,6 +582,111 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /system/api/v1/system/version:
+    get:
+      tags:
+        - settings
+      operationId: systemVersionGet
+      summary: Return installed system version details
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: System version details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - settings
+      operationId: systemVersionPost
+      summary: Return installed system version details
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: System version details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/entities:
+    get:
+      tags:
+        - settings
+      operationId: systemEntitiesGet
+      summary: Return system entity descriptors and links
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: System entity descriptors
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - settings
+      operationId: systemEntitiesPost
+      summary: Return system entity descriptors and links
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: System entity descriptors
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/schemas:
+    get:
+      tags:
+        - settings
+      operationId: systemSchemasGet
+      summary: Return system schema descriptors and links
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: System schema descriptors
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - settings
+      operationId: systemSchemasPost
+      summary: Return system schema descriptors and links
+      security:
+        - bearerAuth: []
+          userTokenQuery: []
+      responses:
+        "200":
+          description: System schema descriptors
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /system/api/v1/configuration/api-keys:
     get:
       tags:

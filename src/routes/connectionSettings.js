@@ -290,6 +290,12 @@ async function connectionSettings(req, res) {
     siteApiBasePath = `${normalizedBasePath}${HAXCMS.sitesDirectory}/${sitename}/x/api`;
   }
   const systemApiV1BasePath = `${baseAPIPath}v1/`;
+  const systemApiBasePath = systemApiV1BasePath.replace(/\/$/, '');
+  const systemOpenApiPath = resolveSystemOperationPath(
+    'systemOpenapiJson',
+    systemApiV1BasePath,
+    'openapi.json',
+  );
   const sitePathParams = {};
   if (typeof sitename === 'string' && sitename.trim() !== '') {
     sitePathParams.siteName = sitename.trim();
@@ -361,7 +367,7 @@ async function connectionSettings(req, res) {
     },
   );
   const getSkeletonPath = resolveSystemOperationPath(
-    '',
+    'systemSkeletonDetailGet',
     systemApiV1BasePath,
     'skeletons/{skeletonName}',
   );
@@ -384,11 +390,6 @@ async function connectionSettings(req, res) {
     'systemStatusGet',
     systemApiV1BasePath,
     'status',
-  );
-  const systemVersionPath = resolveSystemOperationPath(
-    'systemVersionGet',
-    systemApiV1BasePath,
-    'system/version',
   );
   const getApiKeysPath = resolveSystemOperationPath(
     'getApiKeys',
@@ -421,12 +422,12 @@ async function connectionSettings(req, res) {
     'configuration/schema-files/operations',
   );
   const renameSkeletonPath = resolveSystemOperationPath(
-    '',
+    'systemSkeletonDetailPatch',
     systemApiV1BasePath,
     'skeletons/{skeletonName}',
   );
   const deleteSkeletonPath = resolveSystemOperationPath(
-    '',
+    'systemSkeletonDetailDelete',
     systemApiV1BasePath,
     'skeletons/{skeletonName}',
   );
@@ -451,10 +452,11 @@ async function connectionSettings(req, res) {
     userToken: userToken,
     siteApiBasePath: siteApiBasePath,
     siteOpenApiPath: `${siteApiBasePath}/openapi.json`,
+    systemApiBasePath: systemApiBasePath,
+    systemOpenApiPath: systemOpenApiPath,
     login: `${systemApiV1BasePath}session/login`,
     refreshUrl: `${systemApiV1BasePath}session/refresh`,
     logout: `${systemApiV1BasePath}session/logout`,
-    sessionPath: `${systemApiV1BasePath}session`,
     connectionSettings: `${systemApiV1BasePath}session/connection-settings`,
     connectionTest: `${systemApiV1BasePath}session/connection-test`,
     userTokenHeader: userTokenHeaderName,
@@ -500,8 +502,6 @@ async function connectionSettings(req, res) {
   if (HAXCMS.getDeploymentProfile() !== 'haxiam-managed') {
     returnDataObj.systemStatus = systemStatusPath;
     returnDataObj.systemStatusHeaders = userTokenHeaders;
-    returnDataObj.systemVersion = systemVersionPath;
-    returnDataObj.systemVersionHeaders = userTokenHeaders;
     returnDataObj.getApiKeys = getApiKeysPath;
     returnDataObj.getApiKeysHeaders = userTokenHeaders;
     returnDataObj.getApiKeysMethod = 'GET';
