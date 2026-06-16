@@ -112,7 +112,7 @@ async function sendHttpRequest(requestConfig) {
 async function loginForJwt(baseUrl) {
   const loginResponse = await sendHttpRequest({
     method: 'POST',
-    url: `${baseUrl}/system/api/login`,
+    url: `${baseUrl}/system/api/v1/session/login`,
     headers: {
       accept: 'application/json',
       'content-type': 'application/json',
@@ -147,7 +147,7 @@ async function requestConnectionSettings(baseUrl, refererPath = '') {
   }
   const settingsResponse = await sendHttpRequest({
     method: 'GET',
-    url: `${baseUrl}/system/api/connectionSettings`,
+    url: `${baseUrl}/system/api/v1/session/connection-settings`,
     headers,
   })
   assert.equal(
@@ -174,6 +174,7 @@ async function createHarnessSite(baseUrl, jwt, dashboardSettings, siteName) {
   const requestHeaders = {
     accept: 'application/json',
     'content-type': 'application/json',
+    Authorization: `Bearer ${jwt}`,
     ...createSiteHeaders,
   }
   const normalizedCreateSitePath = String(createSitePath || '').trim()

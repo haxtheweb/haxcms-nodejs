@@ -543,7 +543,7 @@ paths:
             type: string
           description: Site machine name used to validate site token scope
       security:
-        - siteTokenQuery: []
+        - siteTokenHeader: []
       responses:
         "200":
           description: App-store payload

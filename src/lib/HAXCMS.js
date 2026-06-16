@@ -3924,11 +3924,17 @@ class HAXCMSClass {
       if (this.sessionJwt && this.sessionJwt != null) {
         request = this.decodeJWT(this.sessionJwt);
       }
-      if (request == false && req.body && req.body['jwt'] && req.body['jwt'] != null) {
-        request = this.decodeJWT(req.body['jwt'])
-      }
-      if (request == false && req.query && req.query['jwt'] && req.query['jwt'] != null) {
-        request = this.decodeJWT(req.query['jwt'])
+      if (
+        request == false &&
+        req &&
+        req.headers &&
+        typeof req.headers.authorization === 'string' &&
+        req.headers.authorization.trim() !== ''
+      ) {
+        const authorizationHeader = req.headers.authorization.trim();
+        if (authorizationHeader.toLowerCase().indexOf('bearer ') === 0) {
+          request = this.decodeJWT(authorizationHeader.substring(7).trim());
+        }
       }
       // if we were able to find a valid JWT in that mess, try and validate it
       if (  

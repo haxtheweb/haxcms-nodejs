@@ -1,20 +1,20 @@
-const generateAppStoreRoute = require('../../routes/generateAppStore.js');
-const systemStatusRoute = require('../../routes/systemStatus.js');
-const getApiKeysRoute = require('../../routes/getApiKeys.js');
-const saveApiKeysRoute = require('../../routes/saveApiKeys.js');
-const getMediaSettingsRoute = require('../../routes/getMediaSettings.js');
-const saveMediaSettingsRoute = require('../../routes/saveMediaSettings.js');
-const saveEnabledSkeletonsRoute = require('../../routes/saveEnabledSkeletons.js');
-const schemaFileOperationRoute = require('../../routes/schemaFileOperation.js');
-const saveEnabledThemesRoute = require('../../routes/saveEnabledThemes.js');
-const saveEnabledBlocksRoute = require('../../routes/saveEnabledBlocks.js');
-const systemBlocksListRoute = require('../../routes/systemBlocksList.js');
-const skeletonsListRoute = require('../../routes/skeletonsList.js');
-const getSkeletonRoute = require('../../routes/getSkeleton.js');
-const themesListRoute = require('../../routes/themesList.js');
-const systemVersionRoute = require('../../routes/systemVersion.js');
-const systemEntitiesRoute = require('../../routes/systemEntities.js');
-const systemSchemasRoute = require('../../routes/systemSchemas.js');
+const generateAppStoreRoute = require('./routes/generateAppStore.js');
+const systemStatusRoute = require('./routes/systemStatus.js');
+const getApiKeysRoute = require('./routes/getApiKeys.js');
+const saveApiKeysRoute = require('./routes/saveApiKeys.js');
+const getMediaSettingsRoute = require('./routes/getMediaSettings.js');
+const saveMediaSettingsRoute = require('./routes/saveMediaSettings.js');
+const saveEnabledSkeletonsRoute = require('./routes/saveEnabledSkeletons.js');
+const schemaFileOperationRoute = require('./routes/schemaFileOperation.js');
+const saveEnabledThemesRoute = require('./routes/saveEnabledThemes.js');
+const saveEnabledBlocksRoute = require('./routes/saveEnabledBlocks.js');
+const systemBlocksListRoute = require('./routes/systemBlocksList.js');
+const skeletonsListRoute = require('./routes/skeletonsList.js');
+const getSkeletonRoute = require('./routes/getSkeleton.js');
+const themesListRoute = require('./routes/themesList.js');
+const systemVersionRoute = require('./routes/systemVersion.js');
+const systemEntitiesRoute = require('./routes/systemEntities.js');
+const systemSchemasRoute = require('./routes/systemSchemas.js');
 
 function ensureRequestQuery(req) {
   if (!req.query || typeof req.query !== 'object') {

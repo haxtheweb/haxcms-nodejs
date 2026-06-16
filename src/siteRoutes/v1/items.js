@@ -30,17 +30,24 @@ const {
 const {
   featureDisabledResponse,
 } = require('../../lib/platformFeatures.js');
-const createNodeRoute = require('../../routes/createNode.js');
-const deleteNodeRoute = require('../../routes/deleteNode.js');
+const createNodeRoute = require('./routes/createNode.js');
+const deleteNodeRoute = require('./routes/deleteNode.js');
 
 function ensureLegacySiteTokenQuery(req) {
   const query = ensureRequestQueryObject(req);
-  if (!query.site_token || String(query.site_token).trim() === '') {
-    const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-    if (headerToken !== '') {
-      query.site_token = headerToken;
-    }
+  const body = ensureRequestBodyObject(req);
+  if (Object.prototype.hasOwnProperty.call(query, 'site_token')) {
+    delete query.site_token;
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'site_token')) {
+    delete body.site_token;
+  }
+  const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  if (headerToken === '') {
+    return null;
+  }
+  query.site_token = headerToken;
+  body.site_token = headerToken;
   return query;
 }
 
@@ -528,7 +535,13 @@ async function createItem(req, res, next) {
       message: 'Unable to resolve site name for create item operation',
     });
   }
-  ensureLegacySiteTokenQuery(req);
+  const legacyTokenQuery = ensureLegacySiteTokenQuery(req);
+  if (!legacyTokenQuery) {
+    return res.status(403).json({
+      status: 403,
+      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+    });
+  }
   const body = ensureLegacySiteRequestBody(req, siteName);
   const hasItemsPayload = Array.isArray(body.items) && body.items.length > 0;
   const hasNodePayload =
@@ -566,7 +579,13 @@ async function deleteItem(req, res, next) {
       message: 'Unable to resolve site name for delete item operation',
     });
   }
-  ensureLegacySiteTokenQuery(req);
+  const legacyTokenQuery = ensureLegacySiteTokenQuery(req);
+  if (!legacyTokenQuery) {
+    return res.status(403).json({
+      status: 403,
+      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+    });
+  }
   const body = ensureLegacySiteRequestBody(req, siteName);
   if (!body.node || typeof body.node !== 'object' || Array.isArray(body.node)) {
     body.node = {};

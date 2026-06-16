@@ -1,6 +1,7 @@
 const sessionRoutes = require('../systemRoutes/v1/session.js');
 const lifecycleRoutes = require('../systemRoutes/v1/lifecycle.js');
-const discoveryRoutes = require('../systemRoutes/v1/discovery.js');
+const discoveryApiRoute = require('../systemRoutes/discovery/api.js');
+const discoveryOpenapiRoute = require('../systemRoutes/discovery/openapi.js');
 const settingsRoutes = require('../systemRoutes/v1/settings.js');
 
 function addRouteHandler(routesMap, method = 'get', route = '', handler = null) {
@@ -335,10 +336,10 @@ addRouteHandler(
   settingsRoutes.schemaFileOperation,
 );
 
-addRouteHandler(SystemRoutesMap, 'get', '', discoveryRoutes.api);
-addRouteHandler(SystemRoutesMap, 'get', 'openapi', discoveryRoutes.openapi);
-addRouteHandler(SystemRoutesMap, 'get', 'openapi.json', discoveryRoutes.openapiJson);
-addRouteHandler(SystemRoutesMap, 'get', 'openapi.yaml', discoveryRoutes.openapiYaml);
+addRouteHandler(SystemRoutesMap, 'get', '', discoveryApiRoute);
+addRouteHandler(SystemRoutesMap, 'get', 'openapi', discoveryOpenapiRoute);
+addRouteHandler(SystemRoutesMap, 'get', 'openapi.json', discoveryOpenapiRoute);
+addRouteHandler(SystemRoutesMap, 'get', 'openapi.yaml', discoveryOpenapiRoute);
 
 const SystemV1OpenRoutes = [
   'session/login',

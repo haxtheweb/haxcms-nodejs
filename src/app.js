@@ -56,13 +56,13 @@ if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT
   helmetPolicies.crossOriginOpenerPolicy = 'same-origin';
 }
 // routes with all requires
-const { RoutesMap, OpenRoutes, SystemAdminRoutes } = require('./lib/RoutesMap.js');
-const { SiteRoutesMap } = require('./lib/SiteRoutesMap.js');
 const {
+  allRoutes,
+  SiteRoutesMap,
   SystemRoutesMap,
   SystemV1OpenRoutes,
   SystemV1AdminRoutes,
-} = require('./lib/SystemRoutesMap.js');
+} = require('./lib/allRoutes.js');
 // app settings
 const multer = require('multer');
 const { crossOriginOpenerPolicy } = require('helmet');
@@ -997,55 +997,30 @@ systemStructureContext().then((site) => {
       });
     });
   }
-  // loop through methods and apply the route to the file to deliver it
-  for (var method in RoutesMap) {
-    for (var route in RoutesMap[method]) {
-      let extra = jsonRequestParser;
-      if (route === "schemaFileOperation") {
-        extra = parseSchemaFileOperationBody;
-      }
-      app[method](`${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, extra ,(req, res, next) => {
-        const op = req.route.path.replace(`${HAXCMS.basePath}${HAXCMS.systemRequestBase}`, '');
-        const rMethod = req.method.toLowerCase();
-        if (!validateSystemAdminRouteAccess(req, op)) {
-          return res.status(403).json({
-            status: 403,
-            message: 'system admin route requires system dashboard access',
-          });
-        }
-        applyBearerJwtSystemApiShim(req);
-        if (OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
-          // call the method
-          RoutesMap[rMethod][op](req, res, next);
-        }
-        else {
-          res.sendStatus(403);
-        }
-      });
-      app[method](`/${HAXCMS.sitesDirectory}/*${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, extra ,(req, res, next) => {
-        const op = req.route.path.replace(`/${HAXCMS.sitesDirectory}/*${HAXCMS.basePath}${HAXCMS.systemRequestBase}`, '');
-        const rMethod = req.method.toLowerCase();
-        if (!validateSystemAdminRouteAccess(req, op)) {
-          return res.status(403).json({
-            status: 403,
-            message: 'system admin route requires system dashboard access',
-          });
-        }
-        applyBearerJwtSystemApiShim(req);
-        if (OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
-          // call the method
-          RoutesMap[rMethod][op](req, res, next);
-        }
-        else {
-          res.sendStatus(403);
-        }
-      });
-    }
-  }
+  const siteRouteRegistry =
+    allRoutes &&
+    allRoutes.site &&
+    allRoutes.site.map &&
+    typeof allRoutes.site.map === 'object'
+      ? allRoutes.site.map
+      : SiteRoutesMap;
+  const systemRouteRegistry =
+    allRoutes &&
+    allRoutes.system &&
+    allRoutes.system.map &&
+    typeof allRoutes.system.map === 'object'
+      ? allRoutes.system.map
+      : SystemRoutesMap;
+  const systemV1OpenRouteRegistry =
+    allRoutes &&
+    allRoutes.system &&
+    Array.isArray(allRoutes.system.openRoutes)
+      ? allRoutes.system.openRoutes
+      : SystemV1OpenRoutes;
   // loop through scoped system API routes and register under /system/api/v1
   const systemApiV1BasePath = `${HAXCMS.basePath}${HAXCMS.systemRequestBase}v1/`;
-  for (let systemMethod in SystemRoutesMap) {
-    for (let systemRoute in SystemRoutesMap[systemMethod]) {
+  for (let systemMethod in systemRouteRegistry) {
+    for (let systemRoute in systemRouteRegistry[systemMethod]) {
       const systemRoutePath = `${systemApiV1BasePath}${systemRoute}`;
       const systemRouteParser = getSystemV1RouteParser(systemMethod, systemRoute);
       const systemRouteHandler = (req, res, next) => {
@@ -1057,10 +1032,8 @@ systemStructureContext().then((site) => {
             message: 'system admin route requires system dashboard access',
           });
         }
-        applyBearerJwtSystemApiShim(req);
-        applySystemV1TokenShims(req);
-        if (SystemV1OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
-          return SystemRoutesMap[rMethod][op](req, res, next);
+        if (systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res)) {
+          return systemRouteRegistry[rMethod][op](req, res, next);
         }
         return res.sendStatus(403);
       };
@@ -1076,10 +1049,8 @@ systemStructureContext().then((site) => {
             message: 'system admin route requires system dashboard access',
           });
         }
-        applyBearerJwtSystemApiShim(req);
-        applySystemV1TokenShims(req);
-        if (SystemV1OpenRoutes.includes(op) || HAXCMS.validateJWT(req, res)) {
-          return SystemRoutesMap[rMethod][op](req, res, next);
+        if (systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res)) {
+          return systemRouteRegistry[rMethod][op](req, res, next);
         }
         return res.sendStatus(403);
       };
@@ -1106,8 +1077,8 @@ systemStructureContext().then((site) => {
   }
   // loop through site API routes and register discovery/read paths under x/api
   const siteApiBasePath = getSiteApiBasePath();
-  for (let siteMethod in SiteRoutesMap) {
-    for (let siteRoute in SiteRoutesMap[siteMethod]) {
+  for (let siteMethod in siteRouteRegistry) {
+    for (let siteRoute in siteRouteRegistry[siteMethod]) {
       const routeSuffix = siteRoute === '' ? '' : '/' + siteRoute;
       const siteRoutePath = `${siteApiBasePath}${routeSuffix}`;
       const siteRouteParser = getSiteApiRouteParser(siteMethod, siteRoute);
@@ -1120,7 +1091,7 @@ systemStructureContext().then((site) => {
               message: access.message,
             });
           }
-          SiteRoutesMap[siteMethod][siteRoute](req, res, next);
+          siteRouteRegistry[siteMethod][siteRoute](req, res, next);
         } catch (e) {
           return res.status(500).json({
             status: 500,
@@ -1302,18 +1273,6 @@ function shouldDisableResponseCache(req) {
 }
 
 
-function validateSystemAdminRouteAccess(req, op = '') {
-  if (SystemAdminRoutes.indexOf(op) === -1) {
-    return true;
-  }
-  if (
-    isSiteScopedSystemApiRoutePattern(req) &&
-    !isDashboardRefererRequest(req)
-  ) {
-    return false;
-  }
-  return true;
-}
 function validateSystemV1RouteAccess(req, op = '') {
   if (SystemV1AdminRoutes.indexOf(op) === -1) {
     return true;
@@ -1541,57 +1500,6 @@ function getAuthenticatedUserNameFromBearerJwt(jwt = '') {
     return '';
   }
   return String(decoded.user);
-}
-function applyBearerJwtToRequest(req, jwt = '', replaceExistingJwt = false) {
-  const token = String(jwt || '').trim();
-  if (token === '' || !req) {
-    return;
-  }
-  if (!req.query || typeof req.query !== 'object') {
-    req.query = {};
-  }
-  if (!req.body || typeof req.body !== 'object') {
-    req.body = {};
-  }
-  if (replaceExistingJwt || !req.query.jwt) {
-    req.query.jwt = token;
-  }
-  if (replaceExistingJwt || !req.body.jwt) {
-    req.body.jwt = token;
-  }
-}
-function applyBearerJwtSystemApiShim(req) {
-  const bearerJwt = getBearerJwtFromRequest(req);
-  if (bearerJwt === '') {
-    return;
-  }
-  applyBearerJwtToRequest(req, bearerJwt, true);
-}
-function applySystemV1TokenShims(req) {
-  const userToken = getRequestHeaderValue(req, 'x-haxcms-user-token');
-  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-  if (!req.query || typeof req.query !== 'object') {
-    req.query = {};
-  }
-  if (!req.body || typeof req.body !== 'object') {
-    req.body = {};
-  }
-  if (userToken !== '') {
-    if (!req.query.user_token) {
-      req.query.user_token = userToken;
-    }
-    if (!req.body.user_token) {
-      req.body.user_token = userToken;
-    }
-  }
-  if (siteToken !== '') {
-    if (!req.query.site_token) {
-      req.query.site_token = siteToken;
-    }
-    if (!req.body.site_token) {
-      req.body.site_token = siteToken;
-    }
-  }
 }
 function setSiteApiAuthContext(req, authContext = {}) {
   if (!req || typeof req !== 'object') {
@@ -1861,7 +1769,6 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
   const hasBearerJwt = bearerJwt !== '';
   let invalidBearerJwt = false;
   if (hasBearerJwt) {
-    applyBearerJwtToRequest(req, bearerJwt);
     const validBearer = HAXCMS.validateJWT(req, null);
     if (!validBearer) {
       invalidBearerJwt = true;

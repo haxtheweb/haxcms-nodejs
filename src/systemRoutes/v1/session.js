@@ -1,10 +1,10 @@
-const loginRoute = require('../../routes/login.js');
-const logoutRoute = require('../../routes/logout.js');
-const refreshAccessTokenRoute = require('../../routes/refreshAccessToken.js');
-const sessionRoute = require('../../routes/session.js');
-const connectionSettingsRoute = require('../../routes/connectionSettings.js');
-const connectionTestRoute = require('../../routes/connectionTest.js');
-const getUserDataRoute = require('../../routes/getUserData.js');
+const loginRoute = require('./routes/login.js');
+const logoutRoute = require('./routes/logout.js');
+const refreshAccessTokenRoute = require('./routes/refreshAccessToken.js');
+const sessionRoute = require('./routes/session.js');
+const connectionSettingsRoute = require('./routes/connectionSettings.js');
+const connectionTestRoute = require('./routes/connectionTest.js');
+const getUserDataRoute = require('./routes/getUserData.js');
 
 async function login(req, res, next) {
   return loginRoute(req, res, next);

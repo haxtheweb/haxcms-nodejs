@@ -1,14 +1,14 @@
 const fs = require('fs-extra');
 const path = require('path');
 const { HAXCMS } = require('../../lib/HAXCMS.js');
-const listSitesRoute = require('../../routes/listSites.js');
-const createSiteRoute = require('../../routes/createSite.js');
-const cloneSiteRoute = require('../../routes/cloneSite.js');
-const archiveSiteRoute = require('../../routes/archiveSite.js');
-const downloadSiteRoute = require('../../routes/downloadSite.js');
-const downloadSiteSkeletonRoute = require('../../routes/downloadSiteSkeleton.js');
-const saveSiteAsTemplateRoute = require('../../routes/saveSiteAsTemplate.js');
-const siteInfoRoute = require('../../routes/siteInfo.js');
+const listSitesRoute = require('./routes/listSites.js');
+const createSiteRoute = require('./routes/createSite.js');
+const cloneSiteRoute = require('./routes/cloneSite.js');
+const archiveSiteRoute = require('./routes/archiveSite.js');
+const downloadSiteRoute = require('./routes/downloadSite.js');
+const downloadSiteSkeletonRoute = require('./routes/downloadSiteSkeleton.js');
+const saveSiteAsTemplateRoute = require('./routes/saveSiteAsTemplate.js');
+const siteInfoRoute = require('./routes/siteInfo.js');
 function ensureRequestBody(req) {
   if (!req.body || typeof req.body !== 'object') {
     req.body = {};

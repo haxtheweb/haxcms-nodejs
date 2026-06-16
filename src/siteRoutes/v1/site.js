@@ -1,13 +1,13 @@
 const fs = require('fs-extra');
 const path = require('path');
 const { HAXCMS, systemStructureContext } = require('../../lib/HAXCMS.js');
-const saveManifestRoute = require('../../routes/saveManifest.js');
-const saveAppearanceSettingsRoute = require('../../routes/saveAppearanceSettings.js');
-const savePlatformSettingsRoute = require('../../routes/savePlatformSettings.js');
-const saveAllowedBlocksRoute = require('../../routes/saveAllowedBlocks.js');
-const saveEditorSettingsRoute = require('../../routes/saveEditorSettings.js');
-const saveSeoSettingsRoute = require('../../routes/saveSeoSettings.js');
-const saveOutlineRoute = require('../../routes/saveOutline.js');
+const saveManifestRoute = require('./routes/saveManifest.js');
+const saveAppearanceSettingsRoute = require('./routes/saveAppearanceSettings.js');
+const savePlatformSettingsRoute = require('./routes/savePlatformSettings.js');
+const saveAllowedBlocksRoute = require('./routes/saveAllowedBlocks.js');
+const saveEditorSettingsRoute = require('./routes/saveEditorSettings.js');
+const saveSeoSettingsRoute = require('./routes/saveSeoSettings.js');
+const saveOutlineRoute = require('./routes/saveOutline.js');
 
 function getRequestPath(req) {
   if (req && typeof req.originalUrl === 'string' && req.originalUrl !== '') {
@@ -82,12 +82,19 @@ function getSiteNameFromResolvedSite(site) {
 
 function ensureLegacySiteTokenQuery(req) {
   const query = ensureRequestQueryObject(req);
-  if (!query.site_token || String(query.site_token).trim() === '') {
-    const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-    if (headerToken !== '') {
-      query.site_token = headerToken;
-    }
+  const body = ensureRequestBodyObject(req);
+  if (Object.prototype.hasOwnProperty.call(query, 'site_token')) {
+    delete query.site_token;
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'site_token')) {
+    delete body.site_token;
+  }
+  const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  if (headerToken === '') {
+    return null;
+  }
+  query.site_token = headerToken;
+  body.site_token = headerToken;
   return query;
 }
 
@@ -469,7 +476,13 @@ async function delegateToLegacySiteWrite(
       message: `Unable to resolve site name for ${routeLabel}`,
     });
   }
-  ensureLegacySiteTokenQuery(req);
+  const legacyTokenQuery = ensureLegacySiteTokenQuery(req);
+  if (!legacyTokenQuery) {
+    return res.status(403).json({
+      status: 403,
+      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+    });
+  }
   const body = ensureLegacySiteRequestBody(req, siteName);
   if (typeof validateBody === 'function') {
     const validationResult = validateBody(body);

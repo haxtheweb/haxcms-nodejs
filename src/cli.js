@@ -4,8 +4,12 @@
 process.env.haxcms_middleware = "node-cli";
 // HAXcms core settings
 const { HAXCMS } = require('./lib/HAXCMS.js');
-
-const RoutesMap = require('./lib/RoutesMap.js');
+const { allRoutes } = require('./lib/allRoutes.js');
+const systemRouteRegistry =
+  allRoutes && allRoutes.system && allRoutes.system.map
+    ? allRoutes.system.map
+    : { get: {}, post: {}, patch: {}, put: {}, delete: {} };
+const systemApiBasePath = `${HAXCMS.basePath}${HAXCMS.systemRequestBase}v1/`;
 
 // process arguments from commandline appropriately
 let body = {};
@@ -41,18 +45,18 @@ const cli = {
 // @todo ensure that we apply the same JWT checking that we do in the PHP side
 // instead of a simple array of what to let go through we could put it into our
 // routes object above and apply JWT requirement on paths in a better way
-for (var method in RoutesMap) {
-  for (var route in RoutesMap[method]) {
+for (var method in systemRouteRegistry) {
+  for (var route in systemRouteRegistry[method]) {
     if (cliOp === 'listCalls') {
       console.log(route);
     }
     else if (route === cliOp) {
-      cli[method](`${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`, (req, res) => {
-        const op = req.route.path.replace(`${HAXCMS.basePath}${HAXCMS.systemRequestBase}`, '');
+      cli[method](`${systemApiBasePath}${route}`, (req, res) => {
+        const op = req.route.path.replace(systemApiBasePath, '');
         const rMethod = req.method.toLowerCase();
         if (HAXCMS.validateJWT(req, res)) {
           // call the method
-          RoutesMap[rMethod][op](req, res);
+          systemRouteRegistry[rMethod][op](req, res);
         }
         else {
           console.error("route connection issue");
@@ -91,7 +95,7 @@ export async function cliBridge(op, body = {}) {
   const fakeToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName());
   let req = {
     route: {
-      path: `${HAXCMS.basePath}${HAXCMS.systemRequestBase}${route}`
+      path: `${systemApiBasePath}${op}`
     },
     body: body,
     query: {
@@ -105,7 +109,7 @@ export async function cliBridge(op, body = {}) {
   const rMethod = req.method.toLowerCase();
   if (HAXCMS.validateJWT(req, res)) {
     // call the method
-    await RoutesMap.RoutesMap[rMethod][op](req, res);
+    await systemRouteRegistry[rMethod][op](req, res);
     return {req: req, res: res};
   }
   else {
