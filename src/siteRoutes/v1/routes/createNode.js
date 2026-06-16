@@ -6,6 +6,7 @@ const {
   platformAllows,
   featureDisabledResponse,
 } = require('../../../lib/platformFeatures.js');
+const { getRequestHeaderValue } = require('../siteRouteUtils.js');
 /**
  * @OA\Post(
  *     path="/createNode",
@@ -76,7 +77,8 @@ const {
  */
 async function createNode(req, res) {
   let nodeParams = req.body;
-  if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + nodeParams['site']['name'])) {
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  if (siteToken && HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + nodeParams['site']['name'])) {
     let item;
     let site = await HAXCMS.loadSite(req.body['site']['name'].toLowerCase());
     if (!platformAllows(site, 'addPage')) {

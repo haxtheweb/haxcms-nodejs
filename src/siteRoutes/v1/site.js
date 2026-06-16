@@ -52,12 +52,6 @@ function getRequestHeaderValue(req, headerName = '') {
   return '';
 }
 
-function ensureRequestQueryObject(req) {
-  if (!req.query || typeof req.query !== 'object') {
-    req.query = {};
-  }
-  return req.query;
-}
 
 function ensureRequestBodyObject(req) {
   if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
@@ -80,21 +74,12 @@ function getSiteNameFromResolvedSite(site) {
   return '';
 }
 
-function ensureLegacySiteTokenQuery(req) {
-  const query = ensureRequestQueryObject(req);
-  const body = ensureRequestBodyObject(req);
-  if (Object.prototype.hasOwnProperty.call(query, 'site_token')) {
-    delete query.site_token;
-  }
-  if (Object.prototype.hasOwnProperty.call(body, 'site_token')) {
-    delete body.site_token;
-  }
+function ensureSiteTokenHeader(req) {
   const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
   if (headerToken === '') {
     return null;
   }
-  query.site_token = headerToken;
-  return query;
+  return headerToken;
 }
 
 function ensureLegacySiteRequestBody(req, siteName = '') {
@@ -475,8 +460,8 @@ async function delegateToLegacySiteWrite(
       message: `Unable to resolve site name for ${routeLabel}`,
     });
   }
-  const legacyTokenQuery = ensureLegacySiteTokenQuery(req);
-  if (!legacyTokenQuery) {
+  const siteToken = ensureSiteTokenHeader(req);
+  if (!siteToken) {
     return res.status(403).json({
       status: 403,
       message: 'X-HAXCMS-Site-Token header is required for this endpoint',

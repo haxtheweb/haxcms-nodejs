@@ -1,6 +1,7 @@
 const { parse } = require('node-html-parser');
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
+const { getRequestHeaderValue } = require('../siteRouteUtils.js');
 
 const SITE_SEARCH_DEFAULT_FIELDS = ['title', 'slug', 'description', 'tags', 'content'];
 const SITE_SEARCH_ALLOWED_FIELDS = ['id', 'title', 'slug', 'description', 'tags', 'content', 'location', 'parent'];
@@ -384,15 +385,16 @@ async function siteSearch(req, res) {
   const requestBody = req && req.body && typeof req.body === 'object'
     ? req.body
     : {};
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
   const siteName = requestBody.site &&
     typeof requestBody.site === 'object' &&
     typeof requestBody.site.name === 'string'
     ? requestBody.site.name.trim()
     : '';
   if (
-    !req.query.site_token ||
+    !siteToken ||
     !siteName ||
-    !HAXCMS.validateRequestToken(req.query.site_token, `${HAXCMS.getActiveUserName()}:${siteName}`)
+    !HAXCMS.validateRequestToken(siteToken, `${HAXCMS.getActiveUserName()}:${siteName}`)
   ) {
     return res.sendStatus(403);
   }

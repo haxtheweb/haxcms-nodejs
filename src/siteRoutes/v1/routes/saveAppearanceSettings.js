@@ -5,6 +5,7 @@ const {
   platformAllows,
   featureDisabledResponse,
 } = require('../../../lib/platformFeatures.js')
+const { getRequestHeaderValue } = require('../siteRouteUtils.js')
 
 const ALLOWED_TOP_LEVEL_KEYS = new Set(['site', 'manifest'])
 const ALLOWED_SITE_KEYS = new Set(['name'])
@@ -97,11 +98,12 @@ function sanitizeRegionIds(value) {
  */
 async function saveAppearanceSettings(req, res) {
   const siteNameForToken = req.body && req.body.site ? req.body.site.name : ''
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token')
   if (
     !(
-      req.query['site_token'] &&
+      siteToken &&
       HAXCMS.validateRequestToken(
-        req.query['site_token'],
+        siteToken,
         HAXCMS.getActiveUserName() + ':' + siteNameForToken,
       )
     )

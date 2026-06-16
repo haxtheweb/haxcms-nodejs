@@ -1,4 +1,5 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { getRequestHeaderValue } = require('../siteRouteUtils.js');
 
 /**
  * @OA\Post(
@@ -18,10 +19,11 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
  * )
  */
 async function savePlatformSettings(req, res) {
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
   if (
-    req.query['site_token'] &&
+    siteToken &&
     HAXCMS.validateRequestToken(
-      req.query['site_token'],
+      siteToken,
       HAXCMS.getActiveUserName() + ':' + req.body['site']['name'],
     )
   ) {

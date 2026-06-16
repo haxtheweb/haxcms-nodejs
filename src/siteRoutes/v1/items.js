@@ -19,7 +19,6 @@ const {
   toIsoDateFromUnixTime,
   isItemVisibleToAnonymous,
   isAnonymousSiteApiRequest,
-  ensureRequestQueryObject,
   ensureRequestBodyObject,
   getRequestHeaderValue,
   getSiteNameFromResolvedSite,
@@ -33,22 +32,12 @@ const {
 const createNodeRoute = require('./routes/createNode.js');
 const deleteNodeRoute = require('./routes/deleteNode.js');
 
-function ensureLegacySiteTokenQuery(req) {
-  const query = ensureRequestQueryObject(req);
-  const body = ensureRequestBodyObject(req);
-  if (Object.prototype.hasOwnProperty.call(query, 'site_token')) {
-    delete query.site_token;
-  }
-  if (Object.prototype.hasOwnProperty.call(body, 'site_token')) {
-    delete body.site_token;
-  }
+function ensureSiteTokenHeader(req) {
   const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
   if (headerToken === '') {
     return null;
   }
-  query.site_token = headerToken;
-  body.site_token = headerToken;
-  return query;
+  return headerToken;
 }
 
 function ensureLegacySiteRequestBody(req, siteName = '') {
@@ -535,8 +524,8 @@ async function createItem(req, res, next) {
       message: 'Unable to resolve site name for create item operation',
     });
   }
-  const legacyTokenQuery = ensureLegacySiteTokenQuery(req);
-  if (!legacyTokenQuery) {
+  const siteToken = ensureSiteTokenHeader(req);
+  if (!siteToken) {
     return res.status(403).json({
       status: 403,
       message: 'X-HAXCMS-Site-Token header is required for this endpoint',

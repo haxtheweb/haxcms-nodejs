@@ -11,6 +11,7 @@ const {
   platformAllows,
   featureDisabledResponse,
 } = require('../../../lib/platformFeatures.js');
+const { getRequestHeaderValue } = require('../siteRouteUtils.js');
 /**
    * @OA\Post(
    *    path="/saveNode",
@@ -29,7 +30,8 @@ const {
    * )
    */
   async function saveNode(req, res) {
-    if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
+    const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+    if (siteToken && HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
       let bodyParams = req.body;
       let site = await HAXCMS.loadSite(req.body['site']['name']);
       

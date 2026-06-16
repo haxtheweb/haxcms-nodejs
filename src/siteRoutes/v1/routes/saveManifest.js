@@ -6,6 +6,7 @@ const {
   platformAllows,
   featureDisabledResponse,
 } = require('../../../lib/platformFeatures.js');
+const { getRequestHeaderValue } = require('../siteRouteUtils.js');
 /**
    * @OA\Post(
    *    path="/saveManifest",
@@ -24,7 +25,8 @@ const {
    * )
    */
   async function saveManifest(req, res) {
-    if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
+    const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+    if (siteToken && HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
       // load the site from name
       let site = await HAXCMS.loadSite(req.body['site']['name']);
       if (!platformAllows(site, 'siteManifest')) {

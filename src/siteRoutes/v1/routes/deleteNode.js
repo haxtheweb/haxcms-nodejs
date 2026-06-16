@@ -3,6 +3,7 @@ const {
   platformAllows,
   featureDisabledResponse,
 } = require('../../../lib/platformFeatures.js');
+const { getRequestHeaderValue } = require('../siteRouteUtils.js');
 
 /**
    * @OA\Post(
@@ -23,7 +24,8 @@ const {
    */
   async function deleteNode(req, res) {
     let site = await HAXCMS.loadSite(req.body['site']['name']);
-    if (req.query['site_token'] && HAXCMS.validateRequestToken(req.query['site_token'], HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
+    const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+    if (siteToken && HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
       if (!platformAllows(site, 'deletePage')) {
         return featureDisabledResponse(res, 'Delete is disabled for this site');
       }

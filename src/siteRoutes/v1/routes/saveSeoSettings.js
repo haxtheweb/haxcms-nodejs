@@ -5,6 +5,7 @@ const {
   platformAllows,
   featureDisabledResponse,
 } = require('../../../lib/platformFeatures.js');
+const { getRequestHeaderValue } = require('../siteRouteUtils.js');
 
 /**
  * @OA\Post(
@@ -24,13 +25,14 @@ const {
  * )
  */
 async function saveSeoSettings(req, res) {
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
   if (
-    req.query['site_token'] &&
+    siteToken &&
     req.body &&
     req.body.site &&
     req.body.site.name &&
     HAXCMS.validateRequestToken(
-      req.query['site_token'],
+      siteToken,
       HAXCMS.getActiveUserName() + ':' + req.body.site.name,
     )
   ) {
