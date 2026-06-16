@@ -1,7 +1,7 @@
 const { parse } = require('node-html-parser');
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
-const { getRequestHeaderValue } = require('../siteRouteUtils.js');
+const { getRequestHeaderValue, parseBooleanFromInput } = require('../siteRouteUtils.js');
 
 const SITE_SEARCH_DEFAULT_FIELDS = ['title', 'slug', 'description', 'tags', 'content'];
 const SITE_SEARCH_ALLOWED_FIELDS = ['id', 'title', 'slug', 'description', 'tags', 'content', 'location', 'parent'];
@@ -14,19 +14,6 @@ const SITE_SEARCH_ALLOWED_OPERATIONS = [
   SITE_SEARCH_OPERATION_SEARCH,
   SITE_SEARCH_OPERATION_REPLACE,
 ];
-
-function parseBooleanValue(value) {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  if (typeof value === 'number') {
-    return value === 1;
-  }
-  if (typeof value === 'string') {
-    return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
-  }
-  return false;
-}
 
 function countTextMatches(value, searchTerm, caseSensitive = false) {
   if (typeof value !== 'string' || value.length === 0) {
@@ -422,11 +409,11 @@ async function siteSearch(req, res) {
   }
 
   const selectorMode = operation !== SITE_SEARCH_OPERATION_REPLACE && (
-    parseBooleanValue(requestBody.searchSelector) ||
+    parseBooleanFromInput(requestBody.searchSelector, false) ||
     (typeof requestBody.searchMode === 'string' && requestBody.searchMode.toLowerCase() === 'selector')
   );
   const searchLimit = parseLimitValue(requestBody.searchLimit, SITE_SEARCH_DEFAULT_LIMIT);
-  const caseSensitive = parseBooleanValue(requestBody.searchCaseSensitive);
+  const caseSensitive = parseBooleanFromInput(requestBody.searchCaseSensitive, false);
   const searchFields = operation === SITE_SEARCH_OPERATION_REPLACE
     ? ['content']
     : (selectorMode ? ['content'] : normalizeSearchFields(requestBody.searchField));
@@ -444,13 +431,13 @@ async function siteSearch(req, res) {
         message: 'Replacement text must be empty or more than 1 character',
       });
     }
-    if (!parseBooleanValue(requestBody.replaceConfirm)) {
+    if (!parseBooleanFromInput(requestBody.replaceConfirm, false)) {
       return res.status(400).send({
         status: 400,
         message: 'Replacement requires confirmation',
       });
     }
-    if (replacement === '' && !parseBooleanValue(requestBody.replaceDestroyConfirm)) {
+    if (replacement === '' && !parseBooleanFromInput(requestBody.replaceDestroyConfirm, false)) {
       return res.status(400).send({
         status: 400,
         message: 'Removing matched text requires a second confirmation',

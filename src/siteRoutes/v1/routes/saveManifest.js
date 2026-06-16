@@ -2,11 +2,7 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const filter_var = require('../../../lib/filter_var.js');
 const fs = require('fs-extra');
 const { sanitizeURLValue } = require('../../../lib/sanitizeContent.js');
-const {
-  platformAllows,
-  featureDisabledResponse,
-} = require('../../../lib/platformFeatures.js');
-const { getRequestHeaderValue } = require('../siteRouteUtils.js');
+const { getRequestHeaderValue, ensureSiteMetadataContainers, assertSiteFeature } = require('../siteRouteUtils.js');
 /**
    * @OA\Post(
    *    path="/saveManifest",
@@ -35,11 +31,8 @@ const { getRequestHeaderValue } = require('../siteRouteUtils.js');
     ) {
       // load the site from name
       let site = await HAXCMS.loadSite(req.body['site']['name']);
-      if (!platformAllows(site, 'siteManifest')) {
-        return featureDisabledResponse(
-          res,
-          'Manifest editing is disabled for this site'
-        );
+      if (!assertSiteFeature(site, res, 'siteManifest', 'Manifest editing is disabled for this site')) {
+        return;
       }
       // standard form submit
       // @todo 
@@ -366,17 +359,6 @@ const { getRequestHeaderValue } = require('../siteRouteUtils.js');
       typeof body['haxcms_form_id'] === 'undefined' &&
       typeof body['haxcms_form_token'] === 'undefined'
     );
-  }
-  function ensureSiteMetadataContainers(site) {
-    if (!(site.manifest.metadata)) {
-      site.manifest.metadata = {};
-    }
-    if (!(site.manifest.metadata.site)) {
-      site.manifest.metadata.site = {};
-    }
-    if (!(site.manifest.metadata.site.settings)) {
-      site.manifest.metadata.site.settings = {};
-    }
   }
   async function saveScopedDetailsPayload(site, body) {
     ensureSiteMetadataContainers(site);

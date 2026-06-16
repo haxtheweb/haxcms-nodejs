@@ -57,12 +57,7 @@ async function saveEditorSettings(req, res) {
       return;
     }
 
-    if (!site.manifest.metadata) {
-      site.manifest.metadata = {};
-    }
-    if (!site.manifest.metadata.site) {
-      site.manifest.metadata.site = {};
-    }
+    ensureSiteMetadataContainers(site);
     if (
       !site.manifest.metadata.platform ||
       typeof site.manifest.metadata.platform !== 'object' ||

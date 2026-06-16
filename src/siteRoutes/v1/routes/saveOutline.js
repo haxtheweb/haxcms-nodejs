@@ -3,11 +3,7 @@ const path = require('path');
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
 const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
-const {
-  platformAllows,
-  featureDisabledResponse,
-} = require('../../../lib/platformFeatures.js');
-const { getRequestHeaderValue } = require('../siteRouteUtils.js');
+const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 /**
    * @OA\Post(
    *    path="/saveOutline",
@@ -36,11 +32,8 @@ const { getRequestHeaderValue } = require('../siteRouteUtils.js');
     ) {
       // items from the POST
       let site = await HAXCMS.loadSite(req.body['site']['name']);
-      if (!platformAllows(site, 'outlineDesigner')) {
-        return featureDisabledResponse(
-          res,
-          'Outline operations are disabled for this site',
-        );
+      if (!assertSiteFeature(site, res, 'outlineDesigner', 'Outline operations are disabled for this site')) {
+        return;
       }
       let original = [...site.manifest.items];
       let originalLocationMap = {};

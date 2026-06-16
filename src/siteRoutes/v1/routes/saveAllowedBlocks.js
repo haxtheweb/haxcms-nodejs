@@ -85,12 +85,7 @@ async function saveAllowedBlocks(req, res) {
       uniqueAllowedBlocks = [...new Set(cleanAllowedBlocks)].sort();
     }
 
-    if (!site.manifest.metadata) {
-      site.manifest.metadata = {};
-    }
-    if (!site.manifest.metadata.site) {
-      site.manifest.metadata.site = {};
-    }
+    ensureSiteMetadataContainers(site);
     if (!site.manifest.metadata.platform || typeof site.manifest.metadata.platform !== 'object') {
       site.manifest.metadata.platform = {
         audience: 'expert',

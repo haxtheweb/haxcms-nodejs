@@ -7,11 +7,7 @@ const {
   sanitizeURLValue,
   sanitizeMetadataValue,
 } = require('../../../lib/sanitizeContent.js');
-const {
-  platformAllows,
-  featureDisabledResponse,
-} = require('../../../lib/platformFeatures.js');
-const { getRequestHeaderValue } = require('../siteRouteUtils.js');
+const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 /**
    * @OA\Post(
    *    path="/saveNode",
@@ -99,11 +95,8 @@ const { getRequestHeaderValue } = require('../siteRouteUtils.js');
             // a capability that is not supported currently beyond experiments
             page = site.loadNode(data["attributes"]["item-id"]);
             if (!page) {
-              if (!platformAllows(site, 'addPage')) {
-                return featureDisabledResponse(
-                  res,
-                  'Adding pages is disabled for this site'
-                );
+              if (!assertSiteFeature(site, res, 'addPage', 'Adding pages is disabled for this site')) {
+                return;
               }
               // generate a new item based on the site
               let nodeParams = {

@@ -5,7 +5,7 @@ const {
   platformAllows,
   featureDisabledResponse,
 } = require('../../../lib/platformFeatures.js');
-const { getRequestHeaderValue } = require('../siteRouteUtils.js');
+const { getRequestHeaderValue, hasOwn, normalizeString, parseBooleanFromInput, ensureSiteMetadataContainers } = require('../siteRouteUtils.js');
 
 /**
  * @OA\Post(
@@ -48,15 +48,7 @@ async function saveSeoSettings(req, res) {
       );
     }
 
-    if (!site.manifest.metadata) {
-      site.manifest.metadata = {};
-    }
-    if (!site.manifest.metadata.site) {
-      site.manifest.metadata.site = {};
-    }
-    if (!site.manifest.metadata.site.settings) {
-      site.manifest.metadata.site.settings = {};
-    }
+    ensureSiteMetadataContainers(site);
     if (!site.manifest.metadata.author) {
       site.manifest.metadata.author = {};
     }
@@ -77,20 +69,6 @@ async function saveSeoSettings(req, res) {
       typeof req.body.manifest.seo === 'object'
         ? req.body.manifest.seo
         : {};
-
-    const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
-    const normalizeString = (value) =>
-      value === null || typeof value === 'undefined' ? '' : String(value);
-    const parseBoolean = (value) => {
-      if (value === null || typeof value === 'undefined' || value === '') {
-        return null;
-      }
-      return filter_var(
-        value,
-        'FILTER_VALIDATE_BOOLEAN',
-        'FILTER_NULL_ON_FAILURE',
-      );
-    };
 
     let licenseValue;
     if (hasOwn(bodyAuthor, 'license')) {
@@ -255,7 +233,7 @@ async function saveSeoSettings(req, res) {
     } else if (hasOwn(manifestSeo, 'manifest.metadata.site.settings.private')) {
       privateInput = manifestSeo['manifest.metadata.site.settings.private'];
     }
-    const privateValue = parseBoolean(privateInput);
+    const privateValue = parseBooleanFromInput(privateInput, null);
     if (privateValue !== null) {
       site.manifest.metadata.site.settings.private = privateValue;
     }
@@ -268,7 +246,7 @@ async function saveSeoSettings(req, res) {
     ) {
       canonicalInput = manifestSeo['manifest.metadata.site.settings.canonical'];
     }
-    const canonicalValue = parseBoolean(canonicalInput);
+    const canonicalValue = parseBooleanFromInput(canonicalInput, null);
     if (canonicalValue !== null) {
       site.manifest.metadata.site.settings.canonical = canonicalValue;
     }
@@ -279,7 +257,7 @@ async function saveSeoSettings(req, res) {
     } else if (hasOwn(manifestSeo, 'manifest.metadata.site.settings.pathauto')) {
       pathautoInput = manifestSeo['manifest.metadata.site.settings.pathauto'];
     }
-    const pathautoValue = parseBoolean(pathautoInput);
+    const pathautoValue = parseBooleanFromInput(pathautoInput, null);
     if (pathautoValue !== null) {
       site.manifest.metadata.site.settings.pathauto = pathautoValue;
     }
@@ -293,7 +271,7 @@ async function saveSeoSettings(req, res) {
       publishPagesOnInput =
         manifestSeo['manifest.metadata.site.settings.publishPagesOn'];
     }
-    const publishPagesOnValue = parseBoolean(publishPagesOnInput);
+    const publishPagesOnValue = parseBooleanFromInput(publishPagesOnInput, null);
     if (publishPagesOnValue !== null) {
       site.manifest.metadata.site.settings.publishPagesOn = publishPagesOnValue;
     }

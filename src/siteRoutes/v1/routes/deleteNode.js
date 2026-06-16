@@ -1,9 +1,5 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const {
-  platformAllows,
-  featureDisabledResponse,
-} = require('../../../lib/platformFeatures.js');
-const { getRequestHeaderValue } = require('../siteRouteUtils.js');
+const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 
 /**
    * @OA\Post(
@@ -32,8 +28,8 @@ const { getRequestHeaderValue } = require('../siteRouteUtils.js');
       HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + req.body.site.name)
     ) {
       let site = await HAXCMS.loadSite(req.body.site.name);
-      if (!platformAllows(site, 'deletePage')) {
-        return featureDisabledResponse(res, 'Delete is disabled for this site');
+      if (!assertSiteFeature(site, res, 'deletePage', 'Delete is disabled for this site')) {
+        return;
       }
       // update the page's content, using manifest to find it
       // this ensures that writing is always to what the file system

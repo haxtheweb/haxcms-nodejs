@@ -2,6 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
 const { HAXCMS, systemStructureContext } = require('../../lib/HAXCMS.js');
+const {
+  platformAllows,
+  featureDisabledResponse,
+} = require('../../lib/platformFeatures.js');
 
 const FORMAT_ALIASES = {
   json: 'json',
@@ -524,7 +528,13 @@ function getBooleanQuery(req, key, fallbackValue = null) {
   if (!Object.prototype.hasOwnProperty.call(query, key)) {
     return fallbackValue;
   }
-  const value = query[key];
+  return parseBooleanFromInput(query[key], fallbackValue);
+}
+
+function parseBooleanFromInput(value, fallback = null) {
+  if (value === null || typeof value === 'undefined' || value === '') {
+    return fallback;
+  }
   if (typeof value === 'boolean') {
     return value;
   }
@@ -550,7 +560,55 @@ function getBooleanQuery(req, key, fallbackValue = null) {
       return false;
     }
   }
-  return fallbackValue;
+  return fallback;
+}
+
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasOnlyAllowedKeys(object, allowedKeys) {
+  if (!isPlainObject(object)) {
+    return false;
+  }
+  for (const key of Object.keys(object)) {
+    if (!allowedKeys.has(key)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function normalizeString(value) {
+  return value === null || typeof value === 'undefined' ? '' : String(value);
+}
+
+function ensureSiteMetadataContainers(site) {
+  if (!site.manifest.metadata) {
+    site.manifest.metadata = {};
+  }
+  if (!site.manifest.metadata.site) {
+    site.manifest.metadata.site = {};
+  }
+  if (!site.manifest.metadata.site.settings) {
+    site.manifest.metadata.site.settings = {};
+  }
+}
+
+function assertSiteFeature(site, res, featureName, message) {
+  if (!site || !site.manifest) {
+    res.sendStatus(400);
+    return false;
+  }
+  if (!platformAllows(site, featureName)) {
+    featureDisabledResponse(res, message);
+    return false;
+  }
+  return true;
 }
 
 function normalizeSortTokens(sortValue = '', defaultSort = '') {
@@ -1370,6 +1428,13 @@ module.exports = {
   getCsvQuery,
   getNumberQuery,
   getBooleanQuery,
+  parseBooleanFromInput,
+  isPlainObject,
+  hasOnlyAllowedKeys,
+  hasOwn,
+  normalizeString,
+  ensureSiteMetadataContainers,
+  assertSiteFeature,
   normalizeSortTokens,
   sortRecords,
   paginateRecords,

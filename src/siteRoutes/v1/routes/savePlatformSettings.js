@@ -1,5 +1,5 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const { getRequestHeaderValue } = require('../siteRouteUtils.js');
+const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 
 /**
  * @OA\Post(
@@ -29,6 +29,9 @@ async function savePlatformSettings(req, res) {
   ) {
     // load the site from name
     let site = await HAXCMS.loadSite(req.body['site']['name']);
+    if (!assertSiteFeature(site, res, 'siteManifest', 'Platform settings are disabled for this site')) {
+      return;
+    }
 
     if (!req.body || typeof req.body.platform !== 'object' || !req.body.platform) {
       res.sendStatus(400);
@@ -116,12 +119,7 @@ async function savePlatformSettings(req, res) {
 
     // Write features only. Audience and allowed blocks are managed by their
     // dedicated endpoints (saveEditorSettings / saveAllowedBlocks).
-    if (!site.manifest.metadata) {
-      site.manifest.metadata = {};
-    }
-    if (!site.manifest.metadata.site) {
-      site.manifest.metadata.site = {};
-    }
+    ensureSiteMetadataContainers(site);
     if (
       !site.manifest.metadata.platform ||
       typeof site.manifest.metadata.platform !== 'object' ||

@@ -5,7 +5,7 @@ const {
   platformAllows,
   featureDisabledResponse,
 } = require('../../../lib/platformFeatures.js')
-const { getRequestHeaderValue } = require('../siteRouteUtils.js')
+const { getRequestHeaderValue, isPlainObject, hasOnlyAllowedKeys } = require('../siteRouteUtils.js')
 
 const ALLOWED_TOP_LEVEL_KEYS = new Set(['site', 'manifest'])
 const ALLOWED_SITE_KEYS = new Set(['name'])
@@ -29,22 +29,6 @@ const ALLOWED_THEME_KEYS = new Set([
   'manifest-metadata-theme-variables-icon',
   ...Object.keys(REGION_FIELD_MAP),
 ])
-
-function isPlainObject(value) {
-  return value && typeof value === 'object' && !Array.isArray(value)
-}
-
-function hasOnlyAllowedKeys(object, allowedKeys) {
-  if (!isPlainObject(object)) {
-    return false
-  }
-  for (const key of Object.keys(object)) {
-    if (!allowedKeys.has(key)) {
-      return false
-    }
-  }
-  return true
-}
 
 function normalizeCssVariable(value) {
   if (typeof value !== 'string') {
