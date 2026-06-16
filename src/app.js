@@ -67,8 +67,15 @@ if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT
     // also enables webcontainer environments which is what our playground runs
     helmetPolicies.contentSecurityPolicy = false;
     helmetPolicies.crossOriginResourcePolicy = false;
-    helmetPolicies.crossOriginEmbedderPolicy = 'require-corp';
-    helmetPolicies.crossOriginOpenerPolicy = 'same-origin';
+    // COEP must be the object form ({ policy }) for helmet to honor the value;
+    // a bare string silently falls back to the require-corp default. Use
+    // 'credentialless' so we keep cross-origin isolation (SharedArrayBuffer /
+    // the webcontainer playground) WITHOUT blocking cross-origin subresources
+    // that omit CORP (e.g. CDN module/asset loads via the wc-registry magic
+    // loader). 'require-corp' blocked those with
+    // ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep.
+    helmetPolicies.crossOriginEmbedderPolicy = { policy: 'credentialless' };
+    helmetPolicies.crossOriginOpenerPolicy = { policy: 'same-origin' };
   }
 }
 // routes with all requires

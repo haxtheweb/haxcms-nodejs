@@ -1,4 +1,4 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { HAXCMS, systemStructureContext } = require('../../../lib/HAXCMS.js');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
@@ -152,6 +152,10 @@ async function connectionSettings(req, res) {
     baseAPIPath = `${HAXCMS.basePath}${HAXCMS.systemRequestBase}`;
   }
   var sitename = '';
+  // name parsed from a multisite site-context URL (/_sites/<name>/...).
+  // tracked separately because it must drive the site API base path, whereas
+  // sitename (below) may also be resolved from the single-site context.
+  var multisiteUrlName = '';
   // express gives this up on requests but doesn't know it ahead of time
   if (req.headers && req.headers.referer) {
     let details = new url.URL(req.headers.referer);
@@ -162,8 +166,33 @@ async function connectionSettings(req, res) {
     if (req.headers.referer.indexOf(siteContextPrefix) === 0) {
       const sitepath = req.headers.referer.replace(siteContextPrefix, '');
       const siteparts = sitepath.split('/');
-      sitename = siteparts[0];
+      multisiteUrlName = siteparts[0];
     }
+  }
+  sitename = multisiteUrlName;
+  // single-site mode serves the site at the web root, so the referer never
+  // carries a /_sites/<name>/ segment and sitename would be blank. Resolve the
+  // active site from the single-site context (cwd site.json) and use its
+  // metadata.site.name so the appStore param + site token match what the site
+  // API validates (resolveSiteApiRequestSiteName resolves the same value). A
+  // multisite root has no site.json in cwd, so this stays blank there.
+  if (sitename === '') {
+    try {
+      const singleSite = await systemStructureContext();
+      if (
+        singleSite &&
+        singleSite.manifest &&
+        singleSite.manifest.metadata &&
+        singleSite.manifest.metadata.site &&
+        singleSite.manifest.metadata.site.name
+      ) {
+        sitename = String(singleSite.manifest.metadata.site.name);
+      }
+      else if (singleSite && singleSite.name) {
+        sitename = String(singleSite.name);
+      }
+    }
+    catch (e) {}
   }
   const siteToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName() + ':' + sitename);
   // user token is just the name of the logged in user
@@ -176,8 +205,8 @@ async function connectionSettings(req, res) {
     normalizedBasePath += '/';
   }
   let siteApiBasePath = `${normalizedBasePath}x/api`;
-  if (sitename) {
-    siteApiBasePath = `${normalizedBasePath}${HAXCMS.sitesDirectory}/${sitename}/x/api`;
+  if (multisiteUrlName) {
+    siteApiBasePath = `${normalizedBasePath}${HAXCMS.sitesDirectory}/${multisiteUrlName}/x/api`;
   }
   const systemApiV1BasePath = `${baseAPIPath}v1/`;
   const systemApiBasePath = systemApiV1BasePath.replace(/\/$/, '');
