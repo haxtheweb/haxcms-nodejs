@@ -6,7 +6,7 @@ const {
   featureDisabledResponse,
 } = require('../../../lib/platformFeatures.js')
 
-const ALLOWED_TOP_LEVEL_KEYS = new Set(['jwt', 'site', 'manifest'])
+const ALLOWED_TOP_LEVEL_KEYS = new Set(['site', 'manifest'])
 const ALLOWED_SITE_KEYS = new Set(['name'])
 const ALLOWED_MANIFEST_KEYS = new Set(['theme'])
 const REGION_FIELD_MAP = {

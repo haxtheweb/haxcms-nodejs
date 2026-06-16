@@ -173,11 +173,7 @@ const {
             site.manifest.metadata.theme.regions[value] = req.body['manifest']['theme']['manifest-metadata-theme-regions-' + value];
           }
         }
-        if (typeof req.body['manifest']['theme']['manifest-metadata-theme-variables-hexCode'] !== 'undefined') {
-          site.manifest.metadata.theme.variables.hexCode = filter_var(
-            req.body['manifest']['theme']['manifest-metadata-theme-variables-hexCode'],"FILTER_SANITIZE_STRING"
-          );
-        }
+        // hexCode removed: v1 API uses cssVariable exclusively
         site.manifest.metadata.theme.variables.cssVariable = "--simple-colors-default-theme-" + filter_var(
           req.body['manifest']['theme']['manifest-metadata-theme-variables-cssVariable'], "FILTER_SANITIZE_STRING"
         ) + "-7";

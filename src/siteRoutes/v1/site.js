@@ -94,7 +94,6 @@ function ensureLegacySiteTokenQuery(req) {
     return null;
   }
   query.site_token = headerToken;
-  body.site_token = headerToken;
   return query;
 }
 
