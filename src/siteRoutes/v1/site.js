@@ -82,7 +82,7 @@ function ensureSiteTokenHeader(req) {
   return headerToken;
 }
 
-function ensureLegacySiteRequestBody(req, siteName = '') {
+function ensureSiteRequestBody(req, siteName = '') {
   const body = ensureRequestBodyObject(req);
   if (!body.site || typeof body.site !== 'object' || Array.isArray(body.site)) {
     body.site = {};
@@ -467,7 +467,7 @@ async function delegateToLegacySiteWrite(
       message: 'X-HAXCMS-Site-Token header is required for this endpoint',
     });
   }
-  const body = ensureLegacySiteRequestBody(req, siteName);
+  const body = ensureSiteRequestBody(req, siteName);
   if (typeof validateBody === 'function') {
     const validationResult = validateBody(body);
     if (validationResult && validationResult.valid === false) {
