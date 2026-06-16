@@ -32,7 +32,13 @@ app.set('trust proxy', HAXCMS.getTrustProxySetting());
 var helmetPolicies = {
   contentSecurityPolicy: {
     directives: {
-      scriptSrc: ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", "www.youtube.com"],
+      // NOTE: 'unsafe-eval' is required by HAXcms boot bundles (build.js /
+      // build-haxcms.js) and several web components which call new Function()/
+      // eval() at runtime (e.g. global detection, the wc-registry "magic"
+      // loader chain). Removing it causes a CSP EvalError that aborts build.js,
+      // so sites never finish loading. 'wasm-unsafe-eval' does NOT cover JS
+      // eval/new Function, so both are kept.
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'", "www.youtube.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
       mediaSrc: ["'self'", "data:", "https:"],
       imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
