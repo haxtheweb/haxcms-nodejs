@@ -313,7 +313,7 @@ paths:
       summary: List all sites available to the authenticated user
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: Site listing payload
@@ -330,7 +330,7 @@ paths:
       summary: Create a new site
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -358,7 +358,7 @@ paths:
       summary: Return metadata for a specific site
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: Site metadata response
@@ -377,7 +377,7 @@ paths:
       summary: Return metadata for a specific site
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: Site metadata response
@@ -399,7 +399,7 @@ paths:
       summary: Clone an existing site
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -427,7 +427,7 @@ paths:
       summary: Archive a site
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -455,7 +455,7 @@ paths:
       summary: Generate and return a downloadable site archive reference
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -483,7 +483,7 @@ paths:
       summary: Generate and return a reusable skeleton for a site
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -511,7 +511,7 @@ paths:
       summary: Save a site as a reusable system template
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -561,7 +561,7 @@ paths:
       summary: Return system status and environment diagnostics
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: System status data
@@ -578,7 +578,7 @@ paths:
       summary: Return system status and environment diagnostics
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: System status data
@@ -596,7 +596,7 @@ paths:
       summary: Return installed system version details
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: System version details
@@ -613,7 +613,7 @@ paths:
       summary: Return installed system version details
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: System version details
@@ -631,7 +631,7 @@ paths:
       summary: Return system entity descriptors and links
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: System entity descriptors
@@ -648,7 +648,7 @@ paths:
       summary: Return system entity descriptors and links
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: System entity descriptors
@@ -666,7 +666,7 @@ paths:
       summary: Return system schema descriptors and links
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: System schema descriptors
@@ -683,7 +683,7 @@ paths:
       summary: Return system schema descriptors and links
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: System schema descriptors
@@ -701,7 +701,7 @@ paths:
       summary: Return configured API keys and provider statuses
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: API key settings
@@ -718,7 +718,7 @@ paths:
       summary: Update API key settings
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -741,7 +741,7 @@ paths:
       summary: Update API key settings
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -765,7 +765,7 @@ paths:
       summary: Return media and upload configuration
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: Media settings
@@ -782,7 +782,7 @@ paths:
       summary: Update media and upload configuration
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -805,7 +805,7 @@ paths:
       summary: Update media and upload configuration
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -829,7 +829,7 @@ paths:
       summary: Perform schema file operation in system configuration storage
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: false
         content:
@@ -853,7 +853,7 @@ paths:
       summary: Return available system blocks
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: Available block list
@@ -870,7 +870,7 @@ paths:
       summary: Update enabled block configuration using the blocks collection endpoint
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -893,7 +893,7 @@ paths:
       summary: Update enabled block configuration using the blocks collection endpoint
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -1094,7 +1094,7 @@ paths:
       summary: Return available system themes
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       responses:
         "200":
           description: Available theme list
@@ -1111,7 +1111,7 @@ paths:
       summary: Update enabled theme configuration using the themes collection endpoint
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -1134,7 +1134,7 @@ paths:
       summary: Update enabled theme configuration using the themes collection endpoint
       security:
         - bearerAuth: []
-          userTokenQuery: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -1196,18 +1196,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-    userTokenQuery:
-      type: apiKey
-      in: query
-      name: user_token
     userTokenHeader:
       type: apiKey
       in: header
       name: X-HAXCMS-User-Token
-    siteTokenQuery:
-      type: apiKey
-      in: query
-      name: site_token
   schemas:
     ApiEnvelope:
       type: object

@@ -76,11 +76,17 @@ const { getRequestHeaderValue } = require('../siteRouteUtils.js');
  * )
  */
 async function createNode(req, res) {
-  let nodeParams = req.body;
   const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-  if (siteToken && HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + nodeParams['site']['name'])) {
+  if (
+    siteToken &&
+    req.body &&
+    req.body.site &&
+    req.body.site.name &&
+    HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + req.body.site.name)
+  ) {
+    let nodeParams = req.body;
     let item;
-    let site = await HAXCMS.loadSite(req.body['site']['name'].toLowerCase());
+    let site = await HAXCMS.loadSite(req.body.site.name.toLowerCase());
     if (!platformAllows(site, 'addPage')) {
       return featureDisabledResponse(res, 'Adding pages is disabled for this site');
     }

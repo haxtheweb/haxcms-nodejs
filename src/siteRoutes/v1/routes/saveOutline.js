@@ -27,7 +27,13 @@ const { getRequestHeaderValue } = require('../siteRouteUtils.js');
    */
   async function saveOutline(req, res) {
     const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-    if (siteToken && HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + req.body['site']['name'])) {
+    if (
+      siteToken &&
+      req.body &&
+      req.body.site &&
+      req.body.site.name &&
+      HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + req.body.site.name)
+    ) {
       // items from the POST
       let site = await HAXCMS.loadSite(req.body['site']['name']);
       if (!platformAllows(site, 'outlineDesigner')) {
