@@ -2726,6 +2726,39 @@ class HAXCMSClass {
       blockMs: this.getIntConfigValue(cfg.blockMs, defaults.blockMs, 10 * 1000, 24 * 60 * 60 * 1000),
     };
   }
+  // Express `trust proxy` setting, sourced from config so deployments behind a
+  // reverse proxy can opt in to forwarded client IPs. Defaults to false (do not
+  // trust any proxy), which keeps single-host/local setups using the socket IP.
+  getTrustProxySetting() {
+    if (
+      this.config &&
+      this.config.security &&
+      typeof this.config.security.trustProxy !== 'undefined'
+    ) {
+      return this.config.security.trustProxy;
+    }
+    return false;
+  }
+  // True only when explicitly running in production (NODE_ENV=production). Used
+  // to enable hardened defaults (e.g. Secure cookies) without impacting local
+  // development, which never sets NODE_ENV to production.
+  isProductionRuntime() {
+    return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  }
+  // Allowed CORS origin for browser clients. Config-driven so deployments can
+  // lock responses to a known origin; falls back to the provided default (the
+  // local dev origin) to preserve existing behavior when unset.
+  getCorsAllowedOrigin(defaultOrigin = '') {
+    if (
+      this.config &&
+      this.config.security &&
+      typeof this.config.security.allowedOrigin === 'string' &&
+      this.config.security.allowedOrigin.trim() !== ''
+    ) {
+      return this.config.security.allowedOrigin.trim();
+    }
+    return defaultOrigin;
+  }
   async gitTest() {
     try {
       const { stdout, stderr } = await exec('git --version');
@@ -2922,7 +2955,7 @@ class HAXCMSClass {
       {encoding:'utf8', flag:'r'}, 'utf8');  
     }
     catch (e) {
-      this.salt = uuidv4();
+      this.salt = crypto.randomBytes(32).toString('hex');
       fs.writeFileSync(path.join(this.configDirectory, "SALT.txt"), this.salt);
     }
     // pk/rpk test for files that can contain these
@@ -2931,7 +2964,7 @@ class HAXCMSClass {
       {encoding:'utf8', flag:'r'}, 'utf8');
     }
     catch (e) {
-      this.privateKey = uuidv4();
+      this.privateKey = crypto.randomBytes(32).toString('hex');
       fs.writeFileSync(path.join(this.configDirectory, ".pk"), this.privateKey);
     }
     try {
@@ -2939,7 +2972,7 @@ class HAXCMSClass {
       {encoding:'utf8', flag:'r'}, 'utf8');
     }
     catch (e) {
-      this.refreshPrivateKey = uuidv4();
+      this.refreshPrivateKey = crypto.randomBytes(32).toString('hex');
       fs.writeFileSync(path.join(this.configDirectory, ".rpk"), this.refreshPrivateKey);
     }
     // allow for loading in user defined config
@@ -3207,7 +3240,7 @@ class HAXCMSClass {
    */
   validateRequestToken(token = null, value = '', query = {})
     {
-      if (this.isCLI() || this.HAXCMS_DISABLE_JWT_CHECKS) {
+      if (this.isCLI() || (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())) {
           return true;
       }
       // default token is POST
@@ -3215,7 +3248,7 @@ class HAXCMSClass {
         token = query['token'];
       }
       if (token != null) {
-        if (token == this.getRequestToken(value)) {
+        if (this.safeStringCompare(this.getRequestToken(value), String(token))) {
           return true;
         }
       }
@@ -3917,7 +3950,7 @@ class HAXCMSClass {
      */
     validateJWT(req, res)
     {
-      if (this.isCLI() || this.HAXCMS_DISABLE_JWT_CHECKS) {
+      if (this.isCLI() || (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())) {
         return true;
       }
       var request = false;
@@ -3971,7 +4004,9 @@ class HAXCMSClass {
     decodeJWT(key) {
       // if it can decode, it'll be an object, otherwise it's false
       try {
-        return JWT.verify(key, this.privateKey + this.salt);
+        return JWT.verify(key, this.privateKey + this.salt, {
+          algorithms: ['HS256'],
+        });
       }
       catch (e) {
         return false;
@@ -3994,7 +4029,9 @@ class HAXCMSClass {
     decodeRefreshToken(key) {
       // if it can decode, it'll be an object, otherwise it's false
       try {
-        return JWT.verify(key, this.refreshPrivateKey + this.salt);
+        return JWT.verify(key, this.refreshPrivateKey + this.salt, {
+          algorithms: ['HS256'],
+        });
       }
       catch (e) {
         return false;
@@ -4007,7 +4044,7 @@ class HAXCMSClass {
      * and let the caller decide what to do.
      */
     validateRefreshToken(endOnInvalid = true, req, res = null) {
-      if (this.isCLI() || this.HAXCMS_DISABLE_JWT_CHECKS) {
+      if (this.isCLI() || (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())) {
         return true;
       }
       // get the refresh token from cookie

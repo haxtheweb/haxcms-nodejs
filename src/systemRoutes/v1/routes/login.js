@@ -1,61 +1,11 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const failedLoginTracker = {};
-
-function getClientIP(req) {
-  if (req && req.headers && req.headers['x-forwarded-for']) {
-    const forwarded = String(req.headers['x-forwarded-for']).split(',')[0].trim();
-    if (forwarded) {
-      return forwarded;
-    }
-  }
-  if (req && req.ip) {
-    return String(req.ip);
-  }
-  if (req && req.connection && req.connection.remoteAddress) {
-    return String(req.connection.remoteAddress);
-  }
-  return 'unknown';
-}
-
-function getAttemptKey(req, username) {
-  return getClientIP(req) + '::' + String(username || '');
-}
-
-function getTrackerEntry(key, now, settings) {
-  let entry = failedLoginTracker[key];
-  if (!entry) {
-    entry = {
-      firstAttempt: now,
-      failedAttempts: 0,
-      blockedUntil: 0,
-    };
-    failedLoginTracker[key] = entry;
-  }
-  if (now - entry.firstAttempt > settings.windowMs) {
-    entry.firstAttempt = now;
-    entry.failedAttempts = 0;
-  }
-  return entry;
-}
-
-function clearTrackerEntry(key) {
-  if (failedLoginTracker[key]) {
-    delete failedLoginTracker[key];
-  }
-}
-
-function isBlocked(entry, now) {
-  return entry && entry.blockedUntil && entry.blockedUntil > now;
-}
-
-function registerFailedAttempt(entry, now, settings) {
-  entry.failedAttempts += 1;
-  if (entry.failedAttempts >= settings.maxAttempts) {
-    entry.blockedUntil = now + settings.blockMs;
-    entry.failedAttempts = 0;
-    entry.firstAttempt = now;
-  }
-}
+const {
+  getAttemptKey,
+  getTrackerEntry,
+  clearTrackerEntry,
+  isBlocked,
+  registerFailedAttempt,
+} = require('../../../lib/loginRateLimiter.js');
 function loginRoute(req, res)  {
   // primary branch: username / password login
   if (req.body && req.body.username && req.body.password) {
@@ -81,11 +31,11 @@ function loginRoute(req, res)  {
     }
     clearTrackerEntry(attemptKey);
     // set a refresh_token COOKIE that will ship w/ all calls automatically
-    res.cookie('haxcms_refresh_token', HAXCMS.getRefreshToken(u), { 
-      expires: 0 ,
+    res.cookie('haxcms_refresh_token', HAXCMS.getRefreshToken(u), {
+      maxAge: 24 * 60 * 60 * 1000,
       path: '/',
-      domain: '',
-      secure: false,
+      sameSite: 'lax',
+      secure: HAXCMS.isProductionRuntime(),
       httpOnly: true,
     });
     return res.json({

@@ -172,75 +172,6 @@ function getSiteNameFromAuthContext(req) {
   return '';
 }
 
-function getAuthenticatedUserNameFromRequestContext(req) {
-  if (!req || typeof req !== 'object') {
-    return '';
-  }
-  if (
-    req.haxcmsSiteApiAuth &&
-    typeof req.haxcmsSiteApiAuth === 'object' &&
-    req.haxcmsSiteApiAuth.userName
-  ) {
-    return String(req.haxcmsSiteApiAuth.userName || '').trim();
-  }
-  return '';
-}
-
-function inferSiteNameFromSiteToken(req) {
-  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-  const userName = getAuthenticatedUserNameFromRequestContext(req);
-  if (siteToken === '' || userName === '') {
-    return '';
-  }
-  const sitesRoot = path.join(
-    String(HAXCMS.HAXCMS_ROOT || process.cwd()),
-    String(HAXCMS.sitesDirectory || '_sites'),
-  );
-  if (!fs.existsSync(sitesRoot)) {
-    return '';
-  }
-  let isSitesRootDirectory = false;
-  try {
-    isSitesRootDirectory = fs.lstatSync(sitesRoot).isDirectory();
-  } catch (e) {
-    isSitesRootDirectory = false;
-  }
-  if (!isSitesRootDirectory) {
-    return '';
-  }
-  let siteEntries = [];
-  try {
-    siteEntries = fs.readdirSync(sitesRoot);
-  } catch (e) {
-    siteEntries = [];
-  }
-  for (let i = 0; i < siteEntries.length; i++) {
-    const candidateSiteName = String(siteEntries[i] || '').trim();
-    if (candidateSiteName === '') {
-      continue;
-    }
-    const candidateSitePath = path.join(sitesRoot, candidateSiteName);
-    let isCandidateDirectory = false;
-    try {
-      isCandidateDirectory = fs.lstatSync(candidateSitePath).isDirectory();
-    } catch (e) {
-      isCandidateDirectory = false;
-    }
-    if (!isCandidateDirectory) {
-      continue;
-    }
-    if (
-      HAXCMS.validateRequestToken(
-        siteToken,
-        `${userName}:${candidateSiteName}`,
-      )
-    ) {
-      return candidateSiteName;
-    }
-  }
-  return '';
-}
-
 async function loadResolvedSiteByName(siteName = '') {
   const normalizedSiteName = normalizeSiteNameCandidate(siteName);
   if (normalizedSiteName === '') {
@@ -283,13 +214,6 @@ async function resolveSiteForRequest(req) {
     const refererResolvedSite = await loadResolvedSiteByName(refererSiteName);
     if (refererResolvedSite) {
       return refererResolvedSite;
-    }
-  }
-  const tokenInferredSiteName = inferSiteNameFromSiteToken(req);
-  if (tokenInferredSiteName !== '') {
-    const tokenResolvedSite = await loadResolvedSiteByName(tokenInferredSiteName);
-    if (tokenResolvedSite) {
-      return tokenResolvedSite;
     }
   }
   return await systemStructureContext();
@@ -1307,6 +1231,29 @@ function isAnonymousSiteApiRequest(req) {
   return true;
 }
 
+// Defense-in-depth assertion for mutation handlers. The route gate
+// (validateSiteApiRouteAccess) already enforces auth before dispatch, but
+// handlers re-check the resolved auth context so a future routing change can
+// never let an unauthenticated request reach a write path. When
+// expectedSecurityLevel is provided the resolved level must match exactly.
+function isSiteApiRequestAuthenticated(req, expectedSecurityLevel = '') {
+  if (
+    !req ||
+    !req.haxcmsSiteApiAuth ||
+    typeof req.haxcmsSiteApiAuth !== 'object' ||
+    req.haxcmsSiteApiAuth.authenticated !== true
+  ) {
+    return false;
+  }
+  if (
+    expectedSecurityLevel !== '' &&
+    String(req.haxcmsSiteApiAuth.securityLevel || '') !== expectedSecurityLevel
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function filterItemsForAnonymousAccess(items = [], req) {
   if (!isAnonymousSiteApiRequest(req)) {
     return [...items];
@@ -1456,5 +1403,6 @@ module.exports = {
   isItemPublished,
   isItemVisibleToAnonymous,
   isAnonymousSiteApiRequest,
+  isSiteApiRequestAuthenticated,
   applyItemFilters,
 };

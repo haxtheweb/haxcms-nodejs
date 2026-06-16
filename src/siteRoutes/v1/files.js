@@ -26,6 +26,7 @@ const {
   ensureRequestQueryObject,
   decodePathToken,
   normalizeOperationName,
+  isSiteApiRequestAuthenticated,
 } = require('./siteRouteUtils.js');
 
 const IMAGE_SCALE_PRESETS = {
@@ -990,6 +991,12 @@ async function listFiles(req, res) {
 }
 
 async function createFile(req, res) {
+  if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
+    return res.status(403).json({
+      status: 403,
+      message: 'Authenticated site access is required for this endpoint',
+    });
+  }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
@@ -1090,6 +1097,12 @@ async function fileDetail(req, res) {
 }
 
 async function updateFile(req, res) {
+  if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
+    return res.status(403).json({
+      status: 403,
+      message: 'Authenticated site access is required for this endpoint',
+    });
+  }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
@@ -1149,6 +1162,12 @@ async function updateFile(req, res) {
 }
 
 async function deleteFile(req, res) {
+  if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
+    return res.status(403).json({
+      status: 403,
+      message: 'Authenticated site access is required for this endpoint',
+    });
+  }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({

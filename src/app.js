@@ -24,11 +24,15 @@ const PAGE_VARIANT_CONTENT_TYPES = {
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
+const loginRateLimiter = require('./lib/loginRateLimiter.js');
+// trust proxy is config-driven so forwarded client IPs (req.ip) are accurate
+// behind a reverse proxy; defaults to false for single-host/local setups.
+app.set('trust proxy', HAXCMS.getTrustProxySetting());
 // default helmet policies for CSP
 var helmetPolicies = {
   contentSecurityPolicy: {
     directives: {
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'", "www.youtube.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", "www.youtube.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
       mediaSrc: ["'self'", "data:", "https:"],
       imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
@@ -40,20 +44,26 @@ var helmetPolicies = {
     },
   },
   referrerPolicy: {
-    policy: ["origin", "unsafe-url"],
+    policy: "same-origin",
   },
 };
 
 // flag in local development that disables security
 // this way you launch from local and don't need a U/P relationship
 if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT_CHECKS')) {
-  HAXCMS.HAXCMS_DISABLE_JWT_CHECKS = true;
-  // disable security policies that would otherwise block local development
-  // also enables webcontainer environments which is what our playground runs
-  helmetPolicies.contentSecurityPolicy = false;
-  helmetPolicies.crossOriginResourcePolicy = false;
-  helmetPolicies.crossOriginEmbedderPolicy = 'require-corp';
-  helmetPolicies.crossOriginOpenerPolicy = 'same-origin';
+  if (HAXCMS.isProductionRuntime()) {
+    // never honor the local-development security bypass in production
+    console.error('SECURITY: HAXCMS_DISABLE_JWT_CHECKS is ignored because NODE_ENV=production.');
+  }
+  else {
+    HAXCMS.HAXCMS_DISABLE_JWT_CHECKS = true;
+    // disable security policies that would otherwise block local development
+    // also enables webcontainer environments which is what our playground runs
+    helmetPolicies.contentSecurityPolicy = false;
+    helmetPolicies.crossOriginResourcePolicy = false;
+    helmetPolicies.crossOriginEmbedderPolicy = 'require-corp';
+    helmetPolicies.crossOriginOpenerPolicy = 'same-origin';
+  }
 }
 // routes with all requires
 const {
@@ -68,8 +78,8 @@ const multer = require('multer');
 const { crossOriginOpenerPolicy } = require('helmet');
 const upload = multer({ dest: path.join(HAXCMS.configDirectory, 'tmp/') })
 const jsonRequestParser = express.json({
-  type: '*/*',
-  limit: '50mb'
+  type: ['application/json', 'application/*+json'],
+  limit: '10mb'
 });
 const uploadAnyParser = upload.any();
 function parseSchemaFileOperationBody(req, res, next) {
@@ -624,6 +634,57 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Security: never web-serve HAXcms secret/config files. In single-site mode the
+// served root can be a site directory that also contains the _config dir, so a
+// raw static request could otherwise reach keys/credentials. Resolve the request
+// to its path segments and 404 anything targeting the config dir or a sensitive
+// file (mirrors the .htaccess protections used by the PHP backend).
+const SENSITIVE_STATIC_BASENAMES = [
+  '.pk',
+  '.rpk',
+  'salt.txt',
+  '.user',
+  'config.php',
+  'config.json',
+  '.htaccess',
+  '.ishaxcmsconfig',
+];
+function isSensitiveStaticPath(url = '') {
+  let decodedPath = String(url || '').split('?')[0];
+  try {
+    decodedPath = decodeURIComponent(decodedPath);
+  }
+  catch (e) {
+    // fall back to the raw path if it cannot be decoded
+  }
+  const segments = decodedPath
+    .replace(/\\/g, '/')
+    .toLowerCase()
+    .split('/');
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    if (segment === '') {
+      continue;
+    }
+    // the HAXcms config directory itself must never be web-served
+    if (segment === '_config') {
+      return true;
+    }
+    if (SENSITIVE_STATIC_BASENAMES.indexOf(segment) !== -1) {
+      return true;
+    }
+  }
+  return false;
+}
+app.use((req, res, next) => {
+  if (isSensitiveStaticPath(req.url)) {
+    // respond as if the path does not exist; never disclose secret material
+    res.status(404).end();
+    return;
+  }
+  next();
+});
 //pre-flight requests
 app.options('*', function(req, res, next) {
 	res.sendStatus(200);
@@ -682,7 +743,7 @@ systemStructureContext().then((site) => {
       app.use(express.static(publicDir));
     }
     app.use('/', async (req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', `http://localhost:${currentPort}`);
+      res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`http://localhost:${currentPort}`));
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
@@ -808,7 +869,7 @@ systemStructureContext().then((site) => {
       app.use(express.static(publicDir));
     }
     app.use('/', (req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', `http://localhost:${currentPort}`);
+      res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`http://localhost:${currentPort}`));
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
@@ -1086,6 +1147,9 @@ systemStructureContext().then((site) => {
         try {
           const access = await validateSiteApiRouteAccess(req, siteRoute, siteMethod);
           if (!access.allowed) {
+            if (access.retryAfterSeconds && access.retryAfterSeconds > 0) {
+              res.set('Retry-After', String(access.retryAfterSeconds));
+            }
             return res.status(access.status).json({
               status: access.status,
               message: access.message,
@@ -1115,6 +1179,7 @@ systemStructureContext().then((site) => {
       }
     }
   }
+  assertSiteApiMutationRoutesAreSecured(siteRouteRegistry);
   // can't do this for a site context
   if (!site) {
     // catch anything called on homepage that doens't match and ensure it still goes through so that it 404s correctly
@@ -1393,7 +1458,39 @@ function getSiteApiRouteAuthPolicy(route = '', method = 'get') {
   ) {
     return siteApiAuthPoliciesByMethodAndRoute[lookupKey];
   }
-  return 'public';
+  // Fail closed: any site API route not explicitly declared in the OpenAPI
+  // spec requires authentication rather than falling open to public access.
+  return 'authenticated';
+}
+function assertSiteApiMutationRoutesAreSecured(routeRegistry = null) {
+  const registry =
+    routeRegistry && typeof routeRegistry === 'object' ? routeRegistry : {};
+  const offendingRoutes = [];
+  const registryMethods = Object.keys(registry);
+  for (let m = 0; m < registryMethods.length; m++) {
+    const method = String(registryMethods[m] || '').toLowerCase();
+    if (method === 'get' || method === 'head' || method === 'options') {
+      continue;
+    }
+    const routeMap =
+      registry[registryMethods[m]] &&
+      typeof registry[registryMethods[m]] === 'object'
+        ? registry[registryMethods[m]]
+        : {};
+    const routeKeys = Object.keys(routeMap);
+    for (let r = 0; r < routeKeys.length; r++) {
+      const route = routeKeys[r];
+      if (getSiteApiRouteAuthPolicy(route, method) === 'public') {
+        offendingRoutes.push(`${method.toUpperCase()} ${route}`);
+      }
+    }
+  }
+  if (offendingRoutes.length > 0) {
+    console.error(
+      `SECURITY: site API mutation routes resolve to a public auth policy and must declare security in site-spec.yaml: ${offendingRoutes.join(', ')}`,
+    );
+  }
+  return offendingRoutes;
 }
 function getRequestHeaderValue(req, headerName = '') {
   if (!req || !req.headers || typeof req.headers !== 'object') {
@@ -1467,15 +1564,43 @@ function authenticateBasicAuthorizationRequest(req) {
       userName: '',
     };
   }
+  // brute-force throttle shared with the username/password login route
+  const rateLimitSettings = HAXCMS.getLoginRateLimitSettings();
+  const now = Date.now();
+  const attemptKey = loginRateLimiter.getAttemptKey(req, userName);
+  const attemptEntry = loginRateLimiter.getTrackerEntry(
+    attemptKey,
+    now,
+    rateLimitSettings,
+  );
+  if (
+    rateLimitSettings.enabled &&
+    loginRateLimiter.isBlocked(attemptEntry, now)
+  ) {
+    const retryAfterSeconds = Math.ceil((attemptEntry.blockedUntil - now) / 1000);
+    return {
+      attempted: true,
+      authenticated: false,
+      userName: '',
+      blocked: true,
+      retryAfterSeconds: retryAfterSeconds > 0 ? retryAfterSeconds : 0,
+    };
+  }
   if (
     HAXCMS.testLogin(userName, password, true) &&
     HAXCMS.validateUser(userName)
   ) {
+    if (rateLimitSettings.enabled) {
+      loginRateLimiter.clearTrackerEntry(attemptKey);
+    }
     return {
       attempted: true,
       authenticated: true,
       userName: userName,
     };
+  }
+  if (rateLimitSettings.enabled) {
+    loginRateLimiter.registerFailedAttempt(attemptEntry, now, rateLimitSettings);
   }
   return {
     attempted: true,
@@ -1515,6 +1640,10 @@ function setSiteApiAuthContext(req, authContext = {}) {
     userName:
       authContext && authContext.userName
         ? String(authContext.userName)
+        : '',
+    siteName:
+      authContext && authContext.siteName
+        ? String(authContext.siteName)
         : '',
     securityLevel:
       authContext && authContext.securityLevel
@@ -1592,60 +1721,6 @@ function getSiteNameFromSiteApiRequestReferer(req) {
   } catch (e) {}
   return getSiteNameFromSiteApiRequestPath(referer);
 }
-function inferSiteNameFromSiteToken(siteToken = '', userName = '') {
-  const cleanSiteToken = String(siteToken || '').trim();
-  const cleanUserName = String(userName || '').trim();
-  if (cleanSiteToken === '' || cleanUserName === '') {
-    return '';
-  }
-  const sitesRoot = path.join(
-    String(HAXCMS.HAXCMS_ROOT || process.cwd()),
-    String(HAXCMS.sitesDirectory || '_sites'),
-  );
-  if (!fs.existsSync(sitesRoot)) {
-    return '';
-  }
-  let isSitesRootDirectory = false;
-  try {
-    isSitesRootDirectory = fs.lstatSync(sitesRoot).isDirectory();
-  } catch (e) {
-    isSitesRootDirectory = false;
-  }
-  if (!isSitesRootDirectory) {
-    return '';
-  }
-  let siteDirectoryEntries = [];
-  try {
-    siteDirectoryEntries = fs.readdirSync(sitesRoot);
-  } catch (e) {
-    siteDirectoryEntries = [];
-  }
-  for (let i = 0; i < siteDirectoryEntries.length; i++) {
-    const candidateSiteName = String(siteDirectoryEntries[i] || '').trim();
-    if (candidateSiteName === '') {
-      continue;
-    }
-    const candidateSiteDirectory = path.join(sitesRoot, candidateSiteName);
-    let isCandidateDirectory = false;
-    try {
-      isCandidateDirectory = fs.lstatSync(candidateSiteDirectory).isDirectory();
-    } catch (e) {
-      isCandidateDirectory = false;
-    }
-    if (!isCandidateDirectory) {
-      continue;
-    }
-    if (
-      HAXCMS.validateRequestToken(
-        cleanSiteToken,
-        `${cleanUserName}:${candidateSiteName}`,
-      )
-    ) {
-      return candidateSiteName;
-    }
-  }
-  return '';
-}
 async function resolveSiteApiRequestSiteName(req, authContext = {}) {
   const pathBasedSiteName = getSiteNameFromSiteApiRequestPath(
     req && req.originalUrl ? req.originalUrl : req && req.url ? req.url : '',
@@ -1673,13 +1748,6 @@ async function resolveSiteApiRequestSiteName(req, authContext = {}) {
       return String(site.manifest.metadata.site.name);
     }
   } catch (e) {}
-  const inferredSiteName = inferSiteNameFromSiteToken(
-    authContext && authContext.siteToken ? authContext.siteToken : '',
-    authContext && authContext.userName ? authContext.userName : '',
-  );
-  if (inferredSiteName !== '') {
-    return inferredSiteName;
-  }
   return '';
 }
 function normalizeIamAuthorizationResult(iamAuthorization = null) {
@@ -1797,6 +1865,14 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
       message: '',
     };
   }
+  if (basicAuth.blocked && !authContext.authenticated) {
+    return {
+      allowed: false,
+      status: 429,
+      message: 'Too many failed login attempts. Please try again later.',
+      retryAfterSeconds: basicAuth.retryAfterSeconds,
+    };
+  }
   if (!hasBearerJwt && !basicAuth.attempted) {
     return {
       allowed: false,
@@ -1836,31 +1912,8 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
     authContext.securityLevel = 'authenticated';
   }
   if (policy === 'authenticated-site') {
-    if (basicAuth.authenticated) {
-      const siteName = await resolveSiteApiRequestSiteName(req, authContext);
-      if (!siteName) {
-        return {
-          allowed: false,
-          status: 403,
-          message: 'Unable to resolve site context for authenticated request',
-        };
-      }
-      const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
-      if (!iamAuthorization.allowed) {
-        return {
-          allowed: false,
-          status: iamAuthorization.status || 403,
-          message: iamAuthorization.message || 'Access denied',
-        };
-      }
-      authContext.securityLevel = 'authenticated-site';
-      setSiteApiAuthContext(req, authContext);
-      return {
-        allowed: true,
-        status: 200,
-        message: '',
-      };
-    }
+    // Require and validate the site token even under Basic Auth so that
+    // authentication alone (JWT or Basic) never grants site-scoped access.
     const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
     if (siteToken === '') {
       return {
@@ -1892,26 +1945,19 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
         message: 'Invalid X-HAXCMS-Site-Token header',
       };
     }
+    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
+    if (!iamAuthorization.allowed) {
+      return {
+        allowed: false,
+        status: iamAuthorization.status || 403,
+        message: iamAuthorization.message || 'Access denied',
+      };
+    }
+    authContext.siteName = siteName;
     authContext.securityLevel = 'authenticated-site';
   }
   if (policy === 'authenticated-user') {
-    if (basicAuth.authenticated) {
-      const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
-      if (!iamAuthorization.allowed) {
-        return {
-          allowed: false,
-          status: iamAuthorization.status || 403,
-          message: iamAuthorization.message || 'Access denied',
-        };
-      }
-      authContext.securityLevel = 'authenticated-user';
-      setSiteApiAuthContext(req, authContext);
-      return {
-        allowed: true,
-        status: 200,
-        message: '',
-      };
-    }
+    // Require and validate the user token even under Basic Auth.
     const userToken = getRequestHeaderValue(req, 'x-haxcms-user-token');
     if (userToken === '') {
       return {

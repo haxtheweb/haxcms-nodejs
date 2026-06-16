@@ -19,6 +19,7 @@ const {
   toIsoDateFromUnixTime,
   isItemVisibleToAnonymous,
   isAnonymousSiteApiRequest,
+  isSiteApiRequestAuthenticated,
   ensureRequestBodyObject,
   getRequestHeaderValue,
   getSiteNameFromResolvedSite,
@@ -460,6 +461,12 @@ async function itemDetail(req, res) {
 }
 
 async function updateItem(req, res) {
+  if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
+    return res.status(403).json({
+      status: 403,
+      message: 'Authenticated site access is required for this endpoint',
+    });
+  }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest) {
     return res.status(404).json({
