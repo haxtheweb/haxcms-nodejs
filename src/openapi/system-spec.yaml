@@ -1200,6 +1200,10 @@ components:
       type: apiKey
       in: header
       name: X-HAXCMS-User-Token
+    siteTokenHeader:
+      type: apiKey
+      in: header
+      name: X-HAXCMS-Site-Token
   schemas:
     ApiEnvelope:
       type: object
