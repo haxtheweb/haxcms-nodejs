@@ -3,7 +3,6 @@ const { readEffectiveApiKeys } = require('../../lib/apiKeys.js');
 
 const RESERVED_QUERY_PARAMS = [
   'provider',
-  'appstore_token',
   'site_token',
   'siteName',
   'jwt',
