@@ -66,6 +66,12 @@ const ALLOWED_RENAME_EXTENSIONS = [
 ];
 
 function isMultisiteContext(site) {
+  if (HAXCMS.runtimeServerMode === 'single-site') {
+    return false;
+  }
+  if (HAXCMS.runtimeServerMode === 'multisite') {
+    return true;
+  }
   if (HAXCMS.operatingContext === 'multisite') {
     return true;
   }
@@ -75,10 +81,10 @@ function isMultisiteContext(site) {
   ) {
     return true;
   }
-  if (site && typeof site.siteDirectory === 'string' && site.siteDirectory) {
-    const normalizedSiteDirectory = normalizePathForResponse(site.siteDirectory);
-    const multisitePathMarker = '/' + HAXCMS.sitesDirectory + '/';
-    if (normalizedSiteDirectory.indexOf(multisitePathMarker) !== -1) {
+  if (site && typeof site.basePath === 'string' && site.basePath) {
+    const basePath = normalizePathForResponse(site.basePath);
+    const sitesDir = normalizePathForResponse(HAXCMS.sitesDirectory);
+    if (basePath.indexOf('/' + sitesDir + '/') !== -1) {
       return true;
     }
   }
