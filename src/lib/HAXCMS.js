@@ -3827,7 +3827,6 @@ class HAXCMSClass {
               }
             },
             "data": {
-              "__HAXJWT__": true,
               "__HAXAPPENDUPLOADENDPOINT__": true
             },
             "resultMap": {

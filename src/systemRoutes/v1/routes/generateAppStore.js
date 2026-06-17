@@ -164,7 +164,6 @@ function sanitizeBrokerConnectionData(input = {}) {
     site_token: true,
     siteToken: true,
     siteName: true,
-    __HAXJWT__: true,
   };
   const sanitized = {};
   const keys = Object.keys(input || {});
@@ -227,7 +226,6 @@ function rewriteConnectionToBroker(connection, provider, req) {
   ) {
     rewrittenHeaders['X-HAXCMS-Site-Token'] = siteToken;
   }
-  mergedData.__HAXJWT__ = true;
   const browseOperation = (
     connection.operations &&
     connection.operations.browse &&

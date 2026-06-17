@@ -7,7 +7,6 @@ const RESERVED_QUERY_PARAMS = [
   'siteName',
   'jwt',
   'token',
-  '__HAXJWT__',
 ];
 
 const BLOCKED_AUTH_PARAMS = [
