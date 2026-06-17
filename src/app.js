@@ -748,6 +748,7 @@ systemStructureContext().then((site) => {
     // this assumes a site has already been made or is being navigated to to work on
     // works great w/ CLI in stand alone mode for local developer
     publicDir = site.siteDirectory;
+    HAXCMS.runtimeServerMode = 'single-site';
     if (process.env.NODE_ENV === "development") {
       // express.static will only serve the original static index.html file
       // so dev builds need to set this ignore option to inject any edits
@@ -875,6 +876,7 @@ systemStructureContext().then((site) => {
     });
   }
   else {
+    HAXCMS.runtimeServerMode = 'multisite';
     if (process.env.NODE_ENV === "development") {
       app.use(express.static(publicDir, { index: false }));
     }
