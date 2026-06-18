@@ -756,6 +756,17 @@ systemStructureContext().then((site) => {
     } else {
       app.use(express.static(publicDir));
     }
+    if (process.env.NODE_ENV === "development") {
+      app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.json({
+          workspace: {
+            root: publicDir,
+            uuid: 'a1b2c3d4-e5f6-47a7-8c9d-0e1f2a3b4c5d'
+          }
+        });
+      });
+    }
     app.use('/', async (req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`http://localhost:${currentPort}`));
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
@@ -922,6 +933,22 @@ systemStructureContext().then((site) => {
         });
       }
     });
+    if (process.env.NODE_ENV === "development") {
+      app.get(`/${HAXCMS.sitesDirectory}/:site/.well-known/appspecific/com.chrome.devtools.json`, async (req, res) => {
+        const siteContext = await HAXCMS.loadSite(req.params.site);
+        if (siteContext && siteContext.siteDirectory) {
+          res.setHeader('Content-Type', 'application/json');
+          res.json({
+            workspace: {
+              root: siteContext.siteDirectory,
+              uuid: 'a1b2c3d4-e5f6-47a7-8c9d-0e1f2a3b4c5d'
+            }
+          });
+        } else {
+          res.status(404).end();
+        }
+      });
+    }
     // sites need rewriting to work with PWA routes without failing file location
     // similar to htaccess
     app.use(`/${HAXCMS.sitesDirectory}/`, async (req, res, next) => {
@@ -1232,6 +1259,14 @@ systemStructureContext().then((site) => {
       }
     });
   }
+  app.use((err, req, res, next) => {
+    if (err && err.code === 'ENOENT') {
+      res.status(404).end();
+      return;
+    }
+    console.error(err);
+    res.status(500).send('Server error');
+  });
 });
 server.on('listening', onServerListening);
 server.on('error', handleServerError);
