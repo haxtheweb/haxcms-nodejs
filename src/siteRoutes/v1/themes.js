@@ -60,7 +60,7 @@ function shouldIncludeDisabled(req) {
 }
 
 function normalizeThemeRecord(theme, enabled, active, apiBasePath) {
-  return {
+  const record = {
     machineName: theme.machineName || '',
     name: theme.name || theme.machineName || '',
     description: theme.description || '',
@@ -74,6 +74,10 @@ function normalizeThemeRecord(theme, enabled, active, apiBasePath) {
       self: `${apiBasePath}/v1/themes/${encodeURIComponent(theme.machineName || '')}`,
     },
   };
+  if (Array.isArray(theme.supportedPalettes) && theme.supportedPalettes.length > 0) {
+    record.supportedPalettes = theme.supportedPalettes;
+  }
+  return record;
 }
 
 async function getThemeRecords(site, req, apiBasePath) {
