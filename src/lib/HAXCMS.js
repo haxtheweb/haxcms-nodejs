@@ -1026,7 +1026,7 @@ class HAXCMSSite
             "id":item.id.replace('-', '').replace('item-', '').substring(0, 29),
             "title":item.title,
             "created":created,
-            "location": item.location.replace('pages/', '').replace('/index.html', ''),
+            "location": item.slug,
             "description":item.description,
             "text":textData,
           });

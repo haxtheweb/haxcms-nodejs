@@ -129,6 +129,74 @@ async function saveSeoSettings(req, res) {
       );
     }
 
+    let authorPhoneValue;
+    if (hasOwn(bodyAuthor, 'phone')) {
+      authorPhoneValue = normalizeString(bodyAuthor.phone);
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.phone')) {
+      authorPhoneValue = normalizeString(
+        manifestAuthor['manifest.metadata.author.phone'],
+      );
+    }
+    if (typeof authorPhoneValue !== 'undefined') {
+      site.manifest.metadata.author.phone = filter_var(
+        authorPhoneValue,
+        'FILTER_SANITIZE_STRING',
+      );
+    }
+
+    let authorLocationValue;
+    if (hasOwn(bodyAuthor, 'location')) {
+      authorLocationValue = normalizeString(bodyAuthor.location);
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.location')) {
+      authorLocationValue = normalizeString(
+        manifestAuthor['manifest.metadata.author.location'],
+      );
+    }
+    if (typeof authorLocationValue !== 'undefined') {
+      site.manifest.metadata.author.location = filter_var(
+        authorLocationValue,
+        'FILTER_SANITIZE_STRING',
+      );
+    }
+
+    let authorWebsiteValue;
+    if (hasOwn(bodyAuthor, 'website')) {
+      authorWebsiteValue = normalizeString(bodyAuthor.website);
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.website')) {
+      authorWebsiteValue = normalizeString(
+        manifestAuthor['manifest.metadata.author.website'],
+      );
+    }
+    if (typeof authorWebsiteValue !== 'undefined') {
+      site.manifest.metadata.author.website = filter_var(
+        authorWebsiteValue,
+        'FILTER_SANITIZE_STRING',
+      );
+      site.manifest.metadata.author.website = sanitizeURLValue(
+        site.manifest.metadata.author.website,
+        '',
+      );
+    }
+
+    let authorWebsite2Value;
+    if (hasOwn(bodyAuthor, 'website2')) {
+      authorWebsite2Value = normalizeString(bodyAuthor.website2);
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.website2')) {
+      authorWebsite2Value = normalizeString(
+        manifestAuthor['manifest.metadata.author.website2'],
+      );
+    }
+    if (typeof authorWebsite2Value !== 'undefined') {
+      site.manifest.metadata.author.website2 = filter_var(
+        authorWebsite2Value,
+        'FILTER_SANITIZE_STRING',
+      );
+      site.manifest.metadata.author.website2 = sanitizeURLValue(
+        site.manifest.metadata.author.website2,
+        '',
+      );
+    }
+
     let authorSocialLinkValue;
     if (hasOwn(bodyAuthor, 'socialLink')) {
       authorSocialLinkValue = normalizeString(bodyAuthor.socialLink);
@@ -144,6 +212,25 @@ async function saveSeoSettings(req, res) {
       );
       site.manifest.metadata.author.socialLink = sanitizeURLValue(
         site.manifest.metadata.author.socialLink,
+        '',
+      );
+    }
+
+    let authorSocialLink2Value;
+    if (hasOwn(bodyAuthor, 'socialLink2')) {
+      authorSocialLink2Value = normalizeString(bodyAuthor.socialLink2);
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.socialLink2')) {
+      authorSocialLink2Value = normalizeString(
+        manifestAuthor['manifest.metadata.author.socialLink2'],
+      );
+    }
+    if (typeof authorSocialLink2Value !== 'undefined') {
+      site.manifest.metadata.author.socialLink2 = filter_var(
+        authorSocialLink2Value,
+        'FILTER_SANITIZE_STRING',
+      );
+      site.manifest.metadata.author.socialLink2 = sanitizeURLValue(
+        site.manifest.metadata.author.socialLink2,
         '',
       );
     }
@@ -278,6 +365,9 @@ async function saveSeoSettings(req, res) {
 
     site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
     await site.manifest.save(false);
+    // rebuild managed files after manifest changes that may affect generated output
+    await site.rebuildManagedFiles();
+    await site.gitCommit('Managed files updated');
     await site.gitCommit('SEO settings updated');
 
     res.send(site.manifest);

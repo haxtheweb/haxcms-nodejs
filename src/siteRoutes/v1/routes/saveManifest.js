@@ -221,12 +221,44 @@ const { getRequestHeaderValue, ensureSiteMetadataContainers, assertSiteFeature }
                 req.body['manifest']['author']['manifest-metadata-author-email'],
                 "FILTER_SANITIZE_STRING"
             );
+            site.manifest.metadata.author.phone = filter_var(
+                req.body['manifest']['author']['manifest-metadata-author-phone'],
+                "FILTER_SANITIZE_STRING"
+            );
+            site.manifest.metadata.author.location = filter_var(
+                req.body['manifest']['author']['manifest-metadata-author-location'],
+                "FILTER_SANITIZE_STRING"
+            );
+            site.manifest.metadata.author.website = filter_var(
+                req.body['manifest']['author']['manifest-metadata-author-website'],
+                "FILTER_SANITIZE_STRING"
+            );
+            site.manifest.metadata.author.website = sanitizeURLValue(
+              site.manifest.metadata.author.website,
+              ''
+            );
+            site.manifest.metadata.author.website2 = filter_var(
+                req.body['manifest']['author']['manifest-metadata-author-website2'],
+                "FILTER_SANITIZE_STRING"
+            );
+            site.manifest.metadata.author.website2 = sanitizeURLValue(
+              site.manifest.metadata.author.website2,
+              ''
+            );
             site.manifest.metadata.author.socialLink = filter_var(
                 req.body['manifest']['author']['manifest-metadata-author-socialLink'],
                 "FILTER_SANITIZE_STRING"
             );
             site.manifest.metadata.author.socialLink = sanitizeURLValue(
               site.manifest.metadata.author.socialLink,
+              ''
+            );
+            site.manifest.metadata.author.socialLink2 = filter_var(
+                req.body['manifest']['author']['manifest-metadata-author-socialLink2'],
+                "FILTER_SANITIZE_STRING"
+            );
+            site.manifest.metadata.author.socialLink2 = sanitizeURLValue(
+              site.manifest.metadata.author.socialLink2,
               ''
             );
         }

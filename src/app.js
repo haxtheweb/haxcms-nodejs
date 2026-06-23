@@ -805,7 +805,8 @@ systemStructureContext().then((site) => {
           req.url.includes('/.well-known/') ||
           req.url.includes('/files/') || 
           req.url.includes('/pages/') || 
-          req.url.includes('/site.json')
+          req.url.includes('/site.json') ||
+          req.url.includes('/lunrSearchIndex.json')
         )
       ) {
         if (!setWellKnownContentType(res, req.url)) {
@@ -998,7 +999,8 @@ systemStructureContext().then((site) => {
           req.url.includes('/.well-known/') ||
           req.url.includes('/files/') || 
           req.url.includes('/pages/') || 
-          req.url.includes('/site.json')
+          req.url.includes('/site.json') ||
+          req.url.includes('/lunrSearchIndex.json')
         )
       ) {
         if (!setWellKnownContentType(res, req.url)) {

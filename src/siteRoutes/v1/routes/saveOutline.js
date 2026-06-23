@@ -289,6 +289,9 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
       }
       site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
       await site.manifest.save();
+      // rebuild managed files after manifest changes that may affect generated output
+      await site.rebuildManagedFiles();
+      await site.gitCommit('Managed files updated');
       // update alt formats like rss as we did massive changes
       await site.updateAlternateFormats();
       await site.gitCommit('Outline updated in bulk');
