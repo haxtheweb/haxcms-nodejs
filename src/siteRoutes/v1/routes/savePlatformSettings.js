@@ -1,5 +1,5 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
+const { getRequestHeaderValue, assertSiteFeature, ensureSiteMetadataContainers } = require('../siteRouteUtils.js');
 
 /**
  * @OA\Post(

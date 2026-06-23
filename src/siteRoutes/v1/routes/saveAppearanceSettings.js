@@ -230,15 +230,19 @@ async function saveAppearanceSettings(req, res) {
       'manifest-metadata-theme-variables-cssVariable',
     )
   ) {
-    const cssVariable = normalizeCssVariable(
-      themePayload['manifest-metadata-theme-variables-cssVariable'],
-    )
-    if (!cssVariable) {
-      res.sendStatus(400)
-      return
+    const cssVariableValue =
+      themePayload['manifest-metadata-theme-variables-cssVariable']
+    if (cssVariableValue === null || cssVariableValue === '') {
+      delete site.manifest.metadata.theme.variables.cssVariable
+    } else {
+      const cssVariable = normalizeCssVariable(cssVariableValue)
+      if (!cssVariable) {
+        res.sendStatus(400)
+        return
+      }
+      site.manifest.metadata.theme.variables.cssVariable =
+        '--simple-colors-default-theme-' + cssVariable + '-7'
     }
-    site.manifest.metadata.theme.variables.cssVariable =
-      '--simple-colors-default-theme-' + cssVariable + '-7'
   }
   if (
     Object.prototype.hasOwnProperty.call(
