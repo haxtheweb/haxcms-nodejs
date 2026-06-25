@@ -5,7 +5,6 @@ _published
 _archived
 _config
 package-lock.json
-build/es6/node_modules/@polymer/.DS_Store
 
 # Logs
 logs
