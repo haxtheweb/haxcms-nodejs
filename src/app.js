@@ -540,6 +540,42 @@ function injectLinkedDevDedupingFix(indexFile = '') {
   return `${dedupingFixMarkup}\n${output}`;
 }
 
+function extractImportMapJson(markup = '') {
+  const startIndex = markup.indexOf('>');
+  const endIndex = markup.lastIndexOf('</script>');
+  if (
+    startIndex === -1 ||
+    endIndex === -1 ||
+    endIndex <= startIndex
+  ) {
+    return null;
+  }
+  try {
+    return JSON.parse(markup.substring(startIndex + 1, endIndex).trim());
+  } catch (e) {
+    return null;
+  }
+}
+
+function mergeImportMapMarkup(existingMarkup = '', linkedDevMarkup = '') {
+  const existingJson = extractImportMapJson(existingMarkup);
+  const linkedDevJson = extractImportMapJson(linkedDevMarkup);
+  if (!existingJson || !linkedDevJson) {
+    return null;
+  }
+  const merged = {
+    imports: {
+      ...(existingJson.imports || {}),
+      ...(linkedDevJson.imports || {})
+    },
+    scopes: {
+      ...(existingJson.scopes || {}),
+      ...(linkedDevJson.scopes || {})
+    }
+  };
+  return `<script type="importmap" data-haxcms-linked-dev-importmap>${JSON.stringify(merged)}</script>`;
+}
+
 function injectLinkedDevImportMap(indexFile = '') {
   let output = String(indexFile || '');
   if (!linkedDevImportMapMarkup) {
@@ -552,8 +588,13 @@ function injectLinkedDevImportMap(indexFile = '') {
   if (firstImportMapScriptIndex !== -1) {
     const firstImportMapScriptEndIndex = output.indexOf('</script>', firstImportMapScriptIndex);
     if (firstImportMapScriptEndIndex !== -1) {
-      const insertAt = firstImportMapScriptEndIndex + '</script>'.length;
-      return `${output.substring(0, insertAt)}\n${linkedDevImportMapMarkup}${output.substring(insertAt)}`;
+      const existingImportMap = output.substring(firstImportMapScriptIndex, firstImportMapScriptEndIndex + '</script>'.length);
+      const mergedMarkup = mergeImportMapMarkup(existingImportMap, linkedDevImportMapMarkup);
+      if (mergedMarkup) {
+        return output.substring(0, firstImportMapScriptIndex) + mergedMarkup + output.substring(firstImportMapScriptEndIndex + '</script>'.length);
+      }
+      // fallback: prepend linked dev import map before the existing one
+      return output.substring(0, firstImportMapScriptIndex) + linkedDevImportMapMarkup + '\n' + output.substring(firstImportMapScriptIndex);
     }
   }
   const earlyInjectionMarkers = [
@@ -871,15 +912,15 @@ systemStructureContext().then((site) => {
             path.join(publicDir, 'index.html')
           );
           // injects a websocket for livereload support when developing custom components
-          if (process.env.NODE_ENV === "development") {
-            indexFile = injectLinkedDevDedupingFix(indexFile);
-            indexFile = injectLinkedDevImportMap(indexFile);
-            indexFile = injectDevReloadScript(indexFile, currentPort);
-          }
+          indexFile = injectLinkedDevDedupingFix(indexFile);
+          indexFile = injectLinkedDevImportMap(indexFile);
+          indexFile = injectDevReloadScript(indexFile, currentPort);
+          setNoStoreResponseHeaders(res);
           res.send(indexFile);
         }
         catch (e) {
-          // fallback to static index delivery if runtime injection fails
+          console.warn('Runtime injection failed for single-site index, falling back to static delivery:', e);
+          setNoStoreResponseHeaders(res);
           res.sendFile(`index.html`, {
             root: publicDir
           });
@@ -924,11 +965,15 @@ systemStructureContext().then((site) => {
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
+            setNoStoreResponseHeaders(res);
             res.send(indexFile);
             return;
           }
-          catch (e) {}
+          catch (e) {
+            console.warn('Runtime injection failed for dashboard index, falling back to static delivery:', e);
+          }
         }
+        setNoStoreResponseHeaders(res);
         res.sendFile(requestPath.replace(/\/createSite-step-(.*)/, '/').replace(/\/home/, '/'), {
           root: publicDir
         });
@@ -1072,16 +1117,18 @@ systemStructureContext().then((site) => {
               pageMiss,
               path.join(siteContext.siteDirectory, 'index.html')
             );
-            if (process.env.NODE_ENV === "development") {
-              indexFile = injectLinkedDevDedupingFix(indexFile);
-              indexFile = injectLinkedDevImportMap(indexFile);
-              indexFile = injectDevReloadScript(indexFile, currentPort);
-            }
+            indexFile = injectLinkedDevDedupingFix(indexFile);
+            indexFile = injectLinkedDevImportMap(indexFile);
+            indexFile = injectDevReloadScript(indexFile, currentPort);
+            setNoStoreResponseHeaders(res);
             res.send(indexFile);
             return;
           }
-          catch (e) {}
+          catch (e) {
+            console.warn('Runtime injection failed for site index, falling back to static delivery:', e);
+          }
         }
+        setNoStoreResponseHeaders(res);
         // send static index fallback even if route points to a non-file path
         res.sendFile(req.url.replace(/\/(.*?)\/(.*)/, `/${HAXCMS.sitesDirectory}/$1/index.html`), {
           root: process.cwd()
@@ -1247,11 +1294,15 @@ systemStructureContext().then((site) => {
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
+            setNoStoreResponseHeaders(res);
             res.send(indexFile);
             return;
           }
-          catch (e) {}
+          catch (e) {
+            console.warn('Runtime injection failed for catch-all index, falling back to static delivery:', e);
+          }
         }
+        setNoStoreResponseHeaders(res);
         res.sendFile('/', {
           root: `${__dirname}/public/`
         });
