@@ -10,9 +10,12 @@
   "scripts": {
     "dev:build": "npm run build && nodemon dist/app.js",
     "dev": "nodemon src/app.js",
+    "dev:ssl": "HAXCMS_ENABLE_SSL=1 nodemon src/app.js",
     "dev:nologin": "nodemon src/local.js",
+    "dev:nologin:ssl": "HAXCMS_ENABLE_SSL=1 nodemon src/local.js",
     "dev:linked-assets": "NODE_ENV=development HAXCMS_WEBCOMPONENTS_ROOT=../webcomponents npm start",
     "start": "node scripts/start-with-auto-open.js",
+    "start:ssl": "HAXCMS_ENABLE_SSL=1 node scripts/start-with-auto-open.js",
     "build": "rm -rf dist && babel src --out-dir dist --copy-files --include-dotfiles && chmod 774 dist/local.js && chmod 774 dist/app.js && chmod 774 dist/cli.js",
     "verify:sanitize-policy": "node scripts/verify-sanitize-policy.js",
     "test:api-conformance": "node --test test/api-conformance/**/*.test.cjs",

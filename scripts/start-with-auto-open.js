@@ -52,13 +52,14 @@ async function findAvailablePort(startPort) {
 }
 
 async function openBrowser(port) {
+  const protocol = process.env.HAXCMS_ENABLE_SSL || process.env.HAXCMS_SSL_KEY ? 'https' : 'http'
   try {
     const openPkg = await import('open')
     const open = openPkg.default
-    await open(`http://localhost:${port}`)
+    await open(`${protocol}://localhost:${port}`)
   }
   catch (e) {
-    console.warn(`Unable to auto-open browser on http://localhost:${port}`)
+    console.warn(`Unable to auto-open browser on ${protocol}://localhost:${port}`)
   }
 }
 

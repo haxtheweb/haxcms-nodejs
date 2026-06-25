@@ -13,7 +13,9 @@ const mime = require('mime');
 const path = require('path');
 const fs = require("fs-extra");
 const YAML = require('yaml');
-const server = require('http').Server(app);
+const sslServer = require('./lib/sslServer.js');
+const server = sslServer.createServer(app);
+const serverProtocol = sslServer.getServerProtocol();
 const PAGE_VARIANT_CONTENT_TYPES = {
   html: 'text/html; charset=utf-8',
   md: 'text/markdown; charset=utf-8',
@@ -42,7 +44,7 @@ var helmetPolicies = {
       styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
       mediaSrc: ["'self'", "data:", "https:"],
       imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
-      connectSrc: ["'self'", "https:", "ws:"],
+      connectSrc: ["'self'", "https:", "ws:", "wss:"],
       defaultSrc: ["'self'", "data:", "https:"],
       objectSrc: ["'none'"],
       fontSrc: ["'self'", "data:", "fonts.gstatic.com"],
@@ -809,7 +811,7 @@ systemStructureContext().then((site) => {
       });
     }
     app.use('/', async (req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`http://localhost:${currentPort}`));
+      res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`${serverProtocol}://localhost:${currentPort}`));
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
@@ -937,7 +939,7 @@ systemStructureContext().then((site) => {
       app.use(express.static(publicDir));
     }
     app.use('/', (req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`http://localhost:${currentPort}`));
+      res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`${serverProtocol}://localhost:${currentPort}`));
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
@@ -1338,7 +1340,7 @@ function onServerListening() {
     serverReadyResolved = true
   }
   /* eslint-disable no-console */
-  console.log(`open: http://localhost:${runtimePort}`);
+  console.log(`open: ${serverProtocol}://localhost:${runtimePort}`);
 }
 
 function handleServerError(e) {
@@ -1369,7 +1371,8 @@ function handleServerError(e) {
 module.exports = {
   app,
   server,
-  serverReady
+  serverReady,
+  serverProtocol
 };
 function isSiteScopedSystemApiRoutePattern(req) {
   if (!req || !req.route || typeof req.route.path !== 'string') {
