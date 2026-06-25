@@ -1204,9 +1204,9 @@ class HAXCMSSite
         if (page == null) {
           page = this.loadNodeByLocation();
         }
-        if ((page.metadata.files)) {
-          for (var key in page.manifest.files) {
-            let file = page.manifest.items[key];
+        if (page && page.metadata && page.metadata.files) {
+          for (var key in page.metadata.files) {
+            let file = page.metadata.files[key];
             if (file.type == 'image/jpeg') {
               fileName = file.fullUrl;
             }
