@@ -8,6 +8,29 @@ const path = require('path');
 const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i;
 const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
 const DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE = '--simple-colors-default-theme-light-blue-7';
+
+function normalizeSiteFilePath(relativePath) {
+  if (typeof relativePath !== 'string') {
+    return null;
+  }
+  const normalized = relativePath.trim().replace(/\\/g, '/');
+  if (
+    normalized === '' ||
+    normalized.indexOf('\0') !== -1 ||
+    normalized.includes('..') ||
+    normalized.startsWith('/') ||
+    !(normalized.startsWith('theme/') || normalized.startsWith('custom/'))
+  ) {
+    return null;
+  }
+  const parts = normalized.split('/');
+  for (const part of parts) {
+    if (part === '' || part === '.' || part === '..') {
+      return null;
+    }
+  }
+  return normalized;
+}
 const DEFAULT_SUPPORTED_SITE_LICENSES = [
   'by',
   'by-sa',
@@ -724,6 +747,26 @@ async function createSite(req, res) {
           "path": downloadLocation,
           "bulk-import": true
         }, site);
+      }
+    }
+    // download user-customized theme and custom files (imported from another instance)
+    const siteFiles = req.body['build'] && req.body['build']['siteFiles'] ? req.body['build']['siteFiles'] : null;
+    if (siteFiles && typeof siteFiles === 'object') {
+      for (const relativePath in siteFiles) {
+        const normalizedPath = normalizeSiteFilePath(relativePath);
+        if (!normalizedPath) {
+          continue;
+        }
+        const downloadUrl = siteFiles[relativePath];
+        try {
+          const response = await fetch(downloadUrl);
+          if (response.ok) {
+            const content = await response.text();
+            const targetPath = path.join(site.siteDirectory, normalizedPath);
+            await fs.ensureDir(path.dirname(targetPath));
+            await fs.writeFile(targetPath, content);
+          }
+        } catch (e) {}
       }
     }
     // main site schema doesn't care about publishing settings

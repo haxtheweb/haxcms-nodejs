@@ -86,6 +86,8 @@ function replaceWithKnownPrefix(value, sourcePrefixes = [], targetPrefix = '') {
 
       let cloneName = HAXCMS.getUniqueName(site.name);
       // ensure the path to the new folder is valid
+      // recurseCopy preserves theme/ and custom/ directories automatically,
+      // so user-customized files such as theme.css, theme.html, and custom.es6.js are retained
       await HAXCMS.recurseCopy(
           HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.name,
           HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + cloneName
