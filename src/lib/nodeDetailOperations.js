@@ -85,7 +85,46 @@ function ensureMetadataObject(page) {
   }
 }
 
-function applyMetadataMutation(page, details = {}, operation = null) {
+function isPathautoEnabled(site) {
+  return (
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    site.manifest.metadata.site.settings &&
+    site.manifest.metadata.site.settings.pathauto === true
+  );
+}
+
+function isOverridePathauto(page) {
+  return page && page.metadata && page.metadata.overridePathauto === true;
+}
+
+function cascadeSlugUpdates(site, items, changedIds) {
+  let keepGoing = true;
+  while (keepGoing) {
+    keepGoing = false;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (
+        item &&
+        item.parent &&
+        changedIds.indexOf(item.parent) !== -1 &&
+        changedIds.indexOf(item.id) === -1
+      ) {
+        const childOverride = isOverridePathauto(item);
+        if (!childOverride) {
+          const childCleanTitle = HAXCMS.cleanTitle(item.title);
+          item.slug = site.getUniqueSlugName(childCleanTitle, item, true);
+          changedIds.push(item.id);
+          keepGoing = true;
+        }
+      }
+    }
+  }
+}
+
+function applyMetadataMutation(page, details = {}, operation = null, site = null, items = null) {
   switch (operation) {
     case 'setTitle':
       if (
@@ -93,6 +132,15 @@ function applyMetadataMutation(page, details = {}, operation = null) {
         details.title !== ''
       ) {
         page.title = strip_tags(details.title);
+        // If pathauto is on and overridePathauto is not set, regenerate the slug and cascade
+        if (isPathautoEnabled(site) && !isOverridePathauto(page)) {
+          const cleanTitle = HAXCMS.cleanTitle(page.title);
+          page.slug = site.getUniqueSlugName(cleanTitle, page, true);
+          if (items) {
+            site.manifest.items = items;
+            cascadeSlugUpdates(site, items, [page.id]);
+          }
+        }
       }
       break;
     case 'setDescription':
@@ -188,6 +236,15 @@ function applyMetadataMutation(page, details = {}, operation = null) {
           newSlug = newSlug.replace('x/', 'x-x/');
         }
         page.slug = HAXCMS.generateSlugName(newSlug);
+        // When user manually sets a slug, mark it as overridden so pathauto won't overwrite it
+        ensureMetadataObject(page);
+        page.metadata.overridePathauto = true;
+      }
+      break;
+    case 'setOverridePathauto':
+      ensureMetadataObject(page);
+      if (Object.prototype.hasOwnProperty.call(details, 'overridePathauto')) {
+        page.metadata.overridePathauto = Boolean(details.overridePathauto);
       }
       break;
     default:
@@ -274,6 +331,15 @@ function applyOutlineMutation(site, page, items = [], details = {}, operation = 
             ? parseInt(parentNode.indent) + 1
             : 1;
       }
+      // If pathauto is on and overridePathauto is not set, regenerate the slug and cascade
+      if (isPathautoEnabled(site) && !isOverridePathauto(page)) {
+        const cleanTitle = HAXCMS.cleanTitle(page.title);
+        page.slug = site.getUniqueSlugName(cleanTitle, page, true);
+        if (items) {
+          site.manifest.items = items;
+          cascadeSlugUpdates(site, items, [page.id]);
+        }
+      }
       break;
     default:
       break;
@@ -317,7 +383,7 @@ async function applyNodeDetailOperation(site, nodeId, details = {}) {
   const items = site.manifest.items;
 
   applyOutlineMutation(site, page, items, details, operation);
-  applyMetadataMutation(page, details, operation);
+  applyMetadataMutation(page, details, operation, site, items);
 
   site.manifest.items = items;
   if (site.manifest.items.length !== originalItemCount) {

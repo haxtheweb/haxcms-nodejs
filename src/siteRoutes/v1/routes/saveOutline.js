@@ -87,12 +87,26 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
           // generate a logical page slug
           page.location = 'pages/' + page.id + '/index.html';
         }
-        // keep slug if we get one already, but sanitize/normalize it
-        if (typeof item.slug !== 'undefined' && item.slug != '') {
-          page.slug = normalizeOutlineSlug(site, item.slug, page, false);
+        // Check for per-page overridePathauto flag
+        let overridePathauto = false;
+        if (item.metadata && item.metadata.overridePathauto === true) {
+          overridePathauto = true;
+        }
+        let pathautoEnabled = false;
+        if (site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.settings && site.manifest.metadata.site.settings.pathauto) {
+          pathautoEnabled = true;
+        }
+        // Determine slug based on pathauto and overridePathauto
+        if (pathautoEnabled && !overridePathauto) {
+          // Pathauto is on and user has not overridden: auto-generate from title
+          page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
         } else {
-            // generate a logical page slug
+          // Pathauto is off, or user has overridden: use client-provided slug or generate from title
+          if (typeof item.slug !== 'undefined' && item.slug != '') {
+            page.slug = normalizeOutlineSlug(site, item.slug, page, false);
+          } else {
             page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
+          }
         }
         // verify this exists, front end could have set what they wanted
         // or it could have just been renamed
@@ -116,7 +130,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
                     tmpItem.slug != ''
                 ) {
                     // core support for automatically managing paths to make them nice
-                    if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto) {
+                    if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto && !overridePathauto) {
                         moved = true;
                         page.slug = normalizeOutlineSlug(
                           site,
@@ -138,7 +152,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
               !fs.existsSync(site.siteDirectory + '/' + page.location)
           ) {
                 let pAuto = false;
-                if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto) {
+                if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto && !overridePathauto) {
                   pAuto = true;
                 }
                 let tmpTitle = normalizeOutlineSlug(site, cleanTitle, page, pAuto);
@@ -295,7 +309,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
       // update alt formats like rss as we did massive changes
       await site.updateAlternateFormats();
       await site.gitCommit('Outline updated in bulk');
-      res.send(site.manifest.items);
+      res.send({ items: site.manifest.items });
     } else {
       res.sendStatus(403);
     }

@@ -1179,6 +1179,46 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "400":
           $ref: "#/components/responses/BadRequest"
+  /system/api/v1/actions/import-docx:
+    post:
+      tags:
+        - actions
+      operationId: importDocx
+      summary: Convert an uploaded .docx or .doc file into a HAXcms site schema
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Word document (.docx or .doc) to convert
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Site schema items from the converted document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /system/api/v1/actions/html-to-docx:
     post:
       tags:

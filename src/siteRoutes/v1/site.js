@@ -8,6 +8,7 @@ const saveAllowedBlocksRoute = require('./routes/saveAllowedBlocks.js');
 const saveEditorSettingsRoute = require('./routes/saveEditorSettings.js');
 const saveSeoSettingsRoute = require('./routes/saveSeoSettings.js');
 const saveOutlineRoute = require('./routes/saveOutline.js');
+const { platformAllows } = require('../../lib/platformFeatures.js');
 const { convertToHtml } = require('mammoth');
 const { parse } = require('node-html-parser');
 const {
@@ -620,6 +621,146 @@ async function updateSiteAlternativeFormats(req, res) {
   });
 }
 
+async function normalizeSiteSlugs(req, res) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      message: 'Unable to resolve site context for /x/api/v1/site/normalize-slugs',
+    });
+  }
+  const siteName = getSiteNameFromResolvedSite(site);
+  if (siteName === '') {
+    return res.status(400).json({
+      status: 400,
+      message: 'Unable to resolve site name for /x/api/v1/site/normalize-slugs',
+    });
+  }
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  if (
+    !siteToken ||
+    !HAXCMS.validateRequestToken(
+      siteToken,
+      HAXCMS.getActiveUserName() + ':' + siteName,
+    )
+  ) {
+    return res.status(403).json({
+      status: 403,
+      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+    });
+  }
+  if (!platformAllows(site, 'outlineDesigner')) {
+    return res.status(403).json({
+      status: 403,
+      message: 'Outline operations are disabled for this site',
+    });
+  }
+  const body = ensureRequestBodyObject(req);
+  let isPreview = false;
+  if (
+    body.preview === true ||
+    body.preview === 'true' ||
+    body.preview === 1
+  ) {
+    isPreview = true;
+  } else if (
+    req.query &&
+    (req.query.preview === 'true' || req.query.preview === '1')
+  ) {
+    isPreview = true;
+  }
+  const pathautoEnabled =
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    site.manifest.metadata.site.settings &&
+    site.manifest.metadata.site.settings.pathauto;
+  let items = normalizeManifestItems(site);
+  const originalItems = items.map((item) => ({ ...item }));
+  // Temporarily update manifest items so getUniqueSlugName sees updated parent slugs
+  site.manifest.items = items;
+  const processedIds = [];
+  const changes = [];
+  const skipped = [];
+  let remaining = [...items];
+  const maxIterations = remaining.length * 2;
+  let iteration = 0;
+  while (remaining.length > 0 && iteration < maxIterations) {
+    iteration++;
+    const nextBatch = [];
+    for (let i = 0; i < remaining.length; i++) {
+      const item = remaining[i];
+      const parent = item.parent ? String(item.parent) : '';
+      const canProcess = parent === '' || processedIds.indexOf(parent) !== -1;
+      if (!canProcess) {
+        nextBatch.push(item);
+        continue;
+      }
+      processedIds.push(String(item.id));
+      const oldSlug = item.slug ? String(item.slug) : '';
+      let overridePathauto = false;
+      if (
+        item.metadata &&
+        typeof item.metadata === 'object' &&
+        item.metadata.overridePathauto === true
+      ) {
+        overridePathauto = true;
+      }
+      let shouldSkip = false;
+      let reason = '';
+      if (pathautoEnabled && overridePathauto) {
+        shouldSkip = true;
+        reason = 'overridePathauto';
+      }
+      if (!shouldSkip) {
+        const cleanTitle = HAXCMS.cleanTitle(item.title);
+        const newSlug = site.getUniqueSlugName(cleanTitle, item, true);
+        if (newSlug !== oldSlug) {
+          item.slug = newSlug;
+          changes.push({
+            id: String(item.id),
+            title: item.title ? String(item.title) : '',
+            oldSlug: oldSlug,
+            newSlug: newSlug,
+          });
+        }
+      } else {
+        skipped.push({
+          id: String(item.id),
+          title: item.title ? String(item.title) : '',
+          oldSlug: oldSlug,
+          reason: reason,
+        });
+      }
+    }
+    remaining = nextBatch;
+  }
+  if (isPreview) {
+    site.manifest.items = originalItems;
+  } else {
+    site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
+    await site.manifest.save(false);
+    await site.updateAlternateFormats();
+    await site.gitCommit(
+      'Bulk slug normalization: ' +
+        changes.length +
+        ' changed, ' +
+        skipped.length +
+        ' skipped',
+    );
+  }
+  return res.json({
+    status: 200,
+    data: {
+      items: site.manifest.items,
+      changed: changes.length > 0,
+      preview: isPreview,
+      changes: changes,
+      skipped: skipped,
+    },
+  });
+}
+
 async function importDocx(req, res) {
   let filename = null;
   try {
@@ -842,5 +983,6 @@ module.exports = {
   updateSiteSeo,
   updateSiteOutline,
   updateSiteAlternativeFormats,
+  normalizeSiteSlugs,
   importDocx,
 };

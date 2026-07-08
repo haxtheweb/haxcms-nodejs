@@ -146,7 +146,14 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
                   // decode entities and strip tags so manifest stores clean text
                   page.title = html_entity_decode(strip_tags(data["attributes"]["title"]));
                 }
-                if (data["attributes"]["slug"]) {
+                if (Object.prototype.hasOwnProperty.call(data["attributes"], 'override-pathauto')) {
+                  const val = data["attributes"]['override-pathauto'];
+                  page.metadata.overridePathauto = val !== false && val !== 'false';
+                }
+                else {
+                  page.metadata.overridePathauto = false;
+                }
+                if ((data["attributes"]["slug"])) {
                   // account for x being the only front end reserved route
                   if (data["attributes"]["slug"] == "x") {
                     data["attributes"]["slug"] = "x-x";
@@ -187,6 +194,12 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
                 }
                 if ((data["attributes"]["order"])) {
                   page.order = parseInt(data["attributes"]["order"]);
+                }
+                // If pathauto is enabled and overridePathauto is not set, regenerate the slug from the title
+                const pathautoEnabled = site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.settings && site.manifest.metadata.site.settings.pathauto === true;
+                if (pathautoEnabled && !page.metadata.overridePathauto) {
+                  const cleanTitle = HAXCMS.cleanTitle(page.title);
+                  page.slug = site.getUniqueSlugName(cleanTitle, page, true);
                 }
                 // boolean so these are either there or not
                 // historically we are published if this value is not set

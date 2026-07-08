@@ -137,7 +137,8 @@ function getSystemV1RouteParser(method = 'get', route = '') {
       normalizedRoute === 'configuration/schema-files/operations' ||
       normalizedRoute === 'configuration/skeletons' ||
       normalizedRoute === 'skeletons' ||
-      normalizedRoute === 'actions/docx-to-html'
+      normalizedRoute === 'actions/docx-to-html' ||
+      normalizedRoute === 'actions/import-docx'
     )
   ) {
     return parseSchemaFileOperationBody;

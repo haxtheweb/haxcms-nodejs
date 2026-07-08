@@ -5,6 +5,7 @@ const discoveryOpenapiRoute = require('../systemRoutes/discovery/openapi.js');
 const settingsRoutes = require('../systemRoutes/v1/settings.js');
 const convertDocxToHtmlRoute = require('../systemRoutes/v1/routes/convertDocxToHtml.js');
 const convertHtmlToDocxRoute = require('../systemRoutes/v1/routes/convertHtmlToDocx.js');
+const importDocxRoute = require('../systemRoutes/v1/routes/importDocx.js');
 
 function addRouteHandler(routesMap, method = 'get', route = '', handler = null) {
   if (typeof handler !== 'function') {
@@ -340,6 +341,7 @@ addRouteHandler(
 
 addRouteHandler(SystemRoutesMap, 'post', 'actions/docx-to-html', convertDocxToHtmlRoute.convertDocxToHtml);
 addRouteHandler(SystemRoutesMap, 'post', 'actions/html-to-docx', convertHtmlToDocxRoute.convertHtmlToDocx);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/import-docx', importDocxRoute.importDocx);
 addRouteHandler(SystemRoutesMap, 'get', '', discoveryApiRoute);
 addRouteHandler(SystemRoutesMap, 'get', 'openapi', discoveryOpenapiRoute);
 addRouteHandler(SystemRoutesMap, 'get', 'openapi.json', discoveryOpenapiRoute);

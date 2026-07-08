@@ -212,6 +212,12 @@ addRouteHandler(
 addRouteHandler(
   SiteRoutesMap,
   'post',
+  'v1/site/normalize-slugs',
+  v1SiteRoutes.normalizeSiteSlugs,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'post',
   'v1/site/updateAlternativeFormats',
   v1SiteRoutes.updateSiteAlternativeFormats,
 );

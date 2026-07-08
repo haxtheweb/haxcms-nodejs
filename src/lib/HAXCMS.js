@@ -170,6 +170,7 @@ class HAXCMSSite
     this.manifest.metadata.site.settings = {};
     this.manifest.metadata.site.settings.lang = 'en';
     this.manifest.metadata.site.settings.canonical = true;
+    this.manifest.metadata.site.settings.pathauto = true;
     this.manifest.metadata.site.name = tmpname;
     this.manifest.metadata.site.domain = domain;
     this.manifest.metadata.site.created = Math.floor(Date.now() / 1000);
