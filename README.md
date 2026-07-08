@@ -80,7 +80,7 @@ Temporary known skip in the suite:
   - Other profiles default to MCP enabled with read-only mode on.
 
 # Get Help / Issues / Support
-- Discord Channel - https://bit.ly/hax-discord
+- Discord Channel - https://discord.gg/EKYJAjqGhf
 - Unified issue queue - https://github.com/haxtheweb/issues/issues
 - Using Merlin directly in any HAX spaces and type "Issue" to jump start a report!
 
