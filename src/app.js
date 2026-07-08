@@ -109,7 +109,13 @@ function parseSchemaFileOperationBody(req, res, next) {
 function getSiteApiRouteParser(method = 'get', route = '') {
   const normalizedMethod = String(method || 'get').toLowerCase();
   const normalizedRoute = String(route || '');
-  if (normalizedMethod === 'post' && normalizedRoute === 'v1/files') {
+  if (
+    normalizedMethod === 'post' &&
+    (
+      normalizedRoute === 'v1/files' ||
+      normalizedRoute === 'v1/site/import/:format'
+    )
+  ) {
     return uploadAnyParser;
   }
   if (
@@ -130,7 +136,8 @@ function getSystemV1RouteParser(method = 'get', route = '') {
     (
       normalizedRoute === 'configuration/schema-files/operations' ||
       normalizedRoute === 'configuration/skeletons' ||
-      normalizedRoute === 'skeletons'
+      normalizedRoute === 'skeletons' ||
+      normalizedRoute === 'actions/docx-to-html'
     )
   ) {
     return parseSchemaFileOperationBody;

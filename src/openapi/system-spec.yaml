@@ -19,6 +19,8 @@ tags:
     description: Site lifecycle management operations
   - name: settings
     description: System configuration and integration endpoints
+  - name: actions
+    description: Utility action endpoints for file and content conversion
 paths:
   /system/api/v1:
     get:
@@ -1150,6 +1152,59 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/docx-to-html:
+    post:
+      tags:
+        - actions
+      operationId: docxToHtml
+      summary: Convert an uploaded .docx or .doc file to clean HTML
+      security: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Word document (.docx or .doc) to convert
+      responses:
+        "200":
+          description: Converted HTML content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /system/api/v1/actions/html-to-docx:
+    post:
+      tags:
+        - actions
+      operationId: htmlToDocx
+      summary: Convert HTML string to a DOCX document (returned as base64)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                html:
+                  type: string
+                  description: HTML string to convert to DOCX
+      responses:
+        "200":
+          description: Base64-encoded DOCX document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
 components:
   parameters:
     SiteName:

@@ -293,5 +293,11 @@ addRouteHandler(
   'v1/integrations/app-store/providers/:provider/search',
   v1IntegrationRoutes.appStoreProviderSearch,
 );
+addRouteHandler(
+  SiteRoutesMap,
+  'post',
+  'v1/site/import/:format',
+  v1SiteRoutes.importDocx,
+);
 
 module.exports = { SiteRoutesMap };

@@ -8,13 +8,13 @@ const {
   getItemContent,
 } = require('./siteRouteUtils.js')
 const { HAXCMS } = require('../../lib/HAXCMS.js')
+const { convertHtmlToDocxBuffer } = require('../../lib/convertUtils.js')
 
 const SITE_EXPORT_FORMATS = ['zip', 'markdown', 'pdf', 'docx', 'epub', 'skeleton']
 const ITEM_EXPORT_FORMATS = ['pdf', 'docx']
 const OPEN_APIS_BASE = 'https://open-apis.hax.cloud'
 const EXPORT_SERVICE_PATHS = {
   pdf: '/api/services/media/format/htmlToPdf',
-  docx: '/api/services/media/format/htmlToDocx',
 }
 const EXPORT_MEDIA_TYPES = {
   pdf: 'application/pdf',
@@ -181,12 +181,29 @@ function extractBase64DataFromResponse(json = null) {
 
 async function convertHtmlToDownloadBuffer(format = 'pdf', html = '', base = '/') {
   const normalizedFormat = normalizeFormatValue(format)
+  if (normalizedFormat === 'docx') {
+    try {
+      const docxBuffer = await convertHtmlToDocxBuffer(html)
+      if (!docxBuffer || docxBuffer.length < 1) {
+        const emptyError = new Error('Export conversion returned empty output')
+        emptyError.status = 502
+        throw emptyError
+      }
+      return docxBuffer
+    }
+    catch (e) {
+      const conversionError = new Error(
+        e && e.message ? e.message : 'Unable to complete DOCX export conversion',
+      )
+      conversionError.status = e && e.status ? e.status : 502
+      throw conversionError
+    }
+  }
   if (!Object.prototype.hasOwnProperty.call(EXPORT_SERVICE_PATHS, normalizedFormat)) {
     throw new Error(`Unsupported conversion format "${normalizedFormat}"`)
   }
   const endpoint = `${OPEN_APIS_BASE}${EXPORT_SERVICE_PATHS[normalizedFormat]}`
-  const payload =
-    normalizedFormat === 'pdf' ? { base: String(base || '/'), html } : { html }
+  const payload = { base: String(base || '/'), html }
   let upstreamResponse = null
   try {
     upstreamResponse = await fetch(endpoint, {
