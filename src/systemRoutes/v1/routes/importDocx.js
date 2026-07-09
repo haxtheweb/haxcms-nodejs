@@ -11,7 +11,7 @@ const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
 
 /**
  * POST /system/api/v1/actions/import-docx
- * Convert an uploaded .docx or .doc file into a HAXcms site schema (items array).
+ * Convert an uploaded .docx file into a HAXcms site schema (items array).
  *
  * Expects multipart/form-data with a file field (any field name is accepted).
  * Also accepts form fields: method (site|branch|page), type (course|portfolio|''), parentId.
@@ -33,11 +33,11 @@ async function importDocx(req, res) {
 
     const file = req.files[0];
     filename = file.originalname;
-    if (!/\.(docx|doc)$/i.test(filename)) {
+    if (!/\.docx$/i.test(filename)) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Invalid file type. Expected .docx or .doc, got: ${filename}`,
+          error: `Invalid file type. Expected .docx, got: ${filename}`,
           items: [],
           filename: filename,
         },
@@ -69,6 +69,18 @@ async function importDocx(req, res) {
       });
     }
 
+    // Validate ZIP magic number (DOCX files are ZIP archives)
+    if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
+      return res.status(400).json({
+        status: 400,
+        data: {
+          error: 'Uploaded file is not a valid .docx file (missing ZIP signature). If this is a .doc file, convert it to .docx first.',
+          items: [],
+          filename: filename,
+        },
+      });
+    }
+
     const mammothOptions = {
       styleMap: [
         'u => em',
@@ -92,7 +104,7 @@ async function importDocx(req, res) {
     const method = req.body && req.body.method ? req.body.method : 'site';
     const parentIdField = req.body && req.body.parentId ? req.body.parentId : null;
     const parentId = parentIdField && parentIdField !== 'null' ? parentIdField : null;
-    const titleValue = filename.replace(/\.(docx|doc)$/i, '');
+    const titleValue = filename.replace(/\.docx$/i, '');
     let items = [];
 
     switch (method) {

@@ -6,6 +6,17 @@ const settingsRoutes = require('../systemRoutes/v1/settings.js');
 const convertDocxToHtmlRoute = require('../systemRoutes/v1/routes/convertDocxToHtml.js');
 const convertHtmlToDocxRoute = require('../systemRoutes/v1/routes/convertHtmlToDocx.js');
 const importDocxRoute = require('../systemRoutes/v1/routes/importDocx.js');
+const convertMdToHtmlRoute = require('../systemRoutes/v1/routes/convertMdToHtml.js');
+const convertHtmlToMdRoute = require('../systemRoutes/v1/routes/convertHtmlToMd.js');
+const convertPrettyHtmlRoute = require('../systemRoutes/v1/routes/convertPrettyHtml.js');
+const convertJsonToYamlRoute = require('../systemRoutes/v1/routes/convertJsonToYaml.js');
+const convertYamlToJsonRoute = require('../systemRoutes/v1/routes/convertYamlToJson.js');
+const convertHtmlToPdfRoute = require('../systemRoutes/v1/routes/convertHtmlToPdf.js');
+const convertXlsxToCsvRoute = require('../systemRoutes/v1/routes/convertXlsxToCsv.js');
+const convertPdfToHtmlRoute = require('../systemRoutes/v1/routes/convertPdfToHtml.js');
+const convertPptxToHtmlRoute = require('../systemRoutes/v1/routes/convertPptxToHtml.js');
+const convertDocxToPdfRoute = require('../systemRoutes/v1/routes/convertDocxToPdf.js');
+const siteImportRoute = require('../systemRoutes/v1/routes/siteImport.js');
 
 function addRouteHandler(routesMap, method = 'get', route = '', handler = null) {
   if (typeof handler !== 'function') {
@@ -342,6 +353,17 @@ addRouteHandler(
 addRouteHandler(SystemRoutesMap, 'post', 'actions/docx-to-html', convertDocxToHtmlRoute.convertDocxToHtml);
 addRouteHandler(SystemRoutesMap, 'post', 'actions/html-to-docx', convertHtmlToDocxRoute.convertHtmlToDocx);
 addRouteHandler(SystemRoutesMap, 'post', 'actions/import-docx', importDocxRoute.importDocx);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/md-to-html', convertMdToHtmlRoute.convertMdToHtml);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/html-to-md', convertHtmlToMdRoute.convertHtmlToMd);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/pretty-html', convertPrettyHtmlRoute.convertPrettyHtml);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/json-to-yaml', convertJsonToYamlRoute.convertJsonToYaml);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/yaml-to-json', convertYamlToJsonRoute.convertYamlToJson);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/html-to-pdf', convertHtmlToPdfRoute.convertHtmlToPdf);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/xlsx-to-csv', convertXlsxToCsvRoute.convertXlsxToCsv);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/pdf-to-html', convertPdfToHtmlRoute.convertPdfToHtml);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/pptx-to-html', convertPptxToHtmlRoute.convertPptxToHtml);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/docx-to-pdf', convertDocxToPdfRoute.convertDocxToPdf);
+addRouteHandler(SystemRoutesMap, 'post', 'site/import/:platform', siteImportRoute.siteImport);
 addRouteHandler(SystemRoutesMap, 'get', '', discoveryApiRoute);
 addRouteHandler(SystemRoutesMap, 'get', 'openapi', discoveryOpenapiRoute);
 addRouteHandler(SystemRoutesMap, 'get', 'openapi.json', discoveryOpenapiRoute);
@@ -352,8 +374,6 @@ const SystemV1OpenRoutes = [
   'session/logout',
   'session',
   'session/refresh',
-  'actions/docx-to-html',
-  'actions/html-to-docx',
   'session/connection-settings',
   'session/connection-test',
   'integrations/app-store',
@@ -387,6 +407,20 @@ const SystemV1AdminRoutes = [
   'configuration/skeletons/:skeletonName',
   'skeletons',
   'skeletons/:skeletonName',
+  'actions/md-to-html',
+  'actions/html-to-md',
+  'actions/pretty-html',
+  'actions/json-to-yaml',
+  'actions/yaml-to-json',
+  'actions/html-to-pdf',
+  'actions/xlsx-to-csv',
+  'actions/pdf-to-html',
+  'actions/pptx-to-html',
+  'actions/import-docx',
+  'actions/docx-to-html',
+  'actions/html-to-docx',
+  'actions/docx-to-pdf',
+  'site/import/:platform',
 ];
 
 module.exports = {

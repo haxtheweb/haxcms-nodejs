@@ -303,7 +303,7 @@ addRouteHandler(
   SiteRoutesMap,
   'post',
   'v1/site/import/:format',
-  v1SiteRoutes.importDocx,
+  v1SiteRoutes.importSite,
 );
 
 module.exports = { SiteRoutesMap };

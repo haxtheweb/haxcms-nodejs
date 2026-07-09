@@ -138,7 +138,12 @@ function getSystemV1RouteParser(method = 'get', route = '') {
       normalizedRoute === 'configuration/skeletons' ||
       normalizedRoute === 'skeletons' ||
       normalizedRoute === 'actions/docx-to-html' ||
-      normalizedRoute === 'actions/import-docx'
+      normalizedRoute === 'actions/import-docx' ||
+      normalizedRoute === 'actions/xlsx-to-csv' ||
+      normalizedRoute === 'actions/pdf-to-html' ||
+      normalizedRoute === 'actions/pptx-to-html' ||
+      normalizedRoute === 'actions/docx-to-pdf' ||
+      normalizedRoute === 'site/import/:platform'
     )
   ) {
     return parseSchemaFileOperationBody;

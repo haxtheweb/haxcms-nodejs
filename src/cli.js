@@ -9,7 +9,13 @@ const systemRouteRegistry =
   allRoutes && allRoutes.system && allRoutes.system.map
     ? allRoutes.system.map
     : { get: {}, post: {}, patch: {}, put: {}, delete: {} };
+const siteRouteRegistry =
+  allRoutes && allRoutes.site && allRoutes.site.map
+    ? allRoutes.site.map
+    : { get: {}, post: {}, patch: {}, put: {}, delete: {} };
 const systemApiBasePath = `${HAXCMS.basePath}${HAXCMS.systemRequestBase}v1/`;
+const basePath = String(HAXCMS.basePath || '/').replace(/\/+$/, '');
+const siteApiBasePath = basePath === '' || basePath === '/' ? '/x/api' : `${basePath}/x/api`;
 
 // process arguments from commandline appropriately
 let body = {};
@@ -87,29 +93,89 @@ class Res {
 }
 
 // method to bridge api calls in similar manner given a site already loaded into scope
-export async function cliBridge(op, body = {}) {
+export async function cliBridge(op, body = {}, method = 'post') {
   // when CLI is detected, we assume the user is authenticated
   // this is just to ensure that backend calls looking for tokens to exist
   // get the data they are expecting
   // this does not get validated bc of being a CLI
   const fakeToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName());
+  const rMethod = method.toLowerCase();
+
+  let handler = null;
+  let routePath = '';
+  let routeParams = {};
+  let isSiteRoute = false;
+
+  // Try system routes first
+  if (systemRouteRegistry[rMethod] && systemRouteRegistry[rMethod][op]) {
+    handler = systemRouteRegistry[rMethod][op];
+    routePath = `${systemApiBasePath}${op}`;
+  }
+  // Try site routes with exact match
+  else if (siteRouteRegistry[rMethod] && siteRouteRegistry[rMethod][op]) {
+    handler = siteRouteRegistry[rMethod][op];
+    routePath = `${siteApiBasePath}${op === '' ? '' : '/' + op}`;
+    isSiteRoute = true;
+  }
+  // Try site routes with pattern matching for parameterized routes
+  else if (siteRouteRegistry[rMethod]) {
+    for (const pattern in siteRouteRegistry[rMethod]) {
+      const regexPattern = pattern.replace(/:([^/]+)/g, '([^/]+)');
+      const regex = new RegExp(`^${regexPattern}$`);
+      const match = op.match(regex);
+      if (match) {
+        handler = siteRouteRegistry[rMethod][pattern];
+        routePath = `${siteApiBasePath}${pattern === '' ? '' : '/' + pattern}`;
+        isSiteRoute = true;
+        const paramNames = [];
+        pattern.replace(/:([^/]+)/g, (m, name) => paramNames.push(name));
+        for (let i = 0; i < paramNames.length; i++) {
+          routeParams[paramNames[i]] = match[i + 1];
+        }
+        break;
+      }
+    }
+  }
+
+  if (!handler) {
+    console.error(`Route not found: ${method} ${op}`);
+    return;
+  }
+
   let req = {
     route: {
-      path: `${systemApiBasePath}${op}`
+      path: routePath
     },
     body: body,
+    params: routeParams,
     query: {
       user_token: fakeToken,
       site_token: fakeToken,
     },
-    method: "post"
+    headers: {
+      'x-haxcms-site-token': fakeToken,
+    },
+    method: method
   };
 
+  // For site routes, set auth context to help site resolution
+  if (isSiteRoute) {
+    let siteName = '';
+    if (body && body.site) {
+      if (typeof body.site === 'object' && body.site.name) {
+        siteName = body.site.name;
+      } else if (typeof body.site === 'string') {
+        siteName = body.site;
+      }
+    }
+    if (siteName !== '') {
+      req.haxcmsSiteApiAuth = { siteName: siteName };
+    }
+  }
+
   let res = new Res();
-  const rMethod = req.method.toLowerCase();
   if (HAXCMS.validateJWT(req, res)) {
-    // call the method
-    await systemRouteRegistry[rMethod][op](req, res);
+    await handler(req, res);
     return {req: req, res: res};
   }
   else {

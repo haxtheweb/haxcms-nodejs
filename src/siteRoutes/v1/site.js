@@ -16,8 +16,14 @@ const {
   validURL,
   htmlFromEl,
   processDocxHtml,
+  sanitizeUntrustedHtml,
 } = require('../../lib/convertUtils.js');
 const JSONOutlineSchemaItem = require('../../lib/JSONOutlineSchemaItem.js');
+const {
+  importHtmlToItems,
+} = require('./importUtils.js');
+const { convertPdfBufferToHtml } = require('../../lib/pdfToSemanticHtml.js');
+const XLSX = require('xlsx');
 
 function getRequestPath(req) {
   if (req && typeof req.originalUrl === 'string' && req.originalUrl !== '') {
@@ -761,7 +767,7 @@ async function normalizeSiteSlugs(req, res) {
   });
 }
 
-async function importDocx(req, res) {
+async function importDocxInternal(req, res) {
   let filename = null;
   try {
     if (!req.files || req.files.length === 0) {
@@ -776,11 +782,11 @@ async function importDocx(req, res) {
     }
     const file = req.files[0];
     filename = file.originalname;
-    if (!/\.(docx|doc)$/i.test(filename)) {
+    if (!/\.docx$/i.test(filename)) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Invalid file type. Expected .docx or .doc, got: ${filename}`,
+          error: `Invalid file type. Expected .docx, got: ${filename}`,
           items: [],
           filename: filename,
         },
@@ -788,6 +794,29 @@ async function importDocx(req, res) {
     }
     const fs = require('fs-extra');
     const buffer = fs.readFileSync(file.path);
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({
+        status: 400,
+        data: {
+          error: 'Uploaded file is empty',
+          items: [],
+          filename: filename,
+        },
+      });
+    }
+
+    // Validate ZIP magic number (DOCX files are ZIP archives)
+    if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
+      return res.status(400).json({
+        status: 400,
+        data: {
+          error: 'Uploaded file is not a valid .docx file (missing ZIP signature). If this is a .doc file, convert it to .docx first.',
+          items: [],
+          filename: filename,
+        },
+      });
+    }
+
     const mammothOptions = {
       styleMap: ['u => em', 'strike => del'],
     };
@@ -801,97 +830,12 @@ async function importDocx(req, res) {
       html = '';
       throw new Error(`Error converting DOCX: ${e.message}`);
     }
-    const doc = parse(`<div id="docx-import-wrapper">${html}</div>`);
-    const type = req.body && req.body.type ? req.body.type : '';
-    const method = req.body && req.body.method ? req.body.method : 'site';
-    const parentIdField = req.body && req.body.parentId ? req.body.parentId : null;
-    const parentId = parentIdField && parentIdField !== 'null' ? parentIdField : null;
-    const titleValue = filename.replace(/\.(docx|doc)$/i, '');
-    let items = [];
-    switch (method) {
-      case 'site': {
-        let h1s = doc.querySelectorAll('h1');
-        let h1Order = 0;
-        if (h1s.length === 0) {
-          items.push(importSinglePage(titleValue, processSinglePageContent(doc.querySelector('#docx-import-wrapper')), parentId));
-        } else {
-          for await (const h1 of h1s) {
-            let item = new JSONOutlineSchemaItem();
-            item.title = h1.innerText.trim().replace('  ', ' ').replace('  ', ' ');
-            item.slug = HAXCMS.cleanTitle(item.title);
-            item.order = h1Order;
-            item.parent = parentId;
-            h1Order += 1;
-            let tmp = await nextUntilElement(h1, ['H1']);
-            let h1Children = tmp.siblings;
-            let contents = '';
-            let h2 = null;
-            for await (const h1Child of h1Children) {
-              if (h1Child.tagName === 'H2') {
-                h2 = h1Child;
-                break;
-              } else if (h2 === null) {
-                contents += htmlFromEl(h1Child);
-              }
-            }
-            item.contents = contents !== '' ? contents : getFallbackContent(type);
-            items.push(item);
-            if (h2) {
-              let h2Order = 0;
-              while (h2 !== null && h2.tagName === 'H2') {
-                let item2 = new JSONOutlineSchemaItem();
-                item2.title = h2.innerText.trim().replace('  ', ' ').replace('  ', ' ');
-                item2.slug = item.slug + '/' + HAXCMS.cleanTitle(item2.title);
-                item2.order = h2Order;
-                h2Order += 1;
-                item2.indent = 1;
-                item2.parent = item.id;
-                let tmp = await nextUntilElement(h2, ['H1', 'H2']);
-                let h2Children = tmp.siblings;
-                h2 = tmp.lastEl;
-                let contents2 = '';
-                for await (const h2Child of h2Children) {
-                  contents2 += htmlFromEl(h2Child);
-                }
-                item2.contents = contents2 !== '' ? contents2 : '<p></p>';
-                items.push(item2);
-              }
-            }
-          }
-        }
-        break;
-      }
-      case 'branch': {
-        let els = doc.querySelectorAll('h1');
-        let order = 0;
-        if (els.length === 0) {
-          items.push(importSinglePage(titleValue, processSinglePageContent(doc.querySelector('#docx-import-wrapper')), parentId));
-        } else {
-          for await (const h1 of els) {
-            let item = new JSONOutlineSchemaItem();
-            item.title = h1.innerText.trim().replace('  ', ' ').replace('  ', ' ');
-            item.slug = HAXCMS.cleanTitle(item.title);
-            item.order = order;
-            item.parent = parentId;
-            order += 1;
-            let tmp = await nextUntilElement(h1, ['H1']);
-            let h1Children = tmp.siblings;
-            let contents = '';
-            for await (const h1Child of h1Children) {
-              contents += htmlFromEl(h1Child);
-            }
-            item.contents = contents !== '' ? contents : getFallbackContent(type);
-            items.push(item);
-          }
-        }
-        break;
-      }
-      case 'page':
-      default: {
-        items.push(importSinglePage(titleValue, processSinglePageContent(doc.querySelector('#docx-import-wrapper')), parentId));
-        break;
-      }
-    }
+    const items = await importHtmlToItems(html, {
+      titleValue: filename.replace(/\.docx$/i, ''),
+      method: req.body && req.body.method ? req.body.method : 'site',
+      type: req.body && req.body.type ? req.body.type : '',
+      parentId: req.body && req.body.parentId && req.body.parentId !== 'null' ? req.body.parentId : null,
+    });
     return res.json({
       status: 200,
       data: {
@@ -912,64 +856,347 @@ async function importDocx(req, res) {
   }
 }
 
-function processSinglePageContent(wrapperEl) {
-  if (!wrapperEl) {
-    return '<p></p>';
-  }
-  let content = '';
-  for (const child of wrapperEl.childNodes) {
-    if (child && child.tagName) {
-      content += htmlFromEl(child);
+async function importPdfInternal(req, res) {
+  let filename = null;
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'No file uploaded', items: [], filename: null },
+      });
     }
+    const file = req.files[0];
+    filename = file.originalname;
+    if (!/\.pdf$/i.test(filename)) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: `Invalid file type. Expected .pdf, got: ${filename}`, items: [], filename: filename },
+      });
+    }
+    const fs = require('fs-extra');
+    const buffer = fs.readFileSync(file.path);
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'Uploaded file is empty', items: [], filename: filename },
+      });
+    }
+    if (buffer.length < 4 || buffer.toString('ascii', 0, 4) !== '%PDF') {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'Uploaded file is not a valid PDF.', items: [], filename: filename },
+      });
+    }
+    const html = await convertPdfBufferToHtml(buffer);
+    const items = await importHtmlToItems(html, {
+      titleValue: filename.replace(/\.pdf$/i, ''),
+      method: req.body && req.body.method ? req.body.method : 'site',
+      type: req.body && req.body.type ? req.body.type : '',
+      parentId: req.body && req.body.parentId && req.body.parentId !== 'null' ? req.body.parentId : null,
+    });
+    return res.json({
+      status: 200,
+      data: { items: items, filename: filename },
+    });
+  } catch (error) {
+    console.error('pdfToSite: Error processing file:', error.message);
+    return res.status(400).json({
+      status: 400,
+      data: { error: `Error processing PDF import: ${error.message}`, items: [], filename: filename },
+    });
   }
-  return content !== '' ? content : wrapperEl.innerHTML;
 }
 
-function importSinglePage(title, content, pValue) {
-  let item = new JSONOutlineSchemaItem();
-  item.title = title;
-  item.slug = HAXCMS.cleanTitle(item.title);
-  item.order = 0;
-  item.parent = pValue;
-  item.contents = content;
-  return item;
+async function importPptxInternal(req, res) {
+  let filename = null;
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'No file uploaded', items: [], filename: null },
+      });
+    }
+    const file = req.files[0];
+    filename = file.originalname;
+    if (!/\.pptx$/i.test(filename)) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: `Invalid file type. Expected .pptx, got: ${filename}`, items: [], filename: filename },
+      });
+    }
+    const fs = require('fs-extra');
+    const buffer = fs.readFileSync(file.path);
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'Uploaded file is empty', items: [], filename: filename },
+      });
+    }
+    if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'Uploaded file is not a valid .pptx file.', items: [], filename: filename },
+      });
+    }
+    const { PPTXInHTMLOut } = await import('../../lib/vendor/pptx-in-html-out/src/index.js');
+    const converter = new PPTXInHTMLOut(buffer);
+    const html = await converter.toHTML({
+      includeStyles: false,
+      inlineImages: false,
+      fullDocument: false,
+    });
+    const items = await importHtmlToItems(html, {
+      titleValue: filename.replace(/\.pptx$/i, ''),
+      method: req.body && req.body.method ? req.body.method : 'site',
+      type: req.body && req.body.type ? req.body.type : '',
+      parentId: req.body && req.body.parentId && req.body.parentId !== 'null' ? req.body.parentId : null,
+    });
+    return res.json({
+      status: 200,
+      data: { items: items, filename: filename },
+    });
+  } catch (error) {
+    console.error('pptxToSite: Error processing file:', error.message);
+    return res.status(400).json({
+      status: 400,
+      data: { error: `Error processing PPTX import: ${error.message}`, items: [], filename: filename },
+    });
+  }
 }
 
-async function nextUntilElement(elem, tagMatches) {
-  var siblings = [];
-  elem = elem.nextElementSibling;
-  while (elem) {
-    if (tagMatches.includes(elem.tagName)) {
+async function importHtmlInternal(req, res) {
+  let filename = null;
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'No file uploaded', items: [], filename: null },
+      });
+    }
+    const file = req.files[0];
+    filename = file.originalname;
+    if (!/\.(html|htm)$/i.test(filename)) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: `Invalid file type. Expected .html or .htm, got: ${filename}`, items: [], filename: filename },
+      });
+    }
+    const fs = require('fs-extra');
+    const htmlRaw = fs.readFileSync(file.path, 'utf8');
+    if (!htmlRaw || htmlRaw.trim() === '') {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'Uploaded file is empty', items: [], filename: filename },
+      });
+    }
+    const html = sanitizeUntrustedHtml(htmlRaw);
+    const items = await importHtmlToItems(html, {
+      titleValue: filename.replace(/\.(html|htm)$/i, ''),
+      method: req.body && req.body.method ? req.body.method : 'site',
+      type: req.body && req.body.type ? req.body.type : '',
+      parentId: req.body && req.body.parentId && req.body.parentId !== 'null' ? req.body.parentId : null,
+    });
+    return res.json({
+      status: 200,
+      data: { items: items, filename: filename },
+    });
+  } catch (error) {
+    console.error('htmlToSite: Error processing file:', error.message);
+    return res.status(400).json({
+      status: 400,
+      data: { error: `Error processing HTML import: ${error.message}`, items: [], filename: filename },
+    });
+  }
+}
+
+async function importXlsxInternal(req, res) {
+  let filename = null;
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'No file uploaded', items: [], filename: null },
+      });
+    }
+    const file = req.files[0];
+    filename = file.originalname;
+    if (!/\.(xlsx|xls)$/i.test(filename)) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: `Invalid file type. Expected .xlsx or .xls, got: ${filename}`, items: [], filename: filename },
+      });
+    }
+    const fs = require('fs-extra');
+    const buffer = fs.readFileSync(file.path);
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'Uploaded file is empty', items: [], filename: filename },
+      });
+    }
+    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false, cellText: true });
+    if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+      return res.status(400).json({
+        status: 400,
+        data: { error: 'No sheets found in Excel file', items: [], filename: filename },
+      });
+    }
+    const selectedSheet = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[selectedSheet];
+    const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '', blankrows: false });
+    const items = rowsToSiteItems(rows, filename);
+    return res.json({
+      status: 200,
+      data: { items: items, filename: filename, selectedSheet: selectedSheet },
+    });
+  } catch (error) {
+    console.error('xlsxToSite: Error processing file:', error.message);
+    return res.status(400).json({
+      status: 400,
+      data: { error: `Error processing Excel import: ${error.message}`, items: [], filename: filename },
+    });
+  }
+}
+
+function rowsToSiteItems(rows, filename) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error('Spreadsheet is empty');
+  }
+  let headerRowIndex = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (rowHasData(rows[i])) {
+      headerRowIndex = i;
       break;
     }
-    siblings.push(elem);
-    elem = elem.nextElementSibling;
   }
-  return {
-    siblings: siblings,
-    lastEl: elem,
-  };
+  if (headerRowIndex === -1) {
+    throw new Error('Spreadsheet has no header row');
+  }
+  const headerLookup = getHeaderLookup(rows[headerRowIndex]);
+  const records = [];
+  const slugMap = {};
+  for (let i = headerRowIndex + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!rowHasData(row)) {
+      continue;
+    }
+    const rowNumber = i + 1;
+    const title = valueToString(row[headerLookup.title]).trim();
+    const rawSlug = valueToString(row[headerLookup.slug]).trim();
+    const rawParent = valueToString(row[headerLookup.parent]).trim();
+    const rawContent = valueToString(row[headerLookup.content]);
+    if (title === '') {
+      throw new Error(`Row ${rowNumber}: title is required`);
+    }
+    if (rawSlug === '') {
+      throw new Error(`Row ${rowNumber}: slug is required`);
+    }
+    const slug = normalizeSlug(rawSlug);
+    if (slug === '') {
+      throw new Error(`Row ${rowNumber}: slug is required`);
+    }
+    const slugKey = slug.toLowerCase();
+    if (slugMap[slugKey]) {
+      throw new Error(`Row ${rowNumber}: duplicate slug "${slug}" (already used on row ${slugMap[slugKey].rowNumber})`);
+    }
+    const parentSlug = normalizeSlug(rawParent);
+    const parentSlugKey = parentSlug === '' ? '' : parentSlug.toLowerCase();
+    const item = new JSONOutlineSchemaItem();
+    item.title = title;
+    item.slug = slug;
+    item.order = records.length;
+    item.contents = rawContent;
+    records.push(item);
+    slugMap[slugKey] = { item: item, rowNumber: rowNumber, parentSlugKey: parentSlugKey };
+  }
+  // Resolve parent references
+  for (const slugKey in slugMap) {
+    const entry = slugMap[slugKey];
+    if (entry.parentSlugKey !== '') {
+      if (slugMap[entry.parentSlugKey]) {
+        entry.item.parent = slugMap[entry.parentSlugKey].item.id;
+        entry.item.indent = 1;
+      }
+    }
+  }
+  return records;
 }
 
-function getFallbackContent(type) {
-  switch (type) {
-    case 'portfolio':
-      return `<p>Enjoy my portfolio and let me know if you have questions.</p>
-<lesson-overview>
-  <lesson-highlight smart="pages"></lesson-highlight>
-</lesson-overview>`;
-    case 'course':
-      return `<p>Welcome to the lesson.</p>
-<lesson-overview>
-  <lesson-highlight smart="pages"></lesson-highlight>
-  <lesson-highlight smart="readTime"></lesson-highlight>
-  <lesson-highlight smart="selfChecks"></lesson-highlight>
-  <lesson-highlight smart="audio"></lesson-highlight>
-  <lesson-highlight smart="video"></lesson-highlight>
-</lesson-overview>
-<p>Let's begin!</p>`;
+function rowHasData(row) {
+  if (!Array.isArray(row)) {
+    return false;
+  }
+  for (const cell of row) {
+    const value = valueToString(cell).trim();
+    if (value !== '') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getHeaderLookup(headerRow) {
+  const lookup = { title: -1, slug: -1, parent: -1, content: -1 };
+  if (!Array.isArray(headerRow)) {
+    return lookup;
+  }
+  for (let i = 0; i < headerRow.length; i++) {
+    const normalized = String(headerRow[i] || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (normalized === 'title') {
+      lookup.title = i;
+    } else if (normalized === 'slug') {
+      lookup.slug = i;
+    } else if (normalized === 'parent') {
+      lookup.parent = i;
+    } else if (normalized === 'content') {
+      lookup.content = i;
+    }
+  }
+  return lookup;
+}
+
+function valueToString(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return String(value);
+}
+
+function normalizeSlug(rawSlug) {
+  if (!rawSlug || typeof rawSlug !== 'string') {
+    return '';
+  }
+  return rawSlug
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\-_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+}
+
+async function importSite(req, res) {
+  const format = req && req.params && req.params.format ? req.params.format.toLowerCase() : '';
+  switch (format) {
+    case 'docx':
+      return importDocxInternal(req, res);
+    case 'pdf':
+      return importPdfInternal(req, res);
+    case 'pptx':
+      return importPptxInternal(req, res);
+    case 'html':
+      return importHtmlInternal(req, res);
+    case 'xlsx':
+      return importXlsxInternal(req, res);
     default:
-      return '<p></p>';
+      return res.status(400).json({
+        status: 400,
+        data: {
+          error: `Unsupported import format "${format}"`,
+          items: [],
+          filename: null,
+        },
+      });
   }
 }
 
@@ -984,5 +1211,5 @@ module.exports = {
   updateSiteOutline,
   updateSiteAlternativeFormats,
   normalizeSiteSlugs,
-  importDocx,
+  importSite,
 };

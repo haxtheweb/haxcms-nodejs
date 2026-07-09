@@ -275,9 +275,8 @@ async function connectionSettings(req, res) {
   if (HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
     after = `window.appSettings.jwt = "${HAXCMS.getJWT(HAXCMS.superUser.name)}"`;
   }
-  res.send(`// force vercel calls to go from production
-    window.MicroFrontendRegistryConfig = window.MicroFrontendRegistryConfig || {};
-    window.MicroFrontendRegistryConfig.base = "https://open-apis.hax.cloud";window.appSettings =${returnData};${after}`);
+  res.send(`window.MicroFrontendRegistryConfig = window.MicroFrontendRegistryConfig || {};
+window.appSettings =${returnData};${after}`);
 }
 
 module.exports = connectionSettings;

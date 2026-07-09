@@ -270,10 +270,94 @@ function processDocxHtml(html) {
   return content !== '' ? content : html;
 }
 
+const fs = require('fs');
+
+function findChromeExecutable() {
+  const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (envPath && fs.existsSync(envPath)) {
+    return envPath;
+  }
+  const candidates = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/microsoft-edge',
+    '/usr/bin/microsoft-edge-stable',
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Convert HTML string to a PDF Buffer using puppeteer-core.
+ * Requires Chrome/Chromium to be installed on the host.
+ */
+async function htmlToPdfBuffer(html, base = '/') {
+  const puppeteer = require('puppeteer-core');
+  const executablePath = findChromeExecutable();
+  if (!executablePath) {
+    throw new Error(
+      'No Chrome/Chromium executable found. Install Chrome or set PUPPETEER_EXECUTABLE_PATH.',
+    );
+  }
+  let browser = null;
+  try {
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+    const page = await browser.newPage();
+    if (base && base !== '/') {
+      const baseTag = `<base href="${base.replace(/"/g, '&quot;')}" />`;
+      html = html.replace(/<head>/i, `<head>${baseTag}`);
+      if (!html.includes('<head>')) {
+        html = `<head>${baseTag}</head>${html}`;
+      }
+    }
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '40px', right: '40px', bottom: '40px', left: '40px' },
+    });
+    return pdfBuffer;
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+/**
+ * Strip scripts, styles, and other dangerous content from untrusted HTML.
+ */
+function sanitizeUntrustedHtml(html) {
+  if (typeof html !== 'string') {
+    return '';
+  }
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\x00/g, '')
+    .trim();
+}
+
 module.exports = {
   stripMSWord,
   validURL,
   htmlFromEl,
   processDocxHtml,
   convertHtmlToDocxBuffer,
+  htmlToPdfBuffer,
+  sanitizeUntrustedHtml,
 };

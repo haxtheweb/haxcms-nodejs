@@ -1158,7 +1158,9 @@ paths:
         - actions
       operationId: docxToHtml
       summary: Convert an uploaded .docx or .doc file to clean HTML
-      security: []
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -1179,6 +1181,8 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /system/api/v1/actions/import-docx:
     post:
       tags:
@@ -1225,7 +1229,9 @@ paths:
         - actions
       operationId: htmlToDocx
       summary: Convert HTML string to a DOCX document (returned as base64)
-      security: []
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -1245,47 +1251,413 @@ paths:
                 $ref: "#/components/schemas/ApiEnvelope"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/md-to-html:
+    post:
+      tags:
+        - actions
+      operationId: mdToHtml
+      summary: Convert a Markdown string to HTML
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                md:
+                  type: string
+                  description: Markdown string to convert
+                type:
+                  type: string
+                  description: If set to 'link', the md value is treated as a URL to fetch
+      responses:
+        "200":
+          description: Converted HTML content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/html-to-md:
+    post:
+      tags:
+        - actions
+      operationId: htmlToMd
+      summary: Convert an HTML string to Markdown
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                html:
+                  type: string
+                  description: HTML string to convert
+                type:
+                  type: string
+                  description: If set to 'link', the html value is treated as a URL to fetch
+      responses:
+        "200":
+          description: Converted Markdown content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/pretty-html:
+    post:
+      tags:
+        - actions
+      operationId: prettyHtml
+      summary: Pretty-print an HTML string
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                html:
+                  type: string
+                  description: HTML string to format
+                type:
+                  type: string
+                  description: If set to 'link', the html value is treated as a URL to fetch
+      responses:
+        "200":
+          description: Formatted HTML content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/json-to-yaml:
+    post:
+      tags:
+        - actions
+      operationId: jsonToYaml
+      summary: Convert JSON to YAML
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                json:
+                  description: JSON object or string to convert
+                type:
+                  type: string
+                  description: If set to 'link', the json value is treated as a URL to fetch
+      responses:
+        "200":
+          description: Converted YAML content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/yaml-to-json:
+    post:
+      tags:
+        - actions
+      operationId: yamlToJson
+      summary: Convert YAML to JSON
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                yaml:
+                  type: string
+                  description: YAML string to convert
+                type:
+                  type: string
+                  description: If set to 'link', the yaml value is treated as a URL to fetch
+      responses:
+        "200":
+          description: Converted JSON content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/html-to-pdf:
+    post:
+      tags:
+        - actions
+      operationId: htmlToPdf
+      summary: Convert HTML string to a PDF document (returned as base64)
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                html:
+                  type: string
+                  description: HTML string to convert to PDF
+                base:
+                  type: string
+                  description: Optional base URL for resolving relative links
+      responses:
+        "200":
+          description: Base64-encoded PDF document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/xlsx-to-csv:
+    post:
+      tags:
+        - actions
+      operationId: xlsxToCsv
+      summary: Convert an uploaded Excel file to CSV
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Excel file (.xlsx) to convert
+      responses:
+        "200":
+          description: CSV content and sheet metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/pdf-to-html:
+    post:
+      tags:
+        - actions
+      operationId: pdfToHtml
+      summary: Convert an uploaded PDF file to semantic HTML
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF file to convert
+      responses:
+        "200":
+          description: Converted semantic HTML content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/pptx-to-html:
+    post:
+      tags:
+        - actions
+      operationId: pptxToHtml
+      summary: Convert an uploaded PPTX file to HTML
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PowerPoint file (.pptx) to convert
+      responses:
+        "200":
+          description: Converted HTML content and extracted files
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/docx-to-pdf:
+    post:
+      tags:
+        - actions
+      operationId: docxToPdf
+      summary: Convert an uploaded DOCX file to a PDF document
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Word document (.docx) to convert to PDF
+      responses:
+        "200":
+          description: PDF document binary download
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/site/import/{platform}:
+    post:
+      tags:
+        - actions
+      operationId: siteImport
+      summary: Import a site from an external platform
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - haxcms
+              - html
+              - pressbooks
+              - gitbook
+              - notion
+              - wordpress
+              - elmsln
+              - drupal-book
+              - plone
+              - recipe
+      requestBody:
+        required: false
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Uploaded file for platform import (if supported)
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 components:
-  parameters:
-    SiteName:
-      in: path
-      name: siteName
-      required: true
-      schema:
-        type: string
-      description: Machine name of the site
-    SkeletonName:
-      in: path
-      name: skeletonName
-      required: true
-      schema:
-        type: string
-      description: Machine name of the skeleton
-  responses:
-    BadRequest:
-      description: Request payload was invalid or incomplete
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorEnvelope"
-    Unauthorized:
-      description: Authentication is required or failed
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorEnvelope"
-    Forbidden:
-      description: Authenticated user is not authorized for this route
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorEnvelope"
-    NotFound:
-      description: Requested resource was not found
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorEnvelope"
   securitySchemes:
     bearerAuth:
       type: http

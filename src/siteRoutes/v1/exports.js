@@ -8,18 +8,16 @@ const {
   getItemContent,
 } = require('./siteRouteUtils.js')
 const { HAXCMS } = require('../../lib/HAXCMS.js')
-const { convertHtmlToDocxBuffer } = require('../../lib/convertUtils.js')
+const { convertHtmlToDocxBuffer, htmlToPdfBuffer } = require('../../lib/convertUtils.js')
+const EPUB = require('epub-gen-memory')
 
 const SITE_EXPORT_FORMATS = ['zip', 'markdown', 'pdf', 'docx', 'epub', 'skeleton']
 const ITEM_EXPORT_FORMATS = ['pdf', 'docx']
-const OPEN_APIS_BASE = 'https://open-apis.hax.cloud'
-const EXPORT_SERVICE_PATHS = {
-  pdf: '/api/services/media/format/htmlToPdf',
-}
 const EXPORT_MEDIA_TYPES = {
   pdf: 'application/pdf',
   docx:
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  epub: 'application/epub+zip',
 }
 
 function normalizeFormatValue(value = '') {
@@ -120,65 +118,6 @@ function getExportMediaType(format = 'pdf') {
   return 'application/octet-stream'
 }
 
-function extractBase64Payload(value = '') {
-  let payload = String(value || '').trim()
-  const dataPrefixIndex = payload.indexOf('base64,')
-  if (dataPrefixIndex !== -1) {
-    payload = payload.substring(dataPrefixIndex + 'base64,'.length)
-  }
-  return payload.replace(/\s+/g, '')
-}
-
-function decodeBase64Payload(value = '') {
-  const payload = extractBase64Payload(value)
-  if (payload === '') {
-    return Buffer.from([])
-  }
-  return Buffer.from(payload, 'base64')
-}
-
-function getConversionErrorMessage(json = null, fallback = '') {
-  if (
-    json &&
-    typeof json === 'object' &&
-    typeof json.message === 'string' &&
-    json.message.trim() !== ''
-  ) {
-    return json.message.trim()
-  }
-  if (
-    json &&
-    typeof json === 'object' &&
-    typeof json.error === 'string' &&
-    json.error.trim() !== ''
-  ) {
-    return json.error.trim()
-  }
-  return fallback
-}
-
-function extractBase64DataFromResponse(json = null) {
-  if (!json) {
-    return ''
-  }
-  if (typeof json === 'string') {
-    return json
-  }
-  if (typeof json !== 'object') {
-    return ''
-  }
-  if (typeof json.data === 'string') {
-    return json.data
-  }
-  if (json.data && typeof json.data === 'object' && typeof json.data.contents === 'string') {
-    return json.data.contents
-  }
-  if (typeof json.contents === 'string') {
-    return json.contents
-  }
-  return ''
-}
-
 async function convertHtmlToDownloadBuffer(format = 'pdf', html = '', base = '/') {
   const normalizedFormat = normalizeFormatValue(format)
   if (normalizedFormat === 'docx') {
@@ -199,88 +138,25 @@ async function convertHtmlToDownloadBuffer(format = 'pdf', html = '', base = '/'
       throw conversionError
     }
   }
-  if (!Object.prototype.hasOwnProperty.call(EXPORT_SERVICE_PATHS, normalizedFormat)) {
-    throw new Error(`Unsupported conversion format "${normalizedFormat}"`)
-  }
-  const endpoint = `${OPEN_APIS_BASE}${EXPORT_SERVICE_PATHS[normalizedFormat]}`
-  const payload = { base: String(base || '/'), html }
-  let upstreamResponse = null
-  try {
-    upstreamResponse = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
-  }
-  catch (e) {
-    const connectionError = new Error('Unable to reach export conversion service')
-    connectionError.status = 502
-    throw connectionError
-  }
-  const responseType = String(
-    (upstreamResponse.headers && upstreamResponse.headers.get
-      ? upstreamResponse.headers.get('content-type')
-      : '') || '',
-  ).toLowerCase()
-  if (
-    responseType.indexOf(getExportMediaType(normalizedFormat)) !== -1 ||
-    responseType.indexOf('application/octet-stream') !== -1
-  ) {
-    const binaryBuffer = Buffer.from(await upstreamResponse.arrayBuffer())
-    if (!upstreamResponse.ok || binaryBuffer.length < 1) {
-      const binaryError = new Error('Export conversion service returned empty output')
-      binaryError.status = upstreamResponse.status || 502
-      throw binaryError
-    }
-    return binaryBuffer
-  }
-  let responseText = ''
-  try {
-    responseText = await upstreamResponse.text()
-  }
-  catch (e) {
-    responseText = ''
-  }
-  let responseJson = null
-  if (responseText.trim() !== '') {
+  if (normalizedFormat === 'pdf') {
     try {
-      responseJson = JSON.parse(responseText)
+      const pdfBuffer = await htmlToPdfBuffer(html, base)
+      if (!pdfBuffer || pdfBuffer.length < 1) {
+        const emptyError = new Error('Export conversion returned empty output')
+        emptyError.status = 502
+        throw emptyError
+      }
+      return pdfBuffer
     }
     catch (e) {
-      responseJson = null
+      const conversionError = new Error(
+        e && e.message ? e.message : 'Unable to complete PDF export conversion',
+      )
+      conversionError.status = e && e.status ? e.status : 502
+      throw conversionError
     }
   }
-  if (!upstreamResponse.ok) {
-    const errorMessage = getConversionErrorMessage(
-      responseJson,
-      `Export conversion failed (${upstreamResponse.status})`,
-    )
-    const upstreamError = new Error(errorMessage)
-    upstreamError.status = upstreamResponse.status || 502
-    throw upstreamError
-  }
-  if (!responseJson) {
-    const jsonError = new Error('Export conversion returned an invalid response')
-    jsonError.status = 502
-    throw jsonError
-  }
-  if (responseJson.status && Number(responseJson.status) !== 200) {
-    const statusError = new Error(
-      getConversionErrorMessage(responseJson, 'Export conversion failed'),
-    )
-    statusError.status = Number(responseJson.status) || 502
-    throw statusError
-  }
-  const binaryBuffer = decodeBase64Payload(extractBase64DataFromResponse(responseJson))
-  if (binaryBuffer.length < 1) {
-    const emptyError = new Error('Export conversion returned empty output')
-    emptyError.status = 502
-    throw emptyError
-  }
-  return binaryBuffer
+  throw new Error(`Unsupported conversion format "${normalizedFormat}"`)
 }
 
 function sendDownloadResponse(res, buffer, mediaType, filename) {
@@ -324,6 +200,67 @@ async function buildSiteExportHtml(site) {
   sections.push('</body>')
   sections.push('</html>')
   return sections.join('\n')
+}
+
+async function buildSiteExportEpubBuffer(site, basePath = '/') {
+  const orderedItems = getOrderedItems(site)
+  const siteTitle = buildSiteExportDocumentTitle(site)
+  const author =
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.author &&
+    site.manifest.metadata.author.name
+      ? String(site.manifest.metadata.author.name)
+      : 'HAX The Web'
+  const description =
+    site && site.manifest && site.manifest.description
+      ? String(site.manifest.description)
+      : ''
+  const cover =
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    site.manifest.metadata.site.logo
+      ? String(site.manifest.metadata.site.logo)
+      : ''
+
+  const content = []
+  for (let i = 0; i < orderedItems.length; i++) {
+    const item = orderedItems[i]
+    if (!item) {
+      continue
+    }
+    const itemTitle = buildItemExportDocumentTitle(item)
+    const itemContent = await getItemContent(site, item)
+    content.push({
+      title: itemTitle,
+      author: author,
+      data: String(itemContent || ''),
+    })
+  }
+
+  const options = {
+    title: siteTitle,
+    author: author,
+    publisher: 'HAX The Web',
+    description: description,
+    cover: cover ? `${basePath}${cover}` : '',
+    tocTitle: 'Table of Contents',
+    css: `body { font-family: serif; line-height: 1.6; margin: 0; padding: 1em; }
+h1, h2, h3, h4, h5, h6 { font-family: sans-serif; margin-top: 1.5em; margin-bottom: 0.5em; }
+p { margin: 0.5em 0; }
+img { max-width: 100%; height: auto; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 0.5em; }
+blockquote { margin: 1em; padding: 0.5em 1em; border-left: 3px solid #ccc; }
+pre { background: #f4f4f4; padding: 1em; overflow-x: auto; }`,
+    content: content,
+  }
+
+  const epubGenerator = EPUB.default || EPUB.default.default || EPUB
+  return await epubGenerator(options)
 }
 
 async function buildItemExportHtml(site, item) {
@@ -376,11 +313,9 @@ function buildSiteExportDetails(site, apiBasePath = '/x/api', format = '') {
       href: `${apiBasePath}/v1/site/export/docx`,
     },
     epub: {
-      rel: 'service',
+      rel: 'download',
       mediaType: 'application/epub+zip',
-      href: '/api/apps/haxcms/siteToEpub',
-      source: `${siteBasePath}site.json`,
-      method: 'POST',
+      href: `${apiBasePath}/v1/site/export/epub`,
     },
     skeleton: {
       rel: 'download',
@@ -415,20 +350,24 @@ async function siteExport(req, res) {
       supportedFormats: SITE_EXPORT_FORMATS,
     })
   }
-  if (format === 'pdf' || format === 'docx') {
-    let html = ''
-    try {
-      html = await buildSiteExportHtml(site)
-    }
-    catch (e) {
-      return res.status(500).json({
-        status: 500,
-        message: `Unable to build site export HTML: ${e.message}`,
-      })
-    }
+  if (format === 'pdf' || format === 'docx' || format === 'epub') {
     let outputBuffer = null
     try {
-      outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site))
+      if (format === 'epub') {
+        outputBuffer = await buildSiteExportEpubBuffer(site, getSiteBasePath(site))
+      } else {
+        let html = ''
+        try {
+          html = await buildSiteExportHtml(site)
+        }
+        catch (e) {
+          return res.status(500).json({
+            status: 500,
+            message: `Unable to build site export HTML: ${e.message}`,
+          })
+        }
+        outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site))
+      }
     }
     catch (e) {
       return res.status(e && e.status ? e.status : 502).json({

@@ -3,7 +3,7 @@ const { stripMSWord, processDocxHtml } = require('../../../lib/convertUtils.js')
 
 /**
  * POST /system/api/v1/actions/docx-to-html
- * Convert an uploaded .docx or .doc file to clean HTML.
+ * Convert an uploaded .docx file to clean HTML.
  *
  * Expects multipart/form-data with a file field (any field name is accepted).
  * Returns { status: 200, data: { contents: html, filename: string } }.
@@ -20,16 +20,11 @@ async function convertDocxToHtml(req, res) {
 
     const file = req.files[0];
     originalname = file.originalname;
-    const validExtensions = ['.docx', '.doc'];
-    const hasValidExtension = validExtensions.some((ext) =>
-      originalname.toLowerCase().endsWith(ext)
-    );
-
-    if (!hasValidExtension) {
+    if (!/\.docx$/i.test(originalname)) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Invalid file type. Expected .docx or .doc, got: ${originalname}`,
+          error: `Invalid file type. Expected .docx, got: ${originalname}`,
           contents: '',
           filename: originalname,
         },
@@ -55,6 +50,18 @@ async function convertDocxToHtml(req, res) {
         status: 400,
         data: {
           error: 'Uploaded file is empty',
+          contents: '',
+          filename: originalname,
+        },
+      });
+    }
+
+    // Validate ZIP magic number (DOCX files are ZIP archives)
+    if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
+      return res.status(400).json({
+        status: 400,
+        data: {
+          error: 'Uploaded file is not a valid .docx file (missing ZIP signature). If this is a .doc file, convert it to .docx first.',
           contents: '',
           filename: originalname,
         },
