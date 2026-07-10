@@ -90,10 +90,19 @@ class Res {
   setHeader() {
     return this;
   }
+  json(data) {
+    this.data = JSON.parse(JSON.stringify(data));
+    return this;
+  }
+  sendStatus(status) {
+    this.statusCode = status;
+    this.data = status;
+    return this;
+  }
 }
 
 // method to bridge api calls in similar manner given a site already loaded into scope
-export async function cliBridge(op, body = {}, method = 'post') {
+export async function cliBridge(op, body = {}, method = 'post', file = null) {
   // when CLI is detected, we assume the user is authenticated
   // this is just to ensure that backend calls looking for tokens to exist
   // get the data they are expecting
@@ -155,6 +164,7 @@ export async function cliBridge(op, body = {}, method = 'post') {
     headers: {
       'x-haxcms-site-token': fakeToken,
     },
+    file: file,
     method: method
   };
 

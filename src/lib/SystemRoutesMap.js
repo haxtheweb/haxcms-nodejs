@@ -389,7 +389,6 @@ const SystemV1OpenRoutes = [
   'openapi',
   'openapi.json',
   'openapi.yaml',
-  'actions/xlsx-to-csv',
 ];
 
 const SystemV1AdminRoutes = [
@@ -422,6 +421,7 @@ const SystemV1AdminRoutes = [
   'actions/json-to-yaml',
   'actions/yaml-to-json',
   'actions/html-to-pdf',
+  'actions/xlsx-to-csv',
   'actions/pdf-to-html',
   'actions/pptx-to-html',
   'actions/import-docx',
