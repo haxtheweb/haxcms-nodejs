@@ -307,6 +307,16 @@ async function htmlToPdfBuffer(html, base = '/') {
       'No Chrome/Chromium executable found. Install Chrome or set PUPPETEER_EXECUTABLE_PATH.',
     );
   }
+  let sanitized = String(html || '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\x00/g, '')
+    .trim();
+  if (!sanitized) {
+    sanitized = '<p>No content available</p>';
+  }
   let browser = null;
   try {
     browser = await puppeteer.launch({
@@ -317,12 +327,12 @@ async function htmlToPdfBuffer(html, base = '/') {
     const page = await browser.newPage();
     if (base && base !== '/') {
       const baseTag = `<base href="${base.replace(/"/g, '&quot;')}" />`;
-      html = html.replace(/<head>/i, `<head>${baseTag}`);
-      if (!html.includes('<head>')) {
-        html = `<head>${baseTag}</head>${html}`;
+      sanitized = sanitized.replace(/<head>/i, `<head>${baseTag}`);
+      if (!sanitized.includes('<head>')) {
+        sanitized = `<head>${baseTag}</head>${sanitized}`;
       }
     }
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    await page.setContent(sanitized, { waitUntil: 'domcontentloaded', timeout: 30000 });
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,

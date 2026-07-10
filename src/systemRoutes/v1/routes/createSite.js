@@ -796,7 +796,8 @@ async function createSite(req, res) {
     catch(e) {}
     res.send({
       "status": 200,
-      "data": schema
+      "data": schema,
+      "link": HAXCMS.basePath + HAXCMS.sitesDirectory + '/' + site.manifest.metadata.site.name + '/'
     });
   }
   else {

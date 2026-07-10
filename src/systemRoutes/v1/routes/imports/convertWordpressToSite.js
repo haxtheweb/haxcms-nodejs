@@ -1,6 +1,6 @@
 const { parse } = require('node-html-parser')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
-const HAXCMS = require('../../../../lib/HAXCMS.js')
+const { HAXCMS } = require('../../../../lib/HAXCMS.js')
 
 // ---- inlined wordpressSiteHelpers ----
 

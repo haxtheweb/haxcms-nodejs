@@ -114,27 +114,31 @@ async function listToJOS(site, md, sourceLink, name, downloads, fileMap) {
     let node = top.childNodes[index]
     if (node.tagName === 'LI') {
       let a = node.querySelector('a')
-      if (!a) {
-        continue
+      let item = null
+      if (a) {
+        item = new JSONOutlineSchemaItem()
+        item.title = a.text
+        item.parent = ''
+        item.order = index
+        item.indent = 0
+        item.slug = a.getAttribute('href')
+        item.location = `content/${a.getAttribute('href')}`
+        let mdContent = await fetch(sourceLink.replace('SUMMARY.md', a.getAttribute('href'))).then((d) => d.ok ? d.text() : '')
+        item.contents = mdClass.render(mdContent)
+        // replace all file references
+        for (const file of Object.keys(fileMap)) {
+          item.contents = item.contents.replaceAll(fileMap[file], file)
+        }
+        site.items.push(item)
       }
-      let item = new JSONOutlineSchemaItem()
-      item.title = a.text
-      item.parent = ''
-      item.order = index
-      item.indent = 0
-      item.slug = a.getAttribute('href')
-      item.location = `content/${a.getAttribute('href')}`
-      let mdContent = await fetch(sourceLink.replace('SUMMARY.md', a.getAttribute('href'))).then((d) => d.ok ? d.text() : '')
-      item.contents = mdClass.render(mdContent)
-      // replace all file references
-      for (const file of Object.keys(fileMap)) {
-        item.contents = item.contents.replaceAll(fileMap[file], file)
-      }
-      site.addItem(item)
       // see if we have items under here
       let nested = node.querySelector('ul')
       if (nested) {
-        await recurseToJOS(site, item, nested, 1, sourceLink, downloads, fileMap)
+        let parentItem = item
+        if (!parentItem) {
+          parentItem = { id: '' }
+        }
+        await recurseToJOS(site, parentItem, nested, 1, sourceLink, downloads, fileMap)
       }
     }
   }
@@ -146,27 +150,31 @@ async function recurseToJOS(site, parent, top, depth, sourceLink, downloads, fil
     let node = top.childNodes[index]
     if (node.tagName === 'LI') {
       let a = node.querySelector('a')
-      if (!a) {
-        continue
+      let item = null
+      if (a) {
+        item = new JSONOutlineSchemaItem()
+        item.title = a.text
+        item.parent = parent.id
+        item.order = index
+        item.indent = depth
+        item.slug = a.getAttribute('href')
+        item.location = `content/${a.getAttribute('href')}`
+        let mdContent = await fetch(sourceLink.replace('SUMMARY.md', a.getAttribute('href'))).then((d) => d.ok ? d.text() : '')
+        item.contents = mdClass.render(mdContent)
+        // replace all file references
+        for (const file of Object.keys(fileMap)) {
+          item.contents = item.contents.replaceAll(fileMap[file], file)
+        }
+        site.items.push(item)
       }
-      let item = new JSONOutlineSchemaItem()
-      item.title = a.text
-      item.parent = parent.id
-      item.order = index
-      item.indent = depth
-      item.slug = a.getAttribute('href')
-      item.location = `content/${a.getAttribute('href')}`
-      let mdContent = await fetch(sourceLink.replace('SUMMARY.md', a.getAttribute('href'))).then((d) => d.ok ? d.text() : '')
-      item.contents = mdClass.render(mdContent)
-      // replace all file references
-      for (const file of Object.keys(fileMap)) {
-        item.contents = item.contents.replaceAll(fileMap[file], file)
-      }
-      site.addItem(item)
       // see if we have items under here
       let nested = node.querySelector('ul')
       if (nested) {
-        await recurseToJOS(site, item, nested, depth + 1, sourceLink, downloads, fileMap)
+        let parentItem = item
+        if (!parentItem) {
+          parentItem = { id: parent.id }
+        }
+        await recurseToJOS(site, parentItem, nested, depth + 1, sourceLink, downloads, fileMap)
       }
     }
   }

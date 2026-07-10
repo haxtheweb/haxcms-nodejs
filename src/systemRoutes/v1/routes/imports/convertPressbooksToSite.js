@@ -17,12 +17,22 @@ const SUPPORTED_SITE_LICENSES = [
  */
 async function fetchJSON(url) {
   try {
-    const response = await fetch(url)
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'application/json, */*;q=0.9',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        Connection: 'keep-alive',
+      },
+    })
     if (!response.ok) {
+      console.warn(`fetchJSON: ${url} returned ${response.status}`)
       return null
     }
     return await response.json()
   } catch (e) {
+    console.warn(`fetchJSON: ${url} failed: ${e.message}`)
     return null
   }
 }
@@ -66,13 +76,26 @@ async function discoverPressbooksBase(inputUrl) {
     'part',
     'toc',
   ])
+  console.log(`discoverPressbooksBase: candidates = ${JSON.stringify(candidates)}`)
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i]
+    // Try the standard WP REST API discovery endpoint
     const payload = await fetchJSON(`${candidate}/wp-json/`)
     if (payload && Array.isArray(payload.namespaces) && payload.namespaces.includes('pressbooks/v2')) {
+      console.log(`discoverPressbooksBase: found via /wp-json/ at ${candidate}`)
+      return candidate
+    }
+    // Fallback: try the Pressbooks TOC endpoint directly in case /wp-json/ is blocked
+    const toc = await fetchJSON(`${candidate}/wp-json/pressbooks/v2/toc`)
+    if (
+      toc &&
+      (Array.isArray(toc['front-matter']) || Array.isArray(toc.parts) || Array.isArray(toc['back-matter']))
+    ) {
+      console.log(`discoverPressbooksBase: found via /wp-json/pressbooks/v2/toc at ${candidate}`)
       return candidate
     }
   }
+  console.warn(`discoverPressbooksBase: no Pressbooks API found for ${inputUrl}`)
   return null
 }
 

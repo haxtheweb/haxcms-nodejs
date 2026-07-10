@@ -2,7 +2,7 @@ const { parse } = require('node-html-parser')
 const MarkdownIt = require('markdown-it')
 const JSONOutlineSchema = require('../../../../lib/JSONOutlineSchema.js')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
-const HAXCMS = require('../../../../lib/HAXCMS.js')
+const { HAXCMS } = require('../../../../lib/HAXCMS.js')
 
 const mdClass = new MarkdownIt()
 
@@ -128,7 +128,7 @@ async function convertNotionToSite(req, res) {
           lesson.indent = 0
           lesson.parent = ''
           lesson.metadata.pageType = 'lesson'
-          site.addItem(lesson)
+          site.items.push(lesson)
           lessons[data.values.lesson] = lesson
         }
         // remove head matter from the md
@@ -170,7 +170,7 @@ async function convertNotionToSite(req, res) {
             item.metadata.pageType = 'connection'
             break
         }
-        site.addItem(item)
+        site.items.push(item)
       }
     }
 
