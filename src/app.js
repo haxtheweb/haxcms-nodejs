@@ -111,10 +111,7 @@ function getSiteApiRouteParser(method = 'get', route = '') {
   const normalizedRoute = String(route || '');
   if (
     normalizedMethod === 'post' &&
-    (
-      normalizedRoute === 'v1/files' ||
-      normalizedRoute === 'v1/site/import/:format'
-    )
+    normalizedRoute === 'v1/files'
   ) {
     return uploadAnyParser;
   }
@@ -139,6 +136,10 @@ function getSystemV1RouteParser(method = 'get', route = '') {
       normalizedRoute === 'skeletons' ||
       normalizedRoute === 'actions/docx-to-html' ||
       normalizedRoute === 'actions/import-docx' ||
+      normalizedRoute === 'actions/import-pptx' ||
+      normalizedRoute === 'actions/import-html' ||
+      normalizedRoute === 'actions/import-xlsx' ||
+      normalizedRoute === 'actions/import-pdf' ||
       normalizedRoute === 'actions/xlsx-to-csv' ||
       normalizedRoute === 'actions/pdf-to-html' ||
       normalizedRoute === 'actions/pptx-to-html' ||
@@ -1199,7 +1200,18 @@ systemStructureContext().then((site) => {
             message: 'system admin route requires system dashboard access',
           });
         }
-        if (systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res)) {
+        let isAuthenticated = systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res);
+        if (!isAuthenticated) {
+          const basicAuth = authenticateBasicAuthorizationRequest(req);
+          if (basicAuth.blocked) {
+            return res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
+              status: 429,
+              message: 'Too many failed login attempts. Please try again later.',
+            });
+          }
+          isAuthenticated = basicAuth.authenticated;
+        }
+        if (isAuthenticated) {
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
         return res.sendStatus(403);
@@ -1216,7 +1228,18 @@ systemStructureContext().then((site) => {
             message: 'system admin route requires system dashboard access',
           });
         }
-        if (systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res)) {
+        let isAuthenticated = systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res);
+        if (!isAuthenticated) {
+          const basicAuth = authenticateBasicAuthorizationRequest(req);
+          if (basicAuth.blocked) {
+            return res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
+              status: 429,
+              message: 'Too many failed login attempts. Please try again later.',
+            });
+          }
+          isAuthenticated = basicAuth.authenticated;
+        }
+        if (isAuthenticated) {
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
         return res.sendStatus(403);

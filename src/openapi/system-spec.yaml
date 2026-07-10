@@ -1223,6 +1223,166 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/import-pptx:
+    post:
+      tags:
+        - actions
+      operationId: importPptx
+      summary: Convert an uploaded .pptx file into a HAXcms site schema
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PowerPoint file (.pptx) to convert
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Site schema items from the converted presentation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/import-html:
+    post:
+      tags:
+        - actions
+      operationId: importHtml
+      summary: Convert an uploaded HTML file into a HAXcms site schema
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: HTML file (.html or .htm) to convert
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Site schema items from the converted HTML
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/import-xlsx:
+    post:
+      tags:
+        - actions
+      operationId: importXlsx
+      summary: Convert an uploaded Excel file into a HAXcms site schema
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Excel file (.xlsx or .xls) to convert
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Site schema items from the converted Excel file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/actions/import-pdf:
+    post:
+      tags:
+        - actions
+      operationId: importPdf
+      summary: Convert an uploaded PDF file into a HAXcms site schema
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF file (.pdf) to convert
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Site schema items from the converted PDF
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /system/api/v1/actions/html-to-docx:
     post:
       tags:
@@ -1575,43 +1735,22 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /system/api/v1/site/import/{platform}:
+  /system/api/v1/site/import/haxcms:
     post:
       tags:
         - actions
-      operationId: siteImport
-      summary: Import a site from an external platform
+      operationId: haxcmsToSite
+      summary: Import a HAXcms site as a new site
       security:
         - bearerAuth: []
           userTokenHeader: []
-      parameters:
-        - name: platform
-          in: path
-          required: true
-          schema:
-            type: string
-            enum:
-              - haxcms
-              - html
-              - pressbooks
-              - gitbook
-              - notion
-              - wordpress
-              - elmsln
-              - drupal-book
-              - plone
-              - recipe
       requestBody:
         required: false
         content:
-          multipart/form-data:
+          application/json:
             schema:
               type: object
               properties:
-                file:
-                  type: string
-                  format: binary
-                  description: Uploaded file for platform import (if supported)
                 repoUrl:
                   type: string
                   description: URL to fetch for remote platform import
@@ -1624,6 +1763,415 @@ paths:
                 parentId:
                   type: string
                   description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/html:
+    post:
+      tags:
+        - actions
+      operationId: htmlToSite
+      summary: Import an HTML page or site as a new site
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Uploaded HTML file for import
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/pressbooks:
+    post:
+      tags:
+        - actions
+      operationId: pressbooksToSite
+      summary: Import a Pressbooks site as a new site
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/gitbook:
+    post:
+      tags:
+        - actions
+      operationId: gitbookToSite
+      summary: Import a GitBook site as a new site
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/notion:
+    post:
+      tags:
+        - actions
+      operationId: notionToSite
+      summary: Import a Notion site as a new site
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/wordpress:
+    post:
+      tags:
+        - actions
+      operationId: wordpressToSite
+      summary: Import a WordPress site as a new site
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/elmsln:
+    post:
+      tags:
+        - actions
+      operationId: elmslnToSite
+      summary: Import an ELMSLN site as a new site
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/drupal-book:
+    post:
+      tags:
+        - actions
+      operationId: drupalBookToSite
+      summary: Import a Drupal Book site as a new site
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/plone:
+    post:
+      tags:
+        - actions
+      operationId: ploneToSite
+      summary: Import a Plone site as a new site
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/recipe:
+    post:
+      tags:
+        - actions
+      operationId: recipeToSite
+      summary: Import a recipe as a new site
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: false
+        content:
           application/json:
             schema:
               type: object

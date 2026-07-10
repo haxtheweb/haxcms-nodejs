@@ -6,6 +6,10 @@ const settingsRoutes = require('../systemRoutes/v1/settings.js');
 const convertDocxToHtmlRoute = require('../systemRoutes/v1/routes/convertDocxToHtml.js');
 const convertHtmlToDocxRoute = require('../systemRoutes/v1/routes/convertHtmlToDocx.js');
 const importDocxRoute = require('../systemRoutes/v1/routes/importDocx.js');
+const importPptxRoute = require('../systemRoutes/v1/routes/importPptx.js');
+const importHtmlRoute = require('../systemRoutes/v1/routes/importHtml.js');
+const importXlsxRoute = require('../systemRoutes/v1/routes/importXlsx.js');
+const importPdfRoute = require('../systemRoutes/v1/routes/importPdf.js');
 const convertMdToHtmlRoute = require('../systemRoutes/v1/routes/convertMdToHtml.js');
 const convertHtmlToMdRoute = require('../systemRoutes/v1/routes/convertHtmlToMd.js');
 const convertPrettyHtmlRoute = require('../systemRoutes/v1/routes/convertPrettyHtml.js');
@@ -363,6 +367,10 @@ addRouteHandler(SystemRoutesMap, 'post', 'actions/xlsx-to-csv', convertXlsxToCsv
 addRouteHandler(SystemRoutesMap, 'post', 'actions/pdf-to-html', convertPdfToHtmlRoute.convertPdfToHtml);
 addRouteHandler(SystemRoutesMap, 'post', 'actions/pptx-to-html', convertPptxToHtmlRoute.convertPptxToHtml);
 addRouteHandler(SystemRoutesMap, 'post', 'actions/docx-to-pdf', convertDocxToPdfRoute.convertDocxToPdf);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/import-pptx', importPptxRoute.importPptx);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/import-html', importHtmlRoute.importHtml);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/import-xlsx', importXlsxRoute.importXlsx);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/import-pdf', importPdfRoute.importPdf);
 addRouteHandler(SystemRoutesMap, 'post', 'site/import/:platform', siteImportRoute.siteImport);
 addRouteHandler(SystemRoutesMap, 'get', '', discoveryApiRoute);
 addRouteHandler(SystemRoutesMap, 'get', 'openapi', discoveryOpenapiRoute);
@@ -417,6 +425,10 @@ const SystemV1AdminRoutes = [
   'actions/pdf-to-html',
   'actions/pptx-to-html',
   'actions/import-docx',
+  'actions/import-pptx',
+  'actions/import-html',
+  'actions/import-xlsx',
+  'actions/import-pdf',
   'actions/docx-to-html',
   'actions/html-to-docx',
   'actions/docx-to-pdf',

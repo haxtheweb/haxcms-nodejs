@@ -351,6 +351,7 @@ test('system actions endpoints conformance', async (t) => {
       { path: '/system/api/v1/actions/pdf-to-html', method: 'POST', body: buildMultipartBody({ fileName: 't.pdf', fileContents: Buffer.alloc(0), mimeType: 'application/pdf' }).body },
       { path: '/system/api/v1/actions/pptx-to-html', method: 'POST', body: buildMultipartBody({ fileName: 't.pptx', fileContents: Buffer.alloc(0), mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }).body },
       { path: '/system/api/v1/actions/import-docx', method: 'POST', body: buildMultipartBody({ fileName: 't.docx', fileContents: Buffer.alloc(0) }).body },
+      { path: '/system/api/v1/actions/import-pptx', method: 'POST', body: buildMultipartBody({ fileName: 't.pptx', fileContents: Buffer.alloc(0), mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }).body },
       { path: '/system/api/v1/actions/docx-to-pdf', method: 'POST', body: buildMultipartBody({ fileName: 't.docx', fileContents: Buffer.alloc(0) }).body },
       { path: '/system/api/v1/site/import/haxcms', method: 'POST', body: JSON.stringify({ repoUrl: 'https://example.com' }) },
     ]
@@ -993,6 +994,91 @@ test('system actions endpoints conformance', async (t) => {
     )
   })
 
+  await t.test('import-pptx returns 400 for empty file upload', async () => {
+    const multipart = buildMultipartBody({
+      fileName: 'empty.pptx',
+      fileContents: Buffer.alloc(0),
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    })
+    const result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 400, `Expected 400, got ${result.status}: ${result.bodyText}`)
+    const body = JSON.parse(result.bodyText)
+    assert.ok(body && body.data && body.data.error, 'Expected error in response data')
+  })
+
+  await t.test('import-pptx returns 400 for invalid file type', async () => {
+    const multipart = buildMultipartBody({
+      fileName: 'test.txt',
+      fileContents: 'not a pptx',
+      mimeType: 'text/plain',
+    })
+    const result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 400, `Expected 400, got ${result.status}: ${result.bodyText}`)
+    const body = JSON.parse(result.bodyText)
+    assert.ok(body && body.data && body.data.error, 'Expected error in response data')
+    assert.ok(
+      String(body.data.error).toLowerCase().indexOf('invalid') !== -1,
+      'Expected invalid file type error message',
+    )
+  })
+
+  await t.test('import-pptx returns 400 for missing ZIP signature', async () => {
+    const multipart = buildMultipartBody({
+      fileName: 'fake.pptx',
+      fileContents: Buffer.from('This is not a zip file'),
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    })
+    const result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 400, `Expected 400, got ${result.status}: ${result.bodyText}`)
+    const body = JSON.parse(result.bodyText)
+    assert.ok(body && body.data && body.data.error, 'Expected error in response data')
+    assert.ok(
+      String(body.data.error).toLowerCase().indexOf('zip') !== -1,
+      'Expected error message about ZIP signature',
+    )
+  })
+
+  await t.test('import-pptx converts valid pptx to site schema items', async () => {
+    const pptxBuffer = await createMinimalPptxBuffer()
+    const multipart = buildMultipartBody({
+      fileName: 'test.pptx',
+      fileContents: pptxBuffer,
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    })
+    const result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 200, `Expected 200, got ${result.status}: ${result.bodyText}`)
+    const body = JSON.parse(result.bodyText)
+    assert.ok(body && body.status === 200, 'Expected status 200 in response envelope')
+    assert.ok(
+      body.data && Array.isArray(body.data.items),
+      'Expected items array in response data',
+    )
+    assert.ok(
+      body.data && typeof body.data.filename === 'string',
+      'Expected filename in response data',
+    )
+  })
+
   await t.test('actions endpoints are listed in system OpenAPI spec', async () => {
     const result = await sendHttpRequest({
       method: 'GET',
@@ -1014,6 +1100,7 @@ test('system actions endpoints conformance', async (t) => {
       '/system/api/v1/actions/pdf-to-html',
       '/system/api/v1/actions/pptx-to-html',
       '/system/api/v1/actions/import-docx',
+      '/system/api/v1/actions/import-pptx',
       '/system/api/v1/actions/docx-to-pdf',
       '/system/api/v1/site/import/{platform}',
     ]
@@ -1050,6 +1137,7 @@ test('system actions endpoints conformance', async (t) => {
       '/system/api/v1/actions/pdf-to-html',
       '/system/api/v1/actions/pptx-to-html',
       '/system/api/v1/actions/import-docx',
+      '/system/api/v1/actions/import-pptx',
       '/system/api/v1/actions/docx-to-pdf',
       '/system/api/v1/site/import/{platform}',
     ]
