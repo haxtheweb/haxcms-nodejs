@@ -1616,9 +1616,7 @@ paths:
         - actions
       operationId: xlsxToCsv
       summary: Convert an uploaded Excel file to CSV
-      security:
-        - bearerAuth: []
-          userTokenHeader: []
+      security: []
       requestBody:
         required: true
         content:

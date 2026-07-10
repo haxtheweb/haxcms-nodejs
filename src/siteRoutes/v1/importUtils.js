@@ -111,7 +111,7 @@ async function importHtmlToItems(html, options) {
 
         for await (const rootHeading of rootHeadings) {
           let item = new JSONOutlineSchemaItem();
-          item.title = rootHeading.innerText.trim().replace('  ', ' ').replace('  ', ' ');
+          item.title = rootHeading.text.trim().replace('  ', ' ').replace('  ', ' ');
           item.slug = HAXCMS.cleanTitle(item.title);
           item.order = rootOrder;
           item.parent = parentId;
@@ -134,7 +134,7 @@ async function importHtmlToItems(html, options) {
             let childOrder = 0;
             while (childHeading !== null && childHeading.tagName === childTagName) {
               let item2 = new JSONOutlineSchemaItem();
-              item2.title = childHeading.innerText.trim().replace('  ', ' ').replace('  ', ' ');
+          item2.title = childHeading.text.trim().replace('  ', ' ').replace('  ', ' ');
               item2.slug = item.slug + '/' + HAXCMS.cleanTitle(item2.title);
               item2.order = childOrder;
               childOrder += 1;
@@ -169,7 +169,7 @@ async function importHtmlToItems(html, options) {
 
         for await (const rootHeading of rootHeadings) {
           let item = new JSONOutlineSchemaItem();
-          item.title = rootHeading.innerText.trim().replace('  ', ' ').replace('  ', ' ');
+          item.title = rootHeading.text.trim().replace('  ', ' ').replace('  ', ' ');
           item.slug = HAXCMS.cleanTitle(item.title);
           item.order = order;
           item.parent = parentId;

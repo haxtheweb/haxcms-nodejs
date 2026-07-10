@@ -196,7 +196,7 @@ function renderedToText(value) {
   if (text === '') {
     return ''
   }
-  return parse(`<div>${text}</div>`).innerText.trim()
+  return parse(`<div>${text}</div>`).text.trim()
 }
 
 function valueToBoolean(value, fallback = false) {

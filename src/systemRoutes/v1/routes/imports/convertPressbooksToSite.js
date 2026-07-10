@@ -412,7 +412,7 @@ function getPressbooksItemTitle(item, fullData) {
   if (title === '' && item && item.slug) {
     title = item.slug
   }
-  return parse(`<div>${title}</div>`).innerText.trim()
+  return parse(`<div>${title}</div>`).text.trim()
 }
 
 function getPressbooksItemContent(fullData, fallbackItem, base) {

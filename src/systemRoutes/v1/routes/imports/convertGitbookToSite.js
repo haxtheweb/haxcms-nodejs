@@ -118,7 +118,7 @@ async function listToJOS(site, md, sourceLink, name, downloads, fileMap) {
         continue
       }
       let item = new JSONOutlineSchemaItem()
-      item.title = a.innerText
+      item.title = a.text
       item.parent = ''
       item.order = index
       item.indent = 0
@@ -150,7 +150,7 @@ async function recurseToJOS(site, parent, top, depth, sourceLink, downloads, fil
         continue
       }
       let item = new JSONOutlineSchemaItem()
-      item.title = a.innerText
+      item.title = a.text
       item.parent = parent.id
       item.order = index
       item.indent = depth

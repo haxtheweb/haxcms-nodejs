@@ -116,7 +116,7 @@ async function importDocx(req, res) {
         } else {
           for await (const h1 of h1s) {
             let item = new JSONOutlineSchemaItem();
-            item.title = h1.innerText.trim().replace('  ', ' ').replace('  ', ' ');
+            item.title = h1.text.trim().replace('  ', ' ').replace('  ', ' ');
             item.slug = HAXCMS.cleanTitle(item.title);
             item.order = h1Order;
             item.parent = parentId;
@@ -139,7 +139,7 @@ async function importDocx(req, res) {
               let h2Order = 0;
               while (h2 !== null && h2.tagName === 'H2') {
                 let item2 = new JSONOutlineSchemaItem();
-                item2.title = h2.innerText.trim().replace('  ', ' ').replace('  ', ' ');
+                item2.title = h2.text.trim().replace('  ', ' ').replace('  ', ' ');
                 item2.slug = item.slug + '/' + HAXCMS.cleanTitle(item2.title);
                 item2.order = h2Order;
                 h2Order += 1;
@@ -168,7 +168,7 @@ async function importDocx(req, res) {
         } else {
           for await (const h1 of els) {
             let item = new JSONOutlineSchemaItem();
-            item.title = h1.innerText.trim().replace('  ', ' ').replace('  ', ' ');
+            item.title = h1.text.trim().replace('  ', ' ').replace('  ', ' ');
             item.slug = HAXCMS.cleanTitle(item.title);
             item.order = order;
             item.parent = parentId;
