@@ -338,7 +338,7 @@ async function htmlToPdfBuffer(html, base = '/') {
       printBackground: true,
       margin: { top: '40px', right: '40px', bottom: '40px', left: '40px' },
     });
-    return pdfBuffer;
+    return Buffer.from(pdfBuffer);
   } finally {
     if (browser) {
       await browser.close();

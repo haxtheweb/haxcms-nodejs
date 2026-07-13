@@ -165,11 +165,12 @@ async function convertHtmlToDownloadBuffer(format = 'pdf', html = '', base = '/'
 function sendDownloadResponse(res, buffer, mediaType, filename) {
   const safeMediaType = String(mediaType || 'application/octet-stream')
   const safeFilename = String(filename || 'export.bin').replace(/"/g, '')
+  const safeBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
   res.status(200)
   res.setHeader('Content-Type', safeMediaType)
   res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`)
-  res.setHeader('Content-Length', buffer.length)
-  return res.send(buffer)
+  res.setHeader('Content-Length', safeBuffer.length)
+  return res.send(safeBuffer)
 }
 
 async function buildSiteExportHtmlContent(site, ancestor) {
