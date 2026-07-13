@@ -677,20 +677,9 @@ async function siteExport(req, res) {
   if (format === 'html') {
     try {
       const html = await buildSiteExportHtml(site, ancestor, magic)
-      if (magic) {
-        res.status(200)
-        res.setHeader('Content-Type', 'text/html; charset=utf-8')
-        return res.send(html)
-      }
-      return sendFormattedResponse(
-        req,
-        res,
-        html,
-        {
-          allowedFormats: ['json'],
-          defaultFormat: 'json',
-        },
-      )
+      res.status(200)
+      res.setHeader('Content-Type', 'text/html; charset=utf-8')
+      return res.send(html)
     }
     catch (e) {
       return res.status(500).json({
