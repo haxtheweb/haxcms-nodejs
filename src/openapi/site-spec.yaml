@@ -486,7 +486,7 @@ paths:
       tags:
         - items
       operationId: downloadItemExport
-      summary: Download an item export file (PDF or DOCX)
+      summary: Download an item export file (HTML, Markdown, JSON, YAML, XML, PDF, or DOCX)
       parameters:
         - $ref: "#/components/parameters/IdOrSlug"
         - $ref: "#/components/parameters/ItemExportFormat"
@@ -494,6 +494,21 @@ paths:
         "200":
           description: Item export download
           content:
+            text/html:
+              schema:
+                type: string
+            text/markdown:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: string
+            application/yaml:
+              schema:
+                type: string
+            application/xml:
+              schema:
+                type: string
             application/pdf:
               schema:
                 type: string
@@ -2028,6 +2043,11 @@ components:
         enum:
           - pdf
           - docx
+          - html
+          - md
+          - json
+          - yaml
+          - xml
     WebcomponentName:
       name: webcomponentName
       in: path

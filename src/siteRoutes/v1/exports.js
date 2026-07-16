@@ -7,20 +7,31 @@ const {
   getOrderedItems,
   getItemContent,
   getQueryValue,
+  itemToSummary,
+  serializePayload,
+  isAnonymousSiteApiRequest,
+  isItemVisibleToAnonymous,
 } = require('./siteRouteUtils.js')
 const { HAXCMS } = require('../../lib/HAXCMS.js')
 const { convertHtmlToDocxBuffer, htmlToPdfBuffer } = require('../../lib/convertUtils.js')
 const EPUB = require('epub-gen-memory')
 const { parse } = require('node-html-parser')
+const TurndownService = require('turndown')
+
+const turndownService = new TurndownService()
 
 const SITE_EXPORT_FORMATS = ['zip', 'markdown', 'pdf', 'docx', 'epub', 'html', 'skeleton']
-const ITEM_EXPORT_FORMATS = ['pdf', 'docx']
+const ITEM_EXPORT_FORMATS = ['pdf', 'docx', 'html', 'md', 'json', 'yaml', 'xml']
 const EXPORT_MEDIA_TYPES = {
   pdf: 'application/pdf',
   docx:
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   epub: 'application/epub+zip',
   html: 'text/html',
+  md: 'text/markdown',
+  json: 'application/json',
+  yaml: 'application/yaml',
+  xml: 'application/xml',
 }
 
 function normalizeFormatValue(value = '') {
@@ -571,6 +582,29 @@ async function buildItemExportHtml(site, item) {
   return sections.join('\n')
 }
 
+function convertItemHtmlToMarkdown(item, html) {
+  const title = buildItemExportDocumentTitle(item)
+  const body = String(html || '')
+  let markdown = ''
+  try {
+    markdown = turndownService.turndown(body)
+  } catch (e) {
+    markdown = body
+  }
+  const sections = []
+  sections.push(`# ${title}`)
+  sections.push('')
+  sections.push(markdown)
+  return sections.join('\n').trim()
+}
+
+async function buildItemExportRecord(site, item, apiBasePath = '/x/api') {
+  const content = await getItemContent(site, item)
+  const record = itemToSummary(item, apiBasePath)
+  record.content = String(content || '')
+  return record
+}
+
 function buildSiteExportDetails(site, apiBasePath = '/x/api', format = '') {
   const siteBasePath = getSiteBasePath(site)
   const systemApiBasePath = getSystemApiBasePath(apiBasePath)
@@ -727,6 +761,15 @@ async function itemExport(req, res) {
       message: `Item not found for idOrSlug "${idOrSlug}"`,
     })
   }
+  if (
+    isAnonymousSiteApiRequest(req) &&
+    !isItemVisibleToAnonymous(item)
+  ) {
+    return res.status(404).json({
+      status: 404,
+      message: `Item not found for idOrSlug "${idOrSlug}"`,
+    })
+  }
   const format = normalizeFormatValue(
     req && req.params && req.params.format ? req.params.format : '',
   )
@@ -737,35 +780,95 @@ async function itemExport(req, res) {
       supportedFormats: ITEM_EXPORT_FORMATS,
     })
   }
-  let html = ''
+  const apiBasePath = getApiBasePath(req)
+  const fileBaseName = getItemExportFileBaseName(item)
+
+  if (format === 'pdf' || format === 'docx') {
+    let html = ''
+    try {
+      html = await buildItemExportHtml(site, item)
+    }
+    catch (e) {
+      return res.status(500).json({
+        status: 500,
+        message: `Unable to build item export HTML: ${e.message}`,
+      })
+    }
+    let outputBuffer = null
+    try {
+      outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site))
+    }
+    catch (e) {
+      return res.status(e && e.status ? e.status : 502).json({
+        status: e && e.status ? e.status : 502,
+        message: e && e.message ? e.message : 'Unable to complete export conversion',
+      })
+    }
+    return sendDownloadResponse(
+      res,
+      outputBuffer,
+      getExportMediaType(format),
+      `${fileBaseName}.${format}`,
+    )
+  }
+
+  if (format === 'html') {
+    let html = ''
+    try {
+      html = await buildItemExportHtml(site, item)
+    }
+    catch (e) {
+      return res.status(500).json({
+        status: 500,
+        message: `Unable to build item export HTML: ${e.message}`,
+      })
+    }
+    return sendDownloadResponse(
+      res,
+      Buffer.from(html),
+      'text/html; charset=utf-8',
+      `${fileBaseName}.html`,
+    )
+  }
+
+  if (format === 'md') {
+    let html = ''
+    try {
+      html = await getItemContent(site, item)
+    }
+    catch (e) {
+      html = ''
+    }
+    const markdown = convertItemHtmlToMarkdown(item, html)
+    return sendDownloadResponse(
+      res,
+      Buffer.from(markdown),
+      'text/markdown; charset=utf-8',
+      `${fileBaseName}.md`,
+    )
+  }
+
+  let record
   try {
-    html = await buildItemExportHtml(site, item)
+    record = await buildItemExportRecord(site, item, apiBasePath)
   }
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: `Unable to build item export HTML: ${e.message}`,
+      message: `Unable to build item export record: ${e.message}`,
     })
   }
-  let outputBuffer = null
-  try {
-    outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site))
-  }
-  catch (e) {
-    return res.status(e && e.status ? e.status : 502).json({
-      status: e && e.status ? e.status : 502,
-      message: e && e.message ? e.message : 'Unable to complete export conversion',
-    })
-  }
+  const serialized = serializePayload(record, format)
   return sendDownloadResponse(
     res,
-    outputBuffer,
+    Buffer.from(serialized),
     getExportMediaType(format),
-    `${getItemExportFileBaseName(item)}.${format}`,
+    `${fileBaseName}.${format}`,
   )
 }
 
 module.exports = {
   siteExport,
   itemExport,
+  ITEM_EXPORT_FORMATS,
 }

@@ -2205,7 +2205,117 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/{platform}:
+    post:
+      tags:
+        - actions
+      operationId: siteImportByPlatform
+      summary: Import a site from a supported platform by platform name
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Platform identifier (haxcms, html, pressbooks, gitbook, notion, wordpress, elmsln, drupal-book, plone, recipe)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Uploaded file for import (supported by some platforms)
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 components:
+  parameters:
+    SiteName:
+      name: siteName
+      in: path
+      required: true
+      schema:
+        type: string
+    SkeletonName:
+      name: skeletonName
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Malformed or invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Authentication is required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: Authenticated but not permitted to perform this operation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
   securitySchemes:
     bearerAuth:
       type: http

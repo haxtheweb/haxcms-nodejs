@@ -32,6 +32,7 @@ const {
 } = require('../../lib/platformFeatures.js');
 const createNodeRoute = require('./routes/createNode.js');
 const deleteNodeRoute = require('./routes/deleteNode.js');
+const { ITEM_EXPORT_FORMATS } = require('./exports.js');
 
 function ensureSiteTokenHeader(req) {
   const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
@@ -194,9 +195,16 @@ function buildCanonicalPagePath(basePath = '/', slug = '') {
 
 function buildItemEndpointLinks(apiBasePath = '/x/api', itemLookupValue = '') {
   const encodedLookupValue = encodeURIComponent(String(itemLookupValue || ''));
+  const exportBase = `${apiBasePath}/v1/items/${encodedLookupValue}/export`;
+  const exports = {};
+  for (let i = 0; i < ITEM_EXPORT_FORMATS.length; i++) {
+    const format = ITEM_EXPORT_FORMATS[i];
+    exports[format] = `${exportBase}/${format}`;
+  }
   return {
-    exportDocx: `${apiBasePath}/v1/items/${encodedLookupValue}/export/docx`,
-    exportPdf: `${apiBasePath}/v1/items/${encodedLookupValue}/export/pdf`,
+    exports,
+    exportDocx: exports.docx,
+    exportPdf: exports.pdf,
     haxElementSchema: `${apiBasePath}/v1/items/${encodedLookupValue}?include=haxElementSchema`,
     jsonld: `${apiBasePath}/v1/items/${encodedLookupValue}?include=jsonld`,
   };
@@ -317,10 +325,7 @@ function appendItemEndpointLinks(
   const hydratedRecord = {
     ...record,
     links,
-    exports: {
-      docx: endpointLinks.exportDocx,
-      pdf: endpointLinks.exportPdf,
-    },
+    exports: endpointLinks.exports,
   };
   if (includeJsonLd) {
     hydratedRecord.jsonld = buildItemJsonLd(
