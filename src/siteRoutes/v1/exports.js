@@ -21,7 +21,7 @@ const TurndownService = require('turndown')
 const turndownService = new TurndownService()
 
 const SITE_EXPORT_FORMATS = ['zip', 'markdown', 'pdf', 'docx', 'epub', 'html', 'skeleton']
-const ITEM_EXPORT_FORMATS = ['pdf', 'docx', 'html', 'md', 'json', 'yaml', 'xml']
+const ITEM_EXPORT_FORMATS = ['pdf', 'docx', 'html', 'md', 'json', 'yaml', 'xml', 'epub']
 const EXPORT_MEDIA_TYPES = {
   pdf: 'application/pdf',
   docx:
@@ -33,6 +33,17 @@ const EXPORT_MEDIA_TYPES = {
   yaml: 'application/yaml',
   xml: 'application/xml',
 }
+
+const EPUB_EXPORT_CSS = `body { font-family: serif; line-height: 1.6; margin: 0; padding: 1em; }
+h1, h2, h3, h4, h5, h6 { font-family: sans-serif; margin-top: 1.5em; margin-bottom: 0.5em; }
+p { margin: 0.5em 0; }
+img { max-width: 100%; height: auto; }
+table { border-collapse: collapse; width: 100%; }
+td, th { border: 1px solid #ccc; padding: 0.5em; }
+blockquote { margin: 1em; padding: 0.5em 1em; border-left: 3px solid #ccc; }
+pre { background: #f4f4f4; padding: 1em; overflow-x: auto; }
+.responsive-iframe-container { position: relative; overflow: hidden; width: 100%; padding-top: 56.25%; }
+.responsive-iframe { position: absolute; top: 0; left: 0; bottom: 0; right: 0; width: 100%; height: 100%; }`
 
 function normalizeFormatValue(value = '') {
   return String(value || '').trim().toLowerCase()
@@ -314,11 +325,16 @@ function resolveUrlForEpub(attributeValue, basePath) {
   return basePath + value
 }
 
-function processHtmlForEpub(html, basePath, items) {
+function normalizeHtmlForDocumentExport(html, basePath, items, mode = 'epub') {
   if (!html) {
     return ''
   }
-  const doc = parse(`<div id="wrapper">${html}</div>`)
+  const htmlString = String(html)
+  const trimmed = htmlString.trim().toLowerCase()
+  const isFullDocument = trimmed.startsWith('<!doctype') || trimmed.startsWith('<html')
+  const doc = isFullDocument
+    ? parse(htmlString)
+    : parse(`<div id="wrapper">${htmlString}</div>`)
 
   // Process videos
   const videos = doc.querySelectorAll('video-player,iframe[src*="youtube.com"],iframe[src*="youtube-nocookie.com"],iframe[src*="vimeo.com"],video[src],video source[src],a11y-media-player')
@@ -396,58 +412,68 @@ function processHtmlForEpub(html, basePath, items) {
     tables[i].removeAttribute('style')
   }
 
-  // Process links
-  const slugSet = new Set()
-  for (let i = 0; i < items.length; i++) {
-    if (items[i] && items[i].slug) {
-      slugSet.add(items[i].slug)
-    }
-  }
-
-  const links = doc.querySelectorAll('a')
-  for (let i = 0; i < links.length; i++) {
-    const el = links[i]
-    let href = el.getAttribute('href') || ''
-    if (!href) {
-      el.remove()
-      continue
+  // Process links — epub mode rewrites internal links to .xhtml chapter files;
+  // docx mode leaves links site-relative (per A4)
+  if (mode === 'epub') {
+    const slugSet = new Set()
+    for (let i = 0; i < items.length; i++) {
+      if (items[i] && items[i].slug) {
+        slugSet.add(items[i].slug)
+      }
     }
 
-    try {
-      let urlData
-      try {
-        urlData = new URL(href, basePath)
-      } catch (e) {
+    const links = doc.querySelectorAll('a')
+    for (let i = 0; i < links.length; i++) {
+      const el = links[i]
+      let href = el.getAttribute('href') || ''
+      if (!href) {
         el.remove()
         continue
       }
 
-      if (href.startsWith('/')) {
-        const pathname = urlData.pathname.replace(/^\/+/, '')
-        if (slugSet.has(pathname)) {
-          href = pathname.replace(/\//g, '-') + '.xhtml'
-        } else if (urlData.searchParams && urlData.searchParams.has('q')) {
-          href = urlData.searchParams.get('q').replace(/\//g, '-') + '.xhtml'
+      try {
+        let urlData
+        try {
+          urlData = new URL(href, basePath)
+        } catch (e) {
+          el.remove()
+          continue
         }
-      } else {
-        const pathname = urlData.pathname.replace(/^\/+/, '')
-        if (slugSet.has(pathname)) {
-          href = pathname.replace(/\//g, '-') + '.xhtml'
-        }
-      }
 
-      if (href) {
-        el.setAttribute('href', href)
-      } else {
+        if (href.startsWith('/')) {
+          const pathname = urlData.pathname.replace(/^\/+/, '')
+          if (slugSet.has(pathname)) {
+            href = pathname.replace(/\//g, '-') + '.xhtml'
+          } else if (urlData.searchParams && urlData.searchParams.has('q')) {
+            href = urlData.searchParams.get('q').replace(/\//g, '-') + '.xhtml'
+          }
+        } else {
+          const pathname = urlData.pathname.replace(/^\/+/, '')
+          if (slugSet.has(pathname)) {
+            href = pathname.replace(/\//g, '-') + '.xhtml'
+          }
+        }
+
+        if (href) {
+          el.setAttribute('href', href)
+        } else {
+          el.remove()
+        }
+      } catch (e) {
         el.remove()
       }
-    } catch (e) {
-      el.remove()
     }
   }
 
+  if (isFullDocument) {
+    return doc.toString()
+  }
   const wrapper = doc.querySelector('#wrapper')
-  return wrapper ? wrapper.innerHTML : html
+  return wrapper ? wrapper.innerHTML : htmlString
+}
+
+function processHtmlForEpub(html, basePath, items) {
+  return normalizeHtmlForDocumentExport(html, basePath, items, 'epub')
 }
 
 async function buildSiteExportEpubBuffer(site, basePath = '/', ancestor) {
@@ -540,16 +566,61 @@ async function buildSiteExportEpubBuffer(site, basePath = '/', ancestor) {
     description: description,
     cover: cover ? `${basePath}${cover}` : '',
     tocTitle: 'Table of Contents',
-    css: `body { font-family: serif; line-height: 1.6; margin: 0; padding: 1em; }
-h1, h2, h3, h4, h5, h6 { font-family: sans-serif; margin-top: 1.5em; margin-bottom: 0.5em; }
-p { margin: 0.5em 0; }
-img { max-width: 100%; height: auto; }
-table { border-collapse: collapse; width: 100%; }
-td, th { border: 1px solid #ccc; padding: 0.5em; }
-blockquote { margin: 1em; padding: 0.5em 1em; border-left: 3px solid #ccc; }
-pre { background: #f4f4f4; padding: 1em; overflow-x: auto; }
-.responsive-iframe-container { position: relative; overflow: hidden; width: 100%; padding-top: 56.25%; }
-.responsive-iframe { position: absolute; top: 0; left: 0; bottom: 0; right: 0; width: 100%; height: 100%; }`,
+    css: EPUB_EXPORT_CSS,
+    date: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.updated ? new Date(site.manifest.metadata.site.updated * 1000).toISOString() : new Date().toISOString(),
+    lang: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.lang ? String(site.manifest.metadata.site.lang) : 'en',
+    fetchTimeout: 3000,
+    ignoreFailedDownloads: true,
+  }
+
+  const epubGenerator = EPUB.default && EPUB.default.default ? EPUB.default.default : (EPUB.default || EPUB)
+  return await epubGenerator(options, content)
+}
+
+async function buildItemExportEpubBuffer(site, item, basePath = '/') {
+  const itemTitle = buildItemExportDocumentTitle(item)
+  let itemContent = await getItemContent(site, item)
+  if (itemContent) {
+    itemContent = processHtmlForEpub(itemContent, basePath, getOrderedItems(site))
+  }
+
+  const author =
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.author &&
+    site.manifest.metadata.author.name
+      ? String(site.manifest.metadata.author.name)
+      : 'HAX The Web'
+  const description =
+    site && site.manifest && site.manifest.description
+      ? String(site.manifest.description)
+      : ''
+  const cover =
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    site.manifest.metadata.site.logo
+      ? String(site.manifest.metadata.site.logo)
+      : ''
+
+  const content = [
+    {
+      title: itemTitle,
+      content: String(itemContent || ''),
+      filename: (item.slug ? item.slug.replace(/\//g, '-') : item.id) + '.xhtml',
+    },
+  ]
+
+  const options = {
+    title: itemTitle,
+    author: author,
+    publisher: 'HAX The Web',
+    description: description,
+    cover: cover ? `${basePath}${cover}` : '',
+    tocTitle: 'Table of Contents',
+    css: EPUB_EXPORT_CSS,
     date: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.updated ? new Date(site.manifest.metadata.site.updated * 1000).toISOString() : new Date().toISOString(),
     lang: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.lang ? String(site.manifest.metadata.site.lang) : 'en',
     fetchTimeout: 3000,
@@ -693,6 +764,12 @@ async function siteExport(req, res) {
             message: `Unable to build site export HTML: ${e.message}`,
           })
         }
+        if (format === 'docx') {
+          try {
+            html = normalizeHtmlForDocumentExport(html, getSiteBasePath(site), getOrderedItems(site), 'docx')
+          }
+          catch (e) {}
+        }
         outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site))
       }
     }
@@ -794,6 +871,12 @@ async function itemExport(req, res) {
         message: `Unable to build item export HTML: ${e.message}`,
       })
     }
+    if (format === 'docx') {
+      try {
+        html = normalizeHtmlForDocumentExport(html, getSiteBasePath(site), getOrderedItems(site), 'docx')
+      }
+      catch (e) {}
+    }
     let outputBuffer = null
     try {
       outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site))
@@ -845,6 +928,25 @@ async function itemExport(req, res) {
       Buffer.from(markdown),
       'text/markdown; charset=utf-8',
       `${fileBaseName}.md`,
+    )
+  }
+
+  if (format === 'epub') {
+    let epubBuffer = null
+    try {
+      epubBuffer = await buildItemExportEpubBuffer(site, item, getSiteBasePath(site))
+    }
+    catch (e) {
+      return res.status(e && e.status ? e.status : 502).json({
+        status: e && e.status ? e.status : 502,
+        message: e && e.message ? e.message : 'Unable to complete EPUB export conversion',
+      })
+    }
+    return sendDownloadResponse(
+      res,
+      epubBuffer,
+      'application/epub+zip',
+      `${fileBaseName}.epub`,
     )
   }
 

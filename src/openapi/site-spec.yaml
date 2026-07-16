@@ -486,7 +486,7 @@ paths:
       tags:
         - items
       operationId: downloadItemExport
-      summary: Download an item export file (HTML, Markdown, JSON, YAML, XML, PDF, or DOCX)
+      summary: Download an item export file (HTML, Markdown, JSON, YAML, XML, PDF, DOCX, or EPUB)
       parameters:
         - $ref: "#/components/parameters/IdOrSlug"
         - $ref: "#/components/parameters/ItemExportFormat"
@@ -514,6 +514,10 @@ paths:
                 type: string
                 format: binary
             application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+            application/epub+zip:
               schema:
                 type: string
                 format: binary
@@ -2048,6 +2052,7 @@ components:
           - json
           - yaml
           - xml
+          - epub
     WebcomponentName:
       name: webcomponentName
       in: path
