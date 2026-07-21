@@ -19,6 +19,8 @@
     "build": "rm -rf dist && babel src --out-dir dist --copy-files --include-dotfiles && chmod 774 dist/local.js && chmod 774 dist/app.js && chmod 774 dist/cli.js",
     "verify:sanitize-policy": "node scripts/verify-sanitize-policy.js",
     "test:api-conformance": "node --test test/api-conformance/**/*.test.cjs",
+    "test:e2e": "node --test test/e2e/*.e2e.test.cjs",
+    "test:e2e:update": "HAXCMS_E2E_UPDATE_SCREENSHOTS=1 node --test test/e2e/*.e2e.test.cjs",
     "release": "npm run build && commit-and-tag-version && git push --follow-tags origin main && npm publish",
     "haxcms-nodejs-cli": "haxcms-nodejs-cli"
   },
@@ -69,8 +71,8 @@
     "jsdom": "26.1.0",
     "jsonwebtoken": "9.0.3",
     "locutus": "^3.0.34",
-    "markdown-it": "^14.1.1",
     "mammoth": "^1.12.0",
+    "markdown-it": "^14.1.1",
     "mime": "3.0.0",
     "minimist": "1.2.8",
     "multer": "^2.2.0",
@@ -81,13 +83,13 @@
     "sharp": "0.32.6",
     "text-readability": "1.1.1",
     "turndown": "7.1.1",
-    "unpdf": "^1.6.2",
     "twig": "^3.0.0",
-    "xml2js": "^0.6.2",
+    "unpdf": "^1.6.2",
     "utf8": "3.0.0",
     "uuid": "11.1.1",
-    "xlsx": "^0.18.5",
     "ws": "^8.21.0",
+    "xlsx": "^0.18.5",
+    "xml2js": "^0.6.2",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
@@ -98,8 +100,11 @@
     "@redocly/cli": "^2.32.2",
     "ajv": "^8.20.0",
     "ajv-formats": "3.0.1",
+    "axe-core": "^4.12.1",
     "babel-plugin-transform-dynamic-import": "2.1.0",
     "commit-and-tag-version": "12.7.3",
-    "nodemon": "3.1.14"
+    "nodemon": "3.1.14",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0"
   }
 }
