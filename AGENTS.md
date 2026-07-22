@@ -188,17 +188,43 @@ The HAX ecosystem uses a sophisticated build pipeline optimized for unbundled Ja
 
 ### Testing Instructions
 
-- **Run tests** (from project or component root):
+This repository has three test tiers. Run the one(s) relevant to the area you changed.
+
+- **E2E UI workflow tests** (drive the real app-hax dashboard + site editor through a headless browser; validates login, create/archive/export site, edit & save content, and page management):
+  ```bash
+  npm run test:e2e
+  ```
+  - Requires Chrome/Chromium on the host (auto-detected at `/usr/bin/google-chrome`; override with `PUPPETEER_EXECUTABLE_PATH` for CI).
+  - Each test boots an isolated haxcms-nodejs server in a temp dir on an ephemeral port with JWT auth enabled, then drives the UI via puppeteer-core + system Chrome.
+  - Visual diffs WARN but do not fail; review `[visual] potential visual regression` notices. Regenerate baselines after intentional UI changes: `npm run test:e2e:update`.
+  - Full details, prerequisites, and debugging instructions: `test/e2e/README.md`.
+
+- **API conformance tests** (validate the v1 system + site API routes against the OpenAPI specs):
+  ```bash
+  npm run test:api-conformance
+  ```
+
+- **Generic tests** (if any are added outside the two suites above):
   ```bash
   npm test
   ```
 
-- **Monorepo testing**:
+- **Monorepo testing** (for the `webcomponents` repo, not this one):
   ```bash
   npm run test --filter <component_name>
   ```
   - Tests specific component in monorepo
   - Use Lerna for more complex filtering
+
+### QA process for agents
+
+When writing new functionality in haxcms-nodejs, follow this workflow to catch regressions in key areas:
+
+1. **Before** writing new functionality, run `npm run test:e2e` to establish a green baseline. The suite covers the core user workflows: login, create site, archive site, edit & save content, export site, and page management. If the suite is already failing, fix that first.
+2. **After** writing, run `npm run test:e2e` again. If a key workflow breaks, fix the regression before submitting. Also run `npm run test:api-conformance` if you touched system or site API routes.
+3. **Visual diff warnings are non-fatal.** Review the `[visual] potential visual regression` notices; a diff may be intentional (a theme/modal change) or may stem from a different test run. Regenerate baselines with `npm run test:e2e:update` only when the change is intentional.
+4. **When adding a new E2E workflow**, reuse the helpers in `test/e2e/helpers/*` (`setupE2ERuntime`, `launchBrowser`, `createResponseCollector`, `runA11y`, `captureScreenshot`/`compareBaseline`, `selectors`, `deepQuery`) and add a `*.e2e.test.cjs` file. Run a discovery pass first to lock down real selectors — see `test/e2e/helpers/.discovery.cjs` and `test/e2e/helpers/.discovery-editor.cjs` for the pattern. All site operations use the fixed site name `HAXSITEAUTOMATEDTESTING` (the API lowercases it to `haxsiteautomatedtesting`).
+5. **The E2E suite is additive to `test:api-conformance`.** Run both for full coverage. Key facts that trip up new tests: the login form is a light-DOM (slotted) child of `simple-modal` (so `deepQuery` cannot reach it — query the light DOM then operate on the login element's own shadowRoot); `HAXCMS_ROOT` must have a trailing slash (HAXCMS.js mixes string concat and `path.join` for site paths); `haxcms-site-editor` renders inside the active theme at a variable shadow-DOM depth (use a recursive shadow walk, not a fixed `deepQuery` chain).
 
 ### DDD Compliance Auditing
 - **Audit web components for DDD compliance**:
@@ -251,7 +277,9 @@ LICENSE
 - **PR Title Format**: `[<project_name>] <Descriptive Title>`
   - Example: `[my-element] Add dynamic property binding`
 - **Pre-commit checks**:
-  - Run `npm test` to ensure all tests pass.
+  - Run `npm run test:e2e` before and after changes that touch the app-hax dashboard, the site editor, or system/site API routes. If UI rendering changed intentionally, regenerate baselines with `npm run test:e2e:update`.
+  - Run `npm run test:api-conformance` if you changed system (`/system/api/v1/*`) or site (`/x/api/v1/*`) API routes.
+  - Run `npm test` to ensure any generic tests pass.
   - Run `npm run lint` to verify code style.
   - Run `hax audit` for web components to confirm DDD compliance.
 - **Commit Guidelines**:
