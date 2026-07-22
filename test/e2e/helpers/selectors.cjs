@@ -283,13 +283,186 @@ const selectors = {
     cancelButtonChain: ['app-hax-confirmation-modal', '.button.button-cancel'],
   },
 
-  // --- API PATHS (canonical v1 system API) --------------------------------
+  // --- SITE EDITOR (VERIFIED at runtime by .discovery-editor.cjs) ---------
+  // The site editor is reached by navigating to the site URL
+  // (runtime.baseUrl + '/_sites/haxsiteautomatedtesting/'). The editor chrome
+  // is `haxcms-site-editor-ui` at document root (has shadowRoot). The content
+  // body lives inside `haxcms-site-editor` (NO shadowRoot — createRenderRoot
+  // returns this) which renders `<h-a-x id="hax">` in light DOM; h-a-x has a
+  // shadowRoot containing `<hax-body>` (the content-editable region).
+  //
+  // The #editbutton toggles edit mode: label="Edit" icon="icons:create" when
+  // viewing, label="Save" icon="icons:save" when editing. Clicking it in edit
+  // mode fires the global `haxcms-save-node` event which the site-editor
+  // handles by calling @site/updateContentByIdOrSlug
+  // (PATCH /x/api/v1/content/:idOrSlug).
+  editor: {
+    // The editor chrome host element at document root.
+    // VERIFIED: document > haxcms-site-editor-ui (shadowRoot)
+    editorUi: 'haxcms-site-editor-ui',
+    // The edit/save toggle button inside editor-ui shadowRoot.
+    // VERIFIED: simple-toolbar-button#editbutton, label="Edit • Ctrl⇧E" → "Save • Ctrl⇧S"
+    editButton: '#editbutton',
+    // The cancel button (exits edit mode without saving).
+    // VERIFIED: simple-toolbar-button#cancelbutton, label="Cancel • Ctrl⇧/"
+    cancelButton: '#cancelbutton',
+    // The outline-editor opener button (disabled while in edit mode).
+    // VERIFIED: simple-toolbar-button#outlinebutton, label="Outline • Ctrl⇧2", icon="hax:site-map"
+    outlineButton: '#outlinebutton',
+    // The add-page button (opens a super-daemon menu; disabled in edit mode).
+    // VERIFIED: haxcms-button-add#addpagebutton, label="Add page • Ctrl⇧1", icon="hax:add-page"
+    addPageButton: '#addpagebutton',
+    // The site-settings button (disabled in edit mode).
+    // VERIFIED: simple-toolbar-button#manifestbtn, label="Site Settings • Ctrl⇧3"
+    manifestButton: '#manifestbtn',
+    // The editor host element (renders inside the active theme).
+    // VERIFIED: haxcms-site-editor found via recursive shadow-DOM walk; it has
+    // NO shadowRoot (createRenderRoot returns this). Its parent is a <section>.
+    // Tests must locate it with a recursive walk (see deepFindRecursive pattern
+    // in .discovery-editor.cjs) — deepQuery cannot reach it because it is
+    // nested inside theme shadow DOM at an unknown depth.
+    editorHost: 'haxcms-site-editor',
+    // The HAX editor instance (light DOM child of haxcms-site-editor).
+    // VERIFIED: h-a-x#hax inside haxcms-site-editor; has shadowRoot.
+    haxInstance: '#hax',
+    // The content-editable body inside #hax shadowRoot.
+    // VERIFIED: hax-body inside h-a-x#hax shadowRoot. contenteditable=true in
+    // edit mode. Has importContent(htmlString) method to load HTML content.
+    // To type: call body.importContent(html) then dispatch 'input' event.
+    contentBody: 'hax-body',
+    // Full chain to the content body. NOTE: haxcms-site-editor is NOT at a
+    // fixed shadow-DOM depth (it renders inside the active theme). Tests must
+    // use a recursive shadow walk to find haxcms-site-editor, then traverse
+    // light DOM to #hax, then shadowRoot to hax-body. This chain is NOT
+    // usable with deepQuery directly — it is documented for reference.
+    // UNVERIFIED as a deepQuery chain — use recursive walk instead.
+    contentBodyChain: ['haxcms-site-editor', '#hax', 'hax-body'],
+    // Global event fired to save the active page (site-editor listens).
+    // VERIFIED from source (haxcms-site-editor.js connectedCallback).
+    saveNodeEvent: 'haxcms-save-node',
+    // Global event fired to create a new page (site-editor listens).
+    // VERIFIED from source + runtime: dispatching this event with
+    // detail.values = {node:{title,location,contents}, order, parent} triggers
+    // POST /x/api/v1/items (createNode).
+    createNodeEvent: 'haxcms-create-node',
+    // Global event fired to delete a page (site-editor listens).
+    // VERIFIED from source + runtime: dispatching this event with
+    // detail.item = {id} triggers DELETE /x/api/v1/items/:idOrSlug (deleteNode).
+    deleteNodeEvent: 'haxcms-delete-node',
+  },
+
+  // --- EXPORT / DOWNLOAD SITE (VERIFIED menu, UNVERIFIED confirm modal) ---
+  // The export (download) flow reuses the more-vert menu on a site card
+  // (app-hax-site-bar). The menu items are: Copy, Download, Create Template,
+  // Archive (and conditionally User Access). Clicking "Download" calls
+  // downloadSite() which calls siteOperation("downloadSite",...) — this
+  // creates an app-hax-confirmation-modal on document.body (same pattern as
+  // archive). Clicking Confirm calls confirmOperation() which calls the
+  // download API and triggers a browser file download via an <a> click.
+  //
+  // MENU ITEMS + DOWNLOAD LABEL: VERIFIED at runtime.
+  // CONFIRMATION MODAL: UNVERIFIED at runtime — in the discovery pass the
+  // app-hax-confirmation-modal did not appear on document.body after clicking
+  // Download. This is likely the same store-manifest timing issue documented
+  // in the archive flow (siteOperation looks up the site in store.manifest.items
+  // by siteId). Task agents should reuse the archive test's fallback pattern:
+  // if the confirmation modal does not appear after clicking the Download menu
+  // item, call cardHandle.evaluate((el) => el.downloadSite()) directly, or
+  // call cardHandle.evaluate((el) => el.siteOperation("downloadSite","Download","file-download")) directly.
+  export: {
+    // The more-options trigger button on a site card (same as archive).
+    // VERIFIED: simple-icon-button-lite[icon="lrn:more-vert"] in app-hax-site-bar shadowRoot.
+    moreOptionsButton: 'simple-icon-button-lite[icon="lrn:more-vert"]',
+    // The context menu that opens.
+    // VERIFIED: simple-context-menu title="Options" in app-hax-site-bar shadowRoot.
+    contextMenu: 'simple-context-menu',
+    // ALL menu items in the more-vert context menu (in order).
+    // VERIFIED at runtime: Copy, Download, Create Template, Archive.
+    // (User Access appears only if AppHaxAPI.supportsCall("haxiamAddUserAccess")).
+    menuItems: {
+      copy: 'Copy',
+      download: 'Download',
+      createTemplate: 'Create Template',
+      archive: 'Archive',
+      userAccess: 'User Access',
+    },
+    // The download menu item (simple-toolbar-button label="Download").
+    // VERIFIED: simple-toolbar-button label="Download" icon="file-download".
+    // Select by label text "Download" among simple-toolbar-button siblings.
+    downloadMenuItem: 'simple-toolbar-button',
+    // The confirmation modal (same component as archive).
+    // UNVERIFIED for download — see note above. Same as archive confirmation modal.
+    confirmationModal: 'app-hax-confirmation-modal',
+    confirmButton: '.button.button-confirm',
+    cancelButton: '.button.button-cancel',
+    confirmButtonChain: ['app-hax-confirmation-modal', '.button.button-confirm'],
+    cancelButtonChain: ['app-hax-confirmation-modal', '.button.button-cancel'],
+    // The card method to call directly if the menu click doesn't open the modal.
+    // UNVERIFIED at runtime (fallback) — call via cardHandle.evaluate((el) => el.downloadSite())
+    downloadSiteMethod: 'downloadSite',
+  },
+
+  // --- OUTLINE EDITOR (VERIFIED at runtime by .discovery-editor.cjs) -------
+  // The outline editor (page management) is opened by clicking #outlinebutton
+  // in the editor chrome (haxcms-site-editor-ui shadowRoot). It opens a
+  // simple-modal containing haxcms-outline-editor-dialog as a light-DOM
+  // (slotted) child. The dialog shadowRoot contains outline-designer#outline
+  // and two .hax-modal-btn buttons ("Save Outline" and "Import From File").
+  // The outline-designer has its own shadowRoot with an "Add page"
+  // simple-toolbar-button.
+  //
+  // Adding a page via the outline-designer fires haxcms-save-outline with the
+  // updated items array, which the site-editor handles by calling
+  // @site/updateSiteOutline (PATCH /x/api/v1/site/outline). Individual
+  // createNode/deleteNode can also be triggered directly via the
+  // haxcms-create-node / haxcms-delete-node global events (see selectors.editor).
+  outline: {
+    // The outline editor dialog host element (slotted into simple-modal).
+    // VERIFIED: haxcms-outline-editor-dialog is a light-DOM child of simple-modal
+    // (NOT in simple-modal's shadowRoot — same pattern as login).
+    // To reach it: document.querySelector('simple-modal').querySelector('haxcms-outline-editor-dialog')
+    outlineDialog: 'haxcms-outline-editor-dialog',
+    // The outline-designer element inside the dialog shadowRoot.
+    // VERIFIED: outline-designer#outline inside haxcms-outline-editor-dialog shadowRoot.
+    outlineDesigner: '#outline',
+    // The "Save Outline" button inside the dialog shadowRoot.
+    // VERIFIED: button.hax-modal-btn text="Save Outline"
+    saveOutlineButton: '.hax-modal-btn',
+    // The "Import From File" button inside the dialog shadowRoot.
+    // VERIFIED: button.hax-modal-btn.import text="Import From File"
+    importButton: '.hax-modal-btn.import',
+    // The "Add page" button inside outline-designer shadowRoot.
+    // VERIFIED: simple-toolbar-button label="Add page" found via recursive
+    // shadow search inside outline-designer. No fixed id — select by label text.
+    addPageButton: 'simple-toolbar-button',
+    // Global event fired by the dialog when Save Outline is clicked.
+    // VERIFIED from source (haxcms-outline-editor-dialog.js _saveTap):
+    // dispatches haxcms-save-outline with detail = items array.
+    saveOutlineEvent: 'haxcms-save-outline',
+    // The outline dialog is in simple-modal light DOM, so deepQuery cannot
+    // reach it (same as login). Use: document.querySelector('simple-modal').querySelector('haxcms-outline-editor-dialog')
+    // then operate on its shadowRoot.
+    // VERIFIED at runtime: dialog.shadowRoot.querySelector('#outline') + '.hax-modal-btn'
+  },
+
+  // --- API PATHS (canonical v1 system + site API) -------------------------
   api: {
+    // system API (dashboard / site lifecycle)
     login: '/system/api/v1/session/login',
     createSite: '/system/api/v1/sites',
     listSites: '/system/api/v1/sites',
     archiveSite: '/system/api/v1/sites/:siteName/archive',
+    downloadSite: '/system/api/v1/sites/:siteName/download',
     connectionSettings: '/system/api/v1/session/connection-settings',
+    // site API (per-site, under /x/api/v1)
+    // saveNode: PATCH /x/api/v1/content/:idOrSlug → {status:200, data:page}
+    saveNode: '/x/api/v1/content/:idOrSlug',
+    // createNode: POST /x/api/v1/items → {status:200, data:item}
+    createNode: '/x/api/v1/items',
+    // deleteNode: DELETE /x/api/v1/items/:idOrSlug → {status:200, data:item}
+    deleteNode: '/x/api/v1/items/:idOrSlug',
+    // saveOutline: PATCH /x/api/v1/site/outline → {status:200, data:...}
+    saveOutline: '/x/api/v1/site/outline',
   },
 }
 
