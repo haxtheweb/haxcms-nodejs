@@ -211,6 +211,61 @@ async function deepFindRecursive(page, selector) {
   return el
 }
 
+// Shared recursive walk helper (used in multiple page.evaluate calls).
+// Returns the hax-body element or null.
+const WALK_HAX_BODY_FN = `
+function walk(root) {
+  if (!root) return null
+  var found = root.querySelector('hax-body')
+  if (found) return found
+  var els = root.querySelectorAll('*')
+  for (var i = 0; i < els.length; i++) {
+    if (els[i].shadowRoot) {
+      var r = walk(els[i].shadowRoot)
+      if (r) return r
+    }
+  }
+  return null
+}
+`
+
+// Check if hax-body is in edit mode (edit-mode attribute present). This is the
+// reliable readiness signal — hax-body itself does NOT always get the
+// `contenteditable` attribute; _editModeChanged applies contenteditable to the
+// slotted CHILDREN, and hax-body only gets it when _activeNodeChanged fires for
+// a text element. The edit-mode attribute reflects the editMode property from
+// the store.
+async function haxBodyEditModeActive(page) {
+  return page.evaluate((walkSrc) => {
+    eval(walkSrc)
+    var body = walk(document)
+    if (!body) return { found: false }
+    return {
+      found: true,
+      editModeAttr: body.hasAttribute('edit-mode'),
+      childCount: body.children ? body.children.length : -1,
+    }
+  }, WALK_HAX_BODY_FN)
+}
+
+// Check if a marker string appears in hax-body's slotted content.
+async function markerInHaxBody(page, marker) {
+  return page.evaluate((walkSrc, m) => {
+    eval(walkSrc)
+    var body = walk(document)
+    if (!body || !body.shadowRoot) return false
+    var slot = body.shadowRoot.querySelector('#body')
+    if (!slot) return false
+    var nodes = slot.assignedNodes({ flatten: true })
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i] && nodes[i].textContent && nodes[i].textContent.indexOf(m) !== -1) {
+        return true
+      }
+    }
+    return false
+  }, WALK_HAX_BODY_FN, marker)
+}
+
 // Click a button inside the haxcms-site-editor-ui shadowRoot by id. The
 // simple-toolbar-button hosts wrap an inner <button>; click the inner button
 // if present, else click the host. Returns { clicked: true } or { error: ... }.
@@ -271,40 +326,6 @@ async function findCreateSiteResponse(coll, expectedName, timeoutMs) {
     }
     return null
   }, timeoutMs)
-}
-
-// Request watcher: captures request POST data + headers for API paths we care
-// about (the response collector only captures response bodies, not request
-// bodies). Used to diagnose what the saveNode PATCH actually sends to the
-// server and whether the x-haxcms-site-token header is present.
-function createRequestWatcher(page) {
-  const requests = []
-  function onRequest(request) {
-    const url = request.url()
-    if (url.indexOf('/x/api/v1/content') !== -1) {
-      let postData = ''
-      try {
-        postData = request.postData() || ''
-      } catch (e) {
-        postData = ''
-      }
-      let headers = {}
-      try {
-        headers = request.headers() || {}
-      } catch (e) {
-        headers = {}
-      }
-      requests.push({ url: url, method: request.method(), postData: postData, headers: headers })
-    }
-  }
-  page.on('request', onRequest)
-  function getRequestsFor(sub) {
-    return requests.filter((r) => r.url.indexOf(sub) !== -1)
-  }
-  function detach() {
-    page.off('request', onRequest)
-  }
-  return { getRequestsFor: getRequestsFor, detach: detach, getAll: () => requests.slice() }
 }
 
 // --- shared state (populated in before / cleaned in after) -----------------
@@ -457,8 +478,8 @@ test(
       enterResult && enterResult.clicked,
       'edit button clicked to enter edit mode: ' + JSON.stringify(enterResult),
     )
-    // wait for edit mode to engage + hax-body to become contenteditable
-    await new Promise((r) => setTimeout(r, 6000))
+    // wait for edit mode to engage + hax-body to render
+    await new Promise((r) => setTimeout(r, 4000))
 
     // Diagnostic: the button label should flip from 'Edit' to 'Save'.
     const editModeInfo = await page.evaluate(() => {
@@ -480,65 +501,12 @@ test(
     // logic (which sets the active node) is skipped, so hax-body may never get
     // contenteditable despite being in edit mode. The reliable signal is the
     // `edit-mode` attribute (reflects the editMode property from the store).
-    // Uses a manual poll with diagnostics so we can see the hax-body state if
-    // it doesn't become ready in time.
-    const bodyReadyDeadline = Date.now() + 30000
-    let bodyReady = false
-    let bodyReadyDiag = null
-    while (Date.now() < bodyReadyDeadline) {
-      const info = await page.evaluate(() => {
-        function walk(root) {
-          if (!root) return null
-          var found = root.querySelector('hax-body')
-          if (found) return found
-          var els = root.querySelectorAll('*')
-          for (var i = 0; i < els.length; i++) {
-            if (els[i].shadowRoot) {
-              var r = walk(els[i].shadowRoot)
-              if (r) return r
-            }
-          }
-          return null
-        }
-        var body = walk(document)
-        if (!body) return { found: false }
-        // Check if any slotted child has contenteditable (the real signal that
-        // the content region is editable).
-        var slot = body.shadowRoot ? body.shadowRoot.querySelector('#body') : null
-        var childEditable = false
-        if (slot) {
-          var nodes = slot.assignedNodes({ flatten: true })
-          for (var i = 0; i < nodes.length; i++) {
-            if (nodes[i] && nodes[i].hasAttribute && nodes[i].hasAttribute('contenteditable')) {
-              childEditable = true
-              break
-            }
-          }
-        }
-        return {
-          found: true,
-          tag: body.tagName.toLowerCase(),
-          hasShadow: !!body.shadowRoot,
-          contenteditable: body.hasAttribute('contenteditable'),
-          editModeAttr: body.hasAttribute('edit-mode'),
-          childCount: body.children ? body.children.length : -1,
-          childEditable: childEditable,
-        }
-      })
-      bodyReadyDiag = info
-      // Ready if hax-body has edit-mode attribute (edit mode active).
-      if (info && info.found && info.editModeAttr) {
-        bodyReady = true
-        break
-      }
-      await new Promise((r) => setTimeout(r, 300))
-    }
-    if (!bodyReady) {
-      t.diagnostic('[e2e] bodyReady FAILED; last hax-body state: ' + JSON.stringify(bodyReadyDiag))
-    } else {
-      t.diagnostic('[e2e] bodyReady OK; hax-body state: ' + JSON.stringify(bodyReadyDiag))
-    }
-    assert.ok(bodyReady, 'hax-body found in edit mode (edit-mode attribute present)')
+    const bodyReady = await waitFor(async () => haxBodyEditModeActive(page), 30000)
+    assert.ok(
+      bodyReady && bodyReady.found && bodyReady.editModeAttr,
+      'hax-body found in edit mode (edit-mode attribute present)',
+    )
+    t.diagnostic('[e2e] bodyReady OK: ' + JSON.stringify(bodyReady))
 
     // 6. Locate hax-body via recursive shadow walk, then set content.
     //    hax-body.importContent() is ASYNC (uses setTimeout(0) internally) and
@@ -568,27 +536,15 @@ test(
     // hax-body has at least one slotted child (the initial page content).
     const initialContentReady = await waitFor(
       async () =>
-        page.evaluate(() => {
-          function walk(root) {
-            if (!root) return null
-            var found = root.querySelector('hax-body')
-            if (found) return found
-            var els = root.querySelectorAll('*')
-            for (var i = 0; i < els.length; i++) {
-              if (els[i].shadowRoot) {
-                var r = walk(els[i].shadowRoot)
-                if (r) return r
-              }
-            }
-            return null
-          }
+        page.evaluate((walkSrc) => {
+          eval(walkSrc)
           var body = walk(document)
           if (!body || !body.shadowRoot) return false
           var slot = body.shadowRoot.querySelector('#body')
           if (!slot) return false
           var nodes = slot.assignedNodes({ flatten: true })
           return nodes && nodes.length > 0
-        }),
+        }, WALK_HAX_BODY_FN),
       15000,
     )
     t.diagnostic('[e2e] initial hax-body content ready: ' + !!initialContentReady)
@@ -611,33 +567,7 @@ test(
     // Poll for the test marker to appear in hax-body's slot assignedNodes
     // (importContent is async via setTimeout(0) + requestAnimationFrame).
     let contentAppeared = await waitFor(
-      async () =>
-        page.evaluate((marker) => {
-          function walk(root) {
-            if (!root) return null
-            var found = root.querySelector('hax-body')
-            if (found) return found
-            var els = root.querySelectorAll('*')
-            for (var i = 0; i < els.length; i++) {
-              if (els[i].shadowRoot) {
-                var r = walk(els[i].shadowRoot)
-                if (r) return r
-              }
-            }
-            return null
-          }
-          var body = walk(document)
-          if (!body || !body.shadowRoot) return false
-          var slot = body.shadowRoot.querySelector('#body')
-          if (!slot) return false
-          var nodes = slot.assignedNodes({ flatten: true })
-          for (var i = 0; i < nodes.length; i++) {
-            if (nodes[i] && nodes[i].textContent && nodes[i].textContent.indexOf(marker) !== -1) {
-              return true
-            }
-          }
-          return false
-        }, testMarker),
+      async () => markerInHaxBody(page, testMarker),
       8000,
     )
     t.diagnostic('[e2e] test content appeared via importContent: ' + !!contentAppeared)
@@ -659,64 +589,12 @@ test(
       })
       await new Promise((r) => setTimeout(r, 500))
       contentAppeared = await waitFor(
-        async () =>
-          page.evaluate((marker) => {
-            function walk(root) {
-              if (!root) return null
-              var found = root.querySelector('hax-body')
-              if (found) return found
-              var els = root.querySelectorAll('*')
-              for (var i = 0; i < els.length; i++) {
-                if (els[i].shadowRoot) {
-                  var r = walk(els[i].shadowRoot)
-                  if (r) return r
-                }
-              }
-              return null
-            }
-            var body = walk(document)
-            if (!body || !body.shadowRoot) return false
-            var slot = body.shadowRoot.querySelector('#body')
-            if (!slot) return false
-            var nodes = slot.assignedNodes({ flatten: true })
-            for (var i = 0; i < nodes.length; i++) {
-              if (nodes[i] && nodes[i].textContent && nodes[i].textContent.indexOf(marker) !== -1) {
-                return true
-              }
-            }
-            return false
-          }, testMarker),
+        async () => markerInHaxBody(page, testMarker),
         5000,
       )
       t.diagnostic('[e2e] test content appeared via direct append: ' + !!contentAppeared)
     }
-
-    // Diagnostic: dump hax-body slot assignedNodes textContent before save.
-    const preSaveDump = await page.evaluate(() => {
-      function walk(root) {
-        if (!root) return null
-        var found = root.querySelector('hax-body')
-        if (found) return found
-        var els = root.querySelectorAll('*')
-        for (var i = 0; i < els.length; i++) {
-          if (els[i].shadowRoot) {
-            var r = walk(els[i].shadowRoot)
-            if (r) return r
-          }
-        }
-        return null
-      }
-      var body = walk(document)
-      if (!body || !body.shadowRoot) return { error: 'no body' }
-      var slot = body.shadowRoot.querySelector('#body')
-      var nodes = slot ? slot.assignedNodes({ flatten: true }) : []
-      var texts = []
-      for (var i = 0; i < nodes.length; i++) {
-        texts.push((nodes[i].textContent || '').substring(0, 100))
-      }
-      return { nodeCount: nodes.length, texts: texts }
-    })
-    t.diagnostic('[e2e] pre-save hax-body slot dump: ' + JSON.stringify(preSaveDump))
+    assert.ok(contentAppeared, 'test content appeared in hax-body before save')
 
     // 10. Visual baseline: editor in edit mode, before save.
     const editBuf = await captureScreenshot(page, 'edit-content-editor')
@@ -731,8 +609,7 @@ test(
     )
 
     // 7. Click Save (#editbutton now reads 'Save') + intercept the saveNode
-    //    PATCH response. Also capture the request body via the request watcher.
-    const reqWatch = createRequestWatcher(page)
+    //    PATCH response.
     const saveResult = await clickEditorButtonById(page, '#editbutton')
     assert.ok(
       saveResult && saveResult.clicked,
@@ -744,24 +621,6 @@ test(
     } catch (e) {
       t.diagnostic('[e2e] saveNode response not captured: ' + (e && e.message ? e.message : e))
     }
-    // Diagnostic: dump the saveNode request body + headers (what was actually
-    // sent). The x-haxcms-site-token header is required by saveNode.js — if
-    // missing, the save is silently skipped (403) and the file is not written.
-    const saveReqs = reqWatch.getRequestsFor('/x/api/v1/content/')
-    if (saveReqs.length > 0) {
-      const lastReq = saveReqs[saveReqs.length - 1]
-      t.diagnostic('[e2e] saveNode request method: ' + lastReq.method)
-      t.diagnostic('[e2e] saveNode request postData: ' + lastReq.postData.substring(0, 500))
-      const hdrs = lastReq.headers || {}
-      const tokenHeader = hdrs['x-haxcms-site-token'] || hdrs['X-HAXCMS-Site-Token'] || ''
-      const authHeader = hdrs['authorization'] || hdrs['Authorization'] || ''
-      t.diagnostic('[e2e] saveNode request x-haxcms-site-token present: ' + (tokenHeader !== ''))
-      t.diagnostic('[e2e] saveNode request authorization present: ' + (authHeader !== ''))
-    } else {
-      t.diagnostic('[e2e] saveNode request not captured by watcher')
-    }
-    try { reqWatch.detach() } catch (e) { /* ignore */ }
-
     assert.ok(saveResp, 'saveNode (PATCH /x/api/v1/content/) response captured')
     assert.strictEqual(saveResp.status, 200, 'saveNode API returned status 200')
     let saveBody = null
@@ -799,7 +658,6 @@ test(
       t.diagnostic('[e2e] page file not at expected path; listing pages dir: ' + pagesDir)
       try {
         const entries = fs.readdirSync(pagesDir)
-        t.diagnostic('[e2e] pages dir entries: ' + JSON.stringify(entries))
         for (let i = 0; i < entries.length; i++) {
           const candidate = path.join(pagesDir, entries[i], 'index.html')
           if (fs.pathExistsSync(candidate)) {
@@ -813,131 +671,7 @@ test(
       }
     }
     assert.ok(fileContent, 'saved page HTML file was read from disk')
-    // Diagnostic: dump first 500 chars of the file content.
-    t.diagnostic('[e2e] file content (first 500 chars): ' + (fileContent || '').substring(0, 500))
-
-    // Diagnostic: if the file doesn't contain the test marker, search the
-    // entire runtime root for any file that does — the saveNode may have
-    // written to a different path (e.g. a module-const vs instance-property
-    // path mismatch). Also try reading the content back via the API.
-    if (fileContent.indexOf('E2E automated test content') === -1) {
-      t.diagnostic('[e2e] test marker NOT in expected file; searching runtime root...')
-      const foundFiles = []
-      function searchDir(dir) {
-        try {
-          const entries = fs.readdirSync(dir)
-          for (let i = 0; i < entries.length; i++) {
-            const full = path.join(dir, entries[i])
-            try {
-              const stat = fs.statSync(full)
-              if (stat.isDirectory()) {
-                searchDir(full)
-              } else if (stat.isFile() && full.endsWith('.html')) {
-                try {
-                  const c = fs.readFileSync(full, 'utf8')
-                  if (c.indexOf('E2E automated test content') !== -1) {
-                    foundFiles.push(full)
-                  }
-                } catch (e) { /* ignore */ }
-              }
-            } catch (e) { /* ignore */ }
-          }
-        } catch (e) { /* ignore */ }
-      }
-      searchDir(runtime.runtimeRoot)
-      t.diagnostic('[e2e] files containing test marker: ' + JSON.stringify(foundFiles))
-      // Check if the page file is a symlink (lstatSync vs statSync).
-      // page.writeLocation uses lstatSync().isFile() which returns false for
-      // symlinks, silently skipping the write but returning true.
-      try {
-        const lstat = fs.lstatSync(pageFilePath)
-        const stat = fs.statSync(pageFilePath)
-        t.diagnostic('[e2e] page file lstat: isFile=' + lstat.isFile() + ' isSymbolicLink=' + lstat.isSymbolicLink())
-        t.diagnostic('[e2e] page file stat (follows symlink): isFile=' + stat.isFile())
-      } catch (e) {
-        t.diagnostic('[e2e] page file stat check error: ' + e.message)
-      }
-      // List all index.html files under the site's pages/ dir with their content.
-      try {
-        const pagesDir = path.join(siteDir, 'pages')
-        const pageEntries = fs.readdirSync(pagesDir)
-        for (let i = 0; i < pageEntries.length; i++) {
-          const idx = path.join(pagesDir, pageEntries[i], 'index.html')
-          if (fs.pathExistsSync(idx)) {
-            const lst = fs.lstatSync(idx)
-            t.diagnostic('[e2e] pages/' + pageEntries[i] + '/index.html: isFile=' + lst.isFile() + ' isSym=' + lst.isSymbolicLink() + ' content=' + fs.readFileSync(idx, 'utf8').substring(0, 200))
-          }
-        }
-      } catch (e) { /* ignore */ }
-      // Read site.json to check the page's location in the manifest.
-      try {
-        const siteJsonPath = path.join(siteDir, 'site.json')
-        const siteJson = JSON.parse(fs.readFileSync(siteJsonPath, 'utf8'))
-        const items = siteJson.items || []
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].id === pageId) {
-            t.diagnostic('[e2e] manifest item for ' + pageId + ': location=' + items[i].location + ' slug=' + items[i].slug)
-            break
-          }
-        }
-      } catch (e) { /* ignore */ }
-      // API readback: GET the content from the API to see if the server sees
-      // the new content (the GET reads from the same file, so if the file
-      // wasn't written, the API returns the old content too).
-      try {
-        const apiUrl = runtime.baseUrl + '/_sites/' + EXPECTED_SITE_NAME + '/x/api/v1/content/' + pageId
-        const apiResp = await axios({
-          method: 'GET',
-          url: apiUrl,
-          headers: { Authorization: 'Bearer ' + runtime.jwt },
-          validateStatus: () => true,
-          responseType: 'text',
-          transformResponse: [(d) => d],
-        })
-        t.diagnostic('[e2e] API readback status=' + apiResp.status + ' body=' + String(apiResp.data || '').substring(0, 300))
-      } catch (e) {
-        t.diagnostic('[e2e] API readback error: ' + e.message)
-      }
-      // Direct API write test: call the PATCH saveNode API directly from the
-      // test (bypassing the browser) with a server-generated site token. This
-      // isolates whether the server CAN write the file at all. If this works,
-      // the issue is in the browser flow (wrong token / wrong path). If it
-      // doesn't, the issue is in the server's saveNode handler.
-      try {
-        const { HAXCMS } = require('../../src/lib/HAXCMS.js')
-        const activeUser = HAXCMS.getActiveUserName()
-        const tokenValue = activeUser + ':' + EXPECTED_SITE_NAME
-        const siteToken = HAXCMS.getRequestToken(tokenValue)
-        t.diagnostic('[e2e] direct API write: activeUser=' + activeUser + ' tokenValue=' + tokenValue)
-        const directContent = '<p>Direct API write test content</p>'
-        const patchUrl = runtime.baseUrl + '/_sites/' + EXPECTED_SITE_NAME + '/x/api/v1/content/' + pageId
-        const patchResp = await axios({
-          method: 'PATCH',
-          url: patchUrl,
-          headers: {
-            Authorization: 'Bearer ' + runtime.jwt,
-            'x-haxcms-site-token': siteToken,
-            'Content-Type': 'application/json',
-          },
-          data: {
-            site: { name: EXPECTED_SITE_NAME },
-            body: directContent,
-            node: { id: pageId, body: directContent, schema: [] },
-          },
-          validateStatus: () => true,
-          responseType: 'text',
-          transformResponse: [(d) => d],
-        })
-        t.diagnostic('[e2e] direct API write status=' + patchResp.status + ' body=' + String(patchResp.data || '').substring(0, 300))
-        // Check if the direct write updated the file.
-        const fileAfterDirect = fs.readFileSync(pageFilePath, 'utf8')
-        t.diagnostic('[e2e] file after direct API write: ' + fileAfterDirect.substring(0, 200))
-        t.diagnostic('[e2e] direct write content in file: ' + (fileAfterDirect.indexOf('Direct API write test content') !== -1))
-      } catch (e) {
-        t.diagnostic('[e2e] direct API write error: ' + e.message)
-      }
-    }
-
+    t.diagnostic('[e2e] file content (first 200 chars): ' + (fileContent || '').substring(0, 200))
     assert.ok(
       fileContent.indexOf('E2E automated test content') !== -1,
       'saved page file contains the test content "E2E automated test content"',
