@@ -64,6 +64,7 @@ const state = {
   browser: null,
   page: null,
   collector: null,
+  statusWatcher: null,
 }
 
 // --- login-specific helpers (light DOM -> shadow DOM) ---
@@ -255,6 +256,61 @@ async function readErrorText(page, errorSelector) {
   }, errorSelector)
 }
 
+// Status-only response watcher. The shared ResponseCollector awaits
+// response.text() before recording a response, which hangs indefinitely for
+// some 4xx responses in puppeteer — so 401/403 rejections (exactly what this
+// negative-login test needs to assert on) never get pushed to the collector's
+// records. This watcher records url + status synchronously when the response
+// event fires (status() is sync and always available), then best-effort reads
+// the body with a 3s timeout race so a hung response.text() never blocks the
+// record. Used alongside the collector: the collector remains the source for
+// 200s (kept for consistency with the other e2e files); this watcher is the
+// source for error responses.
+function createStatusWatcher(page) {
+  const records = []
+  const handler = (response) => {
+    const rec = {
+      url: response.url(),
+      status: response.status(),
+      bodyText: '',
+      timestamp: Date.now(),
+    }
+    records.push(rec)
+    // Best-effort body read; status is already recorded above so a hang or
+    // rejection here only affects bodyText (defaults to '').
+    Promise.race([
+      response.text().catch(() => ''),
+      new Promise((r) => setTimeout(() => r(''), 3000)),
+    ]).then((bodyText) => {
+      rec.bodyText = bodyText
+    })
+  }
+  page.on('response', handler)
+  return {
+    getAll: () => records.slice(),
+    getFor: (urlSubstring) =>
+      records.filter((r) => r.url.indexOf(urlSubstring) !== -1),
+    waitFor: (urlSubstring, timeoutMs) =>
+      new Promise((resolve) => {
+        const deadline = Date.now() + (timeoutMs || 20000)
+        const poll = () => {
+          const matches = records.filter(
+            (r) => r.url.indexOf(urlSubstring) !== -1,
+          )
+          if (matches.length > 0) {
+            return resolve(matches[matches.length - 1])
+          }
+          if (Date.now() >= deadline) {
+            return resolve(null)
+          }
+          setTimeout(poll, 200)
+        }
+        poll()
+      }),
+    detach: () => page.off('response', handler),
+  }
+}
+
 // --- setup / teardown ---
 
 test.before(async () => {
@@ -262,10 +318,15 @@ test.before(async () => {
   state.browser = await launchBrowser()
   state.page = await newPage(state.browser)
   state.collector = createResponseCollector(state.page)
+  // Status-only watcher supplements the collector: it records url + status
+  // synchronously (no response.text() await) so 4xx responses the collector
+  // hangs on are still captured. See createStatusWatcher docs.
+  state.statusWatcher = createStatusWatcher(state.page)
 }, { timeout: 120000 })
 
 test.after(async () => {
   if (state.collector) state.collector.detach()
+  if (state.statusWatcher) state.statusWatcher.detach()
   if (state.browser) {
     await state.browser.close()
   }
@@ -310,28 +371,22 @@ test('invalid login e2e: bogus credentials are rejected', async (t) => {
   })
 
   await t.test('response: login API rejects with 4xx and no jwt', async () => {
-    let rec = null
-    try {
-      rec = await collector.awaitCollectorFor(
-        '/system/api/v1/session/login',
-        20000,
-      )
-    } catch (e) {
-      // Diagnostic: report what API responses WERE captured so a collector
-      // timeout is easy to triage (e.g. if the form validates locally and
-      // never calls the login API).
-      const seen = collector
+    // Use the statusWatcher (not the collector): the collector awaits
+    // response.text() before recording, which hangs for 4xx responses, so a
+    // 403 login rejection never gets pushed. The statusWatcher records the
+    // status synchronously and captures it. See createStatusWatcher docs.
+    const rec = await state.statusWatcher.waitFor('/session/login', 20000)
+    if (!rec) {
+      const seen = state.statusWatcher
         .getAll()
         .map((r) => r.status + ' ' + r.url)
         .join('\n  ')
       assert.fail(
-        'login API response not captured within 20s. ' +
-          (e && e.message ? e.message : String(e)) +
-          '\nCaptured responses:\n  ' +
+        'login API response not captured within 20s.\nCaptured responses:\n  ' +
           (seen || '(none)'),
       )
     }
-    assert.ok(rec, 'login API response should be captured by the collector')
+    assert.ok(rec, 'login API response should be captured by the status watcher')
     // A single bad attempt does not trip the rate limiter (maxAttempts=5), so
     // a 4xx — 403 expected — is the rejection signal. 200 would mean login
     // succeeded, which is a failure of the negative path.
@@ -366,18 +421,23 @@ test('invalid login e2e: bogus credentials are rejected', async (t) => {
   await t.test('ui-state: still logged out (no authenticated dashboard)', async () => {
     // No authenticated GET /sites should have returned 200. The SPA fires a
     // pre-login GET /sites (401) on load; a failed login must not produce a
-    // 200.
-    const sitesResps = collector.getResponsesFor('/system/api/v1/sites')
+    // 200. Use the statusWatcher (captures ALL statuses incl. 401) as the
+    // authoritative source — the collector hangs on 4xx bodies.
+    const sitesResps = state.statusWatcher.getFor('/system/api/v1/sites')
     let authedCount = 0
+    const sitesStatuses = []
     for (let i = 0; i < sitesResps.length; i++) {
-      if (sitesResps[i] && sitesResps[i].status === 200) {
+      sitesStatuses.push(sitesResps[i].status)
+      if (sitesResps[i].status === 200) {
         authedCount++
       }
     }
     assert.equal(
       authedCount,
       0,
-      'no authenticated GET /sites (200) should occur after a failed login',
+      'no authenticated GET /sites (200) should occur after a failed login (seen: ' +
+        JSON.stringify(sitesStatuses) +
+        ')',
     )
 
     // The login modal should still be present — either it stayed open with an
