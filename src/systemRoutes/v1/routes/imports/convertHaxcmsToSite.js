@@ -4,6 +4,7 @@ const SITE_FILES_TO_IMPORT = [
   'custom/build/custom.es6.js',
 ]
 const BOILERPLATE_CUSTOM_ES6 = '// custom comment script here'
+const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 /**
  * POST /system/api/v1/site/import/:platform
@@ -69,7 +70,7 @@ async function convertHaxcmsToSite(req, res) {
 
   let site
   try {
-    const response = await fetch(`${base}/site.json`)
+    const response = await safeFetch(`${base}/site.json`)
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
     }
@@ -103,7 +104,7 @@ async function convertHaxcmsToSite(req, res) {
     const item = site.items[i]
     if (item && item.location) {
       try {
-        const response = await fetch(`${base}/${item.location}`)
+        const response = await safeFetch(`${base}/${item.location}`)
         item.contents = response.ok ? await response.text() : ''
       } catch (e) {
         item.contents = ''
@@ -126,7 +127,7 @@ async function convertHaxcmsToSite(req, res) {
   for (let i = 0; i < SITE_FILES_TO_IMPORT.length; i++) {
     const filePath = SITE_FILES_TO_IMPORT[i]
     try {
-      const resp = await fetch(`${base}/${filePath}`)
+      const resp = await safeFetch(`${base}/${filePath}`)
       if (resp.ok) {
         const text = await resp.text()
         if (text && text.trim() !== '') {

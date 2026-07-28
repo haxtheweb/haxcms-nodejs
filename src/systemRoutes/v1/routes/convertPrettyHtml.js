@@ -1,4 +1,5 @@
 const pretty = require('pretty');
+const { safeFetch } = require('../../../lib/safeFetch.js');
 
 /**
  * POST /system/api/v1/actions/pretty-html
@@ -26,7 +27,7 @@ async function convertPrettyHtml(req, res) {
     let html = String(body.html || '');
     if (body.type === 'link' && html) {
       try {
-        html = await fetch(html.trim()).then((d) => (d.ok ? d.text() : ''));
+        html = await safeFetch(html.trim()).then((d) => (d.ok ? d.text() : ''));
       } catch (e) {
         html = '';
       }

@@ -2,6 +2,7 @@ const { parse } = require('node-html-parser')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
 const { HAXCMS } = require('../../../../lib/HAXCMS.js')
 const { importHtmlToItems } = require('../../../../siteRoutes/v1/importUtils.js')
+const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 const SUPPORTED_SITE_LICENSES = [
   'by-nc-nd',
@@ -17,7 +18,7 @@ const SUPPORTED_SITE_LICENSES = [
  */
 async function fetchJSON(url) {
   try {
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept: 'application/json, */*;q=0.9',

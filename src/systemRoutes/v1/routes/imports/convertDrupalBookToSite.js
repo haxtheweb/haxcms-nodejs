@@ -1,6 +1,7 @@
 const { HAXCMS } = require('../../../../lib/HAXCMS.js')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
 const { parse } = require('node-html-parser')
+const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 async function convertDrupalBookToSite(req, res) {
   let body = {}
@@ -82,7 +83,7 @@ function normalizeBoolean(value) {
 
 async function fetchJSON(url, fetchOptions = {}) {
   try {
-    const response = await fetch(url, fetchOptions)
+    const response = await safeFetch(url, fetchOptions)
     if (!response.ok) {
       return null
     }
@@ -94,7 +95,7 @@ async function fetchJSON(url, fetchOptions = {}) {
 
 async function fetchText(url, fetchOptions = {}) {
   try {
-    const response = await fetch(url, fetchOptions)
+    const response = await safeFetch(url, fetchOptions)
     if (!response.ok) {
       return ''
     }

@@ -29,7 +29,14 @@ const ALLOWED_MIME_BY_EXTENSION = {
   'txt': ['text/plain'],
   'vtt': ['text/vtt', 'text/plain'],
   'html': ['text/html', 'application/xhtml+xml'],
-  'md': ['text/markdown', 'text/plain']
+  'md': ['text/markdown', 'text/plain'],
+  'css': ['text/css'],
+  'js': ['text/javascript', 'application/javascript', 'application/x-javascript', 'text/ecmascript'],
+  'svg': ['image/svg+xml'],
+  'woff': ['font/woff', 'application/font-woff'],
+  'woff2': ['font/woff2', 'application/font-woff2'],
+  'ttf': ['font/ttf', 'application/font-sfnt', 'application/x-font-ttf'],
+  'eot': ['application/vnd.ms-fontobject', 'application/octet-stream']
 };
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 const MIN_JPEG_QUALITY = 1;
@@ -787,4 +794,9 @@ async function downloadAndSaveFile(url, filepath) {
 HAXCMSFile.isValidBulkImportStagedPath = isValidBulkImportStagedPath;
 HAXCMSFile.getBulkImportStagingRootPath = getBulkImportStagingRootPath;
 HAXCMSFile.isPathWithinRoot = isPathWithinRoot;
+HAXCMSFile.isPrivateOrReservedIP = isPrivateOrReservedIP;
+HAXCMSFile.validateUrlNotSSRF = validateUrlNotSSRF;
+HAXCMSFile.mimeMatchesAllowed = mimeMatchesAllowed;
+HAXCMSFile.detectMimeTypeFromContent = detectMimeTypeFromContent;
+HAXCMSFile.ALLOWED_MIME_BY_EXTENSION = ALLOWED_MIME_BY_EXTENSION;
 module.exports = HAXCMSFile;

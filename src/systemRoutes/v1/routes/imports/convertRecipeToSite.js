@@ -2,6 +2,7 @@ const child_process = require('child_process')
 const util = require('node:util')
 const fs = require('fs')
 const path = require('path')
+const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 const exec = util.promisify(child_process.exec)
 const SITENAME = 'recipe-import-tmp'
@@ -66,7 +67,7 @@ async function convertRecipeToSite(req, res) {
     if (recipeContent) {
       fs.writeFileSync(`${tmpDir}/${RECIPENAME}`, recipeContent)
     } else {
-      const recipe = await fetch(`${q}`).then((d) => d.ok ? d.text() : '')
+      const recipe = await safeFetch(`${q}`).then((d) => d.ok ? d.text() : '')
       if (!recipe) {
         return res.status(400).json({
           status: 400,

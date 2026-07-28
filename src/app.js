@@ -2031,9 +2031,14 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
       };
     }
     if (hasBearerJwt || invalidBearerJwt) {
+      // bearer was present but invalid/expired. Return 403 (not 401) so the
+      // frontend treats it as "try to refresh" consistently with the System
+      // API's 403-on-failed-validateJWT; 401 is reserved for the
+      // "no credentials present" case above so the client can distinguish a
+      // genuine logged-out state from an expired-but-refreshable token.
       return {
         allowed: false,
-        status: 401,
+        status: 403,
         message: 'Invalid bearer token',
       };
     }

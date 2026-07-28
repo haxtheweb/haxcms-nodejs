@@ -4,10 +4,18 @@ const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
 const HAXCMSFile = require('../../../lib/HAXCMSFile.js');
 const fs = require('fs-extra');
 const path = require('path');
+const { safeFetch } = require('../../../lib/safeFetch.js');
 
 const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i;
 const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
 const DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE = '--simple-colors-default-theme-light-blue-7';
+// Extensions permitted for build.siteFiles downloads (theme/ and custom/
+// assets imported from another HAXcms instance). Allow-listing rather than
+// deny-listing executable extensions blocks php/phtml/phar/cgi/pl/py/rb/sh/
+// asp/aspx/jsp/exe/etc. from being written into the web-served site tree
+// (CWE-434). Mirrors the SAFE_BULK_IMPORT_EXTENSION_REGEX gate on build.files.
+const SAFE_SITE_FILE_EXTENSION_REGEX = /\.(css|js|html?|json|md|txt|svg|png|jpe?g|gif|webp|webm|mp4|mp3|mov|vtt|woff2?|ttf|eot|csv|pdf)$/i;
+const SAFE_SITE_FILE_TEXT_EXTENSIONS = ['css', 'js', 'html', 'htm', 'json', 'md', 'txt', 'vtt', 'csv', 'svg'];
 
 function normalizeSiteFilePath(relativePath) {
   if (typeof relativePath !== 'string') {
@@ -29,7 +37,42 @@ function normalizeSiteFilePath(relativePath) {
       return null;
     }
   }
+  // gate the file extension before any remote fetch / write so executable
+  // extensions can never reach the web-served site directory
+  if (!SAFE_SITE_FILE_EXTENSION_REGEX.test(normalized)) {
+    return null;
+  }
   return normalized;
+}
+
+// Verify a fetched siteFile response is consistent with its target extension
+// (CWE-434 defense): reject when a server returns a Content-Type that does not
+// match the extension's expected MIME. Absent headers are allowed because the
+// SSRF IP validation in safeFetch already confirmed a public target; some
+// legitimate servers omit Content-Type for static assets. text/plain is
+// accepted for text-type extensions since misconfigured servers commonly
+// serve css/js/html/json as text/plain.
+function siteFileContentTypeAcceptable(response, normalizedPath) {
+  const ext = path.extname(normalizedPath).replace('.', '').toLowerCase();
+  const mappedExt = ext === 'htm' ? 'html' : ext;
+  const allowedMimes = HAXCMSFile.ALLOWED_MIME_BY_EXTENSION[mappedExt];
+  if (!allowedMimes || !allowedMimes.length) {
+    return true;
+  }
+  const contentTypeHeader = response && response.headers && typeof response.headers.get === 'function'
+    ? response.headers.get('content-type')
+    : '';
+  const contentType = String(contentTypeHeader || '').split(';')[0].trim().toLowerCase();
+  if (contentType === '') {
+    return true;
+  }
+  if (HAXCMSFile.mimeMatchesAllowed(contentType, allowedMimes)) {
+    return true;
+  }
+  if (contentType === 'text/plain' && SAFE_SITE_FILE_TEXT_EXTENSIONS.indexOf(mappedExt) !== -1) {
+    return true;
+  }
+  return false;
 }
 const DEFAULT_SUPPORTED_SITE_LICENSES = [
   'by',
@@ -758,9 +801,14 @@ async function createSite(req, res) {
           continue;
         }
         const downloadUrl = siteFiles[relativePath];
+        if (typeof downloadUrl !== 'string' || downloadUrl === '') {
+          continue;
+        }
         try {
-          const response = await fetch(downloadUrl);
-          if (response.ok) {
+          // SSRF guard: reject private/loopback/link-local/metadata targets
+          // before fetching, matching the build.files baseline (GHSA-q862-gcgq-5m6g)
+          const response = await safeFetch(downloadUrl);
+          if (response.ok && siteFileContentTypeAcceptable(response, normalizedPath)) {
             const content = await response.text();
             const targetPath = path.join(site.siteDirectory, normalizedPath);
             await fs.ensureDir(path.dirname(targetPath));

@@ -3,6 +3,7 @@ const MarkdownIt = require('markdown-it')
 const JSONOutlineSchema = require('../../../../lib/JSONOutlineSchema.js')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
 const { HAXCMS } = require('../../../../lib/HAXCMS.js')
+const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 const mdClass = new MarkdownIt()
 
@@ -51,12 +52,12 @@ async function convertNotionToSite(req, res) {
     const owner = pieces[0]
     const repo = pieces[1]
     let basePath = `https://api.github.com/repos/${owner}/${repo}`
-    var branch = await fetch(`${basePath}`).then((d) => d.ok ? d.json() : {}).then((d) => d.default_branch || 'main')
+    var branch = await safeFetch(`${basePath}`).then((d) => d.ok ? d.json() : {}).then((d) => d.default_branch || 'main')
     var downloads = {}
     var fileMap = {}
     var lessons = {}
     var filepathBase = ''
-    var githubData = await fetch(`${basePath}/git/trees/${branch}?recursive=1`).then((d) => d.ok ? d.json() : {}).then((d) => d.tree || [])
+    var githubData = await safeFetch(`${basePath}/git/trees/${branch}?recursive=1`).then((d) => d.ok ? d.json() : {}).then((d) => d.tree || [])
 
     const site = new JSONOutlineSchema()
 
@@ -83,7 +84,7 @@ async function convertNotionToSite(req, res) {
         // skip non-md files
       }
       else {
-        var md = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${ghFile.path}`).then((d) => d.ok ? d.text() : '')
+        var md = await safeFetch(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${ghFile.path}`).then((d) => d.ok ? d.text() : '')
         let data = {
           title: null,
           content: null,

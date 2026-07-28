@@ -1,5 +1,6 @@
 const { HAXCMS } = require('../../../../lib/HAXCMS.js')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
+const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 const DEFAULT_PAGE_TYPES = [
   'Document',
@@ -700,7 +701,7 @@ function ensureUniqueFileKey(files, desiredKey) {
 
 async function fetchJSONWithMeta(url, fetchOptions = {}) {
   try {
-    const response = await fetch(url, fetchOptions)
+    const response = await safeFetch(url, fetchOptions)
     let data = null
     try {
       data = await response.json()

@@ -1,4 +1,5 @@
 const yaml = require('js-yaml');
+const { safeFetch } = require('../../../lib/safeFetch.js');
 
 /**
  * POST /system/api/v1/actions/json-to-yaml
@@ -26,7 +27,7 @@ async function convertJsonToYaml(req, res) {
     let jsonData = body.json;
     if (body.type === 'link' && jsonData) {
       try {
-        jsonData = await fetch(String(jsonData).trim()).then((d) => (d.ok ? d.text() : ''));
+        jsonData = await safeFetch(String(jsonData).trim()).then((d) => (d.ok ? d.text() : ''));
         jsonData = JSON.parse(jsonData);
       } catch (e) {
         return res.status(400).json({

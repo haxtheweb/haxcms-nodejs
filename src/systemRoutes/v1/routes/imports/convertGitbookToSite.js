@@ -2,6 +2,7 @@ const { parse } = require('node-html-parser')
 const MarkdownIt = require('markdown-it')
 const JSONOutlineSchema = require('../../../../lib/JSONOutlineSchema.js')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
+const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 const mdClass = new MarkdownIt()
 
@@ -57,9 +58,9 @@ async function convertGitbookToSite(req, res) {
     const owner = pieces[0]
     const repo = pieces[1]
     let basePath = `https://api.github.com/repos/${owner}/${repo}`
-    var branch = await fetch(`${basePath}`).then((d) => d.ok ? d.json() : {}).then((d) => d.default_branch || 'main')
+    var branch = await safeFetch(`${basePath}`).then((d) => d.ok ? d.json() : {}).then((d) => d.default_branch || 'main')
     var filepathBase = ''
-    var githubData = await fetch(`${basePath}/git/trees/${branch}?recursive=1`).then((d) => d.ok ? d.json() : {}).then((d) => d.tree || [])
+    var githubData = await safeFetch(`${basePath}/git/trees/${branch}?recursive=1`).then((d) => d.ok ? d.json() : {}).then((d) => d.tree || [])
 
     var downloads = {}
     var fileMap = {}
@@ -75,7 +76,7 @@ async function convertGitbookToSite(req, res) {
       }
     }
 
-    let md = await fetch(tmp.href.trim()).then((d) => d.ok ? d.text() : '')
+    let md = await safeFetch(tmp.href.trim()).then((d) => d.ok ? d.text() : '')
     let name = tmp.pathname.split('/')[1] || 'New site'
     const site = new JSONOutlineSchema()
     const JOS = await listToJOS(site, md, tmp.href.trim(), name, downloads, fileMap)
@@ -123,7 +124,7 @@ async function listToJOS(site, md, sourceLink, name, downloads, fileMap) {
         item.indent = 0
         item.slug = a.getAttribute('href')
         item.location = `content/${a.getAttribute('href')}`
-        let mdContent = await fetch(sourceLink.replace('SUMMARY.md', a.getAttribute('href'))).then((d) => d.ok ? d.text() : '')
+        let mdContent = await safeFetch(sourceLink.replace('SUMMARY.md', a.getAttribute('href'))).then((d) => d.ok ? d.text() : '')
         item.contents = mdClass.render(mdContent)
         // replace all file references
         for (const file of Object.keys(fileMap)) {
@@ -159,7 +160,7 @@ async function recurseToJOS(site, parent, top, depth, sourceLink, downloads, fil
         item.indent = depth
         item.slug = a.getAttribute('href')
         item.location = `content/${a.getAttribute('href')}`
-        let mdContent = await fetch(sourceLink.replace('SUMMARY.md', a.getAttribute('href'))).then((d) => d.ok ? d.text() : '')
+        let mdContent = await safeFetch(sourceLink.replace('SUMMARY.md', a.getAttribute('href'))).then((d) => d.ok ? d.text() : '')
         item.contents = mdClass.render(mdContent)
         // replace all file references
         for (const file of Object.keys(fileMap)) {

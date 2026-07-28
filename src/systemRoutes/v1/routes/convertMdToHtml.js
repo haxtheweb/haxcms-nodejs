@@ -1,5 +1,6 @@
 const MarkdownIt = require('markdown-it');
 const md = new MarkdownIt();
+const { safeFetch } = require('../../../lib/safeFetch.js');
 
 /**
  * POST /system/api/v1/actions/md-to-html
@@ -27,7 +28,7 @@ async function convertMdToHtml(req, res) {
     let mdText = String(body.md || '');
     if (body.type === 'link' && mdText) {
       try {
-        mdText = await fetch(mdText.trim()).then((d) => (d.ok ? d.text() : ''));
+        mdText = await safeFetch(mdText.trim()).then((d) => (d.ok ? d.text() : ''));
       } catch (e) {
         mdText = '';
       }

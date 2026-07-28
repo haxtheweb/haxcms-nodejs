@@ -1,12 +1,13 @@
 const { parse } = require('node-html-parser')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
 const { HAXCMS } = require('../../../../lib/HAXCMS.js')
+const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 // ---- inlined wordpressSiteHelpers ----
 
 async function fetchJSON(url, fetchOptions = {}) {
   try {
-    const response = await fetch(url, fetchOptions)
+    const response = await safeFetch(url, fetchOptions)
     if (!response.ok) {
       return null
     }
@@ -19,7 +20,7 @@ async function fetchJSON(url, fetchOptions = {}) {
 
 async function fetchText(url, fetchOptions = {}) {
   try {
-    const response = await fetch(url, fetchOptions)
+    const response = await safeFetch(url, fetchOptions)
     if (!response.ok) {
       return null
     }
@@ -32,7 +33,7 @@ async function fetchText(url, fetchOptions = {}) {
 
 async function fetchJSONWithMeta(url, fetchOptions = {}) {
   try {
-    const response = await fetch(url, fetchOptions)
+    const response = await safeFetch(url, fetchOptions)
     let data = null
     try {
       data = await response.json()

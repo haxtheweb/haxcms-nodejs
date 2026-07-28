@@ -1,5 +1,6 @@
 const JSONOutlineSchema = require('../../../../lib/JSONOutlineSchema.js')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
+const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 /**
  * POST /system/api/v1/actions/convert-elmsln-to-site
@@ -50,7 +51,7 @@ async function convertElmslnToSite(req, res) {
     if (parseURL.pathname && parseURL.host) {
       const base = `${parseURL.protocol}//${parseURL.host}${parseURL.pathname}`
       const siteJsonUrl = `${base}/site.json`
-      const siteResponse = await fetch(siteJsonUrl)
+      const siteResponse = await safeFetch(siteJsonUrl)
       if (siteResponse.ok) {
         siteJson = await siteResponse.json()
       }
@@ -110,7 +111,7 @@ async function convertElmslnToSite(req, res) {
           if (item.location.indexOf(`/${siteName}/`) === 0) {
             contentUrl = `${base}/${item.location.replace(`/${siteName}/`, '')}`
           }
-          const contentResponse = await fetch(contentUrl, __fetchOptions)
+          const contentResponse = await safeFetch(contentUrl, __fetchOptions)
           if (contentResponse.ok) {
             item.contents = await contentResponse.text()
           }

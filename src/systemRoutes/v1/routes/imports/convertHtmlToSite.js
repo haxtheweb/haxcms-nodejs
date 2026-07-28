@@ -1,5 +1,6 @@
 const { sanitizeUntrustedHtml } = require('../../../../lib/convertUtils.js')
 const { importHtmlToItems } = require('../../../../siteRoutes/v1/importUtils.js')
+const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 /**
  * POST /system/api/v1/site/import/:platform
@@ -74,7 +75,7 @@ async function convertHtmlToSite(req, res) {
       })
     }
     try {
-      const response = await fetch(body.repoUrl)
+      const response = await safeFetch(body.repoUrl)
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
       }
