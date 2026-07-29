@@ -468,13 +468,19 @@ function isValidBulkImportStagedPath(inputPath) {
 }
 
 /**
- * Check if an IP address is in a private, reserved, or loopback range.
+ * Check if an IPv4 address is in a private, reserved, loopback, link-local,
+ * carrier-grade NAT, or cloud-metadata range.
+ *
+ * Security (HAX-SEC-007): includes 100.64.0.0/10 (CGNAT / RFC 6598) which was
+ * previously missing in both backends and is reachable in some cloud/LAN
+ * topologies. Split out from isPrivateOrReservedIP so the IPv4-mapped IPv6
+ * normalization below can reuse it.
  */
-function isPrivateOrReservedIP(ip) {
+function isPrivateOrReservedIPv4(ip) {
   if (!ip || typeof ip !== 'string') {
     return true;
   }
-  if (ip === '::1' || ip === '0:0:0:0:0:0:0:1' || ip === '::' || ip === '0.0.0.0') {
+  if (ip === '0.0.0.0') {
     return true;
   }
   if (ip.startsWith('127.')) {
@@ -492,27 +498,73 @@ function isPrivateOrReservedIP(ip) {
   }
   // private Class B (172.16.0.0/12)
   if (ip.startsWith('172.')) {
-    var parts = ip.split('.');
-    var secondOctet = parseInt(parts[1], 10);
-    if (secondOctet >= 16 && secondOctet <= 31) {
+    var parts172 = ip.split('.');
+    var secondOctet172 = parseInt(parts172[1], 10);
+    if (secondOctet172 >= 16 && secondOctet172 <= 31) {
       return true;
     }
   }
-  var lowerIP = ip.toLowerCase();
-  // IPv6 unique local
-  if (lowerIP.startsWith('fc') || lowerIP.startsWith('fd')) {
-    return true;
-  }
-  // IPv6 link-local
-  if (lowerIP.startsWith('fe80')) {
-    return true;
+  // carrier-grade NAT (100.64.0.0/10, RFC 6598)
+  if (ip.startsWith('100.')) {
+    var parts100 = ip.split('.');
+    var secondOctet100 = parseInt(parts100[1], 10);
+    if (secondOctet100 >= 64 && secondOctet100 <= 127) {
+      return true;
+    }
   }
   return false;
 }
 
 /**
+ * Check if an IP address is in a private, reserved, loopback, link-local,
+ * cloud-metadata, or carrier-grade NAT range.
+ *
+ * Security (HAX-SEC-007): normalizes IPv4-mapped IPv6 addresses
+ * (::ffff:a.b.c.d) to their embedded IPv4 form before checking, because
+ * dns.lookup(..., {all:true}) returns mapped addresses verbatim and an
+ * attacker-published AAAA record of ::ffff:169.254.169.254 would otherwise
+ * bypass the check and reach loopback/metadata via the shipped safeFetch
+ * path. Mirrors PHP SsrfGuard's inet_pton-based normalization
+ * (SsrfGuard.php:50-54) so both backends share the same posture.
+ */
+function isPrivateOrReservedIP(ip) {
+  if (!ip || typeof ip !== 'string') {
+    return true;
+  }
+  var lowerIP = ip.toLowerCase();
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d) — normalize to the embedded v4 and
+  // re-check. dns.lookup returns these verbatim for mapped AAAA records.
+  if (lowerIP.indexOf('::ffff:') === 0) {
+    return isPrivateOrReservedIPv4(ip.substring(7));
+  }
+  // pure IPv6 special cases
+  if (ip === '::1' || ip === '0:0:0:0:0:0:0:1' || ip === '::') {
+    return true;
+  }
+  // IPv6 unique local (fc00::/7)
+  if (lowerIP.startsWith('fc') || lowerIP.startsWith('fd')) {
+    return true;
+  }
+  // IPv6 link-local (fe80::/10)
+  if (lowerIP.startsWith('fe80')) {
+    return true;
+  }
+  // if it still looks like IPv6 (contains ':'), it is a public v6 address
+  if (ip.indexOf(':') !== -1) {
+    return false;
+  }
+  // otherwise treat as IPv4
+  return isPrivateOrReservedIPv4(ip);
+}
+
+/**
  * Validate that a URL does not resolve to an internal/private/metadata IP.
  * Returns true if the URL is safe to fetch, false otherwise.
+ *
+ * Security (HAX-SEC-007): checks ALL resolved DNS records (not just the
+ * first) so a hostname that round-robins to an internal address is rejected.
+ * Matches safeFetch.js assertUrlNotSSRF behavior; the hardened
+ * isPrivateOrReservedIP predicate is shared by both paths.
  */
 async function validateUrlNotSSRF(urlString) {
   var parsed;
@@ -531,9 +583,14 @@ async function validateUrlNotSSRF(urlString) {
     return false;
   }
   try {
-    var result = await dns.promises.lookup(hostname);
-    if (isPrivateOrReservedIP(result.address)) {
+    var records = await dns.promises.lookup(hostname, { all: true });
+    if (!records || records.length === 0) {
       return false;
+    }
+    for (var i = 0; i < records.length; i++) {
+      if (isPrivateOrReservedIP(records[i].address)) {
+        return false;
+      }
     }
   }
   catch (e) {
@@ -581,6 +638,29 @@ class HAXCMSFile
           }
         };
       }
+      // Security (HAX-SEC-004): enforce the configured maxUploadSizeMb as an
+      // app-layer cap. multer's boot-time fileSize limit (1GB) is a separate
+      // hard cap; this enforces the site's configured limit (if smaller) using
+      // the multer-reported tmpFile.size. The remote-download path is checked
+      // separately after the download completes.
+      if (typeof tmpFile['size'] === 'number' && tmpFile['size'] > 0) {
+        try {
+          var sizeSettings = await readMediaSettings(HAXCMS);
+          if (sizeSettings && typeof sizeSettings.maxUploadSizeMb === 'number' && sizeSettings.maxUploadSizeMb > 0) {
+            var maxBytes = sizeSettings.maxUploadSizeMb * 1024 * 1024;
+            if (tmpFile['size'] > maxBytes) {
+              return {
+                'status': 500,
+                '__failed': {
+                  'status': 500,
+                  'message': 'File exceeds the maximum upload size of ' + sizeSettings.maxUploadSizeMb + 'MB',
+                }
+              };
+            }
+          }
+        }
+        catch (e) {}
+      }
       let newFilename = sanitizedIncomingName.replace(/[\/\\?%*:|"<>]/g, '-').replace(/\s+/g, '-');
       const { name, ext } = path.parse(newFilename);
       let counter = 1;
@@ -619,6 +699,26 @@ class HAXCMSFile
         try {
           await downloadAndSaveFile(filedata, remoteDownloadPath);
           sourcePath = remoteDownloadPath;
+          // Security (HAX-SEC-004): enforce the configured maxUploadSizeMb on
+          // the downloaded file so URL imports cannot bypass the size cap.
+          try {
+            var dlStats = fs.statSync(remoteDownloadPath);
+            var dlSizeSettings = await readMediaSettings(HAXCMS);
+            if (dlSizeSettings && typeof dlSizeSettings.maxUploadSizeMb === 'number' && dlSizeSettings.maxUploadSizeMb > 0) {
+              var dlMaxBytes = dlSizeSettings.maxUploadSizeMb * 1024 * 1024;
+              if (dlStats.size > dlMaxBytes) {
+                fs.removeSync(remoteDownloadPath);
+                return {
+                  'status': 500,
+                  '__failed': {
+                    'status': 500,
+                    'message': 'Downloaded file exceeds the maximum upload size of ' + dlSizeSettings.maxUploadSizeMb + 'MB',
+                  }
+                };
+              }
+            }
+          }
+          catch (sizeErr) {}
         }
         catch (err) {
           console.warn(err);
@@ -779,10 +879,16 @@ class HAXCMSFile
 }
 
 async function downloadAndSaveFile(url, filepath) {
+  // Security (HAX-SEC-007): do not follow HTTP redirects so an attacker cannot
+  // redirect from a validated public IP to a metadata/internal endpoint
+  // mid-request. Matches PHP SsrfGuard's max_redirects=0 / FOLLOWLOCATION=false.
+  // The SSRF pre-check in HAXCMSFile.save() (validateUrlNotSSRF) already
+  // validates the initial URL; this closes the redirect-rebinding variant.
   const response = await Axios({
       url,
       method: 'GET',
-      responseType: 'stream'
+      responseType: 'stream',
+      maxRedirects: 0
   });
   return new Promise((resolve, reject) => {
       response.data.pipe(fs.createWriteStream(filepath))

@@ -91,11 +91,42 @@ const {
 // app settings
 const multer = require('multer');
 const { crossOriginOpenerPolicy } = require('helmet');
-const upload = multer({ dest: path.join(HAXCMS.configDirectory, 'tmp/') })
+// Security (HAX-SEC-004): hard cap on upload size (1 GB per file, max 10
+// files) prevents unbounded DoS uploads. The site's configured
+// maxUploadSizeMb (if smaller) is additionally enforced at the app layer in
+// HAXCMSFile.save(). Parity with PHP php.ini upload_max_filesize as a safety
+// net; the reverse proxy should also cap client_max_body_size.
+const MAX_UPLOAD_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
+const MAX_UPLOAD_FILE_COUNT = 10;
+const upload = multer({
+  dest: path.join(HAXCMS.configDirectory, 'tmp/'),
+  limits: {
+    fileSize: MAX_UPLOAD_FILE_SIZE_BYTES,
+    files: MAX_UPLOAD_FILE_COUNT,
+  },
+})
 const jsonRequestParser = express.json({
   type: ['application/json', 'application/*+json'],
   limit: '10mb'
 });
+// Security (HAX-SEC-012): urlencoded parser is scoped to routes that need it
+// (via formBodyParser below) rather than running globally on every request
+// including static/GET. Lower limit/parameterLimit than the previous global
+// 50mb/50000 to reduce the DoS surface.
+const urlencodedParser = express.urlencoded({
+  limit: '10mb',
+  extended: false,
+  parameterLimit: 1000,
+});
+// Combined body parser: runs json then urlencoded so both content types are
+// handled for POST/PUT/PATCH/DELETE routes. Each parser only processes its
+// matching content-type and calls next() for others, so stacking is safe.
+function formBodyParser(req, res, next) {
+  jsonRequestParser(req, res, (err) => {
+    if (err) return next(err);
+    urlencodedParser(req, res, next);
+  });
+}
 const uploadAnyParser = upload.any();
 function parseSchemaFileOperationBody(req, res, next) {
   const contentType = req && req.headers && typeof req.headers['content-type'] === 'string'
@@ -104,7 +135,7 @@ function parseSchemaFileOperationBody(req, res, next) {
   if (contentType.indexOf('multipart/form-data') === 0) {
     return uploadAnyParser(req, res, next);
   }
-  return jsonRequestParser(req, res, next);
+  return formBodyParser(req, res, next);
 }
 function getSiteApiRouteParser(method = 'get', route = '') {
   const normalizedMethod = String(method || 'get').toLowerCase();
@@ -121,7 +152,7 @@ function getSiteApiRouteParser(method = 'get', route = '') {
     normalizedMethod === 'patch' ||
     normalizedMethod === 'delete'
   ) {
-    return jsonRequestParser;
+    return formBodyParser;
   }
   return null;
 }
@@ -155,7 +186,7 @@ function getSystemV1RouteParser(method = 'get', route = '') {
     normalizedMethod === 'patch' ||
     normalizedMethod === 'delete'
   ) {
-    return jsonRequestParser;
+    return formBodyParser;
   }
   return null;
 }
@@ -683,7 +714,9 @@ if (process.env.NODE_ENV === "development") {
   watcher.on('add', handleWatchedFileChange);
   watcher.on('unlink', handleWatchedFileChange);
 }
-app.use(express.urlencoded({limit: '50mb',  extended: false, parameterLimit: 50000 }));
+// Security (HAX-SEC-012): express.urlencoded was previously applied globally
+// (including to static/GET requests). It is now scoped to POST/PUT/PATCH/
+// DELETE routes via formBodyParser in the per-route parser selectors above.
 app.use(helmet(helmetPolicies));
 app.use(cookieParser());
 app.use(compression());
@@ -719,6 +752,12 @@ const SENSITIVE_STATIC_BASENAMES = [
   'config.json',
   '.htaccess',
   '.ishaxcmsconfig',
+  // Security (HAX-SEC / PHP [C1] parity): explicit defense-in-depth for
+  // sensitive config files. These are also covered by the _config segment
+  // rule below, but listing them explicitly protects against any future path
+  // where they might be served from outside _config.
+  'userdata.json',
+  'apikeys.json',
 ];
 function isSensitiveStaticPath(url = '') {
   let decodedPath = String(url || '').split('?')[0];
@@ -1353,6 +1392,12 @@ systemStructureContext().then((site) => {
   app.use((err, req, res, next) => {
     if (err && err.code === 'ENOENT') {
       res.status(404).end();
+      return;
+    }
+    // Security (HAX-SEC-004): return 413 for multer file-size/count limit errors
+    // so the client gets a meaningful status instead of a generic 500.
+    if (err && (err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_FILE_COUNT')) {
+      res.status(413).json({ status: 413, message: 'File too large or too many files' });
       return;
     }
     console.error(err);
@@ -2475,19 +2520,35 @@ function getMultisiteSiteSubPath(requestPath = '') {
 }
 
 function getRequestAbsoluteUrl(req, fallbackPath = '/') {
+  // Security (HAX-SEC / PHP [M4] parity): validate Host / X-Forwarded-* before
+  // building response URLs so an attacker cannot inject a forged Host into
+  // canonical/alternate Link headers or getSiteMetadata. X-Forwarded-* are
+  // trusted only when Express trust proxy is enabled
+  // (config.security.trustedProxies); the resolved host is validated against
+  // config.security.allowedHosts when set, falling back to the first allowed
+  // host on mismatch. When no allowlist is configured, existing behavior is
+  // preserved (opt-in), matching PHP's re-finalize-only-when-configured guard.
+  const trustProxyEnabled = !!(HAXCMS && typeof HAXCMS.getTrustProxySetting === 'function' && HAXCMS.getTrustProxySetting());
   let protocol = 'http';
-  if (req && req.headers && typeof req.headers['x-forwarded-proto'] === 'string' && req.headers['x-forwarded-proto'] !== '') {
+  if (trustProxyEnabled && req && req.headers && typeof req.headers['x-forwarded-proto'] === 'string' && req.headers['x-forwarded-proto'] !== '') {
     protocol = req.headers['x-forwarded-proto'].split(',')[0].trim();
   }
   else if (req && req.protocol) {
     protocol = req.protocol;
   }
   let host = '';
-  if (req && req.headers && typeof req.headers['x-forwarded-host'] === 'string' && req.headers['x-forwarded-host'] !== '') {
+  if (trustProxyEnabled && req && req.headers && typeof req.headers['x-forwarded-host'] === 'string' && req.headers['x-forwarded-host'] !== '') {
     host = req.headers['x-forwarded-host'].split(',')[0].trim();
   }
   else if (req && req.headers && typeof req.headers.host === 'string') {
     host = req.headers.host;
+  }
+  // validate host against the allowed-hosts allowlist when configured
+  const allowedHosts = (HAXCMS && typeof HAXCMS.getAllowedHosts === 'function') ? HAXCMS.getAllowedHosts() : [];
+  if (allowedHosts.length > 0) {
+    if (host === '' || allowedHosts.indexOf(host) === -1) {
+      host = allowedHosts[0];
+    }
   }
   let requestPath = fallbackPath;
   if (req && (req.originalUrl || req.url)) {

@@ -31,13 +31,9 @@ function loginRoute(req, res)  {
     }
     clearTrackerEntry(attemptKey);
     // set a refresh_token COOKIE that will ship w/ all calls automatically
-    res.cookie('haxcms_refresh_token', HAXCMS.getRefreshToken(u), {
-      maxAge: 24 * 60 * 60 * 1000,
-      path: '/',
-      sameSite: 'lax',
-      secure: HAXCMS.isProductionRuntime(),
-      httpOnly: true,
-    });
+    // Security (HAX-SEC / PHP [M3] parity): use the centralized helper so
+    // Secure/SameSite/HttpOnly/path flags are consistent at every call site.
+    HAXCMS.setRefreshTokenCookie(res, HAXCMS.getRefreshToken(u), 24 * 60 * 60 * 1000);
     return res.json({
       status: 200,
       jwt: HAXCMS.getJWT(u),

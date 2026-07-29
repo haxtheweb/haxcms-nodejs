@@ -1062,7 +1062,11 @@ async function createFile(req, res) {
     });
   }
   try {
-    await site.gitCommit('File added: ' + upload.name);
+    // Security (HAX-SEC-006): use the server-generated sanitized filename from
+    // the save result, not the attacker-controlled upload.originalname, so user
+    // input never reaches the git commit message (argument-injection defense).
+    var savedFileName = (fileResult && fileResult.data && fileResult.data.file && fileResult.data.file.name) || 'file';
+    await site.gitCommit('File added: ' + savedFileName);
   } catch (e) {}
   return res.status(200).json(fileResult);
 }

@@ -37,3 +37,10 @@ jobs:
         run: yarn install
       - name: Build
         run: yarn run build
+      - name: Dependency audit
+        # Security (HAX-SEC-010): surface high-severity runtime dependency
+        # vulnerabilities. --omit=dev ignores dev-tool noise; --audit-level=high
+        # focuses on high/critical. continue-on-error keeps CI green while
+        # pre-existing advisories are triaged; flip to blocking once triaged.
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high

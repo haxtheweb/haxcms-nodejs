@@ -656,17 +656,34 @@ class HAXCMSSite
     async gitCommit(msg = 'Committed changes')
     {
         try {
+          // Security (HAX-SEC-006): sanitize the commit message to a conservative
+          // allowlist before it reaches git-interface, which string-splits the
+          // command (git-interface/dist/index.js:26) and only escapes single
+          // quotes. A message containing a quote/control char could break the
+          // quoted token and inject git arguments. This is defense-in-depth;
+          // callers should also avoid passing user input (files.js uses the
+          // server-generated sanitized filename, not upload.originalname).
+          var safeMsg = String(msg || 'Committed changes').replace(/[\x00-\x1f\x7f'"\\]/g, '').substring(0, 200);
+          if (safeMsg === '') {
+            safeMsg = 'Committed changes';
+          }
           // commit, true flag will attempt to make this a git repo if it currently isn't
           const git = new GitPlus({
             dir: this.siteDirectory,
             cliVersion: await this.gitTest()
           });
           await git.add();
-          await git.commit(msg);
+          await git.commit(safeMsg);
           // commit should execute the automatic push flag if it's on
           if ((this.manifest.metadata.site.git.autoPush) && this.manifest.metadata.site.git.autoPush && (this.manifest.metadata.site.git.branch)) {
-            await git.checkout(this.manifest.metadata.site.git.branch);
-            await git.push();
+            // Security (HAX-SEC-006): validate the branch name against a strict
+            // pattern before checkout to prevent git argument injection via a
+            // configured branch name containing shell/arg metacharacters.
+            var branch = String(this.manifest.metadata.site.git.branch);
+            if (/^[a-zA-Z0-9._\-/]+$/.test(branch)) {
+              await git.checkout(branch);
+              await git.push();
+            }
           }
         }
         catch(e){}
@@ -2600,7 +2617,15 @@ class HAXCMSClass {
     return crypto.timingSafeEqual(storedBuffer, submittedBuffer);
   }
   hasDefaultCredentials() {
-    return this.user && this.user.name === 'admin' && this.user.password === 'admin';
+    if (!this.user || this.user.name !== 'admin') {
+      return false;
+    }
+    // Security (HAX-SEC-001): a hashed password is never the default 'admin'
+    // credential. Only an unhashed plaintext 'admin' password qualifies.
+    if (this.isPasswordHashed(this.user.password)) {
+      return false;
+    }
+    return this.user.password === 'admin';
   }
   shouldAllowDefaultCredentials() {
     if (!process.env.HAXCMS_ALLOW_DEFAULT_CREDS) {
@@ -2680,10 +2705,117 @@ class HAXCMSClass {
       name: runtimeCredentialOverride.name,
       password: runtimeCredentialOverride.password,
     };
+    // Security (HAX-SEC-001): do not mutate .user on disk for runtime overrides
+    // (testing/orchestration). The in-memory plaintext is still verified
+    // correctly by verifyStoredPassword's legacy plaintext path.
+    this.credentialsLoadedFromDisk = false;
     return true;
   }
   generateSecurePassword() {
     return crypto.randomBytes(16).toString('hex');
+  }
+  /**
+   * Security (HAX-SEC-001): hash a plaintext password with scrypt (NIST-approved
+   * KDF, Node built-in — no new dependency). Stored format:
+   *   scrypt$<saltHex>$<hashHex>
+   * The salt and hash hex alphabet contains no shell/regex metacharacters.
+   * Parity with PHP's password_hash(PASSWORD_DEFAULT): both backends now store
+   * a KDF hash instead of plaintext, with transparent legacy detection and
+   * lazy migration on first successful login (see verifyStoredPassword /
+   * maybeUpgradePlaintextPassword). The KDF differs (scrypt vs bcrypt) but the
+   * files are separate (.user vs config.php) so cross-format compatibility is
+   * not required — the behavioral parity (detect / verify / migrate) is what
+   * matters.
+   */
+  hashPassword(plaintext) {
+    if (typeof plaintext !== 'string' || plaintext === '') {
+      return '';
+    }
+    var salt = crypto.randomBytes(16);
+    var hash = crypto.scryptSync(plaintext, salt, 32, { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 });
+    return 'scrypt$' + salt.toString('hex') + '$' + hash.toString('hex');
+  }
+  /**
+   * Security (HAX-SEC-001): return true if a stored credential is a scrypt hash
+   * (vs legacy plaintext). Used by verifyStoredPassword to pick the verify
+   * path and by hasDefaultCredentials to skip hashed values.
+   */
+  isPasswordHashed(stored) {
+    return typeof stored === 'string' && stored.indexOf('scrypt$') === 0;
+  }
+  /**
+   * Security (HAX-SEC-001): verify a submitted password against a stored
+   * credential, transparently supporting both hashed (scrypt$) and legacy
+   * plaintext storage. A stored value is treated as a hash when it starts with
+   * 'scrypt$'; otherwise it is compared in constant time as plaintext. Mirrors
+   * PHP's verifyStoredPassword (HAXCMS.php:1672-1684) which uses
+   * password_get_info + password_verify for the same detect-and-verify pattern.
+   */
+  verifyStoredPassword(stored, submitted) {
+    if (typeof stored !== 'string' || stored === '' || typeof submitted !== 'string' || submitted === '') {
+      return false;
+    }
+    if (this.isPasswordHashed(stored)) {
+      var parts = stored.split('$');
+      if (parts.length !== 3) {
+        return false;
+      }
+      var salt;
+      var expected;
+      try {
+        salt = Buffer.from(parts[1], 'hex');
+        expected = Buffer.from(parts[2], 'hex');
+      }
+      catch (e) {
+        return false;
+      }
+      if (salt.length === 0 || expected.length === 0) {
+        return false;
+      }
+      var computed = crypto.scryptSync(submitted, salt, expected.length, { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 });
+      if (computed.length !== expected.length) {
+        return false;
+      }
+      return crypto.timingSafeEqual(computed, expected);
+    }
+    // legacy plaintext -> constant-time compare
+    return this.safeStringCompare(stored, submitted);
+  }
+  /**
+   * Security (HAX-SEC-001 / migration): opportunistically re-hash and persist a
+   * legacy plaintext password from .user as a scrypt hash on the first
+   * successful plaintext login. Best-effort and non-fatal: if .user is
+   * read-only the login still succeeds and the value remains plaintext until it
+   * can be written. Only rewrites the 'user' account's .user file (superUser is
+   * a copy and not persisted separately). Skipped entirely when credentials
+   * came from a runtime override (testing/orchestration) so .user is not
+   * mutated with an override password. Mirrors PHP's maybeUpgradePlaintextPassword
+   * (HAXCMS.php:1694-1750).
+   */
+  maybeUpgradePlaintextPassword(account, submitted) {
+    if (!this.credentialsLoadedFromDisk) {
+      return;
+    }
+    if (account !== 'user') {
+      return;
+    }
+    var stored = this.user && this.user.password;
+    if (!this.isPasswordHashed(stored) && typeof stored === 'string' && stored !== '') {
+      var hash = this.hashPassword(submitted);
+      if (hash === '') {
+        return;
+      }
+      this.user.password = hash;
+      try {
+        this.writeSecretFile(
+          path.join(this.configDirectory, '.user'),
+          JSON.stringify({ name: this.user.name, password: hash }, null, 2)
+        );
+      }
+      catch (e) {
+        // non-fatal: in-memory hash is set; file will be retried next login
+      }
+    }
   }
   getIntConfigValue(value, fallback, min, max) {
     let num = parseInt(value, 10);
@@ -2730,12 +2862,47 @@ class HAXCMSClass {
   getTrustProxySetting() {
     if (
       this.config &&
-      this.config.security &&
-      typeof this.config.security.trustProxy !== 'undefined'
+      this.config.security
     ) {
-      return this.config.security.trustProxy;
+      if (typeof this.config.security.trustProxy !== 'undefined') {
+        return this.config.security.trustProxy;
+      }
+      // PHP parity (M2): honor config.security.trustedProxies (array of proxy
+      // IPs). When set, Express trusts forwarded headers only from those peers,
+      // matching PHP's resolveClientIP trusted-proxy allowlist. This keeps
+      // config.json portable across both backends.
+      if (
+        Array.isArray(this.config.security.trustedProxies) &&
+        this.config.security.trustedProxies.length > 0
+      ) {
+        return this.config.security.trustedProxies;
+      }
     }
     return false;
+  }
+  // PHP parity (M4): read the allowed-host allowlist from
+  // config.security.allowedHosts (array of host strings, may include port).
+  // When empty, host-header validation is not applied (existing behavior
+  // preserved). Used by getRequestAbsoluteUrl to validate Host /
+  // X-Forwarded-Host so an attacker cannot inject a forged Host into response
+  // URLs (canonical/alternate Link headers, getSiteMetadata).
+  getAllowedHosts() {
+    var hosts = [];
+    if (this.config && this.config.security && this.config.security.allowedHosts) {
+      var raw = this.config.security.allowedHosts;
+      if (typeof raw === 'string') {
+        raw = [raw];
+      }
+      if (Array.isArray(raw)) {
+        for (var i = 0; i < raw.length; i++) {
+          var h = String(raw[i] || '').trim();
+          if (h !== '') {
+            hosts.push(h);
+          }
+        }
+      }
+    }
+    return hosts;
   }
   // True only when explicitly running in production (NODE_ENV=production). Used
   // to enable hardened defaults (e.g. Secure cookies) without impacting local
@@ -2757,6 +2924,34 @@ class HAXCMSClass {
     }
     return defaultOrigin;
   }
+  // Security (HAX-SEC-011): write a secret file with mode 0o600 on POSIX
+  // systems so the JWT signing key, refresh key, salt, and hashed admin
+  // password are not group/world-readable. On Windows, POSIX modes are ignored
+  // so the mode option is omitted (the file is still created). Since 1b (API
+  // key encryption) is deferred for parity, this is the primary at-rest
+  // protection for the shared apiKeys.json alongside the web-serving block.
+  writeSecretFile(filePath, data) {
+    if (process.platform === 'win32') {
+      fs.writeFileSync(filePath, data);
+      return;
+    }
+    fs.writeFileSync(filePath, data, { mode: 0o600 });
+  }
+  // Security (HAX-SEC-011): best-effort chmod of an existing secret file to
+  // 0o600. Covers files created by a previous version that used the default
+  // umask. Non-fatal: failures (read-only fs, locked-down env) are swallowed.
+  // Skipped on Windows where POSIX modes are ignored.
+  chmodSecretFile(filePath) {
+    if (process.platform === 'win32') {
+      return;
+    }
+    try {
+      fs.chmodSync(filePath, 0o600);
+    }
+    catch (e) {
+      // non-fatal
+    }
+  }
   async gitTest() {
     try {
       const { stdout, stderr } = await exec('git --version');
@@ -2771,6 +2966,10 @@ class HAXCMSClass {
     this.cliWritePath = null;
     this.cdn = './';
     this.sessionJwt = null;
+    // Security (HAX-SEC-001): tracks whether credentials came from .user on disk
+    // (true) or were seeded/runtime-overridden (false). Controls whether
+    // maybeUpgradePlaintextPassword is allowed to rewrite .user on next login.
+    this.credentialsLoadedFromDisk = false;
     this.protocol = 'http';
     this.domain = 'localhost';
     this.siteListing = {
@@ -2818,13 +3017,13 @@ class HAXCMSClass {
       const userSkelDir = path.join(this.configDirectory, 'user', 'skeletons');
       const settingsDir = path.join(this.configDirectory, 'settings');
       if (!fs.existsSync(skelDir)) {
-        fs.mkdirSync(skelDir, { recursive: true });
+        fs.mkdirSync(skelDir, { recursive: true, mode: 0o700 });
       }
       if (!fs.existsSync(userSkelDir)) {
-        fs.mkdirSync(userSkelDir, { recursive: true });
+        fs.mkdirSync(userSkelDir, { recursive: true, mode: 0o700 });
       }
       if (!fs.existsSync(settingsDir)) {
-        fs.mkdirSync(settingsDir, { recursive: true });
+        fs.mkdirSync(settingsDir, { recursive: true, mode: 0o700 });
       }
     }
     catch (e) {
@@ -2954,7 +3153,7 @@ class HAXCMSClass {
     }
     catch (e) {
       this.salt = crypto.randomBytes(32).toString('hex');
-      fs.writeFileSync(path.join(this.configDirectory, "SALT.txt"), this.salt);
+      this.writeSecretFile(path.join(this.configDirectory, "SALT.txt"), this.salt);
     }
     // pk/rpk test for files that can contain these
     try {
@@ -2963,7 +3162,7 @@ class HAXCMSClass {
     }
     catch (e) {
       this.privateKey = crypto.randomBytes(32).toString('hex');
-      fs.writeFileSync(path.join(this.configDirectory, ".pk"), this.privateKey);
+      this.writeSecretFile(path.join(this.configDirectory, ".pk"), this.privateKey);
     }
     try {
       this.refreshPrivateKey = fs.readFileSync(path.join(this.configDirectory, ".rpk"),
@@ -2971,7 +3170,7 @@ class HAXCMSClass {
     }
     catch (e) {
       this.refreshPrivateKey = crypto.randomBytes(32).toString('hex');
-      fs.writeFileSync(path.join(this.configDirectory, ".rpk"), this.refreshPrivateKey);
+      this.writeSecretFile(path.join(this.configDirectory, ".rpk"), this.refreshPrivateKey);
     }
     // allow for loading in user defined config
     // pk/rpk test for files that can contain these
@@ -2979,19 +3178,26 @@ class HAXCMSClass {
       this.user = JSON.parse(fs.readFileSync(path.join(this.configDirectory, ".user")),
       {encoding:'utf8', flag:'r'}, 'utf8');
       this.superUser = {...this.user};
+      // Security (HAX-SEC-001): credentials loaded from disk — allow lazy
+      // plaintext-to-hash migration on next successful login.
+      this.credentialsLoadedFromDisk = true;
     }
     catch (e) {
       // create a default user with secure random password
       const seededPassword = this.generateSecurePassword();
+      // Security (HAX-SEC-001): store a scrypt hash, never the plaintext. The
+      // plaintext is printed once below so the admin can capture it; only the
+      // hash is persisted to .user. Mirrors PHP install.php:360.
+      const seededHash = this.hashPassword(seededPassword);
       this.superUser = {
         name: 'admin',
-        password: seededPassword,
+        password: seededHash,
       };
       this.user = {
         name: 'admin',
-        password: seededPassword,
+        password: seededHash,
       };
-      fs.writeFileSync(path.join(this.configDirectory, ".user"), JSON.stringify(this.user, null, 2));
+      this.writeSecretFile(path.join(this.configDirectory, ".user"), JSON.stringify(this.user, null, 2));
       if (!this.isCLI()) {
         console.error('***************************************************************');
         console.error('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
@@ -3003,6 +3209,14 @@ class HAXCMSClass {
         console.error('\n***************************************************************');
       }
     }
+    // Security (HAX-SEC-011): tighten permissions on existing secret files to
+    // 0o600 (best-effort, POSIX only). Covers files created by a previous
+    // version that used the default umask, so a deploy upgrading to this version
+    // gets the restricted mode without a manual chmod.
+    this.chmodSecretFile(path.join(this.configDirectory, "SALT.txt"));
+    this.chmodSecretFile(path.join(this.configDirectory, ".pk"));
+    this.chmodSecretFile(path.join(this.configDirectory, ".rpk"));
+    this.chmodSecretFile(path.join(this.configDirectory, ".user"));
     // allow runtime overrides for isolated testing or orchestration scenarios
     this.applyRuntimeCredentialOverride();
     // refuse to start web runtime with known default credentials unless explicitly overridden
@@ -4001,9 +4215,21 @@ class HAXCMSClass {
     decodeJWT(key) {
       // if it can decode, it'll be an object, otherwise it's false
       try {
-        return JWT.verify(key, this.privateKey + this.salt, {
+        // Security (PHP parity): clockTolerance gives 60s leeway on exp/nbf
+        // so tokens issued near a boundary still validate. jsonwebtoken
+        // validates exp/nbf automatically; the iat-in-future check below mirrors
+        // PHP's validateAccessTokenClaims (HAXCMS.php:1793-1820).
+        var decoded = JWT.verify(key, this.privateKey + this.salt, {
           algorithms: ['HS256'],
+          clockTolerance: 60,
         });
+        if (decoded && decoded.iat) {
+          var now = Math.floor(Date.now() / 1000);
+          if ((now + 60) < decoded.iat) {
+            return false;
+          }
+        }
+        return decoded;
       }
       catch (e) {
         return false;
@@ -4026,9 +4252,17 @@ class HAXCMSClass {
     decodeRefreshToken(key) {
       // if it can decode, it'll be an object, otherwise it's false
       try {
-        return JWT.verify(key, this.refreshPrivateKey + this.salt, {
+        var decoded = JWT.verify(key, this.refreshPrivateKey + this.salt, {
           algorithms: ['HS256'],
+          clockTolerance: 60,
         });
+        if (decoded && decoded.iat) {
+          var now = Math.floor(Date.now() / 1000);
+          if ((now + 60) < decoded.iat) {
+            return false;
+          }
+        }
+        return decoded;
       }
       catch (e) {
         return false;
@@ -4049,7 +4283,7 @@ class HAXCMSClass {
       // if there isn't one then we have to bail
       if (!refreshToken) {
         if (endOnInvalid && res) {
-          res.cookie('haxcms_refresh_token', '1', { maxAge: 1 });
+          this.setRefreshTokenCookie(res, '', 1);
           res.sendStatus(401);
         }
         return false;
@@ -4071,10 +4305,33 @@ class HAXCMSClass {
       }
       // kick back the end if it's invalid and we are asked to end here
       if (endOnInvalid && res) {
-        res.cookie('haxcms_refresh_token', '1', { maxAge: 1 });
+        this.setRefreshTokenCookie(res, '', 1);
         res.sendStatus(401);
       }
       return false;
+    }
+    /**
+     * PHP parity (M3): centralized refresh-token cookie helper so Secure /
+     * SameSite / HttpOnly / path flags are consistent across every set and
+     * clear site (login, logout, refresh, validateRefreshToken clears). secure
+     * is protocol-driven (isProductionRuntime) so non-TLS dev still works.
+     * Pass maxAge=1 to clear (expires immediately). Mirrors PHP's single
+     * setRefreshTokenCookie used by login.php, logout.php, and session refresh.
+     */
+    setRefreshTokenCookie(res, value, maxAge) {
+      if (!res || typeof res.cookie !== 'function') {
+        return;
+      }
+      var options = {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: this.isProductionRuntime(),
+      };
+      if (typeof maxAge === 'number') {
+        options.maxAge = maxAge;
+      }
+      res.cookie('haxcms_refresh_token', value, options);
     }
     /**
      * Validate that a user name that came across in a JWT decode is legit
@@ -4108,8 +4365,12 @@ class HAXCMSClass {
     {
         if (
             this.safeStringCompare(this.user.name, name) &&
-            this.safeStringCompare(this.user.password, pass)
+            this.verifyStoredPassword(this.user.password, pass)
         ) {
+            // Security (HAX-SEC-001): migrate legacy plaintext to a scrypt hash
+            // on the first successful plaintext login (best-effort, skips
+            // runtime overrides). Mirrors PHP testLogin (HAXCMS.php:1754-1787).
+            this.maybeUpgradePlaintextPassword('user', pass);
             return true;
         }
         // if fallback is allowed, meaning the super admin then let them in
@@ -4118,7 +4379,7 @@ class HAXCMSClass {
         else if (
             adminFallback &&
             this.safeStringCompare(this.superUser.name, name) &&
-            this.safeStringCompare(this.superUser.password, pass)
+            this.verifyStoredPassword(this.superUser.password, pass)
         ) {
             return true;
         }

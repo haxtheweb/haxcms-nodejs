@@ -20,7 +20,10 @@ function refreshAccessToken(req, res) {
     });
   }
   else {
-    res.cookie('haxcms_refresh_token', '');
+    // Security (HAX-SEC / PHP [M3] parity): clear via the centralized helper so
+    // the Secure/SameSite/HttpOnly flags match how the cookie was set (required
+    // for the browser to actually delete it).
+    HAXCMS.setRefreshTokenCookie(res, '', 1);
     res.sendStatus(401);
   }
 }
