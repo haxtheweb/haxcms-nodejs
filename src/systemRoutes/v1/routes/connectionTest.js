@@ -99,7 +99,10 @@ function connectionTest(req, res) {
   }
 
   if (!jwt) {
-    res.cookie('haxcms_refresh_token', '1', { maxAge: 1 });
+    // Security (HAX-SEC / PHP [M3] parity): clear via the centralized helper so
+    // the Secure/SameSite/HttpOnly flags match how the cookie was set (required
+    // for the browser to actually delete it).
+    HAXCMS.setRefreshTokenCookie(res, '', 1);
     return res.status(401).json({
       status: 401,
       authenticated: false,

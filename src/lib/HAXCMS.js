@@ -2904,6 +2904,44 @@ class HAXCMSClass {
     }
     return hosts;
   }
+  // PHP parity (M4): resolve the request protocol, trusting X-Forwarded-Proto
+  // only when behind a configured trusted proxy. Shared by getRequestAbsoluteUrl
+  // (app.js) and both discovery API endpoints so all response-URL construction
+  // uses one trust-proxy-aware implementation and cannot drift apart. Mirrors
+  // PHP's resolveTrustedProtocol (HAXCMS.php:1578-1607).
+  resolveTrustedProtocol(req) {
+    var trustProxyEnabled = !!(this.getTrustProxySetting && this.getTrustProxySetting());
+    if (trustProxyEnabled && req && req.headers && typeof req.headers['x-forwarded-proto'] === 'string' && req.headers['x-forwarded-proto'] !== '') {
+      return req.headers['x-forwarded-proto'].split(',')[0].trim();
+    }
+    if (req && typeof req.protocol === 'string' && req.protocol !== '') {
+      return req.protocol;
+    }
+    return 'http';
+  }
+  // PHP parity (M4): resolve the request Host, trusting X-Forwarded-Host only
+  // when behind a configured trusted proxy, and validating against
+  // config.security.allowedHosts when set (falling back to the first allowed
+  // host on mismatch). When no allowlist is configured, the header value is
+  // preserved (opt-in), matching PHP's re-finalize-only-when-configured guard.
+  // Mirrors PHP's resolveTrustedHost (HAXCMS.php:1616-1641).
+  resolveTrustedHost(req) {
+    var trustProxyEnabled = !!(this.getTrustProxySetting && this.getTrustProxySetting());
+    var host = '';
+    if (trustProxyEnabled && req && req.headers && typeof req.headers['x-forwarded-host'] === 'string' && req.headers['x-forwarded-host'] !== '') {
+      host = req.headers['x-forwarded-host'].split(',')[0].trim();
+    }
+    else if (req && req.headers && typeof req.headers.host === 'string') {
+      host = req.headers.host;
+    }
+    var allowedHosts = this.getAllowedHosts();
+    if (allowedHosts.length > 0) {
+      if (host === '' || allowedHosts.indexOf(host) === -1) {
+        host = allowedHosts[0];
+      }
+    }
+    return host;
+  }
   // True only when explicitly running in production (NODE_ENV=production). Used
   // to enable hardened defaults (e.g. Secure cookies) without impacting local
   // development, which never sets NODE_ENV to production.

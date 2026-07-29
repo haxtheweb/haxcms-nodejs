@@ -2520,36 +2520,15 @@ function getMultisiteSiteSubPath(requestPath = '') {
 }
 
 function getRequestAbsoluteUrl(req, fallbackPath = '/') {
-  // Security (HAX-SEC / PHP [M4] parity): validate Host / X-Forwarded-* before
-  // building response URLs so an attacker cannot inject a forged Host into
-  // canonical/alternate Link headers or getSiteMetadata. X-Forwarded-* are
-  // trusted only when Express trust proxy is enabled
-  // (config.security.trustedProxies); the resolved host is validated against
-  // config.security.allowedHosts when set, falling back to the first allowed
-  // host on mismatch. When no allowlist is configured, existing behavior is
-  // preserved (opt-in), matching PHP's re-finalize-only-when-configured guard.
-  const trustProxyEnabled = !!(HAXCMS && typeof HAXCMS.getTrustProxySetting === 'function' && HAXCMS.getTrustProxySetting());
-  let protocol = 'http';
-  if (trustProxyEnabled && req && req.headers && typeof req.headers['x-forwarded-proto'] === 'string' && req.headers['x-forwarded-proto'] !== '') {
-    protocol = req.headers['x-forwarded-proto'].split(',')[0].trim();
-  }
-  else if (req && req.protocol) {
-    protocol = req.protocol;
-  }
-  let host = '';
-  if (trustProxyEnabled && req && req.headers && typeof req.headers['x-forwarded-host'] === 'string' && req.headers['x-forwarded-host'] !== '') {
-    host = req.headers['x-forwarded-host'].split(',')[0].trim();
-  }
-  else if (req && req.headers && typeof req.headers.host === 'string') {
-    host = req.headers.host;
-  }
-  // validate host against the allowed-hosts allowlist when configured
-  const allowedHosts = (HAXCMS && typeof HAXCMS.getAllowedHosts === 'function') ? HAXCMS.getAllowedHosts() : [];
-  if (allowedHosts.length > 0) {
-    if (host === '' || allowedHosts.indexOf(host) === -1) {
-      host = allowedHosts[0];
-    }
-  }
+  // Security (HAX-SEC / PHP [M4] parity): delegate protocol/host resolution to
+  // HAXCMS.resolveTrustedProtocol / resolveTrustedHost so this and both
+  // discovery API endpoints share one trust-proxy-aware + allowedHosts-validated
+  // implementation. An attacker cannot inject a forged Host into canonical/
+  // alternate Link headers or getSiteMetadata because X-Forwarded-* are trusted
+  // only behind a configured trusted proxy and the host is validated against
+  // config.security.allowedHosts when set.
+  const protocol = HAXCMS.resolveTrustedProtocol(req);
+  const host = HAXCMS.resolveTrustedHost(req);
   let requestPath = fallbackPath;
   if (req && (req.originalUrl || req.url)) {
     requestPath = getRequestPathWithoutQuery(req.originalUrl || req.url);

@@ -20,28 +20,13 @@ function getApiBasePath(requestPath = '') {
 }
 
 function getAbsoluteApiBase(req, apiBasePath) {
-  const requestHeaders =
-    req && req.headers && typeof req.headers === 'object' ? req.headers : {};
-  let protocol = 'http';
-  if (
-    typeof requestHeaders['x-forwarded-proto'] === 'string' &&
-    requestHeaders['x-forwarded-proto'] !== ''
-  ) {
-    protocol = requestHeaders['x-forwarded-proto'].split(',')[0].trim();
-  }
-  else if (req && typeof req.protocol === 'string' && req.protocol !== '') {
-    protocol = req.protocol;
-  }
-  let host = '';
-  if (
-    typeof requestHeaders['x-forwarded-host'] === 'string' &&
-    requestHeaders['x-forwarded-host'] !== ''
-  ) {
-    host = requestHeaders['x-forwarded-host'].split(',')[0].trim();
-  }
-  else if (typeof requestHeaders.host === 'string' && requestHeaders.host !== '') {
-    host = requestHeaders.host;
-  }
+  // Security (HAX-SEC / PHP [M4] parity): delegate to the shared trust-proxy-
+  // aware + allowedHosts-validated helpers on HAXCMS so this endpoint cannot be
+  // used for host-header injection into the absoluteLinks response field.
+  // X-Forwarded-* are trusted only behind a configured trusted proxy and the
+  // host is validated against config.security.allowedHosts when set.
+  const protocol = HAXCMS.resolveTrustedProtocol(req);
+  const host = HAXCMS.resolveTrustedHost(req);
   if (host === '') {
     return apiBasePath;
   }
