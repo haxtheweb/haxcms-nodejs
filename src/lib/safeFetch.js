@@ -63,22 +63,81 @@ async function assertUrlNotSSRF(urlString) {
 }
 
 /**
- * fetch() wrapper that rejects SSRF targets before issuing the request.
+ * fetch() wrapper that rejects SSRF targets before issuing the request and
+ * follows redirects manually so every hop is re-validated against the SSRF
+ * IP guard.
  *
- * Signature matches global fetch: returns a standard Response. Throws on
- * SSRF rejection (see assertUrlNotSSRF) or on fetch/network failure. Callers
- * that already swallow fetch errors via try/catch need no other changes.
+ * Security (SEC-02): fetch()'s default redirect mode follows up to 20
+ * redirects WITHOUT re-resolving or re-checking the destination, so a 302
+ * from a validated public host to http://169.254.169.254/ would reach the
+ * metadata endpoint unchallenged (redirect-rebinding SSRF). We set
+ * redirect:'manual' and walk each Location hop ourselves, running
+ * assertUrlNotSSRF on the resolved target before fetching it. A hop cap
+ * (SAFE_FETCH_MAX_REDIRECTS) bounds the chain and a total timeout
+ * (SAFE_FETCH_TIMEOUT_MS) prevents a slow/hanging host from holding a
+ * request open. Callers may override `redirect`/`signal` via options.
  *
- * DNS-rebinding note: this validates the hostname's resolved addresses and
- * then calls global fetch, which resolves the hostname again. The same
- * resolve-check-then-fetch window exists in the already-shipped build.files
- * path. Closing it fully requires an undici Agent with a pinned-IP lookup,
- * which is not available without adding undici as a runtime dependency; that
- * hardening should be a separate consistent pass across all fetch sites.
+ * Signature matches global fetch: returns the final, non-3xx Response.
+ * Throws on SSRF rejection (assertUrlNotSSRF), too many redirects
+ * (SSRF_REDIRECTS), a bad Location (SSRF_REDIRECT), or fetch/timeout/abort.
+ *
+ * DNS-rebinding note: this validates each hop's resolved addresses and then
+ * calls fetch, which re-resolves the hostname. The same-hop resolve-check-
+ * then-fetch TOCTOU remains (closing it fully requires an undici Agent with
+ * a pinned-IP lookup; deferred, see HAX-SEC-007). This change closes the
+ * redirect-rebinding variant across all fetch sites and matches the PHP
+ * SsrfGuard wrappers' redirect-disabled posture (PHP blocks redirects
+ * outright; Node follows them safely to preserve legit http->https and
+ * trailing-slash redirects that import flows rely on).
  */
+const SAFE_FETCH_MAX_REDIRECTS = 5;
+const SAFE_FETCH_TIMEOUT_MS = 15000;
+
 async function safeFetch(urlString, options) {
-  await assertUrlNotSSRF(urlString);
-  return fetch(urlString, options);
+  var fetchOptions = options || {};
+  var redirectMode = fetchOptions.redirect || 'manual';
+  var timeoutSignal = null;
+  // Only add a timeout when the caller did not supply their own signal;
+  // combining two signals would require AbortSignal.any (Node 20.3+), which
+  // is not guaranteed available on the supported Node 18.20.3 LTS line.
+  if (!fetchOptions.signal) {
+    timeoutSignal = AbortSignal.timeout(SAFE_FETCH_TIMEOUT_MS);
+  }
+  var mergedOptions = Object.assign({}, fetchOptions, { redirect: redirectMode });
+  if (timeoutSignal) {
+    mergedOptions.signal = timeoutSignal;
+  }
+  var currentUrl = urlString;
+  for (var hop = 0; hop <= SAFE_FETCH_MAX_REDIRECTS; hop++) {
+    // re-validate the current URL each hop (initial URL + every redirect target)
+    await assertUrlNotSSRF(currentUrl);
+    var response = await fetch(currentUrl, mergedOptions);
+    // not a redirect (or 304 Not Modified) -> final response
+    if (response.status < 300 || response.status >= 400 || response.status === 304) {
+      return response;
+    }
+    if (hop === SAFE_FETCH_MAX_REDIRECTS) {
+      var tooManyErr = new Error('safeFetch exceeded the redirect hop cap');
+      tooManyErr.code = 'SSRF_REDIRECTS';
+      throw tooManyErr;
+    }
+    var locationHeader = response.headers.get('location');
+    if (!locationHeader) {
+      // 3xx with no Location header -> nothing to follow, return as-is
+      return response;
+    }
+    var nextUrl;
+    try {
+      nextUrl = new URL(locationHeader, currentUrl).toString();
+    } catch (e) {
+      var badLocErr = new Error('safeFetch received an invalid redirect Location');
+      badLocErr.code = 'SSRF_REDIRECT';
+      throw badLocErr;
+    }
+    currentUrl = nextUrl;
+  }
+  // unreachable: the loop always returns or throws on the last allowed hop
+  return fetch(currentUrl, mergedOptions);
 }
 
 module.exports = {

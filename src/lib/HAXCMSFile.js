@@ -537,6 +537,16 @@ function isPrivateOrReservedIP(ip) {
   if (lowerIP.indexOf('::ffff:') === 0) {
     return isPrivateOrReservedIPv4(ip.substring(7));
   }
+  // IPv4-compatible IPv6 (::a.b.c.d, deprecated ::/96) — same normalization.
+  // dns.lookup returns ::127.0.0.1 for a ::7f00:1 AAAA record, and without
+  // this branch it falls through to the "contains ':' → public v6" case and
+  // bypasses the loopback/metadata check. ::/96 is deprecated (RFC 4291) but
+  // still resolves, so block it for parity with the ::ffff: path. The dotted
+  // quad guard avoids touching legitimate public v6 like 2001:db8::1.2.3.4.
+  // MUST run after the ::ffff: branch so mapped addresses are handled first.
+  if (lowerIP.indexOf('::') === 0 && ip.indexOf('.') !== -1) {
+    return isPrivateOrReservedIPv4(ip.substring(2));
+  }
   // pure IPv6 special cases
   if (ip === '::1' || ip === '0:0:0:0:0:0:0:1' || ip === '::') {
     return true;
