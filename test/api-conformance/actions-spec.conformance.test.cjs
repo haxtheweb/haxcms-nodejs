@@ -91,13 +91,15 @@ async function createMinimalDocxBuffer() {
 }
 
 async function createMinimalXlsxBuffer() {
-  const ExcelJS = require('exceljs')
-  const workbook = new ExcelJS.Workbook()
-  const worksheet = workbook.addWorksheet('Sheet1')
-  worksheet.addRow(['Name', 'Value'])
-  worksheet.addRow(['Alice', '100'])
-  worksheet.addRow(['Bob', '200'])
-  return workbook.xlsx.writeBuffer()
+  const XLSX = require('xlsx')
+  const workbook = XLSX.utils.book_new()
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['Name', 'Value'],
+    ['Alice', '100'],
+    ['Bob', '200'],
+  ])
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1')
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
 }
 
 function createMinimalPdfBuffer() {

@@ -1,4 +1,5 @@
-const ExcelJS = require('exceljs');
+const XLSX = require('xlsx');
+const fs = require('fs-extra');
 
 function parseMultipartData(buffer, boundary) {
   const data = buffer.toString('binary');
@@ -55,22 +56,21 @@ function escapeCsvValue(value) {
 }
 
 function worksheetToCsv(worksheet, includeHeaders) {
-  const rows = [];
-  let maxColumns = 0;
-  worksheet.eachRow({ includeEmpty: false }, (row) => {
-    if (row.cellCount > maxColumns) {
-      maxColumns = row.cellCount;
-    }
-  });
-  if (maxColumns === 0) {
+  const ref = worksheet['!ref'];
+  if (!ref) {
     return '';
   }
-  for (let rowNumber = 1; rowNumber <= worksheet.rowCount; rowNumber++) {
-    const row = worksheet.getRow(rowNumber);
+  const range = XLSX.utils.decode_range(ref);
+  const rows = [];
+  for (let rowNumber = range.s.r; rowNumber <= range.e.r; rowNumber++) {
     const serializedRow = [];
     let hasValues = false;
-    for (let columnNumber = 1; columnNumber <= maxColumns; columnNumber++) {
-      const cellText = row.getCell(columnNumber).text;
+    for (let columnNumber = range.s.c; columnNumber <= range.e.c; columnNumber++) {
+      const cell = worksheet[XLSX.utils.encode_cell({ r: rowNumber, c: columnNumber })];
+      let cellText = '';
+      if (cell) {
+        cellText = cell.w != null ? cell.w : String(cell.v == null ? '' : cell.v);
+      }
       const normalizedValue =
         cellText === null || cellText === undefined ? '' : String(cellText);
       if (normalizedValue.trim() !== '') {
@@ -128,7 +128,6 @@ async function convertXlsxToCsv(req, res) {
       });
     }
 
-    const fs = require('fs-extra');
     let buffer;
     try {
       buffer = fs.readFileSync(file.path);
@@ -142,10 +141,19 @@ async function convertXlsxToCsv(req, res) {
         },
       });
     }
+    if (buffer.length === 0) {
+      return res.status(400).json({
+        status: 400,
+        data: {
+          error: 'Empty file uploaded',
+          contents: '',
+          filename: originalname,
+        },
+      });
+    }
 
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(buffer);
-    const sheetNames = workbook.worksheets.map((sheet) => sheet.name);
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const sheetNames = workbook.SheetNames;
     const sheetName = req.query && req.query.sheet ? req.query.sheet : null;
     let selectedSheetName = sheetName;
     if (!selectedSheetName || !sheetNames.includes(selectedSheetName)) {
@@ -157,7 +165,7 @@ async function convertXlsxToCsv(req, res) {
         data: { error: 'No sheets found in Excel file', contents: '', filename: originalname },
       });
     }
-    const worksheet = workbook.getWorksheet(selectedSheetName);
+    const worksheet = workbook.Sheets[selectedSheetName];
     if (!worksheet) {
       return res.status(400).json({
         status: 400,
