@@ -13,6 +13,10 @@ const HAXCMS_ROOT = process.env.HAXCMS_ROOT || path.join(process.cwd(), "/");
 const HAXCMS_DEFAULT_THEME = 'clean-two';
 const HAXCMS_FALLBACK_HEX = '#3f51b5';
 const SITE_FILE_NAME = 'site.json';
+// Security (H1 rotation): grace window in seconds during which the immediately
+// previous refresh-token jti is still accepted, so concurrent multi-tab
+// refreshes don't mutually invalidate. Mirrors PHP HAXCMS_REFRESH_GRACE_SECONDS.
+const HAXCMS_REFRESH_GRACE_SECONDS = 30;
 // HAXCMSSite which overlaps heavily and is referenced here often
 const utf8 = require('utf8');
 const JSONOutlineSchemaItem = require('./JSONOutlineSchemaItem.js');
@@ -4274,15 +4278,32 @@ class HAXCMSClass {
       }
     }
     /**
-     * Get user's Refresh Token
+     * Get user's Refresh Token.
+     * Security (H1 rotation): when storeRefreshSession=true the token is given a
+     * `family` (per login session) and `jti` (per issuance) and the jti hash is
+     * recorded server-side so a stolen old refresh token can be invalidated by
+     * the next rotation / logout. Mirrors PHP getRefreshToken/createRefreshSession.
      */
-    getRefreshToken(name = null) {
+    getRefreshToken(name = null, storeRefreshSession = true) {
       let token = {};
       token['user'] = name;
       let n = Math.floor(Date.now() / 1000);
       token['iat'] = n;
       token['exp'] = n + (24 * 60 * 60);
-      return JWT.sign(token, this.refreshPrivateKey + this.salt);
+      if (storeRefreshSession) {
+        token['family'] = uuidv4();
+        token['jti'] = uuidv4();
+      }
+      const signed = JWT.sign(token, this.refreshPrivateKey + this.salt);
+      if (storeRefreshSession && name) {
+        try {
+          this.recordRefreshSession(name, token['family'], token['jti'], token['exp']);
+        }
+        catch (e) {
+          // non-fatal: stateless validation still works as a fallback
+        }
+      }
+      return signed;
     }
     /**
      * Decode the JWT to ensure accuracy, return false if an error happens
@@ -4370,6 +4391,195 @@ class HAXCMSClass {
         options.maxAge = maxAge;
       }
       res.cookie('haxcms_refresh_token', value, options);
+    }
+    /**
+     * Security (H1 rotation): refresh-session store. A file-backed JSON under
+     * the protected _config/settings directory maps user -> { family, currentJtiHash,
+     * previousJtiHash, previousValidUntil, exp }. Only SHA-256 hashes of jti are
+     * stored, never raw token ids. This lets refresh rotate the token (a stolen
+     * old copy dies on the legitimate user's next refresh) and lets logout
+     * revoke the whole family server-side. Mirrors PHP refresh-session helpers.
+     * Grace window: the immediately previous jti stays valid for
+     * HAXCMS_REFRESH_GRACE_SECONDS so concurrent multi-tab refreshes don't
+     * mutually invalidate.
+     */
+    getRefreshSessionsPath() {
+      return path.join(this.configDirectory, 'settings', 'refreshSessions.json');
+    }
+    _hashJti(jti) {
+      return crypto.createHash('sha256').update(String(jti || '')).digest('hex');
+    }
+    _loadRefreshSessions() {
+      const storePath = this.getRefreshSessionsPath();
+      try {
+        if (!fs.existsSync(storePath)) {
+          return {};
+        }
+        const raw = fs.readFileSync(storePath, { encoding: 'utf8', flag: 'r' });
+        const parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === 'object') ? parsed : {};
+      }
+      catch (e) {
+        return {};
+      }
+    }
+    _saveRefreshSessions(sessions) {
+      const storePath = this.getRefreshSessionsPath();
+      try {
+        const dir = path.dirname(storePath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        }
+        // prune expired entries before writing
+        const now = Math.floor(Date.now() / 1000);
+        const cleaned = {};
+        const keys = Object.keys(sessions);
+        for (let i = 0; i < keys.length; i++) {
+          const k = keys[i];
+          const entry = sessions[k];
+          if (entry && typeof entry.exp === 'number' && entry.exp > now) {
+            cleaned[k] = entry;
+          }
+        }
+        this.writeSecretFile(storePath, JSON.stringify(cleaned, null, 2));
+        this.chmodSecretFile(storePath);
+      }
+      catch (e) {
+        // non-fatal: stateless validation still works as a fallback
+      }
+    }
+    /**
+     * Record a new refresh session (called on login / institutional issuance).
+     */
+    recordRefreshSession(user, family, jti, exp) {
+      if (!user || !family || !jti) {
+        return;
+      }
+      const sessions = this._loadRefreshSessions();
+      sessions[String(user)] = {
+        family: String(family),
+        currentJtiHash: this._hashJti(jti),
+        previousJtiHash: null,
+        previousValidUntil: 0,
+        exp: Math.floor(Number(exp) || 0),
+      };
+      this._saveRefreshSessions(sessions);
+    }
+    /**
+     * Rotate a refresh session: validate family/jti against the store, then move
+     * the current jti to previous (with a grace window) and record a new current.
+     * Returns true if the rotation was accepted, false if the jti/family did not
+     * match (stolen/revoked/out-of-order token). A missing store entry is
+     * treated as legacy-accepted so deployments upgrade without logging users out.
+     */
+    rotateRefreshSession(user, family, oldJti, newJti, newExp) {
+      if (!user || !family || !oldJti || !newJti) {
+        return false;
+      }
+      const sessions = this._loadRefreshSessions();
+      const key = String(user);
+      const entry = sessions[key];
+      const now = Math.floor(Date.now() / 1000);
+      const oldHash = this._hashJti(oldJti);
+      if (entry && entry.family === String(family)) {
+        const currentMatch = entry.currentJtiHash === oldHash;
+        const previousMatch = entry.previousJtiHash === oldHash && now < (entry.previousValidUntil || 0);
+        if (!currentMatch && !previousMatch) {
+          // possible token theft / replay of an older jti -> revoke the family
+          delete sessions[key];
+          this._saveRefreshSessions(sessions);
+          return false;
+        }
+      }
+      // legacy / missing entry: accept and seed the store going forward
+      const next = entry || {};
+      next.family = String(family);
+      next.previousJtiHash = oldHash;
+      next.previousValidUntil = now + HAXCMS_REFRESH_GRACE_SECONDS;
+      next.currentJtiHash = this._hashJti(newJti);
+      next.exp = Math.floor(Number(newExp) || 0);
+      sessions[key] = next;
+      this._saveRefreshSessions(sessions);
+      return true;
+    }
+    /**
+     * Revoke a user's refresh family (called on logout). Best-effort.
+     */
+    revokeRefreshSession(user) {
+      if (!user) {
+        return;
+      }
+      const sessions = this._loadRefreshSessions();
+      if (Object.prototype.hasOwnProperty.call(sessions, String(user))) {
+        delete sessions[String(user)];
+        this._saveRefreshSessions(sessions);
+      }
+    }
+    /**
+     * Validate a refresh token's family/jti against the store WITHOUT rotating.
+     * Used by connectionTest recovery where we mint an access token but still
+     * want to reject a revoked/stolen refresh. Returns true when acceptable
+     * (including the legacy/missing-entry case so deploys don't log users out).
+     */
+    validateRefreshSession(user, family, jti) {
+      if (!user || !family || !jti) {
+        // tokens without family/jti (legacy) are accepted for migration
+        return true;
+      }
+      const sessions = this._loadRefreshSessions();
+      const entry = sessions[String(user)];
+      if (!entry) {
+        return true;
+      }
+      if (entry.family !== String(family)) {
+        return false;
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const hash = this._hashJti(jti);
+      if (entry.currentJtiHash === hash) {
+        return true;
+      }
+      if (entry.previousJtiHash === hash && now < (entry.previousValidUntil || 0)) {
+        return true;
+      }
+      return false;
+    }
+    /**
+     * Issue a rotated refresh token + cookie for a validated decoded refresh
+     * token, returning the new access JWT. Used by refreshAccessToken and
+     * connectionTest recovery. On any rotation failure returns null so callers
+     * can clear the cookie and 401. Legacy tokens (no family/jti) are upgraded.
+     */
+    rotateRefreshTokenAndCookie(res, decodedRefresh) {
+      if (!decodedRefresh || !decodedRefresh.user) {
+        return null;
+      }
+      const user = decodedRefresh.user;
+      const family = decodedRefresh.family || uuidv4();
+      const oldJti = decodedRefresh.jti || uuidv4();
+      // Generate a fresh jti + iat/exp for the rotated token. We build the
+      // payload directly (not via getRefreshToken) so we preserve the existing
+      // family and avoid recording a competing session entry.
+      const newJti = uuidv4();
+      const newIat = Math.floor(Date.now() / 1000);
+      const newExp = newIat + (24 * 60 * 60);
+      const rotated = JWT.sign(
+        {
+          user: user,
+          family: family,
+          jti: newJti,
+          iat: newIat,
+          exp: newExp,
+        },
+        this.refreshPrivateKey + this.salt,
+      );
+      const ok = this.rotateRefreshSession(user, family, oldJti, newJti, newExp);
+      if (!ok) {
+        this.revokeRefreshSession(user);
+        return null;
+      }
+      this.setRefreshTokenCookie(res, rotated, 24 * 60 * 60 * 1000);
+      return this.getJWT(user);
     }
     /**
      * Validate that a user name that came across in a JWT decode is legit

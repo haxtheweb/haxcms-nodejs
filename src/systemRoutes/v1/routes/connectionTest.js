@@ -35,7 +35,17 @@ function getValidatedJWTFromRefresh(req, res) {
   if (!validUser) {
     return null;
   }
-  return HAXCMS.getJWT(validRefresh.user);
+  // Security (H1 rotation): reject a revoked/stolen refresh family before
+  // minting an access token. validateRefreshSession accepts legacy tokens
+  // (no family/jti) so deploys don't log users out during upgrade.
+  if (!HAXCMS.validateRefreshSession(validRefresh.user, validRefresh.family, validRefresh.jti)) {
+    HAXCMS.revokeRefreshSession(validRefresh.user);
+    HAXCMS.setRefreshTokenCookie(res, '', 1);
+    return null;
+  }
+  // rotate the refresh cookie on recovery so a stolen cookie is bounded
+  const rotated = HAXCMS.rotateRefreshTokenAndCookie(res, validRefresh);
+  return rotated || HAXCMS.getJWT(validRefresh.user);
 }
 
 function resolveAuthenticatedUser(req, jwt) {
