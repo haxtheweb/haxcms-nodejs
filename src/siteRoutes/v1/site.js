@@ -578,6 +578,19 @@ async function updateSiteAlternativeFormats(req, res) {
         'Unable to resolve site name for /x/api/v1/site/updateAlternativeFormats',
     });
   }
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  if (
+    !siteToken ||
+    !HAXCMS.validateRequestToken(
+      siteToken,
+      HAXCMS.getActiveUserName() + ':' + siteName,
+    )
+  ) {
+    return res.status(403).json({
+      status: 403,
+      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+    });
+  }
   let format = null;
   if (
     req &&
@@ -589,6 +602,15 @@ async function updateSiteAlternativeFormats(req, res) {
     const requestedFormat = String(req.body.format || '').trim();
     if (requestedFormat !== '') {
       format = requestedFormat;
+    }
+  }
+  if (format !== null) {
+    const allowedFormats = ['rss', 'sitemap', 'search', 'llms'];
+    if (!allowedFormats.includes(format)) {
+      return res.status(400).json({
+        status: 400,
+        message: 'Invalid format requested for alternative formats update',
+      });
     }
   }
   try {
