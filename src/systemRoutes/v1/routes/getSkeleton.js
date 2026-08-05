@@ -105,7 +105,7 @@ async function resolveSkeletonByName(skeletonName = '') {
 /**
  * Get a specific skeleton file by name.
  * Returns the skeleton JSON data.
- * Requires a valid user_token and JWT.
+ * Requires a valid JWT.
  *
  * @OA\Get(
  *    path="/getSkeleton",
@@ -123,28 +123,7 @@ async function resolveSkeletonByName(skeletonName = '') {
  *   )
  * )
  */
-function getUserTokenFromHeader(req) {
-  if (!req || !req.headers || typeof req.headers !== 'object') {
-    return '';
-  }
-  const rawValue = req.headers['x-haxcms-user-token'];
-  if (Array.isArray(rawValue)) {
-    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
-  }
-  if (typeof rawValue === 'string') {
-    return rawValue.trim();
-  }
-  return '';
-}
-
 async function getSkeleton(req, res) {
-  const userToken = getUserTokenFromHeader(req);
-  if (!userToken || !HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName())) {
-    return res.status(403).json({
-      status: 403,
-      message: 'invalid request token',
-    });
-  }
   const skeletonName = req.query.name;
   if (!skeletonName) {
     return res.status(400).json({

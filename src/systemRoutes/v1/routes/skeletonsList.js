@@ -42,7 +42,7 @@ function resolveEnabledFilter(req) {
 /**
  * Discover available site skeletons from core and user config directories.
  * Returns metadata list compatible with app-hax v2 dashboard.
- * Requires a valid user_token and JWT.
+ * Requires a valid JWT.
  *
  * @OA\Get(
  *    path="/skeletonsList",
@@ -53,28 +53,7 @@ function resolveEnabledFilter(req) {
  *   )
  * )
  */
-function getUserTokenFromHeader(req) {
-  if (!req || !req.headers || typeof req.headers !== 'object') {
-    return '';
-  }
-  const rawValue = req.headers['x-haxcms-user-token'];
-  if (Array.isArray(rawValue)) {
-    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
-  }
-  if (typeof rawValue === 'string') {
-    return rawValue.trim();
-  }
-  return '';
-}
-
 async function skeletonsList(req, res) {
-  const userToken = getUserTokenFromHeader(req);
-  if (!userToken || !HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName())) {
-    return res.status(403).json({
-      status: 403,
-      message: 'invalid request token',
-    });
-  }
   const enabledFilter = resolveEnabledFilter(req);
   const discovered = await discoverSkeletons(HAXCMS);
   const detectedNames = discovered.map((item) => item.machineName);

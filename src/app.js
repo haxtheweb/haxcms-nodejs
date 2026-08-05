@@ -1236,16 +1236,17 @@ systemStructureContext().then((site) => {
         if (!validateSystemV1RouteAccess(req, op)) {
           return res.status(403).json({
             status: 403,
-            message: 'system admin route requires system dashboard access',
+            data: { message: 'system admin route requires system dashboard access' },
           });
         }
         let isAuthenticated = systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res);
+        let basicAuth = null;
         if (!isAuthenticated) {
-          const basicAuth = authenticateBasicAuthorizationRequest(req);
+          basicAuth = authenticateBasicAuthorizationRequest(req);
           if (basicAuth.blocked) {
             return res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
               status: 429,
-              message: 'Too many failed login attempts. Please try again later.',
+              data: { message: 'Too many failed login attempts. Please try again later.' },
             });
           }
           isAuthenticated = basicAuth.authenticated;
@@ -1253,7 +1254,20 @@ systemStructureContext().then((site) => {
         if (isAuthenticated) {
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
-        return res.sendStatus(403);
+        // D1b status-code parity (matches site API + PHP SystemApiSecurity):
+        // 401 for no creds or failed basic (fresh credential rejection);
+        // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
+        // Message strings mirror PHP SystemApiSecurity so outputs are identical.
+        if (getBearerJwtFromRequest(req) !== '') {
+          return res.status(403).json({
+            status: 403,
+            data: { message: 'Invalid bearer token' },
+          });
+        }
+        return res.status(401).json({
+          status: 401,
+          data: { message: 'Authentication required' },
+        });
       };
       const siteScopedSystemRouteHandler = (req, res, next) => {
         const op = req.route.path.replace(
@@ -1264,16 +1278,17 @@ systemStructureContext().then((site) => {
         if (!validateSystemV1RouteAccess(req, op)) {
           return res.status(403).json({
             status: 403,
-            message: 'system admin route requires system dashboard access',
+            data: { message: 'system admin route requires system dashboard access' },
           });
         }
         let isAuthenticated = systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res);
+        let basicAuth = null;
         if (!isAuthenticated) {
-          const basicAuth = authenticateBasicAuthorizationRequest(req);
+          basicAuth = authenticateBasicAuthorizationRequest(req);
           if (basicAuth.blocked) {
             return res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
               status: 429,
-              message: 'Too many failed login attempts. Please try again later.',
+              data: { message: 'Too many failed login attempts. Please try again later.' },
             });
           }
           isAuthenticated = basicAuth.authenticated;
@@ -1281,7 +1296,20 @@ systemStructureContext().then((site) => {
         if (isAuthenticated) {
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
-        return res.sendStatus(403);
+        // D1b status-code parity (matches site API + PHP SystemApiSecurity):
+        // 401 for no creds or failed basic (fresh credential rejection);
+        // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
+        // Message strings mirror PHP SystemApiSecurity so outputs are identical.
+        if (getBearerJwtFromRequest(req) !== '') {
+          return res.status(403).json({
+            status: 403,
+            data: { message: 'Invalid bearer token' },
+          });
+        }
+        return res.status(401).json({
+          status: 401,
+          data: { message: 'Authentication required' },
+        });
       };
       if (systemRouteParser) {
         app[systemMethod](
