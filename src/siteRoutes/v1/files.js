@@ -1049,17 +1049,13 @@ async function createFile(req, res) {
     });
   }
   if (!fileResult || Number(fileResult.status) !== 200) {
-    const failed =
-      fileResult &&
-      fileResult.__failed &&
-      typeof fileResult.__failed === 'object'
-        ? fileResult.__failed
-        : null;
+    // D58: HAXCMSFile.save now returns D1 error shape {status, data:{message}}
+    // instead of the internal {status, __failed:{status, message}} wrapper.
     return res.status(500).json({
       status: 500,
       data: {
-        message: failed && typeof failed.message === 'string'
-          ? failed.message
+        message: fileResult && fileResult.data && typeof fileResult.data.message === 'string'
+          ? fileResult.data.message
           : 'Unable to save file',
       },
     });

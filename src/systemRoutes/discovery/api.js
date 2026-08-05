@@ -92,7 +92,7 @@ async function systemDiscoveryApi(req, res) {
         ],
       },
       openapi: {
-        source: 'openapi/system-spec.yaml',
+        source: 'systemRoutes/openapi/system-spec.yaml',
         routeDriven: true,
       },
     },
