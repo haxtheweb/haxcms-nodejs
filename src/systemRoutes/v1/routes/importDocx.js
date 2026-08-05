@@ -109,48 +109,52 @@ async function importDocx(req, res) {
 
     switch (method) {
       case 'site': {
-        let h1s = doc.querySelectorAll('h1');
-        let h1Order = 0;
-        if (h1s.length === 0) {
+        const highestLevel = getHighestHeadingLevel(doc);
+        if (highestLevel === 0) {
           items.push(importSinglePage(titleValue, processSinglePageContent(doc.querySelector('#docx-import-wrapper')), parentId));
         } else {
-          for await (const h1 of h1s) {
+          const rootTag = 'H' + highestLevel;
+          const childTag = highestLevel < 4 ? 'H' + (highestLevel + 1) : null;
+          let rootHeadings = doc.querySelectorAll(rootTag.toLowerCase());
+          let rootOrder = 0;
+          for await (const rootHeading of rootHeadings) {
             let item = new JSONOutlineSchemaItem();
-            item.title = h1.text.trim().replace('  ', ' ').replace('  ', ' ');
+            item.title = rootHeading.text.trim().replace('  ', ' ').replace('  ', ' ');
             item.slug = HAXCMS.cleanTitle(item.title);
-            item.order = h1Order;
+            item.order = rootOrder;
             item.parent = parentId;
-            h1Order += 1;
-            let tmp = await nextUntilElement(h1, ['H1']);
-            let h1Children = tmp.siblings;
+            rootOrder += 1;
+            let tmp = await nextUntilElement(rootHeading, [rootTag]);
+            let rootChildren = tmp.siblings;
             let contents = '';
-            let h2 = null;
-            for await (const h1Child of h1Children) {
-              if (h1Child.tagName === 'H2') {
-                h2 = h1Child;
+            let childHeading = null;
+            for await (const child of rootChildren) {
+              if (childTag && child.tagName === childTag) {
+                childHeading = child;
                 break;
-              } else if (h2 === null) {
-                contents += htmlFromEl(h1Child);
+              } else if (childHeading === null) {
+                contents += htmlFromEl(child);
               }
             }
             item.contents = contents !== '' ? contents : getFallbackContent(type);
             items.push(item);
-            if (h2) {
-              let h2Order = 0;
-              while (h2 !== null && h2.tagName === 'H2') {
+            if (childHeading && childTag) {
+              let childOrder = 0;
+              let currentChild = childHeading;
+              while (currentChild !== null && currentChild.tagName === childTag) {
                 let item2 = new JSONOutlineSchemaItem();
-                item2.title = h2.text.trim().replace('  ', ' ').replace('  ', ' ');
+                item2.title = currentChild.text.trim().replace('  ', ' ').replace('  ', ' ');
                 item2.slug = item.slug + '/' + HAXCMS.cleanTitle(item2.title);
-                item2.order = h2Order;
-                h2Order += 1;
+                item2.order = childOrder;
+                childOrder += 1;
                 item2.indent = 1;
                 item2.parent = item.id;
-                let tmp = await nextUntilElement(h2, ['H1', 'H2']);
-                let h2Children = tmp.siblings;
-                h2 = tmp.lastEl;
+                let tmp2 = await nextUntilElement(currentChild, [rootTag, childTag]);
+                let childChildren = tmp2.siblings;
+                currentChild = tmp2.lastEl;
                 let contents2 = '';
-                for await (const h2Child of h2Children) {
-                  contents2 += htmlFromEl(h2Child);
+                for await (const childChild of childChildren) {
+                  contents2 += htmlFromEl(childChild);
                 }
                 item2.contents = contents2 !== '' ? contents2 : '<p></p>';
                 items.push(item2);
@@ -161,23 +165,25 @@ async function importDocx(req, res) {
         break;
       }
       case 'branch': {
-        let els = doc.querySelectorAll('h1');
-        let order = 0;
-        if (els.length === 0) {
+        const highestLevel = getHighestHeadingLevel(doc);
+        if (highestLevel === 0) {
           items.push(importSinglePage(titleValue, processSinglePageContent(doc.querySelector('#docx-import-wrapper')), parentId));
         } else {
-          for await (const h1 of els) {
+          const rootTag = 'H' + highestLevel;
+          let els = doc.querySelectorAll(rootTag.toLowerCase());
+          let order = 0;
+          for await (const rootHeading of els) {
             let item = new JSONOutlineSchemaItem();
-            item.title = h1.text.trim().replace('  ', ' ').replace('  ', ' ');
+            item.title = rootHeading.text.trim().replace('  ', ' ').replace('  ', ' ');
             item.slug = HAXCMS.cleanTitle(item.title);
             item.order = order;
             item.parent = parentId;
             order += 1;
-            let tmp = await nextUntilElement(h1, ['H1']);
-            let h1Children = tmp.siblings;
+            let tmp = await nextUntilElement(rootHeading, [rootTag]);
+            let rootChildren = tmp.siblings;
             let contents = '';
-            for await (const h1Child of h1Children) {
-              contents += htmlFromEl(h1Child);
+            for await (const child of rootChildren) {
+              contents += htmlFromEl(child);
             }
             item.contents = contents !== '' ? contents : getFallbackContent(type);
             items.push(item);
@@ -249,6 +255,16 @@ async function nextUntilElement(elem, tagMatches) {
     siblings: siblings,
     lastEl: elem,
   };
+}
+
+function getHighestHeadingLevel(doc) {
+  for (let level = 1; level <= 4; level++) {
+    var els = doc.querySelectorAll('h' + level);
+    if (els.length > 0) {
+      return level;
+    }
+  }
+  return 0;
 }
 
 function getFallbackContent(type) {

@@ -20,16 +20,11 @@ async function convertDocxToPdf(req, res) {
 
     const file = req.files[0];
     originalname = file.originalname;
-    const validExtensions = ['.docx', '.doc'];
-    const hasValidExtension = validExtensions.some((ext) =>
-      originalname.toLowerCase().endsWith(ext)
-    );
-
-    if (!hasValidExtension) {
+    if (!/\.docx$/i.test(originalname)) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Invalid file type. Expected .docx or .doc, got: ${originalname}`,
+          error: `Invalid file type. Expected .docx, got: ${originalname}`,
           contents: '',
           filename: originalname,
         },
@@ -99,12 +94,14 @@ async function convertDocxToPdf(req, res) {
       });
     }
 
-    const pdfFilename = originalname.replace(/\.docx?$/i, '.pdf');
+    const pdfFilename = originalname.replace(/\.docx$/i, '.pdf');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${pdfFilename}"`,
     );
+    res.setHeader('Content-Length', String(pdfBuffer.length));
+    res.setHeader('Cache-Control', 'no-store, no-cache');
     return res.send(pdfBuffer);
   } catch (error) {
     console.error('docxToPdf: Error processing file:', error.message);

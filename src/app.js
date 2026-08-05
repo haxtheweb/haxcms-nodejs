@@ -166,6 +166,8 @@ function getSystemV1RouteParser(method = 'get', route = '') {
       normalizedRoute === 'configuration/skeletons' ||
       normalizedRoute === 'skeletons' ||
       normalizedRoute === 'actions/docx-to-html' ||
+      normalizedRoute === 'actions/html-to-docx' ||
+      normalizedRoute === 'actions/html-to-pdf' ||
       normalizedRoute === 'actions/import-docx' ||
       normalizedRoute === 'actions/import-pptx' ||
       normalizedRoute === 'actions/import-html' ||

@@ -10,7 +10,7 @@ const mdClass = new MarkdownIt()
  * POST /system/api/v1/actions/convert-gitbook-to-site
  * Convert a Gitbook repository (or SUMMARY.md link) into a HAXcms site schema.
  *
- * Expects JSON body with `md` param (URL to SUMMARY.md or GitHub repo URL).
+ * Expects JSON body with `repoUrl` param (URL to SUMMARY.md or GitHub repo URL).
  * Returns { status: 200, data: { items: [...], filename: string, files: {...} } }.
  */
 async function convertGitbookToSite(req, res) {
@@ -26,11 +26,11 @@ async function convertGitbookToSite(req, res) {
       body = {}
     }
   }
-  if (!body || !body.md) {
+  if (!body || !body.repoUrl) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: 'missing `md` param',
+        error: 'missing `repoUrl` param',
         items: [],
         filename: null,
         files: {}
@@ -39,7 +39,7 @@ async function convertGitbookToSite(req, res) {
   }
 
   try {
-    const sourceLink = body.md
+    const sourceLink = body.repoUrl
     let tmp = new URL(sourceLink)
     // ensure we go from github to raw git response for the md
     if (tmp.href.indexOf('github.com') !== -1) {
