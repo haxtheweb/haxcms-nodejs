@@ -158,7 +158,7 @@ function replaceWithKnownPrefix(value, sourcePrefixes = [], targetPrefix = '') {
       res.send({
         status: 200,
         data: {
-          link:
+          detail:
             HAXCMS.basePath +
             HAXCMS.sitesDirectory +
             '/' +

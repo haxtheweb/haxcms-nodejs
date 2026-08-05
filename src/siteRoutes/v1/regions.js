@@ -35,7 +35,9 @@ async function listRegions(req, res) {
     });
   }
   const apiBasePath = getApiBasePath(req);
-  const filteredItems = applyItemFilters(getOrderedItems(site), req, site);
+  const filteredItems = applyItemFilters(getOrderedItems(site), req, site, {
+    enforceAnonymousVisibility: true,
+  });
   const regionMap = {};
   for (let i = 0; i < filteredItems.length; i++) {
     const item = filteredItems[i];
@@ -93,7 +95,9 @@ async function regionDetail(req, res) {
   }
   const apiBasePath = getApiBasePath(req);
   const fields = getCsvQuery(req, 'fields');
-  const filteredItems = applyItemFilters(getOrderedItems(site), req, site).filter(
+  const filteredItems = applyItemFilters(getOrderedItems(site), req, site, {
+    enforceAnonymousVisibility: true,
+  }).filter(
     (item) => getRegionName(item) === regionName,
   );
   if (filteredItems.length === 0) {

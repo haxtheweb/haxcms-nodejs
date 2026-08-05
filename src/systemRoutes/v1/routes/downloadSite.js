@@ -106,7 +106,7 @@ function createArchiver(format, options = {}) {
           HAXCMS.publishedDirectory +
           '/' + site.name +
           '.zip',
-        'name': site.name
+        'name': site.name + '.zip'
         }
       });
   }

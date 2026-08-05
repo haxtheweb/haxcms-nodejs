@@ -284,6 +284,76 @@ async function resolveSkeletonBuildByThemeMachineName(machineName) {
   };
 }
 
+function buildItemsSignature(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return null;
+  }
+  const ids = [];
+  for (const item of items) {
+    if (item && typeof item === 'object' && typeof item.id === 'string') {
+      ids.push(item.id);
+    }
+    if (ids.length >= 5) {
+      break;
+    }
+  }
+  if (ids.length === 0) {
+    return null;
+  }
+  return items.length + ':' + ids.join('|');
+}
+
+async function resolveSkeletonByBuildItems(items) {
+  const targetSignature = buildItemsSignature(items);
+  if (targetSignature === null) {
+    return null;
+  }
+  const dirs = [
+    path.join(HAXCMS.configDirectory, 'user', 'skeletons'),
+    path.join(HAXCMS.configDirectory, 'skeletons'),
+    path.join(HAXCMS.coreConfigPath, 'skeletons')
+  ];
+  for (const dir of dirs) {
+    if (!(await fs.pathExists(dir))) {
+      continue;
+    }
+    const files = await fs.readdir(dir);
+    for (const file of files) {
+      const filePath = path.join(dir, file);
+      let stat;
+      try {
+        stat = await fs.stat(filePath);
+      }
+      catch (e) {
+        continue;
+      }
+      if (!stat.isFile() || path.extname(file).toLowerCase() !== '.json') {
+        continue;
+      }
+      let skeleton;
+      try {
+        skeleton = JSON.parse(await fs.readFile(filePath, 'utf8'));
+      }
+      catch (e) {
+        continue;
+      }
+      if (!isObjectLike(skeleton) || !isObjectLike(skeleton.build)) {
+        continue;
+      }
+      const skeletonBuildItems = Array.isArray(skeleton.build.items) ? skeleton.build.items : [];
+      const skeletonSignature = buildItemsSignature(skeletonBuildItems);
+      if (skeletonSignature !== null && skeletonSignature === targetSignature) {
+        return {
+          filePath,
+          skeleton,
+          build: skeleton.build,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 function isObjectLike(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -499,40 +569,61 @@ async function createSite(req, res) {
         filesToDownload = req.body['build']['files'];
       }
       const isFromSkeleton =
-        build.structure === 'from-skeleton' &&
-        req.body['build']['skeletonMachineName'] &&
-        typeof req.body['build']['skeletonMachineName'] === 'string';
+        build &&
+        build.structure === 'from-skeleton';
       if (isFromSkeleton) {
-        let resolvedSkeleton = await resolveSkeletonBuildByMachineName(
-          req.body['build']['skeletonMachineName']
-        );
-        if (!resolvedSkeleton || !resolvedSkeleton.skeleton) {
-          resolvedSkeleton = await resolveSkeletonBuildByThemeMachineName(
-            req.body['build']['skeletonMachineName']
+        const skeletonMachineName = (
+          req.body['build']['skeletonMachineName'] &&
+          typeof req.body['build']['skeletonMachineName'] === 'string'
+        )
+          ? req.body['build']['skeletonMachineName']
+          : '';
+        let resolvedSkeleton = null;
+        if (skeletonMachineName !== '') {
+          resolvedSkeleton = await resolveSkeletonBuildByMachineName(
+            skeletonMachineName
           );
+          if (!resolvedSkeleton || !resolvedSkeleton.skeleton) {
+            resolvedSkeleton = await resolveSkeletonBuildByThemeMachineName(
+              skeletonMachineName
+            );
+          }
         }
-        if (!resolvedSkeleton || !resolvedSkeleton.skeleton) {
+        if (
+          (!resolvedSkeleton || !resolvedSkeleton.skeleton) &&
+          Array.isArray(build.items) &&
+          build.items.length > 0
+        ) {
+          resolvedSkeleton = await resolveSkeletonByBuildItems(build.items);
+        }
+        if (
+          skeletonMachineName !== '' &&
+          (!resolvedSkeleton || !resolvedSkeleton.skeleton)
+        ) {
           return res.status(400).json({
             status: 400,
             data: {
               message: 'Unable to resolve skeletonMachineName for from-skeleton build',
+              skeletonMachineName: skeletonMachineName,
             }
           });
         }
-        trustedSkeleton = resolvedSkeleton.skeleton;
-        trustedSkeletonFilePath = resolvedSkeleton.filePath;
-        const trustedBuild = isObjectLike(trustedSkeleton.build)
-          ? trustedSkeleton.build
-          : {};
-        if (typeof trustedBuild.structure === 'string' && trustedBuild.structure !== '') {
-          build.structure = trustedBuild.structure;
-        }
-        if (typeof trustedBuild.type === 'string' && trustedBuild.type !== '') {
-          build.type = trustedBuild.type;
-        }
-        build.items = Array.isArray(trustedBuild.items) ? trustedBuild.items : [];
-        if (trustedBuild.files && typeof trustedBuild.files === 'object') {
-          filesToDownload = trustedBuild.files;
+        if (resolvedSkeleton && resolvedSkeleton.skeleton) {
+          trustedSkeleton = resolvedSkeleton.skeleton;
+          trustedSkeletonFilePath = resolvedSkeleton.filePath;
+          const trustedBuild = isObjectLike(trustedSkeleton.build)
+            ? trustedSkeleton.build
+            : {};
+          if (typeof trustedBuild.structure === 'string' && trustedBuild.structure !== '') {
+            build.structure = trustedBuild.structure;
+          }
+          if (typeof trustedBuild.type === 'string' && trustedBuild.type !== '') {
+            build.type = trustedBuild.type;
+          }
+          build.items = Array.isArray(trustedBuild.items) ? trustedBuild.items : [];
+          if (trustedBuild.files && typeof trustedBuild.files === 'object') {
+            filesToDownload = trustedBuild.files;
+          }
         }
       }
     }
@@ -839,6 +930,8 @@ async function createSite(req, res) {
     res.send({
       "status": 200,
       "data": schema,
+      "id": schema.id,
+      "slug": schema.slug,
       "link": HAXCMS.basePath + HAXCMS.sitesDirectory + '/' + site.manifest.metadata.site.name + '/'
     });
   }

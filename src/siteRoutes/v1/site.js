@@ -765,7 +765,6 @@ async function normalizeSiteSlugs(req, res) {
   return res.json({
     status: 200,
     data: {
-      items: site.manifest.items,
       changed: changes.length > 0,
       preview: isPreview,
       changes: changes,

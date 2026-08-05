@@ -997,8 +997,56 @@ async function itemExport(req, res) {
   )
 }
 
+// D43: POST v1/site/export/:format mutation handler. Mirrors PHP
+// exportsMutation.php: returns the JSON export descriptor (never the binary
+// download). Authenticated-site gating is applied by the route registration
+// layer (all POST site routes require authenticated-site).
+async function siteExportMutation(req, res) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/site/export/:format',
+      },
+    });
+  }
+  const apiBasePath = getApiBasePath(req);
+  const format = normalizeFormatValue(
+    req && req.params && req.params.format ? req.params.format : '',
+  );
+  if (SITE_EXPORT_FORMATS.indexOf(format) === -1) {
+    return res.status(400).json({
+      status: 400,
+      data: {
+        message: `Unsupported site export format "${format}"`,
+      },
+      supportedFormats: SITE_EXPORT_FORMATS,
+    });
+  }
+  const exportDetails = buildSiteExportDetails(site, apiBasePath, format);
+  return sendFormattedResponse(
+    req,
+    res,
+    {
+      format,
+      supportedFormats: SITE_EXPORT_FORMATS,
+      export: exportDetails,
+      links: {
+        self: `${apiBasePath}/v1/site/export/${format}`,
+        site: `${apiBasePath}/v1/site`,
+      },
+    },
+    {
+      allowedFormats: ['json'],
+      defaultFormat: 'json',
+    },
+  );
+}
+
 module.exports = {
   siteExport,
+  siteExportMutation,
   itemExport,
   ITEM_EXPORT_FORMATS,
 }

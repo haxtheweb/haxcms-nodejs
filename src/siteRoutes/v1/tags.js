@@ -54,7 +54,9 @@ async function tags(req, res) {
   const tagFilter = getCsvQuery(req, 'filter.tags').map((tag) =>
     String(tag || '').toLowerCase(),
   );
-  const filteredItems = applyItemFilters(getOrderedItems(site), req, site);
+  const filteredItems = applyItemFilters(getOrderedItems(site), req, site, {
+    enforceAnonymousVisibility: true,
+  });
   let records = buildTagRecords(filteredItems, includeItems);
   if (tagFilter.length > 0) {
     records = records.filter(

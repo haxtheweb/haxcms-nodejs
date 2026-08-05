@@ -235,6 +235,12 @@ addRouteHandler(
 );
 addRouteHandler(
   SiteRoutesMap,
+  'post',
+  'v1/site/export/:format',
+  v1ExportRoutes.siteExportMutation,
+);
+addRouteHandler(
+  SiteRoutesMap,
   'get',
   'v1/items/:idOrSlug/revisions',
   v1RevisionRoutes.listItemRevisions,

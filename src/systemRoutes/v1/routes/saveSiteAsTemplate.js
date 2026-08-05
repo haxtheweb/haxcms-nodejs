@@ -75,14 +75,15 @@ async function saveSiteAsTemplate(req, res) {
     const fileName = `${machineName}.json`;
     const filePath = path.join(templateDir, fileName);
     await fs.writeFile(filePath, `${JSON.stringify(skeleton, null, 2)}\n`, 'utf8');
-    const baseAPIPath = `${HAXCMS.basePath}${HAXCMS.systemRequestBase}`;
-    const templateLink = `${baseAPIPath}v1/configuration/skeletons/${encodeURIComponent(machineName)}?user_token=${encodeURIComponent(req.query['user_token'])}`;
+    const baseAPIPath = `${HAXCMS.basePath}${HAXCMS.systemRequestBase}/`;
+    const templateLink = `${baseAPIPath}v1/skeletons/${encodeURIComponent(machineName)}`;
     return res.send({
       status: 200,
       data: {
+        saved: true,
         name: machineName,
-        file: fileName,
-        detail: 'Template saved',
+        filename: fileName,
+        path: filePath,
         link: templateLink,
       },
     });

@@ -1376,6 +1376,36 @@ systemStructureContext().then((site) => {
     }
   }
   assertSiteApiMutationRoutesAreSecured(siteRouteRegistry);
+  // D60: 405+Allow dispatch for system and site API routes. After all routes
+  // are registered, add a catch-all that checks if the request path matches a
+  // registered route for a different method and returns 405 + Allow header.
+  // Mirrors PHP SystemApiRouter/SiteApiRouter 405+Allow dispatch. If no
+  // method matches, the request falls through to the existing catch-all / 404.
+  app.use((req, res, next) => {
+    const requestPath = getRequestPathWithoutQuery(req.originalUrl || req.url);
+    const upperReqMethod = String(req.method || 'GET').toUpperCase();
+    // Check system API paths
+    if (requestPath.indexOf('/system/api/') !== -1) {
+      const systemSuffix = extractSystemApiRouteSuffixFromPath(requestPath);
+      if (systemSuffix !== null) {
+        const allowedMethods = findAllowedMethodsForRouteSuffix(systemSuffix, systemRouteRegistry);
+        if (allowedMethods.length > 0 && allowedMethods.indexOf(upperReqMethod) === -1) {
+          return sendMethodNotAllowedResponse(res, systemSuffix, allowedMethods);
+        }
+      }
+    }
+    // Check site API paths
+    if (isSiteApiRequestPath(requestPath)) {
+      const siteSuffix = extractSiteApiRouteSuffixFromPath(requestPath);
+      if (siteSuffix !== null) {
+        const allowedMethods = findAllowedMethodsForRouteSuffix(siteSuffix, siteRouteRegistry);
+        if (allowedMethods.length > 0 && allowedMethods.indexOf(upperReqMethod) === -1) {
+          return sendMethodNotAllowedResponse(res, siteSuffix, allowedMethods);
+        }
+      }
+    }
+    next();
+  });
   // can't do this for a site context
   if (!site) {
     // catch anything called on homepage that doens't match and ensure it still goes through so that it 404s correctly
@@ -2256,6 +2286,100 @@ function getStaticSendFileOptions(rootPath = '', requestPath = '') {
     options.dotfiles = 'allow';
   }
   return options;
+}
+// D60: 405+Allow dispatch helpers. These support the catch-all middleware
+// that checks if a request path matches a registered route for a different
+// method and returns 405 + Allow header. Mirrors PHP SystemApiRouter /
+// SiteApiRouter matchRoute + 405+Allow dispatch.
+function matchRoutePatternToPath(pattern, routePath) {
+  const patternParts = String(pattern || '').split('/').filter(function (p) { return p !== ''; });
+  const pathParts = String(routePath || '').split('/').filter(function (p) { return p !== ''; });
+  if (patternParts.length !== pathParts.length) {
+    return false;
+  }
+  for (let i = 0; i < patternParts.length; i++) {
+    if (patternParts[i].charAt(0) === ':') {
+      continue;
+    }
+    if (patternParts[i] !== pathParts[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+function findAllowedMethodsForRouteSuffix(routeSuffix, registry) {
+  const allowedMethods = [];
+  if (!registry || typeof registry !== 'object') {
+    return allowedMethods;
+  }
+  const registryMethods = Object.keys(registry);
+  for (let i = 0; i < registryMethods.length; i++) {
+    const method = registryMethods[i];
+    const routeMap = registry[method];
+    if (!routeMap || typeof routeMap !== 'object') {
+      continue;
+    }
+    const routePatterns = Object.keys(routeMap);
+    for (let j = 0; j < routePatterns.length; j++) {
+      if (matchRoutePatternToPath(routePatterns[j], routeSuffix)) {
+        const upperMethod = String(method || '').toUpperCase();
+        if (allowedMethods.indexOf(upperMethod) === -1) {
+          allowedMethods.push(upperMethod);
+        }
+        break;
+      }
+    }
+  }
+  return allowedMethods;
+}
+function extractSiteApiRouteSuffixFromPath(requestPath) {
+  const siteApiBase = getSiteApiBasePath();
+  const normalizedPath = getRequestPathWithoutQuery(requestPath);
+  const siteScopedPrefix = '/' + HAXCMS.sitesDirectory + '/';
+  let workingPath = normalizedPath;
+  if (workingPath.indexOf(siteScopedPrefix) === 0) {
+    const afterSites = workingPath.substring(siteScopedPrefix.length);
+    const apiIndex = afterSites.indexOf(siteApiBase + '/');
+    if (apiIndex !== -1) {
+      workingPath = afterSites.substring(apiIndex);
+    }
+  }
+  if (workingPath.indexOf(siteApiBase + '/') === 0) {
+    return workingPath.substring(siteApiBase.length + 1);
+  }
+  if (workingPath === siteApiBase) {
+    return '';
+  }
+  return null;
+}
+function extractSystemApiRouteSuffixFromPath(requestPath) {
+  const systemApiV1Base = String(HAXCMS.basePath || '/') + String(HAXCMS.systemRequestBase || '') + 'v1/';
+  const normalizedPath = getRequestPathWithoutQuery(requestPath);
+  const siteScopedPrefix = '/' + HAXCMS.sitesDirectory + '/';
+  let workingPath = normalizedPath;
+  if (workingPath.indexOf(siteScopedPrefix) === 0) {
+    const afterSites = workingPath.substring(siteScopedPrefix.length);
+    const apiIndex = afterSites.indexOf(systemApiV1Base);
+    if (apiIndex !== -1) {
+      workingPath = afterSites.substring(apiIndex);
+    }
+  }
+  if (workingPath.indexOf(systemApiV1Base) === 0) {
+    return workingPath.substring(systemApiV1Base.length);
+  }
+  return null;
+}
+function sendMethodNotAllowedResponse(res, routeSuffix, allowedMethods) {
+  const sortedMethods = allowedMethods.slice().sort();
+  res.set('Allow', sortedMethods.join(', '));
+  return res.status(405).json({
+    status: 405,
+    data: {
+      message: 'Method not allowed',
+      route: routeSuffix,
+      methods: sortedMethods,
+    },
+  });
 }
 
 function getExplicitVariantInfo(pathname = '') {
