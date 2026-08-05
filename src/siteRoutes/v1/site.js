@@ -605,7 +605,7 @@ async function updateSiteAlternativeFormats(req, res) {
     }
   }
   if (format !== null) {
-    const allowedFormats = ['rss', 'sitemap', 'search', 'llms'];
+    const allowedFormats = ['rss', 'sitemap', 'search', 'llms', 'service-worker'];
     if (!allowedFormats.includes(format)) {
       return res.status(400).json({
         status: 400,

@@ -49,6 +49,7 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
           status: 200,
           data: {
             name: site.name,
+            archivedName: site.name,
             detail: 'Site archived',
           },
         });
