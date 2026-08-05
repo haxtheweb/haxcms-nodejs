@@ -1350,15 +1350,15 @@ systemStructureContext().then((site) => {
             }
             return res.status(access.status).json({
               status: access.status,
-              message: access.message,
+              data: { message: access.message },
             });
           }
           siteRouteRegistry[siteMethod][siteRoute](req, res, next);
         } catch (e) {
           return res.status(500).json({
             status: 500,
-            message: 'Unable to evaluate site API access policy',
-          });
+            data: { message: 'Unable to evaluate site API access policy' },
+            });
         }
       };
       if (siteRouteParser) {

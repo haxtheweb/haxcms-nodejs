@@ -81,10 +81,12 @@ addRouteHandler(SystemRoutesMap, 'post', 'session/login', sessionRoutes.login);
 addRouteHandler(SystemRoutesMap, 'post', 'session/logout', sessionRoutes.logout);
 addRouteHandler(SystemRoutesMap, 'get', 'session', sessionRoutes.session);
 addRouteHandler(SystemRoutesMap, 'post', 'session', sessionRoutes.session);
-// Security (HAX-SEC-008): refresh is POST-only. A GET navigation can trigger
-// a token refresh via the SameSite=Lax cookie; restricting to POST closes that
-// trigger. SameSite=Lax already blocks cross-site POST, which is the desired
-// posture. Mirrors the state-changing-via-GET hygiene fix.
+addRouteHandler(
+  SystemRoutesMap,
+  'get',
+  'session/refresh',
+  sessionRoutes.refreshAccessToken,
+);
 addRouteHandler(
   SystemRoutesMap,
   'post',
