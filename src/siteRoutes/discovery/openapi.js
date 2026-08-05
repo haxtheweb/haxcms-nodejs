@@ -114,14 +114,18 @@ async function siteOpenapi(req, res) {
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: 'Failed to load site OpenAPI specification',
+      data: {
+        message: 'Failed to load site OpenAPI specification',
+      },
     });
   }
 
   if (!openapi || typeof openapi !== 'object') {
     return res.status(500).json({
       status: 500,
-      message: 'Invalid site OpenAPI specification',
+      data: {
+        message: 'Invalid site OpenAPI specification',
+      },
     });
   }
 

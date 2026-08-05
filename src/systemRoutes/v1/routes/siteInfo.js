@@ -101,14 +101,14 @@ async function siteInfo(req, res) {
   if (siteName === '') {
     return res.status(400).json({
       status: 400,
-      message: 'siteName is required',
+      data: { message: 'siteName is required' },
     });
   }
   const site = await HAXCMS.loadSite(siteName);
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Site not found',
+      data: { message: 'Site not found' },
     });
   }
   const links = buildSiteLinks(siteName);

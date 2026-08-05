@@ -383,28 +383,28 @@ async function siteSearch(req, res) {
     !siteName ||
     !HAXCMS.validateRequestToken(siteToken, `${HAXCMS.getActiveUserName()}:${siteName}`)
   ) {
-    return res.sendStatus(403);
+    return res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
   }
   const operation = normalizeOperationValue(requestBody.operation);
   const searchTerm = typeof requestBody.search === 'string'
     ? requestBody.search.trim()
     : '';
   if (!searchTerm) {
-    return res.status(400).send({
+    return res.status(400).json({
       status: 400,
-      message: 'Search query is required',
+      data: { message: 'Search query is required' },
     });
   }
   if (searchTerm.length > SITE_SEARCH_MAX_QUERY_LENGTH) {
-    return res.status(400).send({
+    return res.status(400).json({
       status: 400,
-      message: `Search query is too long (max ${SITE_SEARCH_MAX_QUERY_LENGTH} characters)`,
+      data: { message: `Search query is too long (max ${SITE_SEARCH_MAX_QUERY_LENGTH} characters)` },
     });
   }
   if (operation === SITE_SEARCH_OPERATION_REPLACE && searchTerm.length <= 1) {
-    return res.status(400).send({
+    return res.status(400).json({
       status: 400,
-      message: 'Search text must be more than 1 character for replacement operations',
+      data: { message: 'Search text must be more than 1 character for replacement operations' },
     });
   }
 
@@ -426,21 +426,21 @@ async function siteSearch(req, res) {
       ? requestBody.replace.trim()
       : '';
     if (replacement.length === 1) {
-      return res.status(400).send({
+      return res.status(400).json({
         status: 400,
-        message: 'Replacement text must be empty or more than 1 character',
+        data: { message: 'Replacement text must be empty or more than 1 character' },
       });
     }
     if (!parseBooleanFromInput(requestBody.replaceConfirm, false)) {
-      return res.status(400).send({
+      return res.status(400).json({
         status: 400,
-        message: 'Replacement requires confirmation',
+        data: { message: 'Replacement requires confirmation' },
       });
     }
     if (replacement === '' && !parseBooleanFromInput(requestBody.replaceDestroyConfirm, false)) {
-      return res.status(400).send({
+      return res.status(400).json({
         status: 400,
-        message: 'Removing matched text requires a second confirmation',
+        data: { message: 'Removing matched text requires a second confirmation' },
       });
     }
   }
@@ -449,9 +449,9 @@ async function siteSearch(req, res) {
   if (selectorMode) {
     selectorData = parseSimpleSelector(searchTerm);
     if (!selectorData.valid) {
-      return res.status(400).send({
+      return res.status(400).json({
         status: 400,
-        message: selectorData.reason,
+        data: { message: selectorData.reason },
       });
     }
   }
@@ -526,15 +526,15 @@ async function siteSearch(req, res) {
       catch (e) {}
     }
     if (totalMatches < 1) {
-      return res.status(400).send({
+      return res.status(400).json({
         status: 400,
-        message: 'Search term not found in site content',
+        data: { message: 'Search term not found in site content' },
       });
     }
     if (updatedItems < 1) {
-      return res.status(500).send({
+      return res.status(500).json({
         status: 500,
-        message: 'No pages could be updated',
+        data: { message: 'No pages could be updated' },
       });
     }
     site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
@@ -598,9 +598,9 @@ async function siteSearch(req, res) {
           }
         }
         catch (e) {
-          return res.status(400).send({
+          return res.status(400).json({
             status: 400,
-            message: 'Invalid selector query',
+            data: { message: 'Invalid selector query' },
           });
         }
       }

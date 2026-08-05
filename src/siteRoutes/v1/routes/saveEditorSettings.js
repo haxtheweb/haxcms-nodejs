@@ -43,7 +43,7 @@ async function saveEditorSettings(req, res) {
     }
 
     if (!req.body || typeof req.body.platform !== 'object' || !req.body.platform) {
-      res.sendStatus(400);
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
       return;
     }
 
@@ -53,7 +53,7 @@ async function saveEditorSettings(req, res) {
         : '';
     const allowedAudiences = ['novice', 'expert'];
     if (!allowedAudiences.includes(audienceRaw)) {
-      res.sendStatus(400);
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
       return;
     }
 
@@ -72,9 +72,9 @@ async function saveEditorSettings(req, res) {
     await site.manifest.save(false);
     await site.gitCommit('Editor settings updated');
 
-    res.send(site.manifest);
+    res.json({ status: 200, data: site.manifest });
   } else {
-    res.sendStatus(403);
+    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
   }
 }
 

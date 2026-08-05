@@ -525,7 +525,7 @@ function ensureSiteMetadataContainers(site) {
 
 function assertSiteFeature(site, res, featureName, message) {
   if (!site || !site.manifest) {
-    res.sendStatus(400);
+    res.status(400).json({ status: 400, data: { message: 'Site is required' } });
     return false;
   }
   if (!platformAllows(site, featureName)) {

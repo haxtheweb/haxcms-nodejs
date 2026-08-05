@@ -329,7 +329,9 @@ async function listBlocks(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/blocks',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/blocks',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -397,7 +399,9 @@ async function blockDetail(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/blocks/:webcomponentName',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/blocks/:webcomponentName',
+      },
     });
   }
   const webcomponentName =
@@ -407,7 +411,9 @@ async function blockDetail(req, res) {
   if (webcomponentName === '') {
     return res.status(404).json({
       status: 404,
-      message: 'Block not found',
+      data: {
+        message: 'Block not found',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -428,7 +434,9 @@ async function blockDetail(req, res) {
   if (!known) {
     return res.status(404).json({
       status: 404,
-      message: `Block "${webcomponentName}" not found`,
+      data: {
+        message: `Block "${webcomponentName}" not found`,
+      },
     });
   }
   const usageItemIds = usageDetails
@@ -461,8 +469,10 @@ async function blockUsage(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message:
-        'Unable to resolve site context for /x/api/v1/blocks/:webcomponentName/usage',
+      data: {
+        message:
+          'Unable to resolve site context for /x/api/v1/blocks/:webcomponentName/usage',
+      },
     });
   }
   const webcomponentName =
@@ -472,7 +482,9 @@ async function blockUsage(req, res) {
   if (webcomponentName === '') {
     return res.status(404).json({
       status: 404,
-      message: 'Block not found',
+      data: {
+        message: 'Block not found',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -483,7 +495,9 @@ async function blockUsage(req, res) {
   if (!isKnownBlockTag(webcomponentName, wcMap, usageTotals)) {
     return res.status(404).json({
       status: 404,
-      message: `Block \"${webcomponentName}\" not found`,
+      data: {
+        message: `Block \"${webcomponentName}\" not found`,
+      },
     });
   }
   let records = await buildBlockUsageRecords(

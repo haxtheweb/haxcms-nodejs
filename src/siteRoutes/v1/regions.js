@@ -29,7 +29,9 @@ async function listRegions(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/regions',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/regions',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -74,7 +76,9 @@ async function regionDetail(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/regions/:regionName',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/regions/:regionName',
+      },
     });
   }
   const regionName =
@@ -82,7 +86,9 @@ async function regionDetail(req, res) {
   if (regionName.trim() === '') {
     return res.status(404).json({
       status: 404,
-      message: 'Region not found',
+      data: {
+        message: 'Region not found',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -93,7 +99,9 @@ async function regionDetail(req, res) {
   if (filteredItems.length === 0) {
     return res.status(404).json({
       status: 404,
-      message: `Region "${regionName}" not found`,
+      data: {
+        message: `Region "${regionName}" not found`,
+      },
     });
   }
   let itemRecords = filteredItems.map((item) => itemToSummary(item, apiBasePath));

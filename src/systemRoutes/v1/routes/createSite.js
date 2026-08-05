@@ -512,12 +512,10 @@ async function createSite(req, res) {
           );
         }
         if (!resolvedSkeleton || !resolvedSkeleton.skeleton) {
-          return res.status(400).send({
+          return res.status(400).json({
             status: 400,
-            __failed: {
-              status: 400,
+            data: {
               message: 'Unable to resolve skeletonMachineName for from-skeleton build',
-              skeletonMachineName: req.body['build']['skeletonMachineName'],
             }
           });
         }
@@ -651,12 +649,10 @@ async function createSite(req, res) {
         schema.metadata.theme = cloneJsonValue(themesAry[theme], themesAry[theme]);
       }
       else {
-        return res.status(400).send({
+        return res.status(400).json({
           status: 400,
-          __failed: {
-            status: 400,
+          data: {
             message: 'Invalid theme supplied for site creation',
-            theme,
           }
         });
       }
@@ -773,12 +769,10 @@ async function createSite(req, res) {
           !SAFE_BULK_IMPORT_EXTENSION_REGEX.test(normalizedImportName) ||
           !HAXCMSFile.isValidBulkImportStagedPath(downloadLocation)
         ) {
-          return res.status(400).send({
+          return res.status(400).json({
             status: 400,
-            __failed: {
-              status: 400,
+            data: {
               message: 'Invalid file import payload in build.files',
-              file: locationName
             }
           });
         }
@@ -849,7 +843,7 @@ async function createSite(req, res) {
     });
   }
   else {
-    res.sendStatus(403);
+    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
   }
 }
 module.exports = createSite;

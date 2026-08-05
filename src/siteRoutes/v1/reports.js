@@ -101,7 +101,9 @@ async function listReports(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/reports',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/reports',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -138,7 +140,9 @@ async function reportDetail(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/reports/:report',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/reports/:report',
+      },
     });
   }
   const reportName =
@@ -146,7 +150,9 @@ async function reportDetail(req, res) {
   if (!Object.prototype.hasOwnProperty.call(REPORT_DEFINITIONS, reportName)) {
     return res.status(404).json({
       status: 404,
-      message: `Unknown report "${reportName}"`,
+      data: {
+        message: `Unknown report "${reportName}"`,
+      },
     });
   }
   const definition = REPORT_DEFINITIONS[reportName];

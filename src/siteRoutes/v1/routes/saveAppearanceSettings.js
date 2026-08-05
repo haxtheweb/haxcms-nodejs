@@ -92,12 +92,12 @@ async function saveAppearanceSettings(req, res) {
       )
     )
   ) {
-    res.sendStatus(403)
+    res.status(403).json({ status: 403, data: { message: 'Authentication required' } })
     return
   }
 
   if (!hasOnlyAllowedKeys(req.body, ALLOWED_TOP_LEVEL_KEYS)) {
-    res.sendStatus(400)
+    res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
     return
   }
   if (
@@ -105,15 +105,15 @@ async function saveAppearanceSettings(req, res) {
     typeof req.body.site.name !== 'string' ||
     req.body.site.name.trim() === ''
   ) {
-    res.sendStatus(400)
+    res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
     return
   }
   if (!hasOnlyAllowedKeys(req.body.manifest, ALLOWED_MANIFEST_KEYS)) {
-    res.sendStatus(400)
+    res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
     return
   }
   if (!hasOnlyAllowedKeys(req.body.manifest.theme, ALLOWED_THEME_KEYS)) {
-    res.sendStatus(400)
+    res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
     return
   }
 
@@ -126,7 +126,7 @@ async function saveAppearanceSettings(req, res) {
     )
   }
   if (!site || !site.manifest) {
-    res.sendStatus(400)
+    res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
     return
   }
   if (!site.manifest.metadata || !isPlainObject(site.manifest.metadata)) {
@@ -147,7 +147,7 @@ async function saveAppearanceSettings(req, res) {
   ) {
     const themeElementValue = themePayload['manifest-metadata-theme-element']
     if (typeof themeElementValue !== 'string') {
-      res.sendStatus(400)
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
       return
     }
     const themeElement = filter_var(
@@ -156,7 +156,7 @@ async function saveAppearanceSettings(req, res) {
     ).trim()
     const themes = await HAXCMS.getThemes()
     if (!themeElement || !themes || typeof themes[themeElement] === 'undefined') {
-      res.sendStatus(400)
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
       return
     }
     site.manifest.metadata.theme = themes[themeElement]
@@ -183,7 +183,7 @@ async function saveAppearanceSettings(req, res) {
   ) {
     const imageValue = themePayload['manifest-metadata-theme-variables-image']
     if (imageValue !== null && typeof imageValue !== 'string') {
-      res.sendStatus(400)
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
       return
     }
     site.manifest.metadata.theme.variables.image = sanitizeURLValue(
@@ -199,7 +199,7 @@ async function saveAppearanceSettings(req, res) {
   ) {
     const imageAltValue = themePayload['manifest-metadata-theme-variables-imageAlt']
     if (imageAltValue !== null && typeof imageAltValue !== 'string') {
-      res.sendStatus(400)
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
       return
     }
     site.manifest.metadata.theme.variables.imageAlt = filter_var(
@@ -216,7 +216,7 @@ async function saveAppearanceSettings(req, res) {
     const imageLinkValue =
       themePayload['manifest-metadata-theme-variables-imageLink']
     if (imageLinkValue !== null && typeof imageLinkValue !== 'string') {
-      res.sendStatus(400)
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
       return
     }
     site.manifest.metadata.theme.variables.imageLink = sanitizeURLValue(
@@ -237,7 +237,7 @@ async function saveAppearanceSettings(req, res) {
     } else {
       const cssVariable = normalizeCssVariable(cssVariableValue)
       if (!cssVariable) {
-        res.sendStatus(400)
+        res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
         return
       }
       site.manifest.metadata.theme.variables.cssVariable =
@@ -252,7 +252,7 @@ async function saveAppearanceSettings(req, res) {
   ) {
     const paletteValue = themePayload['manifest-metadata-theme-variables-palette']
     if (paletteValue !== null && typeof paletteValue !== 'string') {
-      res.sendStatus(400)
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
       return
     }
     let palette = filter_var(paletteValue, 'FILTER_SANITIZE_STRING')
@@ -263,13 +263,13 @@ async function saveAppearanceSettings(req, res) {
       } else if (/^[a-z0-9-]+$/.test(palette)) {
         site.manifest.metadata.theme.variables.palette = palette
       } else {
-        res.sendStatus(400)
+        res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
         return
       }
     } else if (palette === null) {
       delete site.manifest.metadata.theme.variables.palette
     } else {
-      res.sendStatus(400)
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
       return
     }
   }
@@ -281,7 +281,7 @@ async function saveAppearanceSettings(req, res) {
   ) {
     const iconValue = themePayload['manifest-metadata-theme-variables-icon']
     if (iconValue !== null && typeof iconValue !== 'string') {
-      res.sendStatus(400)
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
       return
     }
     site.manifest.metadata.theme.variables.icon = filter_var(
@@ -294,7 +294,7 @@ async function saveAppearanceSettings(req, res) {
     if (Object.prototype.hasOwnProperty.call(themePayload, regionField)) {
       const cleanRegionIds = sanitizeRegionIds(themePayload[regionField])
       if (cleanRegionIds === null) {
-        res.sendStatus(400)
+        res.status(400).json({ status: 400, data: { message: 'Invalid request' } })
         return
       }
       site.manifest.metadata.theme.regions[REGION_FIELD_MAP[regionField]] =

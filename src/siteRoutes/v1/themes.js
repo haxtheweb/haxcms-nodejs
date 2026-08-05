@@ -116,7 +116,9 @@ async function listThemes(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/themes',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/themes',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -149,7 +151,9 @@ async function themeDetail(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/themes/:themeName',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/themes/:themeName',
+      },
     });
   }
   const themeName =
@@ -157,7 +161,9 @@ async function themeDetail(req, res) {
   if (themeName.trim() === '') {
     return res.status(404).json({
       status: 404,
-      message: 'Theme not found',
+      data: {
+        message: 'Theme not found',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -169,7 +175,9 @@ async function themeDetail(req, res) {
   if (!target) {
     return res.status(404).json({
       status: 404,
-      message: `Theme "${themeName}" not found`,
+      data: {
+        message: `Theme "${themeName}" not found`,
+      },
     });
   }
   const outputRecord = projectRecord(target, fields);
@@ -184,7 +192,9 @@ async function activeTheme(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/themes/active',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/themes/active',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -194,7 +204,9 @@ async function activeTheme(req, res) {
   if (!target) {
     return res.status(404).json({
       status: 404,
-      message: 'Active theme not found',
+      data: {
+        message: 'Active theme not found',
+      },
     });
   }
   const outputRecord = projectRecord(target, fields);

@@ -34,7 +34,7 @@ async function savePlatformSettings(req, res) {
     }
 
     if (!req.body || typeof req.body.platform !== 'object' || !req.body.platform) {
-      res.sendStatus(400);
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
       return;
     }
 
@@ -93,7 +93,7 @@ async function savePlatformSettings(req, res) {
       featureSources.push(platform.editorFeatures);
     }
     if (featureSources.length === 0) {
-      res.sendStatus(400);
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
       return;
     }
 
@@ -101,7 +101,7 @@ async function savePlatformSettings(req, res) {
     for (const source of featureSources) {
       for (const key of Object.keys(source)) {
         if (typeof source[key] !== 'boolean') {
-          res.sendStatus(400);
+          res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
           return;
         }
         if (validFeatureKeys.includes(key)) {
@@ -111,7 +111,7 @@ async function savePlatformSettings(req, res) {
             normalizedFeatures[mappedKey] = source[key];
           }
         } else {
-          res.sendStatus(400);
+          res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
           return;
         }
       }
@@ -142,9 +142,9 @@ async function savePlatformSettings(req, res) {
     await site.manifest.save(false);
     await site.gitCommit('Platform settings updated');
 
-    res.send(site.manifest);
+    res.json({ status: 200, data: site.manifest });
   } else {
-    res.sendStatus(403);
+    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
   }
 }
 

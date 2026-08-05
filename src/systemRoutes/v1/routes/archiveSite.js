@@ -54,7 +54,7 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
         });
       }
     else {
-      res.sendStatus(500);
+      res.status(500).json({ status: 500, data: { message: 'Server error' } });
     }
   }
   module.exports = archiveSite;

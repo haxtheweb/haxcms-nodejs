@@ -79,20 +79,26 @@ async function search(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/search',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/search',
+      },
     });
   }
   const query = String(getQueryValue(req, 'q', '') || '').trim();
   if (query === '') {
     return res.status(400).json({
       status: 400,
-      message: 'Query parameter "q" is required',
+      data: {
+        message: 'Query parameter "q" is required',
+      },
     });
   }
   if (query.length > 256) {
     return res.status(400).json({
       status: 400,
-      message: 'Query parameter "q" exceeds 256 characters',
+      data: {
+        message: 'Query parameter "q" exceeds 256 characters',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);

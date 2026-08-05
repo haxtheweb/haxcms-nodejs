@@ -109,7 +109,9 @@ async function listCustomElements(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/custom-elements',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/custom-elements',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -151,8 +153,10 @@ async function customElementDetail(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message:
-        'Unable to resolve site context for /x/api/v1/custom-elements/:webcomponentName',
+      data: {
+        message:
+          'Unable to resolve site context for /x/api/v1/custom-elements/:webcomponentName',
+      },
     });
   }
   const webcomponentName =
@@ -162,7 +166,9 @@ async function customElementDetail(req, res) {
   if (webcomponentName.trim() === '') {
     return res.status(404).json({
       status: 404,
-      message: 'Custom element not found',
+      data: {
+        message: 'Custom element not found',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -175,7 +181,9 @@ async function customElementDetail(req, res) {
   if (!target) {
     return res.status(404).json({
       status: 404,
-      message: `Custom element "${webcomponentName}" not found`,
+      data: {
+        message: `Custom element "${webcomponentName}" not found`,
+      },
     });
   }
   const outputRecord = projectRecord(target, fields);

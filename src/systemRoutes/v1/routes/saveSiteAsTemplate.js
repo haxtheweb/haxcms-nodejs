@@ -47,16 +47,16 @@ async function saveSiteAsTemplate(req, res) {
     typeof req.body.site.name !== 'string' ||
     req.body.site.name.trim() === ''
   ) {
-    return res.status(400).send({
+    return res.status(400).json({
       status: 400,
-      message: 'site.name is required',
+      data: { message: 'site.name is required' },
     });
   }
   const site = await HAXCMS.loadSite(req.body.site.name);
   if (!site || !site.manifest) {
-    return res.status(404).send({
+    return res.status(404).json({
       status: 404,
-      message: 'Site not found',
+      data: { message: 'Site not found' },
     });
   }
   try {
@@ -88,9 +88,9 @@ async function saveSiteAsTemplate(req, res) {
     });
   }
   catch (e) {
-    return res.status(500).send({
+    return res.status(500).json({
       status: 500,
-      message: `Failed to save site template: ${e.message}`,
+      data: { message: `Failed to save site template: ${e.message}` },
     });
   }
 }

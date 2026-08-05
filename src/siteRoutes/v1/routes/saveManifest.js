@@ -351,13 +351,13 @@ const { getRequestHeaderValue, ensureSiteMetadataContainers, assertSiteFeature }
         await site.rebuildManagedFiles();
         site.updateAlternateFormats();
         await site.gitCommit('Managed files updated');
-        res.send(site.manifest);
+        res.json({ status: 200, data: site.manifest });
       }
       else {
-        res.sendStatus(403);
+        res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
       }
     } else {
-      res.sendStatus(403);
+      res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
     }
   }
   function isScopedDetailsManifestPayload(body) {

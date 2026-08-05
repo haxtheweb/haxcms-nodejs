@@ -130,11 +130,9 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
               site.siteDirectory
             );
             if (bytes === false) {
-              return res.send({
-                '__failed' : {
-                  'status' : 500,
-                  'message' : 'failed to write',
-                }
+              return res.status(500).json({
+                status: 500,
+                data: { message: 'failed to write' },
               });
             } else {
                 // sanity check
@@ -374,20 +372,18 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
           });
         } else {
           // Mirror PHP behavior: if body is missing, treat as failed write instead of hanging
-          return res.send({
-            '__failed' : {
-              'status' : 500,
-              'message' : 'failed to write',
-            }
+          return res.status(500).json({
+            status: 500,
+            data: { message: 'failed to write' },
           });
         }
       }
       else {
-        return res.sendStatus(500);
+        return res.status(500).json({ status: 500, data: { message: 'Server error' } });
       }
     }
     else {
-      res.sendStatus(403);
+      res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
     } 
   }
   function countWords(str) {

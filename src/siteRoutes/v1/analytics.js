@@ -9,7 +9,9 @@ async function analytics(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/analytics',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/analytics',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);

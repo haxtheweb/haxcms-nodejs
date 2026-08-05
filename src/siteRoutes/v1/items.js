@@ -378,7 +378,9 @@ async function listItems(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/items',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/items',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -419,7 +421,9 @@ async function itemDetail(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug',
+      },
     });
   }
   const idOrSlug =
@@ -428,7 +432,9 @@ async function itemDetail(req, res) {
   if (!item) {
     return res.status(404).json({
       status: 404,
-      message: `Item not found for idOrSlug "${idOrSlug}"`,
+      data: {
+        message: `Item not found for idOrSlug "${idOrSlug}"`,
+      },
     });
   }
   if (
@@ -437,7 +443,9 @@ async function itemDetail(req, res) {
   ) {
     return res.status(404).json({
       status: 404,
-      message: `Item not found for idOrSlug "${idOrSlug}"`,
+      data: {
+        message: `Item not found for idOrSlug "${idOrSlug}"`,
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -469,14 +477,14 @@ async function updateItem(req, res) {
   if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
     return res.status(403).json({
       status: 403,
-      message: 'Authenticated site access is required for this endpoint',
+      data: { message: 'Authenticated site access is required for this endpoint', }
     });
   }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug',
+      data: { message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug', }
     });
   }
   const idOrSlug =
@@ -485,7 +493,7 @@ async function updateItem(req, res) {
   if (!existingItem) {
     return res.status(404).json({
       status: 404,
-      message: `Item not found for idOrSlug "${idOrSlug}"`,
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"`, }
     });
   }
   const payload = ensureRequestBodyObject(req);
@@ -496,7 +504,7 @@ async function updateItem(req, res) {
   if (operation === '') {
     return res.status(400).json({
       status: 400,
-      message: 'Operation is required',
+      data: { message: 'Operation is required', }
     });
   }
   try {
@@ -516,7 +524,7 @@ async function updateItem(req, res) {
     }
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
-      message: e && e.message ? e.message : 'Unable to update item',
+      data: { message: e && e.message ? e.message : 'Unable to update item', }
     });
   }
 }
@@ -526,21 +534,21 @@ async function createItem(req, res, next) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/items',
+      data: { message: 'Unable to resolve site context for /x/api/v1/items', }
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
   if (siteName === '') {
     return res.status(400).json({
       status: 400,
-      message: 'Unable to resolve site name for create item operation',
+      data: { message: 'Unable to resolve site name for create item operation', }
     });
   }
   const siteToken = ensureSiteTokenHeader(req);
   if (!siteToken) {
     return res.status(403).json({
       status: 403,
-      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
     });
   }
   const body = ensureSiteRequestBody(req, siteName);
@@ -550,7 +558,7 @@ async function createItem(req, res, next) {
   if (!hasItemsPayload && !hasNodePayload) {
     return res.status(400).json({
       status: 400,
-      message: 'Node payload is required',
+      data: { message: 'Node payload is required', }
     });
   }
   return createNodeRoute(req, res, next);
@@ -561,7 +569,7 @@ async function deleteItem(req, res, next) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug',
+      data: { message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug', }
     });
   }
   const idOrSlug =
@@ -570,21 +578,21 @@ async function deleteItem(req, res, next) {
   if (!item || !item.id) {
     return res.status(404).json({
       status: 404,
-      message: `Item not found for idOrSlug "${idOrSlug}"`,
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"`, }
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
   if (siteName === '') {
     return res.status(400).json({
       status: 400,
-      message: 'Unable to resolve site name for delete item operation',
+      data: { message: 'Unable to resolve site name for delete item operation', }
     });
   }
   const siteToken = ensureSiteTokenHeader(req);
   if (!siteToken) {
     return res.status(403).json({
       status: 403,
-      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
     });
   }
   const body = ensureSiteRequestBody(req, siteName);

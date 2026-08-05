@@ -201,7 +201,9 @@ async function listViews(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/views',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/views',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -234,7 +236,9 @@ async function viewDetail(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/views/:viewId',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/views/:viewId',
+      },
     });
   }
   const viewId =
@@ -242,7 +246,9 @@ async function viewDetail(req, res) {
   if (viewId.trim() === '') {
     return res.status(404).json({
       status: 404,
-      message: 'View not found',
+      data: {
+        message: 'View not found',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -252,7 +258,9 @@ async function viewDetail(req, res) {
   if (!target) {
     return res.status(404).json({
       status: 404,
-      message: `View "${viewId}" not found`,
+      data: {
+        message: `View "${viewId}" not found`,
+      },
     });
   }
   const outputRecord = projectRecord(target, fields);
@@ -267,7 +275,9 @@ async function viewResults(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for view results endpoint',
+      data: {
+        message: 'Unable to resolve site context for view results endpoint',
+      },
     });
   }
   const viewId =
@@ -275,7 +285,9 @@ async function viewResults(req, res) {
   if (viewId.trim() === '') {
     return res.status(404).json({
       status: 404,
-      message: 'View not found',
+      data: {
+        message: 'View not found',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -284,7 +296,9 @@ async function viewResults(req, res) {
   if (!target) {
     return res.status(404).json({
       status: 404,
-      message: `View "${viewId}" not found`,
+      data: {
+        message: `View "${viewId}" not found`,
+      },
     });
   }
   const results = await resolveViewResults(target, site, req, apiBasePath);
