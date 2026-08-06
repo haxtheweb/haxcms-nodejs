@@ -1238,7 +1238,7 @@ systemStructureContext().then((site) => {
     for (let systemRoute in systemRouteRegistry[systemMethod]) {
       const systemRoutePath = `${systemApiV1BasePath}${systemRoute}`;
       const systemRouteParser = getSystemV1RouteParser(systemMethod, systemRoute);
-      const systemRouteHandler = (req, res, next) => {
+      const systemRouteHandler = async (req, res, next) => {
         const op = req.route.path.replace(systemApiV1BasePath, '');
         const rMethod = req.method.toLowerCase();
         if (!validateSystemV1RouteAccess(req, op)) {
@@ -1263,6 +1263,12 @@ systemStructureContext().then((site) => {
           if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
             return;
           }
+          // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
+          // system routes (e.g. provider-search) so the router returns a
+          // consistent 403 envelope instead of the handler doing the check.
+          if (!await enforceSystemApiSiteTokenPolicy(req, res, op, rMethod, basicAuth)) {
+            return;
+          }
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
         // D1b status-code parity (matches site API + PHP SystemApiSecurity):
@@ -1280,7 +1286,7 @@ systemStructureContext().then((site) => {
           data: { message: 'Authentication required' },
         });
       };
-      const siteScopedSystemRouteHandler = (req, res, next) => {
+      const siteScopedSystemRouteHandler = async (req, res, next) => {
         const op = req.route.path.replace(
           `/${HAXCMS.sitesDirectory}/*${systemApiV1BasePath}`,
           '',
@@ -1306,6 +1312,12 @@ systemStructureContext().then((site) => {
         }
         if (isAuthenticated) {
           if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
+            return;
+          }
+          // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
+          // system routes (e.g. provider-search) so the router returns a
+          // consistent 403 envelope instead of the handler doing the check.
+          if (!await enforceSystemApiSiteTokenPolicy(req, res, op, rMethod, basicAuth)) {
             return;
           }
           return systemRouteRegistry[rMethod][op](req, res, next);
@@ -1821,6 +1833,53 @@ function enforceSystemApiUserTokenPolicy(req, res, op, method, basicAuth) {
     res.status(403).json({
       status: 403,
       data: { message: 'Invalid X-HAXCMS-User-Token header' },
+    });
+    return false;
+  }
+  return true;
+}
+// F2/Q14+F3: site-token enforcement for 'authenticated-site' system routes
+// (e.g. provider-search). Mirrors the site API's 'authenticated-site' policy
+// but runs in the system route handler so the 403 envelope is consistent
+// with the rest of the system API. The handler may still do semantic
+// siteName validation (e.g. generateAppStore) — this function only gates on
+// token presence + validity against the resolved siteName + userName.
+async function enforceSystemApiSiteTokenPolicy(req, res, op, method, basicAuth) {
+  const policy = getSystemApiRouteAuthPolicy(op, method);
+  if (policy !== 'authenticated-site') {
+    return true;
+  }
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  if (siteToken === '') {
+    res.status(403).json({
+      status: 403,
+      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint' },
+    });
+    return false;
+  }
+  const userName = resolveSystemApiAuthenticatedUserName(req, basicAuth);
+  if (userName === '') {
+    res.status(403).json({
+      status: 403,
+      data: { message: 'Unable to resolve authenticated user context' },
+    });
+    return false;
+  }
+  const siteName = await resolveSiteApiRequestSiteName(req, {
+    userName: userName,
+    siteToken: siteToken,
+  });
+  if (!siteName) {
+    res.status(403).json({
+      status: 403,
+      data: { message: 'Unable to resolve site token context' },
+    });
+    return false;
+  }
+  if (!HAXCMS.validateRequestToken(siteToken, `${userName}:${siteName}`)) {
+    res.status(403).json({
+      status: 403,
+      data: { message: 'Invalid X-HAXCMS-Site-Token header' },
     });
     return false;
   }

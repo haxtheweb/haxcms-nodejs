@@ -136,6 +136,11 @@ function resolveSystemOperationPath(
  * )
  */
 async function connectionSettings(req, res) {
+  // D6: token/JWT-bearing JS — prevent any intermediary from caching
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
   res.setHeader('Content-Type', 'application/javascript');
   const isDashboardRequest = (
     HAXCMS &&

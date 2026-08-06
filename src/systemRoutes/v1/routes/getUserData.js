@@ -16,20 +16,6 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
  *   )
  * )
  */
-function getUserTokenFromHeader(req) {
-  if (!req || !req.headers || typeof req.headers !== 'object') {
-    return '';
-  }
-  const rawValue = req.headers['x-haxcms-user-token'];
-  if (Array.isArray(rawValue)) {
-    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
-  }
-  if (typeof rawValue === 'string') {
-    return rawValue.trim();
-  }
-  return '';
-}
-
 function getUserData(req, res) {
   const returnData = {
     status: 200,
