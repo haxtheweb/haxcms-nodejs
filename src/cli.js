@@ -179,7 +179,16 @@ export async function cliBridge(op, body = {}, method = 'post', file = null) {
       }
     }
     if (siteName !== '') {
-      req.haxcmsSiteApiAuth = { siteName: siteName };
+      // Mirror the CLI branch of validateSiteApiRouteAccess (src/app.js) so
+      // defense-in-depth site-mutation gates (isSiteApiRequestAuthenticated)
+      // and anonymous-visibility reads see the CLI as authenticated, not
+      // anonymous. cliBridge bypasses the HTTP route gate, so this context
+      // must be set here explicitly.
+      req.haxcmsSiteApiAuth = {
+        siteName: siteName,
+        authenticated: true,
+        securityLevel: 'authenticated-site',
+      };
     }
   }
 
