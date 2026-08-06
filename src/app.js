@@ -1650,7 +1650,17 @@ function normalizeSiteApiSecurityPolicy(securityConfig = null) {
       return 'public';
     }
     if (Object.prototype.hasOwnProperty.call(requirement, 'siteTokenHeader')) {
-      return 'authenticated-site';
+      // siteTokenHeader paired with bearerAuth (in the same requirement) is
+      // 'authenticated-site' (bearer JWT + site token, e.g. provider-search,
+      // site API mutations). siteTokenHeader alone is 'site-token-only' —
+      // the site token is validated against the server-side active user by
+      // the handler (e.g. generateAppStore), no bearer JWT required. This
+      // mirrors the original handler-validated behavior and avoids requiring
+      // a bearer JWT the front-end appStore fetch does not send.
+      if (Object.prototype.hasOwnProperty.call(requirement, 'bearerAuth')) {
+        return 'authenticated-site';
+      }
+      return 'site-token-only';
     }
     if (Object.prototype.hasOwnProperty.call(requirement, 'userTokenHeader')) {
       requiresUserToken = true;

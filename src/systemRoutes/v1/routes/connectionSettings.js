@@ -142,20 +142,24 @@ async function connectionSettings(req, res) {
   res.setHeader('Expires', '0');
   res.setHeader('Surrogate-Control', 'no-store');
   res.setHeader('Content-Type', 'application/javascript');
-  const isDashboardRequest = (
-    HAXCMS &&
-    HAXCMS.operatingContext !== 'single' &&
-    req.headers &&
-    req.headers.referer &&
-    !req.headers.referer.includes(`/${HAXCMS.sitesDirectory}/`)
-  );
-  // default to relative API paths so calls in site context resolve correctly
-  // and mirror PHP behavior for appStore-generated endpoint paths.
-  let baseAPIPath = HAXCMS.systemRequestBase;
-  // in non-root installs, preserve basePath for site-context API routing.
-  if (!isDashboardRequest && HAXCMS.basePath && HAXCMS.basePath !== '/') {
-    baseAPIPath = `${HAXCMS.basePath}${HAXCMS.systemRequestBase}`;
+  // System API base path is always absolute (root-level), mirroring PHP
+  // (HAXCMS.php appJWTConnectionSettings forces a leading slash). System
+  // routes are not site-scoped; both backends serve them at
+  // /system/api/v1/ so calls resolve identically whether the page is a
+  // site context (/_sites/<name>/) or the system dashboard. A relative
+  // path would resolve against the current page URL and produce a
+  // site-scoped system endpoint (/_sites/<name>/system/api/v1/...) which
+  // works on Node but is not standardized with PHP.
+  let systemNormalizedBasePath = String(HAXCMS.basePath || '/');
+  if (systemNormalizedBasePath.charAt(0) !== '/') {
+    systemNormalizedBasePath = '/' + systemNormalizedBasePath;
   }
+  if (
+    systemNormalizedBasePath.charAt(systemNormalizedBasePath.length - 1) !== '/'
+  ) {
+    systemNormalizedBasePath += '/';
+  }
+  let baseAPIPath = `${systemNormalizedBasePath}${HAXCMS.systemRequestBase}`;
   var sitename = '';
   // name parsed from a multisite site-context URL (/_sites/<name>/...).
   // tracked separately because it must drive the site API base path, whereas
