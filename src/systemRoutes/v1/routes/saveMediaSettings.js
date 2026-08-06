@@ -7,6 +7,20 @@ const {
   writeMediaSettings,
 } = require('../../../lib/mediaSettings.js');
 
+function getUserTokenFromHeader(req) {
+  if (!req || !req.headers || typeof req.headers !== 'object') {
+    return '';
+  }
+  const rawValue = req.headers['x-haxcms-user-token'];
+  if (Array.isArray(rawValue)) {
+    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
+  }
+  if (typeof rawValue === 'string') {
+    return rawValue.trim();
+  }
+  return '';
+}
+
 /**
  * @OA\Post(
  *    path="/saveMediaSettings",
@@ -18,6 +32,18 @@ const {
  * )
  */
 async function saveMediaSettings(req, res) {
+  const userToken = getUserTokenFromHeader(req);
+  if (
+    !userToken ||
+    !HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName())
+  ) {
+    return res.status(403).json({
+      status: 403,
+      data: {
+        message: 'invalid request token',
+      },
+    });
+  }
   const payload = (
     req.body &&
     req.body.mediaSettings &&
@@ -27,7 +53,9 @@ async function saveMediaSettings(req, res) {
   if (!hasSupportedMediaSettingsPayload(payload)) {
     return res.status(400).json({
       status: 400,
-      message: 'Missing media settings payload',
+      data: {
+        message: 'Missing media settings payload',
+      },
     });
   }
   if (
@@ -39,7 +67,9 @@ async function saveMediaSettings(req, res) {
   ) {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid jpegQuality value',
+      data: {
+        message: 'Invalid jpegQuality value',
+      },
     });
   }
   if (
@@ -51,7 +81,9 @@ async function saveMediaSettings(req, res) {
   ) {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid maxUploadSizeMb value',
+      data: {
+        message: 'Invalid maxUploadSizeMb value',
+      },
     });
   }
   if (
@@ -63,7 +95,9 @@ async function saveMediaSettings(req, res) {
   ) {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid acceptedFormats value',
+      data: {
+        message: 'Invalid acceptedFormats value',
+      },
     });
   }
   try {
@@ -76,7 +110,9 @@ async function saveMediaSettings(req, res) {
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: 'Unable to save media settings',
+      data: {
+        message: 'Unable to save media settings',
+      },
     });
   }
 }

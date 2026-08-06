@@ -1412,7 +1412,6 @@ test('site API conformance against site-spec', async (t) => {
     'listItemRevisions',
     'getItemRevisionById',
     'restoreItemRevision',
-    'searchAppStoreProvider',
   ]
   for (let i = 0; i < requiredOperationIds.length; i++) {
     const operationId = requiredOperationIds[i]
@@ -1964,24 +1963,6 @@ test('site API conformance against site-spec', async (t) => {
     assert.equal(result.status, 200, result.bodyText)
     assertSchemaConformance(runtime, 'getDisplayResultsAlias', 200, result)
   })
-  await t.test('searchAppStoreProvider enforces bearer and site token auth matrix', async () => {
-    await assertSecuredOperationAuthMatrix(runtime, 'searchAppStoreProvider', {
-      pathParams: {
-        provider: 'nasa',
-      },
-    })
-  })
-  await t.test('searchAppStoreProvider rejects unknown provider with site auth', async () => {
-    const result = await invokeOperation(runtime, 'searchAppStoreProvider', {
-      pathParams: {
-        provider: `missing-provider-${runtime.testStartTimestamp}`,
-      },
-      headers: getSiteAuthHeaders(runtime),
-    })
-    assert.equal(result.status, 400, result.bodyText)
-    assertSchemaConformance(runtime, 'searchAppStoreProvider', 400, result)
-  })
-
   await t.test('listFiles enforces bearer and site token auth matrix', async () => {
     await assertSecuredOperationAuthMatrix(runtime, 'listFiles')
   })
@@ -2379,9 +2360,11 @@ test('system API conformance for skeleton resource semantics', async (t) => {
     'systemSkeletonsGet',
     'systemSkeletonsPost',
     'systemSkeletonDetailGet',
+    'saveEnabledSkeletonsPatch',
     'systemSkeletonDetailPatch',
     'systemSkeletonDetailPut',
     'systemSkeletonDetailDelete',
+    'schemaFileOperation',
   ]
   for (let i = 0; i < requiredOperationIds.length; i++) {
     const operationId = requiredOperationIds[i]
@@ -2391,11 +2374,53 @@ test('system API conformance for skeleton resource semantics', async (t) => {
     )
   }
 
+  const skeletonReadOps = [
+    'systemSkeletonsGet',
+    'systemSkeletonsPost',
+    'systemSkeletonDetailGet',
+  ]
+  const skeletonWriteOps = [
+    'saveEnabledSkeletonsPatch',
+    'systemSkeletonDetailPatch',
+    'systemSkeletonDetailPut',
+    'systemSkeletonDetailDelete',
+    'schemaFileOperation',
+  ]
+
+  async function assertSystemReadBearerOnlyAccess(operationId, baseOptions = {}) {
+    const noCredsResult = await invokeSystemOperation(
+      runtime,
+      operationId,
+      mergeInvocationOptions(baseOptions, { headers: {} }),
+    )
+    assert.equal(
+      noCredsResult.status,
+      401,
+      `${operationId} should return 401 without auth headers`,
+    )
+    assertSystemSchemaConformance(runtime, operationId, 401, noCredsResult)
+    const bearerOnlyResult = await invokeSystemOperation(
+      runtime,
+      operationId,
+      mergeInvocationOptions(baseOptions, {
+        headers: getBearerAuthHeaders(runtime),
+      }),
+    )
+    assert.equal(
+      bearerOnlyResult.status,
+      200,
+      `${operationId} should return 200 with bearer token only`,
+    )
+    assertSystemSchemaConformance(runtime, operationId, 200, bearerOnlyResult)
+    return bearerOnlyResult
+  }
+
   await t.test(
-    'skeleton operations declare bearer plus user token header security in system-spec',
+    'skeleton operations declare bearer security; writes also require user token header',
     async () => {
-      for (let i = 0; i < requiredOperationIds.length; i++) {
-        const operationId = requiredOperationIds[i]
+      const allOps = skeletonReadOps.concat(skeletonWriteOps)
+      for (let i = 0; i < allOps.length; i++) {
+        const operationId = allOps[i]
         const operationMeta = runtime.systemOperationIndex[operationId]
         const security = Array.isArray(operationMeta.operation.security)
           ? operationMeta.operation.security
@@ -2405,25 +2430,55 @@ test('system API conformance for skeleton resource semantics', async (t) => {
             (entry) =>
               entry &&
               typeof entry === 'object' &&
-              Object.prototype.hasOwnProperty.call(entry, 'bearerAuth') &&
+              Object.prototype.hasOwnProperty.call(entry, 'bearerAuth'),
+          ),
+          `${operationId} must declare bearerAuth security`,
+        )
+      }
+      for (let i = 0; i < skeletonWriteOps.length; i++) {
+        const operationId = skeletonWriteOps[i]
+        const operationMeta = runtime.systemOperationIndex[operationId]
+        const security = Array.isArray(operationMeta.operation.security)
+          ? operationMeta.operation.security
+          : []
+        assert.ok(
+          security.some(
+            (entry) =>
+              entry &&
+              typeof entry === 'object' &&
               Object.prototype.hasOwnProperty.call(entry, 'userTokenHeader'),
           ),
-          `${operationId} must declare bearerAuth + userTokenHeader security`,
+          `${operationId} must declare userTokenHeader security (write)`,
+        )
+      }
+      for (let i = 0; i < skeletonReadOps.length; i++) {
+        const operationId = skeletonReadOps[i]
+        const operationMeta = runtime.systemOperationIndex[operationId]
+        const security = Array.isArray(operationMeta.operation.security)
+          ? operationMeta.operation.security
+          : []
+        assert.ok(
+          !security.some(
+            (entry) =>
+              entry &&
+              typeof entry === 'object' &&
+              Object.prototype.hasOwnProperty.call(entry, 'userTokenHeader'),
+          ),
+          `${operationId} must NOT declare userTokenHeader security (read)`,
         )
       }
     },
   )
 
-  await t.test('systemSkeletonsGet enforces auth matrix and returns data', async () => {
-    await assertSystemUserSecuredOperationAuthMatrix(runtime, 'systemSkeletonsGet')
-    const listResult = await invokeSystemOperation(runtime, 'systemSkeletonsGet', {
-      headers: getSystemUserAuthHeaders(runtime),
-    })
-    assert.equal(listResult.status, 200, listResult.bodyText)
-    assertSystemSchemaConformance(runtime, 'systemSkeletonsGet', 200, listResult)
+  await t.test('systemSkeletonsGet enforces bearer-only read access and returns data', async () => {
+    await assertSystemReadBearerOnlyAccess('systemSkeletonsGet')
   })
 
-  await t.test('systemSkeletonsPost uploads a skeleton resource', async () => {
+  await t.test('systemSkeletonsPost enforces bearer-only read access (list)', async () => {
+    await assertSystemReadBearerOnlyAccess('systemSkeletonsPost')
+  })
+
+  await t.test('schemaFileOperation uploads a skeleton resource', async () => {
     const upload = buildMultipartBody({
       fieldName: 'file',
       fileName: `api-conformance-skeleton-${runtime.testStartTimestamp}.json`,
@@ -2448,19 +2503,19 @@ test('system API conformance for skeleton resource semantics', async (t) => {
 
     await assertSystemUserSecuredOperationAuthMatrix(
       runtime,
-      'systemSkeletonsPost',
+      'schemaFileOperation',
       uploadBaseOptions,
     )
 
     const uploadResult = await invokeSystemOperation(
       runtime,
-      'systemSkeletonsPost',
+      'schemaFileOperation',
       mergeInvocationOptions(uploadBaseOptions, {
         headers: getSystemUserAuthHeaders(runtime),
       }),
     )
     assert.equal(uploadResult.status, 200, uploadResult.bodyText)
-    assertSystemSchemaConformance(runtime, 'systemSkeletonsPost', 200, uploadResult)
+    assertSystemSchemaConformance(runtime, 'schemaFileOperation', 200, uploadResult)
     const uploadedMachineName =
       uploadResult &&
       uploadResult.bodyJson &&
@@ -2473,27 +2528,43 @@ test('system API conformance for skeleton resource semantics', async (t) => {
     runtime.dynamicContext.systemSkeletonName = uploadedMachineName
   })
 
-  await t.test('systemSkeletonDetailGet returns uploaded skeleton detail', async () => {
+  await t.test('systemSkeletonDetailGet returns uploaded skeleton detail (bearer-only read)', async () => {
     const detailBaseOptions = {
       pathParams: {
         skeletonName: runtime.dynamicContext.systemSkeletonName,
       },
     }
-    await assertSystemUserSecuredOperationAuthMatrix(
-      runtime,
+    await assertSystemReadBearerOnlyAccess(
       'systemSkeletonDetailGet',
       detailBaseOptions,
     )
+  })
 
-    const detailResult = await invokeSystemOperation(
+  await t.test('saveEnabledSkeletonsPatch enforces user token on toggle write', async () => {
+    const toggleBaseOptions = {
+      body: {
+        enabledSkeletons: [],
+      },
+    }
+    await assertSystemUserSecuredOperationAuthMatrix(
       runtime,
-      'systemSkeletonDetailGet',
-      mergeInvocationOptions(detailBaseOptions, {
+      'saveEnabledSkeletonsPatch',
+      toggleBaseOptions,
+    )
+    const toggleResult = await invokeSystemOperation(
+      runtime,
+      'saveEnabledSkeletonsPatch',
+      mergeInvocationOptions(toggleBaseOptions, {
         headers: getSystemUserAuthHeaders(runtime),
       }),
     )
-    assert.equal(detailResult.status, 200, detailResult.bodyText)
-    assertSystemSchemaConformance(runtime, 'systemSkeletonDetailGet', 200, detailResult)
+    assert.equal(toggleResult.status, 200, toggleResult.bodyText)
+    assertSystemSchemaConformance(
+      runtime,
+      'saveEnabledSkeletonsPatch',
+      200,
+      toggleResult,
+    )
   })
 
   await t.test('systemSkeletonDetailPatch renames uploaded skeleton', async () => {

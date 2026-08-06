@@ -2,6 +2,20 @@ const fs = require('fs-extra');
 const path = require('path');
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 
+function getUserTokenFromHeader(req) {
+  if (!req || !req.headers || typeof req.headers !== 'object') {
+    return '';
+  }
+  const rawValue = req.headers['x-haxcms-user-token'];
+  if (Array.isArray(rawValue)) {
+    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
+  }
+  if (typeof rawValue === 'string') {
+    return rawValue.trim();
+  }
+  return '';
+}
+
 function normalizeEnabledBlocks(input = []) {
   if (!Array.isArray(input)) {
     return null;
@@ -44,18 +58,34 @@ function enabledBlocksPayload(req) {
  * )
  */
 async function saveEnabledBlocks(req, res) {
+  const userToken = getUserTokenFromHeader(req);
+  if (
+    !userToken ||
+    !HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName())
+  ) {
+    return res.status(403).json({
+      status: 403,
+      data: {
+        message: 'invalid request token',
+      },
+    });
+  }
   const payload = enabledBlocksPayload(req);
   if (typeof payload === 'undefined') {
     return res.status(400).json({
       status: 400,
-      message: 'Missing enabledBlocks payload',
+      data: {
+        message: 'Missing enabledBlocks payload',
+      },
     });
   }
   const enabledBlocks = normalizeEnabledBlocks(payload);
   if (!enabledBlocks) {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid enabledBlocks payload',
+      data: {
+        message: 'Invalid enabledBlocks payload',
+      },
     });
   }
 

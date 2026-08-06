@@ -128,7 +128,9 @@ async function getSkeleton(req, res) {
   if (!skeletonName) {
     return res.status(400).json({
       status: 400,
-      message: 'skeleton name is required',
+      data: {
+        message: 'skeleton name is required',
+      },
     });
   }
   const skeleton = await resolveSkeletonByName(skeletonName);
@@ -141,7 +143,9 @@ async function getSkeleton(req, res) {
 
   return res.status(404).json({
     status: 404,
-    message: 'skeleton not found',
+    data: {
+      message: 'skeleton not found',
+    },
   });
 }
 

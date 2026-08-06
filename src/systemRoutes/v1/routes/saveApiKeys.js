@@ -4,6 +4,20 @@ const {
   writeApiKeys,
 } = require('../../../lib/apiKeys.js');
 
+function getUserTokenFromHeader(req) {
+  if (!req || !req.headers || typeof req.headers !== 'object') {
+    return '';
+  }
+  const rawValue = req.headers['x-haxcms-user-token'];
+  if (Array.isArray(rawValue)) {
+    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
+  }
+  if (typeof rawValue === 'string') {
+    return rawValue.trim();
+  }
+  return '';
+}
+
 /**
  * @OA\Post(
  *    path="/saveApiKeys",
@@ -15,6 +29,18 @@ const {
  * )
  */
 async function saveApiKeys(req, res) {
+  const userToken = getUserTokenFromHeader(req);
+  if (
+    !userToken ||
+    !HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName())
+  ) {
+    return res.status(403).json({
+      status: 403,
+      data: {
+        message: 'invalid request token',
+      },
+    });
+  }
   const payload = (
     req.body &&
     req.body.apiKeys &&
@@ -24,7 +50,9 @@ async function saveApiKeys(req, res) {
   if (!hasSupportedApiKeyPayload(payload)) {
     return res.status(400).json({
       status: 400,
-      message: 'Missing API key payload',
+      data: {
+        message: 'Missing API key payload',
+      },
     });
   }
   try {
@@ -37,7 +65,9 @@ async function saveApiKeys(req, res) {
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: 'Unable to save API key settings',
+      data: {
+        message: 'Unable to save API key settings',
+      },
     });
   }
 }

@@ -775,7 +775,6 @@ paths:
       summary: Return configured API keys and provider statuses
       security:
         - bearerAuth: []
-          userTokenHeader: []
       responses:
         "200":
           description: API key settings
@@ -792,7 +791,6 @@ paths:
       summary: Update API key settings
       security:
         - bearerAuth: []
-          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -839,7 +837,6 @@ paths:
       summary: Return media and upload configuration
       security:
         - bearerAuth: []
-          userTokenHeader: []
       responses:
         "200":
           description: Media settings
@@ -856,7 +853,6 @@ paths:
       summary: Update media and upload configuration
       security:
         - bearerAuth: []
-          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -927,7 +923,6 @@ paths:
       summary: Return available system blocks
       security:
         - bearerAuth: []
-          userTokenHeader: []
       responses:
         "200":
           description: Available block list
@@ -944,7 +939,6 @@ paths:
       summary: Update enabled block configuration using the blocks collection endpoint
       security:
         - bearerAuth: []
-          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -991,7 +985,6 @@ paths:
       summary: Return available system skeletons
       security:
         - bearerAuth: []
-          userTokenHeader: []
       responses:
         "200":
           description: Available skeleton list
@@ -1008,7 +1001,6 @@ paths:
       summary: Upload a skeleton resource or perform skeleton collection operations
       security:
         - bearerAuth: []
-          userTokenHeader: []
       requestBody:
         required: false
         content:
@@ -1063,7 +1055,6 @@ paths:
       summary: Return details for a named skeleton
       security:
         - bearerAuth: []
-          userTokenHeader: []
       responses:
         "200":
           description: Skeleton details
@@ -1168,7 +1159,6 @@ paths:
       summary: Return available system themes
       security:
         - bearerAuth: []
-          userTokenHeader: []
       responses:
         "200":
           description: Available theme list
@@ -1185,7 +1175,6 @@ paths:
       summary: Update enabled theme configuration using the themes collection endpoint
       security:
         - bearerAuth: []
-          userTokenHeader: []
       requestBody:
         required: true
         content:
@@ -2417,9 +2406,16 @@ components:
         data: {}
       additionalProperties: true
     ErrorEnvelope:
-      allOf:
-        - $ref: "#/components/schemas/ApiEnvelope"
-        - type: object
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: integer
+        data:
+          type: object
+          additionalProperties: true
           properties:
             message:
               type: string

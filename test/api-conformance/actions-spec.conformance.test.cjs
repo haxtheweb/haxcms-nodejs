@@ -393,19 +393,34 @@ test('system actions endpoints conformance', async (t) => {
   })
 
   await t.test('html-to-docx converts valid HTML to base64 docx', async () => {
+    // D28 (locked): html-to-docx uses multipart file upload (PHP canonical;
+    // Node aligned) and returns { data: { contents, filename } }.
+    const multipart = buildMultipartBody({
+      fileName: 'test.html',
+      mimeType: 'text/html',
+      fileContents: '<h1>Hello World</h1><p>Test paragraph</p>',
+    })
     const result = await sendHttpRequest({
       method: 'POST',
       url: `${runtime.baseUrl}/system/api/v1/actions/html-to-docx`,
-      headers: authHeaders(runtime.jwt),
-      data: JSON.stringify({
-        html: '<h1>Hello World</h1><p>Test paragraph</p>',
-      }),
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
     })
     assert.equal(result.status, 200, `Expected 200, got ${result.status}: ${result.bodyText}`)
     const body = JSON.parse(result.bodyText)
     assert.ok(body && body.status === 200, 'Expected status 200 in response envelope')
-    assert.ok(body.data && typeof body.data === 'string', 'Expected base64 string in data')
-    assert.ok(body.data.length > 100, 'Expected non-trivial base64 payload')
+    assert.ok(
+      body.data && typeof body.data === 'object',
+      'Expected data object (D28: { contents, filename })',
+    )
+    assert.ok(
+      typeof body.data.contents === 'string' && body.data.contents.length > 100,
+      'Expected non-trivial base64 contents string',
+    )
+    assert.ok(
+      typeof body.data.filename === 'string' && body.data.filename.endsWith('.docx'),
+      `Expected filename ending in .docx, got "${body.data && body.data.filename}"`,
+    )
   })
 
   await t.test('docx-to-html returns 400 for empty file upload', async () => {
