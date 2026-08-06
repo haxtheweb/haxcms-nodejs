@@ -138,7 +138,8 @@ function getDateCreatedValue(entryStats) {
   if (createdMs <= 0) {
     return 0;
   }
-  return Math.round(createdMs);
+  // E1: dateCreated in SECONDS (matches metadata.updated), not milliseconds
+  return Math.floor(createdMs / 1000);
 }
 
 function getSiteNameForFileUuid(site) {

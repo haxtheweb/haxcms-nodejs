@@ -340,7 +340,11 @@ async function listBlocks(req, res) {
   const filterTag = String(getQueryValue(req, 'filter.tag', '') || '')
     .trim()
     .toLowerCase();
-  const filteredItems = applyItemFilters(getOrderedItems(site), req, site);
+  // A4: enforce anon-visibility so anon callers don't see usage from
+  // unpublished/hidden items
+  const filteredItems = applyItemFilters(getOrderedItems(site), req, site, {
+    enforceAnonymousVisibility: true,
+  });
   const usage = await collectCustomElementUsage(site, filteredItems);
   const wcMap = HAXCMS.getWCRegistryJson(site);
   const autoloader = getAutoloaderList();
@@ -419,7 +423,11 @@ async function blockDetail(req, res) {
   const apiBasePath = getApiBasePath(req);
   const include = getCsvQuery(req, 'include');
   const fields = getCsvQuery(req, 'fields');
-  const orderedItems = getOrderedItems(site);
+  // A4: enforce anon-visibility so anon callers don't see usage details from
+  // unpublished/hidden items
+  const orderedItems = applyItemFilters(getOrderedItems(site), req, site, {
+    enforceAnonymousVisibility: true,
+  });
   const wcMap = HAXCMS.getWCRegistryJson(site);
   const enabledBlocks = await readEnabledBlocksSetting();
   const enabledBlockSet = new Set(Array.isArray(enabledBlocks) ? enabledBlocks : []);
@@ -489,7 +497,11 @@ async function blockUsage(req, res) {
   }
   const apiBasePath = getApiBasePath(req);
   const fields = getCsvQuery(req, 'fields');
-  const filteredItems = applyItemFilters(getOrderedItems(site), req, site);
+  // A4: enforce anon-visibility so anon callers don't see usage from
+  // unpublished/hidden items
+  const filteredItems = applyItemFilters(getOrderedItems(site), req, site, {
+    enforceAnonymousVisibility: true,
+  });
   const usageTotals = await collectCustomElementUsage(site, filteredItems);
   const wcMap = HAXCMS.getWCRegistryJson(site);
   if (!isKnownBlockTag(webcomponentName, wcMap, usageTotals)) {

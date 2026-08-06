@@ -20,14 +20,25 @@ function loginRoute(req, res)  {
       if (retryAfterSeconds > 0) {
         res.set('Retry-After', String(retryAfterSeconds));
       }
-      return res.sendStatus(429);
+      // D2: JSON D1 envelope (was sendStatus plain-text)
+      return res.status(429).json({
+        status: 429,
+        data: {
+          message:
+            'Too many failed login attempts. Please try again later.',
+        },
+      });
     }
     // test if this is a valid user login
     if (!HAXCMS.testLogin(u, p, true)) {
       if (settings.enabled) {
         registerFailedAttempt(entry, now, settings);
       }
-      return res.sendStatus(403);
+      // D2/Q8: login failure returns 401 (was 403) with JSON D1 envelope
+      return res.status(401).json({
+        status: 401,
+        data: { message: 'Invalid username or password' },
+      });
     }
     clearTrackerEntry(attemptKey);
     // set a refresh_token COOKIE that will ship w/ all calls automatically
@@ -52,10 +63,18 @@ function loginRoute(req, res)  {
         jwt: valid,
       });
     }
-    return res.sendStatus(403);
+    // D2/Q8: JWT revalidate failure returns 401 (was 403) with JSON envelope
+    return res.status(401).json({
+      status: 401,
+      data: { message: 'Invalid or expired token' },
+    });
   }
   else {
-    res.sendStatus(403);
+    // D2/Q8: no credentials supplied returns 401 (was 403) with JSON envelope
+    res.status(401).json({
+      status: 401,
+      data: { message: 'Authentication required' },
+    });
   }
 }
 

@@ -746,8 +746,8 @@ async function siteExport(req, res) {
       status: 400,
       data: {
         message: `Unsupported site export format "${format}"`,
+        supportedFormats: SITE_EXPORT_FORMATS,
       },
-      supportedFormats: SITE_EXPORT_FORMATS,
     })
   }
   const ancestor = getQueryValue(req, 'filter.ancestor', '')
@@ -797,9 +797,14 @@ async function siteExport(req, res) {
   if (format === 'html') {
     try {
       const html = await buildSiteExportHtml(site, ancestor, magic)
-      res.status(200)
-      res.setHeader('Content-Type', 'text/html; charset=utf-8')
-      return res.send(html)
+      // E4: send html export as a file download with Content-Disposition
+      // (mirrors PHP sendFileDownload / other binary export formats)
+      return sendDownloadResponse(
+        res,
+        Buffer.from(html),
+        'text/html; charset=utf-8',
+        `${getSiteExportFileBaseName(site)}.html`,
+      )
     }
     catch (e) {
       return res.status(500).json({
@@ -871,8 +876,8 @@ async function itemExport(req, res) {
       status: 400,
       data: {
         message: `Unsupported item export format "${format}"`,
+        supportedFormats: ITEM_EXPORT_FORMATS,
       },
-      supportedFormats: ITEM_EXPORT_FORMATS,
     })
   }
   const apiBasePath = getApiBasePath(req)
@@ -1020,8 +1025,8 @@ async function siteExportMutation(req, res) {
       status: 400,
       data: {
         message: `Unsupported site export format "${format}"`,
+        supportedFormats: SITE_EXPORT_FORMATS,
       },
-      supportedFormats: SITE_EXPORT_FORMATS,
     });
   }
   const exportDetails = buildSiteExportDetails(site, apiBasePath, format);

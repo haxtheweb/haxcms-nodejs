@@ -13,6 +13,8 @@ const {
   normalizeTagList,
   getItemContent,
   sendFormattedResponse,
+  isAnonymousSiteApiRequest,
+  isItemVisibleToAnonymous,
 } = require('./siteRouteUtils.js');
 
 function normalizeStoredViews(site, apiBasePath) {
@@ -149,7 +151,11 @@ async function resolveViewResults(view, site, req, apiBasePath) {
       : 'items';
   if (source === 'tags') {
     const tagMap = {};
-    const items = getOrderedItems(site);
+    let items = getOrderedItems(site);
+    // A4: anon callers must not see tags from unpublished/hidden items
+    if (isAnonymousSiteApiRequest(req)) {
+      items = items.filter((item) => isItemVisibleToAnonymous(item));
+    }
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const tags = normalizeTagList(item && item.metadata ? item.metadata.tags : []);
@@ -157,10 +163,13 @@ async function resolveViewResults(view, site, req, apiBasePath) {
         tagMap[tags[t]] = (tagMap[tags[t]] || 0) + 1;
       }
     }
-    return Object.keys(tagMap).map((tag) => ({
+    let tagRecords = Object.keys(tagMap).map((tag) => ({
       tag,
       count: tagMap[tag],
     }));
+    // E6: honor ?sort for tags source (default '-count'), matching PHP
+    tagRecords = sortRecords(tagRecords, getQueryValue(req, 'sort', ''), '-count');
+    return tagRecords;
   }
   if (source === 'search') {
     const query =
@@ -170,7 +179,11 @@ async function resolveViewResults(view, site, req, apiBasePath) {
       return [];
     }
     const queryLower = query.toLowerCase();
-    const items = getOrderedItems(site);
+    let items = getOrderedItems(site);
+    // A4: anon callers must not search unpublished/hidden items
+    if (isAnonymousSiteApiRequest(req)) {
+      items = items.filter((item) => isItemVisibleToAnonymous(item));
+    }
     const results = [];
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
@@ -187,7 +200,11 @@ async function resolveViewResults(view, site, req, apiBasePath) {
   }
   let items = getOrderedItems(site);
   items = applyViewQueryFilters(items, view.query);
-  items = applyItemFilters(items, req, site);
+  // A4: pass anon-visibility enforcement so anon callers don't see
+  // unpublished/hidden items (same as /v1/search and /v1/items)
+  items = applyItemFilters(items, req, site, {
+    enforceAnonymousVisibility: true,
+  });
   let records = items.map((item) => itemToSummary(item, apiBasePath));
   const viewSort =
     view && view.query && view.query.sort ? String(view.query.sort) : 'order';
