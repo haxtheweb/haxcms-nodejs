@@ -1808,7 +1808,7 @@ paths:
         - bearerAuth: []
           userTokenHeader: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -1963,7 +1963,7 @@ paths:
         - bearerAuth: []
           userTokenHeader: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -2008,7 +2008,7 @@ paths:
         - bearerAuth: []
           userTokenHeader: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -2053,7 +2053,7 @@ paths:
         - bearerAuth: []
           userTokenHeader: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -2098,7 +2098,7 @@ paths:
         - bearerAuth: []
           userTokenHeader: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -2143,7 +2143,7 @@ paths:
         - bearerAuth: []
           userTokenHeader: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -2188,7 +2188,7 @@ paths:
         - bearerAuth: []
           userTokenHeader: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -2239,6 +2239,29 @@ paths:
             schema:
               type: object
               properties:
+                repoUrl:
+                  type: string
+                  description: URL to fetch for remote platform import
+                recipe:
+                  type: object
+                  description: Inline recipe object (alternative to repoUrl or file upload)
+                method:
+                  type: string
+                  description: Import method (site, branch, or page)
+                type:
+                  type: string
+                  description: Fallback content type (course, portfolio, or empty)
+                parentId:
+                  type: string
+                  description: Optional parent ID for imported items
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Uploaded recipe file for import
                 repoUrl:
                   type: string
                   description: URL to fetch for remote platform import
@@ -2348,12 +2371,14 @@ components:
       required: true
       schema:
         type: string
+      description: Machine name of the site
     SkeletonName:
       name: skeletonName
       in: path
       required: true
       schema:
         type: string
+      description: Machine name of the skeleton
     AppStoreProvider:
       name: provider
       in: path

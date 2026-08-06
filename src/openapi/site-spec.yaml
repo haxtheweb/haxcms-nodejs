@@ -443,6 +443,11 @@ paths:
           application/json:
             schema:
               type: object
+              properties:
+                preview:
+                  type: boolean
+                  default: false
+                  description: When true, compute and return slug changes without persisting them
               additionalProperties: true
       responses:
         "200":
@@ -457,10 +462,6 @@ paths:
                       data:
                         type: object
                         properties:
-                          items:
-                            type: array
-                            items:
-                              type: object
                           changed:
                             type: boolean
                           preview:
@@ -469,10 +470,28 @@ paths:
                             type: array
                             items:
                               type: object
+                              properties:
+                                id:
+                                  type: string
+                                title:
+                                  type: string
+                                oldSlug:
+                                  type: string
+                                newSlug:
+                                  type: string
                           skipped:
                             type: array
                             items:
                               type: object
+                              properties:
+                                id:
+                                  type: string
+                                title:
+                                  type: string
+                                oldSlug:
+                                  type: string
+                                reason:
+                                  type: string
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
