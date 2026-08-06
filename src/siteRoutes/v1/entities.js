@@ -377,29 +377,10 @@ function buildEntityDescriptors(apiBasePath = '/x/api') {
         },
       ],
     },
-    {
-      name: 'integration',
-      description: 'External provider integration endpoints used by site features.',
-      primaryKey: 'provider',
-      endpoints: [
-        `${apiBasePath}/v1/integrations/app-store/providers/{provider}/search`,
-      ],
-      filterableFields: [],
-      sortableFields: ['provider'],
-      selectableFields: ['provider'],
-      includes: [],
-      formats: ['application/json'],
-      modes: ['bundle'],
-      auth: 'authenticated-site',
-      supportedOperations: ['read'],
-      related: [
-        {
-          rel: 'entity',
-          type: 'file',
-          href: `${apiBasePath}/v1/entities#file`,
-        },
-      ],
-    },
+    // Follow-up #6 (D38): the integration entity descriptor was removed
+    // because its only endpoint (integrations/app-store/providers/{provider}/search)
+    // was moved to the system API in D38. It is now documented in the system
+    // OpenAPI spec (system-spec.yaml) under /system/api/v1/integrations/...
     {
       name: 'view',
       description: 'Saved display/view definitions and resolved results.',
@@ -461,7 +442,9 @@ async function entities(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/entities',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/entities',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);

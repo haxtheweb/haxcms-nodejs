@@ -958,7 +958,9 @@ async function listFiles(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/files',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/files',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -1000,14 +1002,14 @@ async function createFile(req, res) {
   if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
     return res.status(403).json({
       status: 403,
-      message: 'Authenticated site access is required for this endpoint',
+      data: { message: 'Authenticated site access is required for this endpoint', }
     });
   }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/files',
+      data: { message: 'Unable to resolve site context for /x/api/v1/files', }
     });
   }
   if (!platformAllows(site, 'uploadMedia')) {
@@ -1020,7 +1022,7 @@ async function createFile(req, res) {
   if (!upload) {
     return res.status(400).json({
       status: 400,
-      message: 'Missing file upload',
+      data: { message: 'Missing file upload', }
     });
   }
   const body = ensureRequestBodyObject(req);
@@ -1043,22 +1045,19 @@ async function createFile(req, res) {
   } catch (e) {
     return res.status(500).json({
       status: 500,
-      message: e && e.message ? e.message : 'Unable to save file',
+      data: { message: e && e.message ? e.message : 'Unable to save file', }
     });
   }
   if (!fileResult || Number(fileResult.status) !== 200) {
-    const failed =
-      fileResult &&
-      fileResult.__failed &&
-      typeof fileResult.__failed === 'object'
-        ? fileResult.__failed
-        : null;
+    // D58: HAXCMSFile.save now returns D1 error shape {status, data:{message}}
+    // instead of the internal {status, __failed:{status, message}} wrapper.
     return res.status(500).json({
       status: 500,
-      message:
-        failed && typeof failed.message === 'string'
-          ? failed.message
+      data: {
+        message: fileResult && fileResult.data && typeof fileResult.data.message === 'string'
+          ? fileResult.data.message
           : 'Unable to save file',
+      },
     });
   }
   try {
@@ -1076,7 +1075,9 @@ async function fileDetail(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/files/:fileUuid',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/files/:fileUuid',
+      },
     });
   }
   const fields = getCsvQuery(req, 'fields');
@@ -1085,7 +1086,9 @@ async function fileDetail(req, res) {
     if (!requestedPath) {
       return res.status(400).json({
         status: 400,
-        message: 'File uuid is required',
+        data: {
+          message: 'File uuid is required',
+        },
       });
     }
     const fileInfo = resolveSiteFilePath(site, requestedPath);
@@ -1101,7 +1104,9 @@ async function fileDetail(req, res) {
   } catch (e) {
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
-      message: e && e.message ? e.message : 'Unable to load file',
+      data: {
+        message: e && e.message ? e.message : 'Unable to load file',
+      },
     });
   }
 }
@@ -1110,14 +1115,14 @@ async function updateFile(req, res) {
   if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
     return res.status(403).json({
       status: 403,
-      message: 'Authenticated site access is required for this endpoint',
+      data: { message: 'Authenticated site access is required for this endpoint', }
     });
   }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/files/{fileUuid}',
+      data: { message: 'Unable to resolve site context for /x/api/v1/files/{fileUuid}', }
     });
   }
   if (!platformAllows(site, 'uploadMedia')) {
@@ -1130,20 +1135,20 @@ async function updateFile(req, res) {
   if (!requestedPath) {
     return res.status(400).json({
       status: 400,
-      message: 'File uuid is required',
+      data: { message: 'File uuid is required', }
     });
   }
   const payload = readOperationPayload(req);
   if (!payload.operation) {
     return res.status(400).json({
       status: 400,
-      message: 'Operation is required',
+      data: { message: 'Operation is required', }
     });
   }
   if (payload.operation === 'delete') {
     return res.status(400).json({
       status: 400,
-      message: 'Use DELETE /x/api/v1/files/{fileUuid} for file deletion',
+      data: { message: 'Use DELETE /x/api/v1/files/{fileUuid} for file deletion', }
     });
   }
   let mediaSettings = {};
@@ -1166,7 +1171,7 @@ async function updateFile(req, res) {
   } catch (e) {
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
-      message: e && e.message ? e.message : 'Unable to complete file operation',
+      data: { message: e && e.message ? e.message : 'Unable to complete file operation', }
     });
   }
 }
@@ -1175,14 +1180,14 @@ async function deleteFile(req, res) {
   if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
     return res.status(403).json({
       status: 403,
-      message: 'Authenticated site access is required for this endpoint',
+      data: { message: 'Authenticated site access is required for this endpoint', }
     });
   }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/files/{fileUuid}',
+      data: { message: 'Unable to resolve site context for /x/api/v1/files/{fileUuid}', }
     });
   }
   if (!platformAllows(site, 'uploadMedia')) {
@@ -1195,7 +1200,7 @@ async function deleteFile(req, res) {
   if (!requestedPath) {
     return res.status(400).json({
       status: 400,
-      message: 'File uuid is required',
+      data: { message: 'File uuid is required', }
     });
   }
   let mediaSettings = {};
@@ -1218,7 +1223,7 @@ async function deleteFile(req, res) {
   } catch (e) {
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
-      message: e && e.message ? e.message : 'Unable to complete file operation',
+      data: { message: e && e.message ? e.message : 'Unable to complete file operation', }
     });
   }
 }

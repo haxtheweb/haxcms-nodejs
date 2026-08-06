@@ -404,7 +404,9 @@ async function siteSummary(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/site',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/site',
+      },
     });
   }
   const items = normalizeManifestItems(site);
@@ -451,21 +453,21 @@ async function delegateToLegacySiteWrite(
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: `Unable to resolve site context for ${routeLabel}`,
+      data: { message: `Unable to resolve site context for ${routeLabel}`, }
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
   if (siteName === '') {
     return res.status(400).json({
       status: 400,
-      message: `Unable to resolve site name for ${routeLabel}`,
+      data: { message: `Unable to resolve site name for ${routeLabel}`, }
     });
   }
   const siteToken = ensureSiteTokenHeader(req);
   if (!siteToken) {
     return res.status(403).json({
       status: 403,
-      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
     });
   }
   const body = ensureSiteRequestBody(req, siteName);
@@ -474,7 +476,7 @@ async function delegateToLegacySiteWrite(
     if (validationResult && validationResult.valid === false) {
       return res.status(validationResult.status || 400).json({
         status: validationResult.status || 400,
-        message: validationResult.message || 'Invalid request payload',
+        data: { message: validationResult.message || 'Invalid request payload', }
       });
     }
   }
@@ -566,16 +568,14 @@ async function updateSiteAlternativeFormats(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message:
-        'Unable to resolve site context for /x/api/v1/site/updateAlternativeFormats',
+      data: { message: 'Unable to resolve site context for /x/api/v1/site/updateAlternativeFormats', }
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
   if (siteName === '') {
     return res.status(400).json({
       status: 400,
-      message:
-        'Unable to resolve site name for /x/api/v1/site/updateAlternativeFormats',
+      data: { message: 'Unable to resolve site name for /x/api/v1/site/updateAlternativeFormats', }
     });
   }
   const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
@@ -588,7 +588,7 @@ async function updateSiteAlternativeFormats(req, res) {
   ) {
     return res.status(403).json({
       status: 403,
-      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
     });
   }
   let format = null;
@@ -605,11 +605,11 @@ async function updateSiteAlternativeFormats(req, res) {
     }
   }
   if (format !== null) {
-    const allowedFormats = ['rss', 'sitemap', 'search', 'llms'];
+    const allowedFormats = ['rss', 'sitemap', 'search', 'llms', 'service-worker'];
     if (!allowedFormats.includes(format)) {
       return res.status(400).json({
         status: 400,
-        message: 'Invalid format requested for alternative formats update',
+        data: { message: 'Invalid format requested for alternative formats update', }
       });
     }
   }
@@ -619,7 +619,7 @@ async function updateSiteAlternativeFormats(req, res) {
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: 'Unable to update alternative formats for this site',
+      data: { message: 'Unable to update alternative formats for this site', }
     });
   }
   return res.json({
@@ -639,14 +639,14 @@ async function normalizeSiteSlugs(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/site/normalize-slugs',
+      data: { message: 'Unable to resolve site context for /x/api/v1/site/normalize-slugs', }
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
   if (siteName === '') {
     return res.status(400).json({
       status: 400,
-      message: 'Unable to resolve site name for /x/api/v1/site/normalize-slugs',
+      data: { message: 'Unable to resolve site name for /x/api/v1/site/normalize-slugs', }
     });
   }
   const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
@@ -659,13 +659,13 @@ async function normalizeSiteSlugs(req, res) {
   ) {
     return res.status(403).json({
       status: 403,
-      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
     });
   }
   if (!platformAllows(site, 'outlineDesigner')) {
     return res.status(403).json({
       status: 403,
-      message: 'Outline operations are disabled for this site',
+      data: { message: 'Outline operations are disabled for this site', }
     });
   }
   const body = ensureRequestBodyObject(req);
@@ -765,7 +765,6 @@ async function normalizeSiteSlugs(req, res) {
   return res.json({
     status: 200,
     data: {
-      items: site.manifest.items,
       changed: changes.length > 0,
       preview: isPreview,
       changes: changes,

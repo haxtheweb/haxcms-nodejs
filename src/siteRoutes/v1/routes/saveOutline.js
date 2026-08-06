@@ -309,9 +309,9 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
       // update alt formats like rss as we did massive changes
       await site.updateAlternateFormats();
       await site.gitCommit('Outline updated in bulk');
-      res.send({ items: site.manifest.items });
+      res.json({ status: 200, data: { items: site.manifest.items } });
     } else {
-      res.sendStatus(403);
+      res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
     }
   }
   function normalizeOutlineLocation(location) {
@@ -384,11 +384,9 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
     return /<([a-zA-Z][a-zA-Z0-9-]*)(\s[^>]*)?>/.test(trimmed);
   }
   function saveOutlineError(res, status, message) {
-    return res.send({
-      '__failed' : {
-        'status' : status,
-        'message' : message,
-      }
+    return res.status(status).json({
+      status: status,
+      data: { message: message },
     });
   }
   module.exports = saveOutline;

@@ -166,6 +166,8 @@ function getSystemV1RouteParser(method = 'get', route = '') {
       normalizedRoute === 'configuration/skeletons' ||
       normalizedRoute === 'skeletons' ||
       normalizedRoute === 'actions/docx-to-html' ||
+      normalizedRoute === 'actions/html-to-docx' ||
+      normalizedRoute === 'actions/html-to-pdf' ||
       normalizedRoute === 'actions/import-docx' ||
       normalizedRoute === 'actions/import-pptx' ||
       normalizedRoute === 'actions/import-html' ||
@@ -1236,16 +1238,17 @@ systemStructureContext().then((site) => {
         if (!validateSystemV1RouteAccess(req, op)) {
           return res.status(403).json({
             status: 403,
-            message: 'system admin route requires system dashboard access',
+            data: { message: 'system admin route requires system dashboard access' },
           });
         }
         let isAuthenticated = systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res);
+        let basicAuth = null;
         if (!isAuthenticated) {
-          const basicAuth = authenticateBasicAuthorizationRequest(req);
+          basicAuth = authenticateBasicAuthorizationRequest(req);
           if (basicAuth.blocked) {
             return res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
               status: 429,
-              message: 'Too many failed login attempts. Please try again later.',
+              data: { message: 'Too many failed login attempts. Please try again later.' },
             });
           }
           isAuthenticated = basicAuth.authenticated;
@@ -1253,7 +1256,20 @@ systemStructureContext().then((site) => {
         if (isAuthenticated) {
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
-        return res.sendStatus(403);
+        // D1b status-code parity (matches site API + PHP SystemApiSecurity):
+        // 401 for no creds or failed basic (fresh credential rejection);
+        // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
+        // Message strings mirror PHP SystemApiSecurity so outputs are identical.
+        if (getBearerJwtFromRequest(req) !== '') {
+          return res.status(403).json({
+            status: 403,
+            data: { message: 'Invalid bearer token' },
+          });
+        }
+        return res.status(401).json({
+          status: 401,
+          data: { message: 'Authentication required' },
+        });
       };
       const siteScopedSystemRouteHandler = (req, res, next) => {
         const op = req.route.path.replace(
@@ -1264,16 +1280,17 @@ systemStructureContext().then((site) => {
         if (!validateSystemV1RouteAccess(req, op)) {
           return res.status(403).json({
             status: 403,
-            message: 'system admin route requires system dashboard access',
+            data: { message: 'system admin route requires system dashboard access' },
           });
         }
         let isAuthenticated = systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res);
+        let basicAuth = null;
         if (!isAuthenticated) {
-          const basicAuth = authenticateBasicAuthorizationRequest(req);
+          basicAuth = authenticateBasicAuthorizationRequest(req);
           if (basicAuth.blocked) {
             return res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
               status: 429,
-              message: 'Too many failed login attempts. Please try again later.',
+              data: { message: 'Too many failed login attempts. Please try again later.' },
             });
           }
           isAuthenticated = basicAuth.authenticated;
@@ -1281,7 +1298,20 @@ systemStructureContext().then((site) => {
         if (isAuthenticated) {
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
-        return res.sendStatus(403);
+        // D1b status-code parity (matches site API + PHP SystemApiSecurity):
+        // 401 for no creds or failed basic (fresh credential rejection);
+        // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
+        // Message strings mirror PHP SystemApiSecurity so outputs are identical.
+        if (getBearerJwtFromRequest(req) !== '') {
+          return res.status(403).json({
+            status: 403,
+            data: { message: 'Invalid bearer token' },
+          });
+        }
+        return res.status(401).json({
+          status: 401,
+          data: { message: 'Authentication required' },
+        });
       };
       if (systemRouteParser) {
         app[systemMethod](
@@ -1320,15 +1350,15 @@ systemStructureContext().then((site) => {
             }
             return res.status(access.status).json({
               status: access.status,
-              message: access.message,
+              data: { message: access.message },
             });
           }
           siteRouteRegistry[siteMethod][siteRoute](req, res, next);
         } catch (e) {
           return res.status(500).json({
             status: 500,
-            message: 'Unable to evaluate site API access policy',
-          });
+            data: { message: 'Unable to evaluate site API access policy' },
+            });
         }
       };
       if (siteRouteParser) {
@@ -1348,6 +1378,36 @@ systemStructureContext().then((site) => {
     }
   }
   assertSiteApiMutationRoutesAreSecured(siteRouteRegistry);
+  // D60: 405+Allow dispatch for system and site API routes. After all routes
+  // are registered, add a catch-all that checks if the request path matches a
+  // registered route for a different method and returns 405 + Allow header.
+  // Mirrors PHP SystemApiRouter/SiteApiRouter 405+Allow dispatch. If no
+  // method matches, the request falls through to the existing catch-all / 404.
+  app.use((req, res, next) => {
+    const requestPath = getRequestPathWithoutQuery(req.originalUrl || req.url);
+    const upperReqMethod = String(req.method || 'GET').toUpperCase();
+    // Check system API paths
+    if (requestPath.indexOf('/system/api/') !== -1) {
+      const systemSuffix = extractSystemApiRouteSuffixFromPath(requestPath);
+      if (systemSuffix !== null) {
+        const allowedMethods = findAllowedMethodsForRouteSuffix(systemSuffix, systemRouteRegistry);
+        if (allowedMethods.length > 0 && allowedMethods.indexOf(upperReqMethod) === -1) {
+          return sendMethodNotAllowedResponse(res, systemSuffix, allowedMethods);
+        }
+      }
+    }
+    // Check site API paths
+    if (isSiteApiRequestPath(requestPath)) {
+      const siteSuffix = extractSiteApiRouteSuffixFromPath(requestPath);
+      if (siteSuffix !== null) {
+        const allowedMethods = findAllowedMethodsForRouteSuffix(siteSuffix, siteRouteRegistry);
+        if (allowedMethods.length > 0 && allowedMethods.indexOf(upperReqMethod) === -1) {
+          return sendMethodNotAllowedResponse(res, siteSuffix, allowedMethods);
+        }
+      }
+    }
+    next();
+  });
   // can't do this for a site context
   if (!site) {
     // catch anything called on homepage that doens't match and ensure it still goes through so that it 404s correctly
@@ -2228,6 +2288,100 @@ function getStaticSendFileOptions(rootPath = '', requestPath = '') {
     options.dotfiles = 'allow';
   }
   return options;
+}
+// D60: 405+Allow dispatch helpers. These support the catch-all middleware
+// that checks if a request path matches a registered route for a different
+// method and returns 405 + Allow header. Mirrors PHP SystemApiRouter /
+// SiteApiRouter matchRoute + 405+Allow dispatch.
+function matchRoutePatternToPath(pattern, routePath) {
+  const patternParts = String(pattern || '').split('/').filter(function (p) { return p !== ''; });
+  const pathParts = String(routePath || '').split('/').filter(function (p) { return p !== ''; });
+  if (patternParts.length !== pathParts.length) {
+    return false;
+  }
+  for (let i = 0; i < patternParts.length; i++) {
+    if (patternParts[i].charAt(0) === ':') {
+      continue;
+    }
+    if (patternParts[i] !== pathParts[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+function findAllowedMethodsForRouteSuffix(routeSuffix, registry) {
+  const allowedMethods = [];
+  if (!registry || typeof registry !== 'object') {
+    return allowedMethods;
+  }
+  const registryMethods = Object.keys(registry);
+  for (let i = 0; i < registryMethods.length; i++) {
+    const method = registryMethods[i];
+    const routeMap = registry[method];
+    if (!routeMap || typeof routeMap !== 'object') {
+      continue;
+    }
+    const routePatterns = Object.keys(routeMap);
+    for (let j = 0; j < routePatterns.length; j++) {
+      if (matchRoutePatternToPath(routePatterns[j], routeSuffix)) {
+        const upperMethod = String(method || '').toUpperCase();
+        if (allowedMethods.indexOf(upperMethod) === -1) {
+          allowedMethods.push(upperMethod);
+        }
+        break;
+      }
+    }
+  }
+  return allowedMethods;
+}
+function extractSiteApiRouteSuffixFromPath(requestPath) {
+  const siteApiBase = getSiteApiBasePath();
+  const normalizedPath = getRequestPathWithoutQuery(requestPath);
+  const siteScopedPrefix = '/' + HAXCMS.sitesDirectory + '/';
+  let workingPath = normalizedPath;
+  if (workingPath.indexOf(siteScopedPrefix) === 0) {
+    const afterSites = workingPath.substring(siteScopedPrefix.length);
+    const apiIndex = afterSites.indexOf(siteApiBase + '/');
+    if (apiIndex !== -1) {
+      workingPath = afterSites.substring(apiIndex);
+    }
+  }
+  if (workingPath.indexOf(siteApiBase + '/') === 0) {
+    return workingPath.substring(siteApiBase.length + 1);
+  }
+  if (workingPath === siteApiBase) {
+    return '';
+  }
+  return null;
+}
+function extractSystemApiRouteSuffixFromPath(requestPath) {
+  const systemApiV1Base = String(HAXCMS.basePath || '/') + String(HAXCMS.systemRequestBase || '') + 'v1/';
+  const normalizedPath = getRequestPathWithoutQuery(requestPath);
+  const siteScopedPrefix = '/' + HAXCMS.sitesDirectory + '/';
+  let workingPath = normalizedPath;
+  if (workingPath.indexOf(siteScopedPrefix) === 0) {
+    const afterSites = workingPath.substring(siteScopedPrefix.length);
+    const apiIndex = afterSites.indexOf(systemApiV1Base);
+    if (apiIndex !== -1) {
+      workingPath = afterSites.substring(apiIndex);
+    }
+  }
+  if (workingPath.indexOf(systemApiV1Base) === 0) {
+    return workingPath.substring(systemApiV1Base.length);
+  }
+  return null;
+}
+function sendMethodNotAllowedResponse(res, routeSuffix, allowedMethods) {
+  const sortedMethods = allowedMethods.slice().sort();
+  res.set('Allow', sortedMethods.join(', '));
+  return res.status(405).json({
+    status: 405,
+    data: {
+      message: 'Method not allowed',
+      route: routeSuffix,
+      methods: sortedMethods,
+    },
+  });
 }
 
 function getExplicitVariantInfo(pathname = '') {

@@ -1,11 +1,14 @@
 const { sanitizeUntrustedHtml } = require('../../../lib/convertUtils.js')
 const { importHtmlToItems } = require('../../../siteRoutes/v1/importUtils.js')
 
+// D37: canonical upload field-name allowlist (parity with PHP importHtml.php).
+const UPLOAD_FIELD_ALLOWLIST = ['upload', 'file', 'file-upload']
+
 /**
  * POST /system/api/v1/actions/import-html
  * Convert an uploaded .html or .htm file into a HAXcms site schema (items array).
  *
- * Expects multipart/form-data with a file field (any field name is accepted).
+ * Expects multipart/form-data with a file field (field name must be one of: upload, file, file-upload).
  * Also accepts form fields: method (site|branch|page), type (course|portfolio|''), parentId.
  * Returns { status: 200, data: { items: [...], filename: string } }.
  */
@@ -24,6 +27,17 @@ async function importHtml(req, res) {
     }
 
     const file = req.files[0]
+    // D37: validate upload field name against the canonical allowlist.
+    if (UPLOAD_FIELD_ALLOWLIST.indexOf(file.fieldname) === -1) {
+      return res.status(400).json({
+        status: 400,
+        data: {
+          error: `Unexpected upload field name \`${file.fieldname}\`; expected one of: ${UPLOAD_FIELD_ALLOWLIST.join(', ')}`,
+          items: [],
+          filename: file.originalname || null,
+        },
+      })
+    }
     filename = file.originalname
     if (!/\.(html|htm)$/i.test(filename)) {
       return res.status(400).json({

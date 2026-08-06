@@ -4,6 +4,9 @@ const { HAXCMS } = require('../../../../lib/HAXCMS.js')
 const { importHtmlToItems } = require('../../../../siteRoutes/v1/importUtils.js')
 const { safeFetch } = require('../../../../lib/safeFetch.js')
 
+// D37: canonical upload field-name allowlist (parity with PHP importHtml.php).
+const UPLOAD_FIELD_ALLOWLIST = ['upload', 'file', 'file-upload']
+
 const SUPPORTED_SITE_LICENSES = [
   'by-nc-nd',
   'by-nc-sa',
@@ -217,6 +220,17 @@ async function handleHtmlFileImport(req, res) {
   }
 
   const file = req.files[0]
+  // D37: validate upload field name against the canonical allowlist.
+  if (UPLOAD_FIELD_ALLOWLIST.indexOf(file.fieldname) === -1) {
+    return res.status(400).json({
+      status: 400,
+      data: {
+        error: `Unexpected upload field name \`${file.fieldname}\`; expected one of: ${UPLOAD_FIELD_ALLOWLIST.join(', ')}`,
+        items: [],
+        filename: file.originalname || null,
+      },
+    })
+  }
   filename = file.originalname
   if (!/\.(html|htm)$/i.test(filename)) {
     return res.status(400).json({

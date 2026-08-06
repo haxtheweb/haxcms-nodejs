@@ -720,9 +720,12 @@ test(
           link && link.indexOf('.zip') !== -1 && link.substring(link.length - 4) === '.zip',
           'download response data.link must end with .zip',
         )
+        // D17 (locked): downloadSite response data.name includes the .zip
+        // extension (PHP canonical; Node aligned). The on-disk zip path below
+        // also uses EXPECTED_SITE_NAME + '.zip', so assert the same here.
         assert.ok(
-          name && name.toLowerCase() === EXPECTED_SITE_NAME,
-          'download response data.name must match EXPECTED_SITE_NAME',
+          name && name.toLowerCase() === EXPECTED_SITE_NAME + '.zip',
+          'download response data.name must match EXPECTED_SITE_NAME + .zip (D17)',
         )
       })
 

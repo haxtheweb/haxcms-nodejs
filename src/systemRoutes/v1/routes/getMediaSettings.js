@@ -22,7 +22,9 @@ async function getMediaSettings(req, res) {
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: 'Unable to load media settings',
+      data: {
+        message: 'Unable to load media settings',
+      },
     });
   }
 }

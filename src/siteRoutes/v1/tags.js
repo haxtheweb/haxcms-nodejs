@@ -43,7 +43,9 @@ async function tags(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/tags',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/tags',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -52,7 +54,9 @@ async function tags(req, res) {
   const tagFilter = getCsvQuery(req, 'filter.tags').map((tag) =>
     String(tag || '').toLowerCase(),
   );
-  const filteredItems = applyItemFilters(getOrderedItems(site), req, site);
+  const filteredItems = applyItemFilters(getOrderedItems(site), req, site, {
+    enforceAnonymousVisibility: true,
+  });
   let records = buildTagRecords(filteredItems, includeItems);
   if (tagFilter.length > 0) {
     records = records.filter(

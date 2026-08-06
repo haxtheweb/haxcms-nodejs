@@ -2,6 +2,9 @@ const { sanitizeUntrustedHtml } = require('../../../../lib/convertUtils.js')
 const { importHtmlToItems } = require('../../../../siteRoutes/v1/importUtils.js')
 const { safeFetch } = require('../../../../lib/safeFetch.js')
 
+// D37: canonical upload field-name allowlist (parity with PHP importHtml.php).
+const UPLOAD_FIELD_ALLOWLIST = ['upload', 'file', 'file-upload']
+
 /**
  * POST /system/api/v1/site/import/:platform
  * Convert HTML content (fetched from URL or uploaded file) into a HAXcms site schema.
@@ -30,6 +33,17 @@ async function convertHtmlToSite(req, res) {
       })
     }
     const file = req.files[0]
+    // D37: validate upload field name against the canonical allowlist.
+    if (UPLOAD_FIELD_ALLOWLIST.indexOf(file.fieldname) === -1) {
+      return res.status(400).json({
+        status: 400,
+        data: {
+          error: `Unexpected upload field name \`${file.fieldname}\`; expected one of: ${UPLOAD_FIELD_ALLOWLIST.join(', ')}`,
+          items: [],
+          filename: file.originalname || null,
+        },
+      })
+    }
     filename = file.originalname
     if (!/\.(html|htm)$/i.test(filename)) {
       return res.status(400).json({

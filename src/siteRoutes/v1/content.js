@@ -135,7 +135,9 @@ async function listContent(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/content',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/content',
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -192,7 +194,9 @@ async function contentDetail(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/content/:idOrSlug',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/content/:idOrSlug',
+      },
     });
   }
   const idOrSlug =
@@ -201,7 +205,9 @@ async function contentDetail(req, res) {
   if (!item) {
     return res.status(404).json({
       status: 404,
-      message: `Content not found for idOrSlug "${idOrSlug}"`,
+      data: {
+        message: `Content not found for idOrSlug "${idOrSlug}"`,
+      },
     });
   }
   if (
@@ -210,7 +216,9 @@ async function contentDetail(req, res) {
   ) {
     return res.status(404).json({
       status: 404,
-      message: `Content not found for idOrSlug "${idOrSlug}"`,
+      data: {
+        message: `Content not found for idOrSlug "${idOrSlug}"`,
+      },
     });
   }
   const apiBasePath = getApiBasePath(req);
@@ -245,7 +253,7 @@ async function updateContent(req, res, next) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/content/:idOrSlug',
+      data: { message: 'Unable to resolve site context for /x/api/v1/content/:idOrSlug', }
     });
   }
   const idOrSlug =
@@ -254,21 +262,21 @@ async function updateContent(req, res, next) {
   if (!item || !item.id) {
     return res.status(404).json({
       status: 404,
-      message: `Content not found for idOrSlug "${idOrSlug}"`,
+      data: { message: `Content not found for idOrSlug "${idOrSlug}"`, }
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
   if (siteName === '') {
     return res.status(400).json({
       status: 400,
-      message: 'Unable to resolve site name for content update operation',
+      data: { message: 'Unable to resolve site name for content update operation', }
     });
   }
   const siteToken = ensureSiteTokenHeader(req);
   if (!siteToken) {
     return res.status(403).json({
       status: 403,
-      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
     });
   }
   const body = ensureSiteRequestBody(req, siteName);
@@ -290,7 +298,7 @@ async function updateContent(req, res, next) {
   if (bodyContent === '') {
     return res.status(400).json({
       status: 400,
-      message: 'Content body is required',
+      data: { message: 'Content body is required', }
     });
   }
   let schema = [];
@@ -327,21 +335,21 @@ async function replaceContent(req, res, next) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/content',
+      data: { message: 'Unable to resolve site context for /x/api/v1/content', }
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
   if (siteName === '') {
     return res.status(400).json({
       status: 400,
-      message: 'Unable to resolve site name for content replace operation',
+      data: { message: 'Unable to resolve site name for content replace operation', }
     });
   }
   const siteToken = ensureSiteTokenHeader(req);
   if (!siteToken) {
     return res.status(403).json({
       status: 403,
-      message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
     });
   }
   const body = ensureSiteRequestBody(req, siteName);

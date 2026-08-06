@@ -8,6 +8,15 @@ const exec = util.promisify(child_process.exec)
 const SITENAME = 'recipe-import-tmp'
 const RECIPENAME = 'tmp.recipe'
 const ITEMSFILE = 'items.json'
+const UPLOAD_FIELD_ALLOWLIST = ['upload', 'file', 'file-upload']
+
+// D34: derive the output filename from the recipe/repo name (PHP canonical).
+// Mirrors PHP preg_replace('/\.(json|yaml|yml)$/i', '', lastPathSegment).
+function deriveRecipeName(source, fallback) {
+  let base = String(source || '').split('/').pop() || fallback
+  base = base.replace(/\.(json|yaml|yml)$/i, '')
+  return base !== '' ? base : fallback
+}
 
 function findHaxCli() {
   const localPath = path.resolve(__dirname, '../../../../../../create/dist/create.js')
@@ -18,19 +27,31 @@ function findHaxCli() {
 }
 
 async function convertRecipeToSite(req, res) {
-  let q = null
-  if (req && req.query && req.query.q) {
-    q = req.query.q
-  } else if (req && req.body && req.body.q) {
-    q = req.body.q
+  let repoUrl = null
+  if (req && req.query && req.query.repoUrl) {
+    repoUrl = req.query.repoUrl
+  } else if (req && req.body && req.body.repoUrl) {
+    repoUrl = req.body.repoUrl
   }
 
   let recipeContent = null
+  let recipeName = 'recipe'
   if (req.files && req.files.length > 0) {
     const file = req.files[0]
+    // D37: validate upload field name against the canonical allowlist.
+    if (UPLOAD_FIELD_ALLOWLIST.indexOf(file.fieldname) === -1) {
+      return res.status(400).json({
+        status: 400,
+        data: {
+          error: `Unexpected upload field name \`${file.fieldname}\`; expected one of: ${UPLOAD_FIELD_ALLOWLIST.join(', ')}`,
+          items: [],
+          filename: null
+        }
+      })
+    }
     try {
       recipeContent = fs.readFileSync(file.path, 'utf8')
-      q = 'file-upload'
+      recipeName = deriveRecipeName(file.originalname, 'recipe')
     } catch (e) {
       return res.status(400).json({
         status: 400,
@@ -43,11 +64,11 @@ async function convertRecipeToSite(req, res) {
     }
   }
 
-  if (!q && !recipeContent) {
+  if (!repoUrl && !recipeContent) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: 'missing `q` param',
+        error: 'missing `repoUrl` param',
         items: [],
         filename: null
       }
@@ -67,7 +88,7 @@ async function convertRecipeToSite(req, res) {
     if (recipeContent) {
       fs.writeFileSync(`${tmpDir}/${RECIPENAME}`, recipeContent)
     } else {
-      const recipe = await safeFetch(`${q}`).then((d) => d.ok ? d.text() : '')
+      const recipe = await safeFetch(`${repoUrl}`).then((d) => d.ok ? d.text() : '')
       if (!recipe) {
         return res.status(400).json({
           status: 400,
@@ -79,6 +100,7 @@ async function convertRecipeToSite(req, res) {
         })
       }
       fs.writeFileSync(`${tmpDir}/${RECIPENAME}`, recipe)
+      recipeName = deriveRecipeName(repoUrl, 'recipe')
     }
 
     await exec(`${HAXPROGRAM} site recipe:play --y --recipe "${RECIPENAME}" --root "${tmpDir}" --no-i`)
@@ -90,7 +112,7 @@ async function convertRecipeToSite(req, res) {
       status: 200,
       data: {
         items: items,
-        filename: `${SITENAME}.json`
+        filename: recipeName
       }
     })
   } catch (error) {

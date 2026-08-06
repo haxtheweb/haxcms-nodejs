@@ -37,7 +37,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
       let page;
       if (page = site.loadNode(req.body['node']['id'])) {
           if (await site.deleteNode(page) === false) {
-            res.sendStatus(500);
+            res.status(500).json({ status: 500, data: { message: 'Server error' } });
           } else {
             // now, we need to look for orphans if we deleted anything
             for (var key in site.manifest.items) {
@@ -63,10 +63,10 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
             });
           }
       } else {
-          res.sendStatus(500);
+          res.status(500).json({ status: 500, data: { message: 'Server error' } });
       }
     } else {
-      res.sendStatus(403);
+      res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
     }
   }
   module.exports = deleteNode;

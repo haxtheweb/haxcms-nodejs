@@ -49,12 +49,13 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
           status: 200,
           data: {
             name: site.name,
+            archivedName: site.name,
             detail: 'Site archived',
           },
         });
       }
     else {
-      res.sendStatus(500);
+      res.status(500).json({ status: 500, data: { message: 'Server error' } });
     }
   }
   module.exports = archiveSite;

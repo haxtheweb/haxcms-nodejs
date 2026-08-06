@@ -642,8 +642,7 @@ class HAXCMSFile
       if (!sanitizedIncomingName || !ALLOWED_UPLOAD_EXTENSION_PATTERN.test(sanitizedIncomingName)) {
         return {
           'status' : 500,
-          '__failed' : {
-            'status' : 500,
+          'data' : {
             'message' : 'File type not allowed',
           }
         };
@@ -661,8 +660,7 @@ class HAXCMSFile
             if (tmpFile['size'] > maxBytes) {
               return {
                 'status': 500,
-                '__failed': {
-                  'status': 500,
+                'data': {
                   'message': 'File exceeds the maximum upload size of ' + sizeSettings.maxUploadSizeMb + 'MB',
                 }
               };
@@ -683,8 +681,7 @@ class HAXCMSFile
       if (isBulkImport && !isValidBulkImportStagedPath(filedata)) {
         return {
           'status' : 500,
-          '__failed' : {
-            'status' : 500,
+          'data' : {
             'message' : 'Invalid bulk import source',
           }
         };
@@ -695,8 +692,7 @@ class HAXCMSFile
         if (!isUrlSafe) {
           return {
             'status' : 500,
-            '__failed' : {
-              'status' : 500,
+            'data' : {
               'message' : 'URL target is not allowed',
             }
           };
@@ -720,8 +716,7 @@ class HAXCMSFile
                 fs.removeSync(remoteDownloadPath);
                 return {
                   'status': 500,
-                  '__failed': {
-                    'status': 500,
+                  'data': {
                     'message': 'Downloaded file exceeds the maximum upload size of ' + dlSizeSettings.maxUploadSizeMb + 'MB',
                   }
                 };
@@ -734,8 +729,7 @@ class HAXCMSFile
           console.warn(err);
           return {
             'status' : 500,
-            '__failed' : {
-              'status' : 500,
+            'data' : {
               'message' : 'Failed to download remote file source',
             }
           };
@@ -748,8 +742,7 @@ class HAXCMSFile
         }
         return {
           'status' : 500,
-          '__failed' : {
-            'status' : 500,
+          'data' : {
             'message' : mimeValidation.message,
           }
         };
@@ -763,8 +756,7 @@ class HAXCMSFile
           if (preMoveStats.isSymbolicLink()) {
             return {
               'status': 500,
-              '__failed': {
-                'status': 500,
+              'data': {
                 'message': 'Bulk import source replaced with symlink',
               }
             };
@@ -773,8 +765,7 @@ class HAXCMSFile
         catch (e) {
           return {
             'status': 500,
-            '__failed': {
-              'status': 500,
+            'data': {
               'message': 'Unable to verify bulk import source',
             }
           };
@@ -786,7 +777,10 @@ class HAXCMSFile
       catch(err) {
         console.warn(err);
         return {
-          status: 500
+          status: 500,
+          data: {
+            message: 'Unable to save file to target location',
+          }
         };
       }
       if (detectedMimeType === 'image/jpeg') {

@@ -2513,44 +2513,24 @@ class HAXCMSSite
       
       // validate that we have content to save
       if (!content) {
-        return {
-          '__failed': {
-            'status': 400,
-            'message': 'Content parameter is required',
-          }
-        };
+        return { 'status': 400, 'data': { 'message': 'Content parameter is required' } };
       }
       
       // validate content is a string and has some actual content
       if (typeof content !== 'string') {
-        return {
-          '__failed': {
-            'status': 400,
-            'message': 'Content must be a string',
-          }
-        };
+        return { 'status': 400, 'data': { 'message': 'Content must be a string' } };
       }
       
       // basic validation - ensure we have some HTML-like content
       const cleanContent = content.trim();
       if (!cleanContent) {
-        return {
-          '__failed': {
-            'status': 400,
-            'message': 'Content cannot be empty',
-          }
-        };
+        return { 'status': 400, 'data': { 'message': 'Content cannot be empty' } };
       }
       
       // validate that content appears to be HTML by checking for basic HTML patterns
       // this follows similar pattern to how saveNode validates content structure
       if (!/<[^>]+>/.test(cleanContent)) {
-        return {
-          '__failed': {
-            'status': 400,
-            'message': 'Content must be valid HTML',
-          }
-        };
+        return { 'status': 400, 'data': { 'message': 'Content must be valid HTML' } };
       }
       
       // check if the theme directory exists, if not create it
@@ -2559,12 +2539,7 @@ class HAXCMSSite
         try {
           await fs.ensureDir(themeDirectory);
         } catch (error) {
-          return {
-            '__failed': {
-              'status': 500,
-              'message': 'Failed to create theme directory',
-            }
-          };
+          return { 'status': 500, 'data': { 'message': 'Failed to create theme directory' } };
         }
       }
       
@@ -2575,24 +2550,14 @@ class HAXCMSSite
           this.manifest.metadata.theme.styleGuide && 
           this.manifest.metadata.theme.styleGuide !== null && 
           this.manifest.metadata.theme.styleGuide !== '') {
-        return {
-          '__failed': {
-            'status': 403,
-            'message': 'Style guide is configured to use external source. Cannot edit through HAXcms.',
-          }
-        };
+        return { 'status': 403, 'data': { 'message': 'Style guide is configured to use external source. Cannot edit through HAXcms.' } };
       }
       
       // write the content to the style guide file
       try {
         await fs.writeFile(styleGuideFile, cleanContent);
       } catch (error) {
-        return {
-          '__failed': {
-            'status': 500,
-            'message': 'Failed to write style guide file',
-          }
-        };
+        return { 'status': 500, 'data': { 'message': 'Failed to write style guide file' } };
       }
       
       // commit to git
@@ -2600,8 +2565,8 @@ class HAXCMSSite
       
       return {
         'status': 200,
-        'message': 'Style guide saved successfully',
         'data': {
+          'message': 'Style guide saved successfully',
           'file': 'theme/style-guide.html'
         }
       };
@@ -3546,13 +3511,11 @@ class HAXCMSClass {
       }
       else {
         fields = {
-          '__failed': {
-            'status': 500,
-            'message': form_id + ' does not exist',
-          }
+          'status': 500,
+          'data': { 'message': form_id + ' does not exist' }
         };
       }
-      if (typeof this[form_id + "Value"] === "function") {
+      if (typeof this[form_id + "Value"] === 'function') {
         value = await this[form_id + "Value"](context);
       }
       // ensure values are set for the hidden internal fields
@@ -3573,10 +3536,8 @@ class HAXCMSClass {
       }
       else {
         fields = {
-          '__failed': {
-            'status': 500,
-            'message': form_id + ' does not exist',
-          }
+          'status': 500,
+          'data': { 'message': form_id + ' does not exist' }
         };
       }
     }

@@ -172,7 +172,7 @@ async function createNode(req, res) {
       data: item
     });
   } else {
-    res.sendStatus(403);
+    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
   }
 }
 module.exports = createNode;

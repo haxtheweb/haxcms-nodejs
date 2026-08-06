@@ -41,7 +41,7 @@ async function saveAllowedBlocks(req, res) {
     }
 
     if (!req.body || typeof req.body.platform !== 'object' || !req.body.platform) {
-      res.sendStatus(400);
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
       return;
     }
 
@@ -49,7 +49,7 @@ async function saveAllowedBlocks(req, res) {
       req.body.platform.allowedBlocks !== null &&
       !Array.isArray(req.body.platform.allowedBlocks)
     ) {
-      res.sendStatus(400);
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
       return;
     }
 
@@ -60,13 +60,13 @@ async function saveAllowedBlocks(req, res) {
       const cleanAllowedBlocks = [];
       for (const tag of req.body.platform.allowedBlocks) {
         if (typeof tag !== 'string') {
-          res.sendStatus(400);
+          res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
           return;
         }
 
         const cleanTag = tag.trim();
         if (!cleanTag) {
-          res.sendStatus(400);
+          res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
           return;
         }
 
@@ -75,7 +75,7 @@ async function saveAllowedBlocks(req, res) {
         const isRegisteredWc = !isHtmlTag && wcMap && typeof wcMap[cleanTag] !== 'undefined';
 
         if (!isHtmlTag && !isRegisteredWc) {
-          res.sendStatus(400);
+          res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
           return;
         }
 
@@ -101,9 +101,9 @@ async function saveAllowedBlocks(req, res) {
     await site.manifest.save(false);
     await site.gitCommit('Allowed blocks updated');
 
-    res.send(site.manifest);
+    res.json({ status: 200, data: site.manifest });
   } else {
-    res.sendStatus(403);
+    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
   }
 }
 

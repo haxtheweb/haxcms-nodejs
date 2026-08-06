@@ -190,19 +190,6 @@ function getSiteTokenFromHeader(req) {
   return '';
 }
 
-function getSiteApiPathForBroker(req) {
-  const siteName =
-    req &&
-    req.query &&
-    req.query.siteName
-      ? String(req.query.siteName).trim()
-      : '';
-  if (siteName !== '') {
-    return `${HAXCMS.sitesDirectory}/${encodeURIComponent(siteName)}/x/api`;
-  }
-  return 'x/api';
-}
-
 function rewriteConnectionToBroker(connection, provider, req) {
   const parsed = parseConnectionUrl(connection.url || '');
   const mergedData = sanitizeBrokerConnectionData(
@@ -249,7 +236,8 @@ function rewriteConnectionToBroker(connection, provider, req) {
       browse: {
         ...browseOperation,
         method: browseOperation.method || 'GET',
-        endPoint: `${getSiteApiPathForBroker(req)}/v1/integrations/app-store/providers/${encodeURIComponent(provider)}/search`,
+        // D38: broker through the system API (parity with PHP) rather than the site API.
+        endPoint: `${HAXCMS.systemRequestBase}v1/integrations/app-store/providers/${encodeURIComponent(provider)}/search`,
       },
     },
   };
@@ -279,7 +267,6 @@ function rewriteConnectionToBroker(connection, provider, req) {
  * )
  */
 async function generateAppStore(req, res) {
-  let returnData = {};
   const siteToken = getSiteTokenFromHeader(req);
   const siteName =
     req && req.query && req.query.siteName
@@ -352,13 +339,19 @@ async function generateAppStore(req, res) {
     const finalAutoloaderList = enabledSet
       ? filterAutoloaderList(autoloaderList, enabledSet)
       : autoloaderList;
-    returnData = {
-        'status': 200,
-        'apps': appStore,
-        'stax': staxList,
-        'autoloader': finalAutoloaderList
-    };
+    return res.json({
+      status: 200,
+      apps: appStore,
+      stax: staxList,
+      autoloader: finalAutoloaderList,
+    });
   }
-  res.send(returnData);
+  // D27: invalid request token — return D1 failure envelope (403)
+  return res.status(403).json({
+    status: 403,
+    data: {
+      message: 'invalid request token',
+    },
+  });
 }
-  module.exports = generateAppStore;
+module.exports = generateAppStore;

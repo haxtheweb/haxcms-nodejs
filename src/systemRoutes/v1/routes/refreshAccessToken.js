@@ -30,14 +30,14 @@ function refreshAccessToken(req, res) {
       HAXCMS.revokeRefreshSession(validRefresh.user);
     }
     HAXCMS.setRefreshTokenCookie(res, '', 1);
-    res.sendStatus(401);
+    return res.status(401).json({ status: 401, data: { message: 'Refresh token validation failed' } });
   }
   else {
     // Security (HAX-SEC / PHP [M3] parity): clear via the centralized helper so
     // the Secure/SameSite/HttpOnly flags match how the cookie was set (required
     // for the browser to actually delete it).
     HAXCMS.setRefreshTokenCookie(res, '', 1);
-    res.sendStatus(401);
+    return res.status(401).json({ status: 401, data: { message: 'Refresh token validation failed' } });
   }
 }
 module.exports = refreshAccessToken;

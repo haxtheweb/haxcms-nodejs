@@ -50,12 +50,10 @@ function platformAllows(site, capability) {
 }
 
 function featureDisabledResponse(res, message) {
-  return res.status(403).send({
-    __failed: {
-      status: 403,
-      message: message || 'This operation is disabled for this site',
-    },
-  })
+  return res.status(403).json({
+    status: 403,
+    data: { message: message || 'This operation is disabled for this site' },
+  });
 }
 
 module.exports = { platformAllows, featureDisabledResponse }

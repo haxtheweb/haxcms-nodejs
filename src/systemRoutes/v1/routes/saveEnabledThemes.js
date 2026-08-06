@@ -10,6 +10,20 @@ const {
   writeEnabledThemeMap,
 } = require('../../../lib/themeSettings.js');
 
+function getUserTokenFromHeader(req) {
+  if (!req || !req.headers || typeof req.headers !== 'object') {
+    return '';
+  }
+  const rawValue = req.headers['x-haxcms-user-token'];
+  if (Array.isArray(rawValue)) {
+    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
+  }
+  if (typeof rawValue === 'string') {
+    return rawValue.trim();
+  }
+  return '';
+}
+
 function getEnabledThemesPayload(req) {
   if (!req || !req.body) {
     return undefined;
@@ -50,18 +64,34 @@ function enabledListFromPayload(payload) {
  * )
  */
 async function saveEnabledThemes(req, res) {
+  const userToken = getUserTokenFromHeader(req);
+  if (
+    !userToken ||
+    !HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName())
+  ) {
+    return res.status(403).json({
+      status: 403,
+      data: {
+        message: 'invalid request token',
+      },
+    });
+  }
   const payload = getEnabledThemesPayload(req);
   if (typeof payload === 'undefined') {
     return res.status(400).json({
       status: 400,
-      message: 'Missing enabledThemes payload',
+      data: {
+        message: 'Missing enabledThemes payload',
+      },
     });
   }
   const enabledThemes = enabledListFromPayload(payload);
   if (!enabledThemes) {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid enabledThemes payload',
+      data: {
+        message: 'Invalid enabledThemes payload',
+      },
     });
   }
   try {
@@ -111,7 +141,9 @@ async function saveEnabledThemes(req, res) {
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: 'Unable to save enabled theme settings',
+      data: {
+        message: 'Unable to save enabled theme settings',
+      },
     });
   }
 }

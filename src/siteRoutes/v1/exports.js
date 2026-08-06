@@ -732,7 +732,9 @@ async function siteExport(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/site/export/:format',
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/site/export/:format',
+      },
     })
   }
   const apiBasePath = getApiBasePath(req)
@@ -742,7 +744,9 @@ async function siteExport(req, res) {
   if (SITE_EXPORT_FORMATS.indexOf(format) === -1) {
     return res.status(400).json({
       status: 400,
-      message: `Unsupported site export format "${format}"`,
+      data: {
+        message: `Unsupported site export format "${format}"`,
+      },
       supportedFormats: SITE_EXPORT_FORMATS,
     })
   }
@@ -761,7 +765,9 @@ async function siteExport(req, res) {
         catch (e) {
           return res.status(500).json({
             status: 500,
-            message: `Unable to build site export HTML: ${e.message}`,
+            data: {
+              message: `Unable to build site export HTML: ${e.message}`,
+            },
           })
         }
         if (format === 'docx') {
@@ -776,7 +782,9 @@ async function siteExport(req, res) {
     catch (e) {
       return res.status(e && e.status ? e.status : 502).json({
         status: e && e.status ? e.status : 502,
-        message: e && e.message ? e.message : 'Unable to complete export conversion',
+        data: {
+          message: e && e.message ? e.message : 'Unable to complete export conversion',
+        },
       })
     }
     return sendDownloadResponse(
@@ -796,7 +804,9 @@ async function siteExport(req, res) {
     catch (e) {
       return res.status(500).json({
         status: 500,
-        message: `Unable to build site export HTML: ${e.message}`,
+        data: {
+          message: `Unable to build site export HTML: ${e.message}`,
+        },
       })
     }
   }
@@ -825,8 +835,10 @@ async function itemExport(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      message:
-        'Unable to resolve site context for /x/api/v1/items/:idOrSlug/export/:format',
+      data: {
+        message:
+          'Unable to resolve site context for /x/api/v1/items/:idOrSlug/export/:format',
+      },
     })
   }
   const idOrSlug =
@@ -835,7 +847,9 @@ async function itemExport(req, res) {
   if (!item) {
     return res.status(404).json({
       status: 404,
-      message: `Item not found for idOrSlug "${idOrSlug}"`,
+      data: {
+        message: `Item not found for idOrSlug "${idOrSlug}"`,
+      },
     })
   }
   if (
@@ -844,7 +858,9 @@ async function itemExport(req, res) {
   ) {
     return res.status(404).json({
       status: 404,
-      message: `Item not found for idOrSlug "${idOrSlug}"`,
+      data: {
+        message: `Item not found for idOrSlug "${idOrSlug}"`,
+      },
     })
   }
   const format = normalizeFormatValue(
@@ -853,7 +869,9 @@ async function itemExport(req, res) {
   if (ITEM_EXPORT_FORMATS.indexOf(format) === -1) {
     return res.status(400).json({
       status: 400,
-      message: `Unsupported item export format "${format}"`,
+      data: {
+        message: `Unsupported item export format "${format}"`,
+      },
       supportedFormats: ITEM_EXPORT_FORMATS,
     })
   }
@@ -868,7 +886,9 @@ async function itemExport(req, res) {
     catch (e) {
       return res.status(500).json({
         status: 500,
-        message: `Unable to build item export HTML: ${e.message}`,
+        data: {
+          message: `Unable to build item export HTML: ${e.message}`,
+        },
       })
     }
     if (format === 'docx') {
@@ -884,7 +904,9 @@ async function itemExport(req, res) {
     catch (e) {
       return res.status(e && e.status ? e.status : 502).json({
         status: e && e.status ? e.status : 502,
-        message: e && e.message ? e.message : 'Unable to complete export conversion',
+        data: {
+          message: e && e.message ? e.message : 'Unable to complete export conversion',
+        },
       })
     }
     return sendDownloadResponse(
@@ -903,7 +925,9 @@ async function itemExport(req, res) {
     catch (e) {
       return res.status(500).json({
         status: 500,
-        message: `Unable to build item export HTML: ${e.message}`,
+        data: {
+          message: `Unable to build item export HTML: ${e.message}`,
+        },
       })
     }
     return sendDownloadResponse(
@@ -939,7 +963,9 @@ async function itemExport(req, res) {
     catch (e) {
       return res.status(e && e.status ? e.status : 502).json({
         status: e && e.status ? e.status : 502,
-        message: e && e.message ? e.message : 'Unable to complete EPUB export conversion',
+        data: {
+          message: e && e.message ? e.message : 'Unable to complete EPUB export conversion',
+        },
       })
     }
     return sendDownloadResponse(
@@ -957,7 +983,9 @@ async function itemExport(req, res) {
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: `Unable to build item export record: ${e.message}`,
+      data: {
+        message: `Unable to build item export record: ${e.message}`,
+      },
     })
   }
   const serialized = serializePayload(record, format)
@@ -969,8 +997,56 @@ async function itemExport(req, res) {
   )
 }
 
+// D43: POST v1/site/export/:format mutation handler. Mirrors PHP
+// exportsMutation.php: returns the JSON export descriptor (never the binary
+// download). Authenticated-site gating is applied by the route registration
+// layer (all POST site routes require authenticated-site).
+async function siteExportMutation(req, res) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest) {
+    return res.status(404).json({
+      status: 404,
+      data: {
+        message: 'Unable to resolve site context for /x/api/v1/site/export/:format',
+      },
+    });
+  }
+  const apiBasePath = getApiBasePath(req);
+  const format = normalizeFormatValue(
+    req && req.params && req.params.format ? req.params.format : '',
+  );
+  if (SITE_EXPORT_FORMATS.indexOf(format) === -1) {
+    return res.status(400).json({
+      status: 400,
+      data: {
+        message: `Unsupported site export format "${format}"`,
+      },
+      supportedFormats: SITE_EXPORT_FORMATS,
+    });
+  }
+  const exportDetails = buildSiteExportDetails(site, apiBasePath, format);
+  return sendFormattedResponse(
+    req,
+    res,
+    {
+      format,
+      supportedFormats: SITE_EXPORT_FORMATS,
+      export: exportDetails,
+      links: {
+        self: `${apiBasePath}/v1/site/export/${format}`,
+        site: `${apiBasePath}/v1/site`,
+      },
+    },
+    {
+      allowedFormats: ['json'],
+      defaultFormat: 'json',
+    },
+  );
+}
+
 module.exports = {
   siteExport,
+  siteExportMutation,
   itemExport,
   ITEM_EXPORT_FORMATS,
 }

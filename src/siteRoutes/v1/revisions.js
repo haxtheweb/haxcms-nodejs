@@ -281,7 +281,7 @@ async function listItemRevisions(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions',
+      data: { message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions', }
     });
   }
   const idOrSlug =
@@ -290,33 +290,33 @@ async function listItemRevisions(req, res) {
   if (!item) {
     return res.status(404).json({
       status: 404,
-      message: `Item not found for idOrSlug "${idOrSlug}"`,
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"`, }
     });
   }
   if (!item.id || typeof site.loadNode !== 'function') {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve item page context for revisions',
+      data: { message: 'Unable to resolve item page context for revisions', }
     });
   }
   const page = site.loadNode(item.id);
   if (!page || !page.location) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve page location for revisions',
+      data: { message: 'Unable to resolve page location for revisions', }
     });
   }
   const fileData = sanitizePageLocation(site.siteDirectory, page.location);
   if (!fileData) {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid node file location',
+      data: { message: 'Invalid node file location', }
     });
   }
   if (!fs.existsSync(fileData.absolutePath)) {
     return res.status(404).json({
       status: 404,
-      message: 'Node file not found',
+      data: { message: 'Node file not found', }
     });
   }
 
@@ -389,7 +389,7 @@ async function listItemRevisions(req, res) {
   } catch (e) {
     return res.status(500).json({
       status: 500,
-      message: e && e.message ? e.message : 'Unable to load item revisions',
+      data: { message: e && e.message ? e.message : 'Unable to load item revisions', }
     });
   }
 }
@@ -399,8 +399,7 @@ async function itemRevisionDetail(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      message:
-        'Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions/:revisionId',
+      data: { message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions/:revisionId', }
     });
   }
   const idOrSlug =
@@ -409,33 +408,33 @@ async function itemRevisionDetail(req, res) {
   if (!item) {
     return res.status(404).json({
       status: 404,
-      message: `Item not found for idOrSlug "${idOrSlug}"`,
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"`, }
     });
   }
   if (!item.id || typeof site.loadNode !== 'function') {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve item page context for revision detail',
+      data: { message: 'Unable to resolve item page context for revision detail', }
     });
   }
   const page = site.loadNode(item.id);
   if (!page || !page.location) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve page location for revision detail',
+      data: { message: 'Unable to resolve page location for revision detail', }
     });
   }
   const fileData = sanitizePageLocation(site.siteDirectory, page.location);
   if (!fileData) {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid node file location',
+      data: { message: 'Invalid node file location', }
     });
   }
   if (!fs.existsSync(fileData.absolutePath)) {
     return res.status(404).json({
       status: 404,
-      message: 'Node file not found',
+      data: { message: 'Node file not found', }
     });
   }
   const revisionHash =
@@ -445,7 +444,7 @@ async function itemRevisionDetail(req, res) {
   if (revisionHash === '') {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid revision hash',
+      data: { message: 'Invalid revision hash', }
     });
   }
   try {
@@ -463,7 +462,7 @@ async function itemRevisionDetail(req, res) {
     if (!revisionMetadataRaw) {
       return res.status(404).json({
         status: 404,
-        message: 'Revision not found',
+        data: { message: 'Revision not found', }
       });
     }
     const revisionMetadata = parseRevisionMetadata(
@@ -522,12 +521,12 @@ async function itemRevisionDetail(req, res) {
     if (message.indexOf('does not exist') !== -1) {
       return res.status(404).json({
         status: 404,
-        message: 'Revision content for this page was not found',
+        data: { message: 'Revision content for this page was not found', }
       });
     }
     return res.status(500).json({
       status: 500,
-      message: message || 'Unable to load item revision detail',
+      data: { message: message || 'Unable to load item revision detail', }
     });
   }
 }
@@ -537,8 +536,7 @@ async function restoreItemRevision(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      message:
-        'Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions/:revisionId/restore',
+      data: { message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions/:revisionId/restore', }
     });
   }
   const idOrSlug =
@@ -547,33 +545,33 @@ async function restoreItemRevision(req, res) {
   if (!item) {
     return res.status(404).json({
       status: 404,
-      message: `Item not found for idOrSlug "${idOrSlug}"`,
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"`, }
     });
   }
   if (!item.id || typeof site.loadNode !== 'function') {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve item page context for revision restore',
+      data: { message: 'Unable to resolve item page context for revision restore', }
     });
   }
   const page = site.loadNode(item.id);
   if (!page || !page.location) {
     return res.status(404).json({
       status: 404,
-      message: 'Unable to resolve page location for revision restore',
+      data: { message: 'Unable to resolve page location for revision restore', }
     });
   }
   const fileData = sanitizePageLocation(site.siteDirectory, page.location);
   if (!fileData) {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid node file location',
+      data: { message: 'Invalid node file location', }
     });
   }
   if (!fs.existsSync(fileData.absolutePath)) {
     return res.status(404).json({
       status: 404,
-      message: 'Node file not found',
+      data: { message: 'Node file not found', }
     });
   }
   const revisionHash =
@@ -583,7 +581,7 @@ async function restoreItemRevision(req, res) {
   if (revisionHash === '') {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid revision hash',
+      data: { message: 'Invalid revision hash', }
     });
   }
   try {
@@ -596,7 +594,7 @@ async function restoreItemRevision(req, res) {
     if (bytes === false) {
       return res.status(500).json({
         status: 500,
-        message: 'Failed writing restored revision',
+        data: { message: 'Failed writing restored revision', }
       });
     }
     const jsonVariantLocation =
@@ -680,12 +678,12 @@ async function restoreItemRevision(req, res) {
     if (message.indexOf('does not exist') !== -1) {
       return res.status(404).json({
         status: 404,
-        message: 'Revision content for this page was not found',
+        data: { message: 'Revision content for this page was not found', }
       });
     }
     return res.status(500).json({
       status: 500,
-      message: message || 'Unable to restore item revision',
+      data: { message: message || 'Unable to restore item revision', }
     });
   }
 }

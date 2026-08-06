@@ -22,7 +22,9 @@ async function getApiKeys(req, res) {
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: 'Unable to load API key settings',
+      data: {
+        message: 'Unable to load API key settings',
+      },
     });
   }
 }

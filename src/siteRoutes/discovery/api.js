@@ -80,7 +80,7 @@ async function siteApiDiscovery(req, res) {
         ],
       },
       openapi: {
-        source: 'openapi/site-spec.yaml',
+        source: 'siteRoutes/openapi/site-spec.yaml',
         routeDriven: true,
       },
     },

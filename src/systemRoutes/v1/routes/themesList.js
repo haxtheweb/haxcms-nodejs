@@ -104,7 +104,9 @@ async function themesList(req, res) {
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: 'Unable to load theme settings',
+      data: {
+        message: 'Unable to load theme settings',
+      },
     });
   }
 }

@@ -6,6 +6,20 @@ const {
   writeEnabledSkeletonMap,
 } = require('../../../lib/skeletonSettings.js');
 
+function getUserTokenFromHeader(req) {
+  if (!req || !req.headers || typeof req.headers !== 'object') {
+    return '';
+  }
+  const rawValue = req.headers['x-haxcms-user-token'];
+  if (Array.isArray(rawValue)) {
+    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
+  }
+  if (typeof rawValue === 'string') {
+    return rawValue.trim();
+  }
+  return '';
+}
+
 function getEnabledSkeletonPayload(req) {
   if (!req || !req.body) {
     return undefined;
@@ -46,18 +60,34 @@ function enabledListFromPayload(payload) {
  * )
  */
 async function saveEnabledSkeletons(req, res) {
+  const userToken = getUserTokenFromHeader(req);
+  if (
+    !userToken ||
+    !HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName())
+  ) {
+    return res.status(403).json({
+      status: 403,
+      data: {
+        message: 'invalid request token',
+      },
+    });
+  }
   const payload = getEnabledSkeletonPayload(req);
   if (typeof payload === 'undefined') {
     return res.status(400).json({
       status: 400,
-      message: 'Missing enabledSkeletons payload',
+      data: {
+        message: 'Missing enabledSkeletons payload',
+      },
     });
   }
   const enabledSkeletons = enabledListFromPayload(payload);
   if (!enabledSkeletons) {
     return res.status(400).json({
       status: 400,
-      message: 'Invalid enabledSkeletons payload',
+      data: {
+        message: 'Invalid enabledSkeletons payload',
+      },
     });
   }
   try {
@@ -91,7 +121,9 @@ async function saveEnabledSkeletons(req, res) {
   catch (e) {
     return res.status(500).json({
       status: 500,
-      message: 'Unable to save enabled skeleton settings',
+      data: {
+        message: 'Unable to save enabled skeleton settings',
+      },
     });
   }
 }

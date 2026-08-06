@@ -154,10 +154,12 @@ async function systemBlocksList(req, res) {
   );
   return res.json({
     status: 200,
-    apps: [],
-    stax: [],
-    autoloader: filteredAutoloader,
-    enabledBlocks: Array.isArray(enabledBlocks) ? enabledBlocks : [],
+    data: {
+      apps: [],
+      stax: [],
+      autoloader: filteredAutoloader,
+      enabledBlocks: Array.isArray(enabledBlocks) ? enabledBlocks : [],
+    },
   });
 }
 

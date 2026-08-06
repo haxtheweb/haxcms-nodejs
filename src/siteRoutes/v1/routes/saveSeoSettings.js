@@ -38,7 +38,7 @@ async function saveSeoSettings(req, res) {
   ) {
     const site = await HAXCMS.loadSite(req.body.site.name);
     if (!site || !site.manifest) {
-      res.sendStatus(400);
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
       return;
     }
     if (!platformAllows(site, 'seoManifest')) {
@@ -370,9 +370,9 @@ async function saveSeoSettings(req, res) {
     await site.gitCommit('Managed files updated');
     await site.gitCommit('SEO settings updated');
 
-    res.send(site.manifest);
+    res.json({ status: 200, data: site.manifest });
   } else {
-    res.sendStatus(403);
+    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
   }
 }
 

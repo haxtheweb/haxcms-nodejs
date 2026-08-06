@@ -21,6 +21,7 @@ const convertPdfToHtmlRoute = require('../systemRoutes/v1/routes/convertPdfToHtm
 const convertPptxToHtmlRoute = require('../systemRoutes/v1/routes/convertPptxToHtml.js');
 const convertDocxToPdfRoute = require('../systemRoutes/v1/routes/convertDocxToPdf.js');
 const siteImportRoute = require('../systemRoutes/v1/routes/siteImport.js');
+const v1IntegrationRoutes = require('../systemRoutes/v1/integrations.js');
 
 function addRouteHandler(routesMap, method = 'get', route = '', handler = null) {
   if (typeof handler !== 'function') {
@@ -80,10 +81,12 @@ addRouteHandler(SystemRoutesMap, 'post', 'session/login', sessionRoutes.login);
 addRouteHandler(SystemRoutesMap, 'post', 'session/logout', sessionRoutes.logout);
 addRouteHandler(SystemRoutesMap, 'get', 'session', sessionRoutes.session);
 addRouteHandler(SystemRoutesMap, 'post', 'session', sessionRoutes.session);
-// Security (HAX-SEC-008): refresh is POST-only. A GET navigation can trigger
-// a token refresh via the SameSite=Lax cookie; restricting to POST closes that
-// trigger. SameSite=Lax already blocks cross-site POST, which is the desired
-// posture. Mirrors the state-changing-via-GET hygiene fix.
+addRouteHandler(
+  SystemRoutesMap,
+  'get',
+  'session/refresh',
+  sessionRoutes.refreshAccessToken,
+);
 addRouteHandler(
   SystemRoutesMap,
   'post',
@@ -123,12 +126,12 @@ addRouteHandler(
   'integrations/app-store',
   settingsRoutes.generateAppStore,
 );
-addRouteHandler(SystemRoutesMap, 'get', 'system/status', settingsRoutes.systemStatus);
+// D38: provider search lives in the system API (parity with PHP SystemRoutesMap).
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'system/status',
-  settingsRoutes.systemStatus,
+  'get',
+  'integrations/app-store/providers/:provider/search',
+  v1IntegrationRoutes.appStoreProviderSearch,
 );
 addRouteHandler(SystemRoutesMap, 'get', 'status', settingsRoutes.systemStatus);
 addRouteHandler(SystemRoutesMap, 'post', 'status', settingsRoutes.systemStatus);
@@ -212,97 +215,12 @@ addRouteHandler(
   'configuration/schema-files/operations',
   settingsRoutes.schemaFileOperation,
 );
-addRouteHandler(
-  SystemRoutesMap,
-  'get',
-  'configuration/themes',
-  settingsRoutes.configurationThemes,
-);
 addRouteHandler(SystemRoutesMap, 'get', 'themes', settingsRoutes.configurationThemes);
-addRouteHandler(
-  SystemRoutesMap,
-  'post',
-  'configuration/themes',
-  settingsRoutes.configurationThemes,
-);
 addRouteHandler(SystemRoutesMap, 'post', 'themes', settingsRoutes.configurationThemes);
-addRouteHandler(
-  SystemRoutesMap,
-  'patch',
-  'configuration/themes',
-  settingsRoutes.configurationThemes,
-);
 addRouteHandler(SystemRoutesMap, 'patch', 'themes', settingsRoutes.configurationThemes);
-addRouteHandler(
-  SystemRoutesMap,
-  'get',
-  'configuration/blocks',
-  settingsRoutes.configurationBlocks,
-);
 addRouteHandler(SystemRoutesMap, 'get', 'blocks', settingsRoutes.configurationBlocks);
-
-addRouteHandler(
-  SystemRoutesMap,
-  'post',
-  'configuration/blocks',
-  settingsRoutes.configurationBlocks,
-);
 addRouteHandler(SystemRoutesMap, 'post', 'blocks', settingsRoutes.configurationBlocks);
-addRouteHandler(
-  SystemRoutesMap,
-  'patch',
-  'configuration/blocks',
-  settingsRoutes.configurationBlocks,
-);
 addRouteHandler(SystemRoutesMap, 'patch', 'blocks', settingsRoutes.configurationBlocks);
-addRouteHandler(
-  SystemRoutesMap,
-  'get',
-  'configuration/skeletons',
-  settingsRoutes.configurationSkeletons,
-);
-addRouteHandler(
-  SystemRoutesMap,
-  'post',
-  'configuration/skeletons',
-  settingsRoutes.configurationSkeletons,
-);
-addRouteHandler(
-  SystemRoutesMap,
-  'patch',
-  'configuration/skeletons',
-  settingsRoutes.configurationSkeletons,
-);
-addRouteHandler(
-  SystemRoutesMap,
-  'get',
-  'configuration/skeletons/:skeletonName',
-  settingsRoutes.getSkeleton,
-);
-addRouteHandler(
-  SystemRoutesMap,
-  'post',
-  'configuration/skeletons/:skeletonName',
-  settingsRoutes.getSkeleton,
-);
-addRouteHandler(
-  SystemRoutesMap,
-  'patch',
-  'configuration/skeletons/:skeletonName',
-  settingsRoutes.schemaFileOperation,
-);
-addRouteHandler(
-  SystemRoutesMap,
-  'put',
-  'configuration/skeletons/:skeletonName',
-  settingsRoutes.schemaFileOperation,
-);
-addRouteHandler(
-  SystemRoutesMap,
-  'delete',
-  'configuration/skeletons/:skeletonName',
-  settingsRoutes.schemaFileOperation,
-);
 addRouteHandler(
   SystemRoutesMap,
   'get',
@@ -383,6 +301,7 @@ const SystemV1OpenRoutes = [
   'session/connection-settings',
   'session/connection-test',
   'integrations/app-store',
+  'integrations/app-store/providers/:provider/search',
   '',
   'openapi',
   'openapi.json',
@@ -397,7 +316,6 @@ const SystemV1AdminRoutes = [
   'sites/:siteName/download',
   'sites/:siteName/download-skeleton',
   'sites/:siteName/save-as-template',
-  'system/status',
   'status',
   'system/version',
   'entities',
@@ -406,11 +324,7 @@ const SystemV1AdminRoutes = [
   'configuration/media',
   'configuration/schema-files/operations',
   'themes',
-  'configuration/themes',
   'blocks',
-  'configuration/blocks',
-  'configuration/skeletons',
-  'configuration/skeletons/:skeletonName',
   'skeletons',
   'skeletons/:skeletonName',
 ];

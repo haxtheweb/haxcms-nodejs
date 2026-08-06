@@ -12,7 +12,9 @@ const SCHEMA_CONFIG = {
 function fail(res, status, message) {
   return res.status(status).json({
     status,
-    message,
+    data: {
+      message,
+    },
   });
 }
 
@@ -293,6 +295,12 @@ async function schemaFileOperation(req, res) {
   const action = inferActionValue(req, getRequestValue(req, 'action'));
   if (!action) {
     return fail(res, 400, 'invalid action');
+  }
+  // D26: PATCH/PUT on skeletons/:skeletonName only allows rename.
+  // Any other explicitly requested action is rejected with a D1 error.
+  const requestMethod = String((req && req.method) || '').toUpperCase();
+  if ((requestMethod === 'PATCH' || requestMethod === 'PUT') && action !== 'rename') {
+    return fail(res, 400, 'only rename is allowed for PATCH/PUT on skeletons');
   }
   const config = SCHEMA_CONFIG[schema];
   const schemaDirectory = getSchemaDirectory(schema);
