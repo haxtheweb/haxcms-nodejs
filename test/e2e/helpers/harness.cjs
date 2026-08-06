@@ -13,6 +13,7 @@ const fs = require('fs-extra')
 const path = require('path')
 const os = require('os')
 const axios = require('axios')
+const vm = require('node:vm')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 const APP_ENTRY_PATH = path.join(REPO_ROOT, 'src', 'app.js')
@@ -111,6 +112,38 @@ async function loginForJwt(baseUrl, username, password) {
   return body.jwt
 }
 
+function parseConnectionSettingsScript(scriptSource) {
+  const sandbox = { window: {} }
+  vm.runInNewContext(String(scriptSource || ''), sandbox, { timeout: 1000 })
+  if (
+    !sandbox.window ||
+    !sandbox.window.appSettings ||
+    typeof sandbox.window.appSettings !== 'object'
+  ) {
+    throw new Error(
+      'Unable to parse appSettings from /system/api/v1/session/connection-settings response',
+    )
+  }
+  return sandbox.window.appSettings
+}
+
+async function requestConnectionSettings(baseUrl) {
+  const response = await axios({
+    method: 'GET',
+    url: `${baseUrl}/system/api/v1/session/connection-settings`,
+    headers: { accept: 'application/javascript' },
+    validateStatus: () => true,
+    responseType: 'text',
+    transformResponse: [(data) => data],
+  })
+  if (response.status !== 200) {
+    throw new Error(
+      `E2E connectionSettings failed: status ${response.status}, body: ${response.data}`,
+    )
+  }
+  return parseConnectionSettingsScript(response.data)
+}
+
 // Boot an isolated E2E runtime. Auth is ENABLED (HAXCMS_DISABLE_JWT_CHECKS is
 // explicitly deleted) so the dashboard login flow is exercised for real.
 async function setupE2ERuntime() {
@@ -187,6 +220,14 @@ async function setupE2ERuntime() {
     E2E_USER_NAME,
     E2E_USER_PASSWORD,
   )
+  // Fetch connection settings so direct API calls in tests can attach the
+  // X-HAXCMS-User-Token required by userTokenHeader-declaring system reads
+  // (e.g. listSites). The dashboard registry auto-attaches this for browser
+  // fetches, but direct axios calls in tests must add it explicitly.
+  runtime.dashboardSettings = await requestConnectionSettings(runtime.baseUrl)
+  runtime.userToken = runtime.dashboardSettings.userToken
+  runtime.userTokenHeader =
+    runtime.dashboardSettings.userTokenHeader || 'X-HAXCMS-User-Token'
 
   return runtime
 }

@@ -204,7 +204,13 @@ const SITE_API_OPENAPI_SPEC_PATH = path.join(
   'openapi',
   'site-spec.yaml',
 );
+const SYSTEM_API_OPENAPI_SPEC_PATH = path.join(
+  __dirname,
+  'openapi',
+  'system-spec.yaml',
+);
 let siteApiAuthPoliciesByMethodAndRoute = null;
+let systemApiAuthPoliciesByMethodAndRoute = null;
 
 function getLinkedWebcomponentsRoot() {
   if (process.env.NODE_ENV !== "development") {
@@ -1254,6 +1260,9 @@ systemStructureContext().then((site) => {
           isAuthenticated = basicAuth.authenticated;
         }
         if (isAuthenticated) {
+          if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
+            return;
+          }
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
         // D1b status-code parity (matches site API + PHP SystemApiSecurity):
@@ -1296,6 +1305,9 @@ systemStructureContext().then((site) => {
           isAuthenticated = basicAuth.authenticated;
         }
         if (isAuthenticated) {
+          if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
+            return;
+          }
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
         // D1b status-code parity (matches site API + PHP SystemApiSecurity):
@@ -1708,6 +1720,111 @@ function getSiteApiRouteAuthPolicy(route = '', method = 'get') {
   // Fail closed: any site API route not explicitly declared in the OpenAPI
   // spec requires authentication rather than falling open to public access.
   return 'authenticated';
+}
+function convertOpenApiPathToSystemRoute(openApiPath = '') {
+  let route = String(openApiPath || '');
+  if (route.indexOf('/system/api/v1') !== 0) {
+    return '';
+  }
+  route = route.replace(/^\/system\/api\/v1\/?/, '');
+  route = route.replace(/^\//, '');
+  route = route.replace(/\{([A-Za-z0-9_]+)\}/g, ':$1');
+  return route;
+}
+function readSystemApiAuthPoliciesFromOpenApiSpec() {
+  const policies = {};
+  if (!fs.existsSync(SYSTEM_API_OPENAPI_SPEC_PATH)) {
+    return policies;
+  }
+  try {
+    const openApiSpec = YAML.parse(
+      fs.readFileSync(SYSTEM_API_OPENAPI_SPEC_PATH, 'utf8'),
+    );
+    if (
+      !openApiSpec ||
+      typeof openApiSpec !== 'object' ||
+      !openApiSpec.paths ||
+      typeof openApiSpec.paths !== 'object'
+    ) {
+      return policies;
+    }
+    const methods = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'];
+    const pathKeys = Object.keys(openApiSpec.paths);
+    for (let p = 0; p < pathKeys.length; p++) {
+      const openApiPath = pathKeys[p];
+      if (String(openApiPath).indexOf('/system/api/v1') !== 0) {
+        continue;
+      }
+      const routeKey = convertOpenApiPathToSystemRoute(openApiPath);
+      const pathConfig = openApiSpec.paths[openApiPath];
+      if (!pathConfig || typeof pathConfig !== 'object') {
+        continue;
+      }
+      const pathLevelPolicy = normalizeSiteApiSecurityPolicy(pathConfig.security);
+      for (let m = 0; m < methods.length; m++) {
+        const method = methods[m];
+        if (!Object.prototype.hasOwnProperty.call(pathConfig, method)) {
+          continue;
+        }
+        const operation = pathConfig[method];
+        if (!operation || typeof operation !== 'object') {
+          continue;
+        }
+        let policy = pathLevelPolicy;
+        if (Object.prototype.hasOwnProperty.call(operation, 'security')) {
+          policy = normalizeSiteApiSecurityPolicy(operation.security);
+        }
+        policies[`${method}:${routeKey}`] = policy;
+      }
+    }
+  } catch (e) {
+    console.warn('Unable to parse system OpenAPI auth policy map', e);
+  }
+  return policies;
+}
+function getSystemApiRouteAuthPolicy(route = '', method = 'get') {
+  if (!systemApiAuthPoliciesByMethodAndRoute) {
+    systemApiAuthPoliciesByMethodAndRoute = readSystemApiAuthPoliciesFromOpenApiSpec();
+  }
+  const lookupKey = `${String(method || 'get').toLowerCase()}:${String(route || '')}`;
+  if (
+    systemApiAuthPoliciesByMethodAndRoute &&
+    Object.prototype.hasOwnProperty.call(systemApiAuthPoliciesByMethodAndRoute, lookupKey)
+  ) {
+    return systemApiAuthPoliciesByMethodAndRoute[lookupKey];
+  }
+  // Fail closed: any system API route not explicitly declared in the OpenAPI
+  // spec requires authentication rather than falling open to public access.
+  return 'authenticated';
+}
+function resolveSystemApiAuthenticatedUserName(req, basicAuth) {
+  if (basicAuth && basicAuth.authenticated && basicAuth.userName) {
+    return String(basicAuth.userName);
+  }
+  return getAuthenticatedUserNameFromBearerJwt(getBearerJwtFromRequest(req));
+}
+function enforceSystemApiUserTokenPolicy(req, res, op, method, basicAuth) {
+  const policy = getSystemApiRouteAuthPolicy(op, method);
+  if (policy !== 'authenticated-user') {
+    return true;
+  }
+  const userToken = getRequestHeaderValue(req, 'x-haxcms-user-token');
+  if (userToken === '') {
+    res.status(403).json({
+      status: 403,
+      data: { message: 'X-HAXCMS-User-Token header is required for this endpoint' },
+    });
+    return false;
+  }
+  const userName = resolveSystemApiAuthenticatedUserName(req, basicAuth);
+  if (!HAXCMS.validateRequestToken(userToken, userName)) {
+    res.status(403).json({
+      status: 403,
+      data: { message: 'Invalid X-HAXCMS-User-Token header' },
+    });
+    return false;
+  }
+  return true;
 }
 function assertSiteApiMutationRoutesAreSecured(routeRegistry = null) {
   const registry =

@@ -296,7 +296,7 @@ test('PHP unsupported item export format returns 400', async (t) => {
   })
   assert.equal(result.status, 400, `unsupported format expected 400, got ${result.status}`)
   const body = parseJsonSafely(result.bodyText)
-  assert.ok(body && Array.isArray(body.supportedFormats), '400 response missing supportedFormats array')
+  assert.ok(body && body.data && Array.isArray(body.data.supportedFormats), '400 response missing supportedFormats array')
 })
 
 test('PHP site-spec.yaml ItemExportFormat enum includes all 8 formats', async () => {

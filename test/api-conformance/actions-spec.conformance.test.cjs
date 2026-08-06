@@ -7,6 +7,7 @@ const path = require('path')
 const os = require('os')
 const axios = require('axios')
 const JSZip = require('jszip')
+const vm = require('node:vm')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const APP_ENTRY_PATH = path.join(REPO_ROOT, 'src', 'app.js')
@@ -221,6 +222,37 @@ async function loginForJwt(baseUrl) {
   return loginBody.jwt
 }
 
+function parseConnectionSettingsScript(scriptSource) {
+  const sandbox = { window: {} }
+  vm.runInNewContext(String(scriptSource || ''), sandbox, { timeout: 1000 })
+  if (
+    !sandbox.window ||
+    !sandbox.window.appSettings ||
+    typeof sandbox.window.appSettings !== 'object'
+  ) {
+    throw new Error(
+      'Unable to parse appSettings from /system/api/v1/session/connection-settings response',
+    )
+  }
+  return sandbox.window.appSettings
+}
+
+async function requestConnectionSettings(baseUrl) {
+  const settingsResponse = await sendHttpRequest({
+    method: 'GET',
+    url: `${baseUrl}/system/api/v1/session/connection-settings`,
+    headers: {
+      accept: 'application/javascript',
+    },
+  })
+  assert.equal(
+    settingsResponse.status,
+    200,
+    `Expected connectionSettings success but received ${settingsResponse.status}: ${settingsResponse.bodyText}`,
+  )
+  return parseConnectionSettingsScript(settingsResponse.bodyText)
+}
+
 async function setupRuntime() {
   const runtime = {
     originalCwd: process.cwd(),
@@ -270,6 +302,10 @@ async function setupRuntime() {
   runtime.port = await runtime.appModule.serverReady
   runtime.baseUrl = `http://127.0.0.1:${runtime.port}`
   runtime.jwt = await loginForJwt(runtime.baseUrl)
+  runtime.dashboardSettings = await requestConnectionSettings(runtime.baseUrl)
+  runtime.userToken = runtime.dashboardSettings.userToken
+  runtime.userTokenHeader =
+    runtime.dashboardSettings.userTokenHeader || 'X-HAXCMS-User-Token'
 
   return runtime
 }
@@ -312,20 +348,28 @@ async function teardownRuntime(runtime) {
 }
 
 function authHeaders(jwt, extraHeaders = {}) {
-  return {
+  const headers = {
     accept: 'application/json',
     'content-type': 'application/json',
     Authorization: `Bearer ${jwt}`,
     ...extraHeaders,
   }
+  if (runtime && runtime.userToken) {
+    headers[runtime.userTokenHeader || 'X-HAXCMS-User-Token'] = runtime.userToken
+  }
+  return headers
 }
 
 function multipartAuthHeaders(jwt, boundary) {
-  return {
+  const headers = {
     accept: 'application/json',
     'content-type': `multipart/form-data; boundary=${boundary}`,
     Authorization: `Bearer ${jwt}`,
   }
+  if (runtime && runtime.userToken) {
+    headers[runtime.userTokenHeader || 'X-HAXCMS-User-Token'] = runtime.userToken
+  }
+  return headers
 }
 
 let runtime = null

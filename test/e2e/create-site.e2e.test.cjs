@@ -525,10 +525,14 @@ test('create site (HAXSITEAUTOMATEDTESTING) — full E2E flow', async () => {
     console.warn('[e2e] fs check: cannot read _sites/: ' + e.message)
   }
   try {
+    const listHeaders = { Authorization: 'Bearer ' + runtime.jwt }
+    if (runtime.userToken) {
+      listHeaders[runtime.userTokenHeader || 'X-HAXCMS-User-Token'] = runtime.userToken
+    }
     const listResp = await axios({
       method: 'GET',
       url: runtime.baseUrl + '/system/api/v1/sites',
-      headers: { Authorization: 'Bearer ' + runtime.jwt },
+      headers: listHeaders,
       validateStatus: () => true,
       responseType: 'text',
       transformResponse: [(d) => d],

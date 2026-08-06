@@ -775,6 +775,7 @@ paths:
       summary: Return configured API keys and provider statuses
       security:
         - bearerAuth: []
+          userTokenHeader: []
       responses:
         "200":
           description: API key settings
@@ -837,6 +838,7 @@ paths:
       summary: Return media and upload configuration
       security:
         - bearerAuth: []
+          userTokenHeader: []
       responses:
         "200":
           description: Media settings
