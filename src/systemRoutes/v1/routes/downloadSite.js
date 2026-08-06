@@ -123,7 +123,15 @@ function zipDirectory(sourceDir, outPath) {
 
   return new Promise((resolve, reject) => {
     archive
-      .directory(sourceDir, false)
+      .glob('**/*', {
+        cwd: sourceDir,
+        ignore: [
+          'node_modules/**',
+          'node_modules',
+          '.git/**',
+          '.git',
+        ],
+      })
       .on('error', err => reject(err))
       .pipe(stream)
     ;

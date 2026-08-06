@@ -19,6 +19,7 @@ const {
   ensureRequestBodyObject,
   getRequestHeaderValue,
   getSiteNameFromResolvedSite,
+  escapeHtmlValue,
 } = require('./siteRouteUtils.js');
 const saveNodeRoute = require('./routes/saveNode.js');
 const siteSearchRoute = require('./routes/siteSearch.js');
@@ -57,8 +58,14 @@ function buildConcatHtml(records = []) {
   const sections = [];
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
+    // E5: escape record.id and record.title to prevent output-injection from
+    // authored titles; record.body is intentional HTML and must not be escaped
+    const safeId = escapeHtmlValue(record.id || '');
+    const safeTitle = escapeHtmlValue(
+      record.title || record.slug || record.id || 'Untitled',
+    );
     sections.push(
-      `<article data-item-id="${record.id || ''}"><h2>${record.title || record.slug || record.id || 'Untitled'}</h2>${record.body || ''}</article>`,
+      `<article data-item-id="${safeId}"><h2>${safeTitle}</h2>${record.body || ''}</article>`,
     );
   }
   return sections.join('\n');

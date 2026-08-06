@@ -247,12 +247,6 @@ addRouteHandler(
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'skeletons/:skeletonName',
-  settingsRoutes.getSkeleton,
-);
-addRouteHandler(
-  SystemRoutesMap,
   'patch',
   'skeletons/:skeletonName',
   settingsRoutes.schemaFileOperation,
@@ -301,7 +295,6 @@ const SystemV1OpenRoutes = [
   'session/connection-settings',
   'session/connection-test',
   'integrations/app-store',
-  'integrations/app-store/providers/:provider/search',
   '',
   'openapi',
   'openapi.json',
