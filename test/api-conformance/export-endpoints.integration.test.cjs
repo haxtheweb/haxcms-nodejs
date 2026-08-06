@@ -113,6 +113,15 @@ async function createHarnessSite(baseUrl, jwt, dashboardSettings, siteName) {
   const createSitePath = (dashboardSettings && typeof dashboardSettings.createSite === 'string' && dashboardSettings.createSite.trim() !== '') ? dashboardSettings.createSite : '/system/api/v1/sites'
   const createSiteHeaders = (dashboardSettings && dashboardSettings.createSiteHeaders && typeof dashboardSettings.createSiteHeaders === 'object') ? dashboardSettings.createSiteHeaders : {}
   const requestHeaders = { accept: 'application/json', 'content-type': 'application/json', Authorization: `Bearer ${jwt}`, ...createSiteHeaders }
+  if (
+    dashboardSettings &&
+    typeof dashboardSettings.userTokenHeader === 'string' &&
+    dashboardSettings.userTokenHeader.trim() !== '' &&
+    typeof dashboardSettings.userToken === 'string' &&
+    dashboardSettings.userToken.trim() !== ''
+  ) {
+    requestHeaders[dashboardSettings.userTokenHeader] = dashboardSettings.userToken
+  }
   const normalizedCreateSitePath = String(createSitePath || '').trim()
   const createSiteUrl = /^https?:\/\//i.test(normalizedCreateSitePath) ? normalizedCreateSitePath : `${baseUrl}${normalizedCreateSitePath.charAt(0) === '/' ? '' : '/'}${normalizedCreateSitePath}`
   const createSiteResponse = await sendHttpRequest({

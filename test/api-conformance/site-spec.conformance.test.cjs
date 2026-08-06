@@ -182,7 +182,6 @@ async function createHarnessSite(baseUrl, jwt, dashboardSettings, siteName) {
     ? normalizedCreateSitePath
     : `${baseUrl}${normalizedCreateSitePath.charAt(0) === '/' ? '' : '/'}${normalizedCreateSitePath}`
   if (
-    (!requestHeaders || typeof requestHeaders !== 'object' || Object.keys(requestHeaders).length <= 2) &&
     dashboardSettings &&
     typeof dashboardSettings.userTokenHeader === 'string' &&
     dashboardSettings.userTokenHeader.trim() !== '' &&
@@ -1503,28 +1502,10 @@ test('site API conformance against site-spec', async (t) => {
         Array.isArray(result.bodyJson.data.entities),
       'Expected entity descriptors array',
     )
-    const integrationDescriptor = result.bodyJson.data.entities.find(
-      (entity) => entity && entity.name === 'integration',
-    )
-    assert.ok(
-      integrationDescriptor,
-      'Expected integration entity descriptor to be present',
-    )
-    assert.equal(
-      integrationDescriptor.auth,
-      'authenticated-site',
-      'Expected integration entity descriptor to require authenticated-site auth',
-    )
-    assert.ok(
-      Array.isArray(integrationDescriptor.endpoints) &&
-        integrationDescriptor.endpoints.some(
-          (endpoint) =>
-            String(endpoint || '').indexOf(
-              '/v1/integrations/app-store/providers/{provider}/search',
-            ) !== -1,
-        ),
-      'Expected integration descriptor to include app-store provider search endpoint',
-    )
+    // D38: the integration entity descriptor was removed from the SITE API
+    // entities list because its app-store provider-search endpoint moved to
+    // the system API. The system entities endpoint (systemEntitiesGet) now
+    // owns the integration descriptor; see the system canonical-reads suite.
     assertSchemaConformance(runtime, 'listEntityDescriptors', 200, result)
   })
 
@@ -2623,5 +2604,192 @@ test('system API conformance for skeleton resource semantics', async (t) => {
     })
     assert.equal(deletedLookup.status, 404, deletedLookup.bodyText)
     assertSystemSchemaConformance(runtime, 'systemSkeletonDetailGet', 404, deletedLookup)
+  })
+})
+
+test('system API canonical user-token-secured reads enforce X-HAXCMS-User-Token', async (t) => {
+  const canonicalUserTokenReadOps = [
+    'listSites',
+    'siteInfoGet',
+    'siteInfoPost',
+    'systemStatusGet',
+    'systemStatusPost',
+    'systemVersionGet',
+    'systemVersionPost',
+    'sessionUserGet',
+    'sessionUserPost',
+    'systemEntitiesGet',
+    'systemEntitiesPost',
+    'systemSchemasGet',
+    'systemSchemasPost',
+    'getApiKeys',
+    'getMediaSettings',
+  ]
+  for (let i = 0; i < canonicalUserTokenReadOps.length; i++) {
+    const operationId = canonicalUserTokenReadOps[i]
+    const operationMeta = runtime.systemOperationIndex[operationId]
+    assert.ok(
+      operationMeta,
+      `Missing required operationId "${operationId}" in system-spec`,
+    )
+    const security = Array.isArray(operationMeta.operation.security)
+      ? operationMeta.operation.security
+      : []
+    assert.ok(
+      security.some(
+        (entry) =>
+          entry &&
+          typeof entry === 'object' &&
+          Object.prototype.hasOwnProperty.call(entry, 'bearerAuth'),
+      ),
+      `${operationId} must declare bearerAuth security`,
+    )
+    assert.ok(
+      security.some(
+        (entry) =>
+          entry &&
+          typeof entry === 'object' &&
+          Object.prototype.hasOwnProperty.call(entry, 'userTokenHeader'),
+      ),
+      `${operationId} must declare userTokenHeader security (canonical user-token read)`,
+    )
+  }
+
+  async function assertSystemReadUserTokenEnforced(operationId, baseOptions = {}) {
+    const noCredsResult = await invokeSystemOperation(
+      runtime,
+      operationId,
+      mergeInvocationOptions(baseOptions, { headers: {} }),
+    )
+    assert.equal(
+      noCredsResult.status,
+      401,
+      `${operationId} should return 401 without auth headers`,
+    )
+    assertSystemSchemaConformance(runtime, operationId, 401, noCredsResult)
+
+    const bearerOnlyResult = await invokeSystemOperation(
+      runtime,
+      operationId,
+      mergeInvocationOptions(baseOptions, {
+        headers: getBearerAuthHeaders(runtime),
+      }),
+    )
+    assert.equal(
+      bearerOnlyResult.status,
+      403,
+      `${operationId} should return 403 with bearer token only (userToken required)`,
+    )
+    assertSystemSchemaConformance(runtime, operationId, 403, bearerOnlyResult)
+
+    const invalidUserTokenResult = await invokeSystemOperation(
+      runtime,
+      operationId,
+      mergeInvocationOptions(baseOptions, {
+        headers: getInvalidSystemUserAuthHeaders(runtime),
+      }),
+    )
+    assert.equal(
+      invalidUserTokenResult.status,
+      403,
+      `${operationId} should return 403 with invalid user token`,
+    )
+    assertSystemSchemaConformance(
+      runtime,
+      operationId,
+      403,
+      invalidUserTokenResult,
+    )
+
+    const validResult = await invokeSystemOperation(
+      runtime,
+      operationId,
+      mergeInvocationOptions(baseOptions, {
+        headers: getSystemUserAuthHeaders(runtime),
+      }),
+    )
+    assert.equal(
+      validResult.status,
+      200,
+      `${operationId} should return 200 with bearer + valid userToken`,
+    )
+    assertSystemSchemaConformance(runtime, operationId, 200, validResult)
+    return validResult
+  }
+
+  await t.test('listSites enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('listSites')
+  })
+  await t.test('siteInfoGet enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('siteInfoGet', {
+      pathParams: { siteName: runtime.createdSiteName },
+    })
+  })
+  await t.test('siteInfoPost enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('siteInfoPost', {
+      pathParams: { siteName: runtime.createdSiteName },
+    })
+  })
+  await t.test('systemStatusGet enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('systemStatusGet')
+  })
+  await t.test('systemStatusPost enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('systemStatusPost')
+  })
+  await t.test('systemVersionGet enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('systemVersionGet')
+  })
+  await t.test('systemVersionPost enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('systemVersionPost')
+  })
+  await t.test('sessionUserGet enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('sessionUserGet')
+  })
+  await t.test('sessionUserPost enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('sessionUserPost')
+  })
+  await t.test('systemSchemasGet enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('systemSchemasGet')
+  })
+  await t.test('systemSchemasPost enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('systemSchemasPost')
+  })
+  await t.test('getApiKeys enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('getApiKeys')
+  })
+  await t.test('getMediaSettings enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('getMediaSettings')
+  })
+  await t.test('systemEntitiesGet returns integration entity descriptor (D38 system-side)', async () => {
+    const result = await assertSystemReadUserTokenEnforced('systemEntitiesGet')
+    assert.ok(
+      result.bodyJson &&
+        result.bodyJson.data &&
+        Array.isArray(result.bodyJson.data.entities),
+      'Expected system entity descriptors array',
+    )
+    const integrationDescriptor = result.bodyJson.data.entities.find(
+      (entity) => entity && entity.name === 'integration',
+    )
+    assert.ok(
+      integrationDescriptor,
+      'Expected integration entity descriptor on the system API',
+    )
+    assert.equal(
+      integrationDescriptor.auth,
+      'public',
+      'Expected system integration entity descriptor to declare public auth',
+    )
+    assert.ok(
+      Array.isArray(integrationDescriptor.endpoints) &&
+        integrationDescriptor.endpoints.some(
+          (endpoint) =>
+            String(endpoint || '').indexOf('/integrations/app-store') !== -1,
+        ),
+      'Expected system integration descriptor to include the app-store endpoint',
+    )
+  })
+  await t.test('systemEntitiesPost enforces user token on read', async () => {
+    await assertSystemReadUserTokenEnforced('systemEntitiesPost')
   })
 })
