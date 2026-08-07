@@ -28,6 +28,7 @@ const {
   normalizeOperationName,
   isSiteApiRequestAuthenticated,
 } = require('./siteRouteUtils.js');
+const { buildFilePublicUrl } = require('../../lib/siteFileUrl.js');
 
 const IMAGE_SCALE_PRESETS = {
   xs: { width: 200, height: 150 },
@@ -64,50 +65,6 @@ const ALLOWED_RENAME_EXTENSIONS = [
   'html',
   'md',
 ];
-
-function isMultisiteContext(site) {
-  if (HAXCMS.runtimeServerMode === 'single-site') {
-    return false;
-  }
-  if (HAXCMS.runtimeServerMode === 'multisite') {
-    return true;
-  }
-  if (HAXCMS.operatingContext === 'multisite') {
-    return true;
-  }
-  if (
-    typeof HAXCMS.getDeploymentProfile === 'function' &&
-    HAXCMS.getDeploymentProfile() === 'self-hosted-multi-site'
-  ) {
-    return true;
-  }
-  if (site && typeof site.basePath === 'string' && site.basePath) {
-    const basePath = normalizePathForResponse(site.basePath);
-    const sitesDir = normalizePathForResponse(HAXCMS.sitesDirectory);
-    if (basePath.indexOf('/' + sitesDir + '/') !== -1) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function buildFilePublicUrl(site, relativeFilePath) {
-  const normalizedRelativePath = normalizePathForResponse(relativeFilePath).replace(
-    /^\/+/,
-    '',
-  );
-  let fullUrl = '/' + normalizedRelativePath;
-  if (isMultisiteContext(site)) {
-    fullUrl =
-      HAXCMS.basePath +
-      HAXCMS.sitesDirectory +
-      '/' +
-      site.manifest.metadata.site.name +
-      '/' +
-      normalizedRelativePath;
-  }
-  return fullUrl;
-}
 
 function getDateCreatedValue(entryStats) {
   if (!entryStats || typeof entryStats !== 'object') {

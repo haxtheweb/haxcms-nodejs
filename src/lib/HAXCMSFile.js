@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs-extra');
 const Axios = require('axios')
 const { HAXCMS } = require('./HAXCMS.js');
+const { buildFilePublicUrl } = require('./siteFileUrl.js');
 const { readMediaSettings } = require('./mediaSettings.js');
 const sharp = require('sharp');
 const dns = require('dns');
@@ -819,11 +820,8 @@ class HAXCMSFile
         // fake the file object creation stuff from CMS land
         returnData = {
           'file': {
-            'path': fullpath,
-            'fullUrl':
-                HAXCMS.basePath +
-                pathPart +
-                newFilename,
+            'path': 'files/' + newFilename,
+            'fullUrl': buildFilePublicUrl(site, 'files/' + newFilename),
             'url' : 'files/' + newFilename,
             'type' : detectedMimeType,
             'name' : newFilename,
@@ -835,11 +833,8 @@ class HAXCMSFile
         // fake the file object creation stuff from CMS land
         returnData = {
             'file':{
-                'path': fullpath,
-                'fullUrl' :
-                    HAXCMS.basePath +
-                    pathPart +
-                    newFilename,
+                'path': 'files/' + newFilename,
+                'fullUrl' : buildFilePublicUrl(site, 'files/' + newFilename),
                 'url': 'files/' + newFilename,
                 'type': detectedMimeType,
                 'name': newFilename,

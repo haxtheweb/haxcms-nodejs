@@ -16,6 +16,7 @@ app.disable('x-powered-by');
 const mime = require('mime');
 const path = require('path');
 const fs = require("fs-extra");
+const crypto = require('crypto');
 const YAML = require('yaml');
 const sslServer = require('./lib/sslServer.js');
 const server = sslServer.createServer(app);
@@ -34,31 +35,93 @@ const loginRateLimiter = require('./lib/loginRateLimiter.js');
 // trust proxy is config-driven so forwarded client IPs (req.ip) are accurate
 // behind a reverse proxy; defaults to false for single-host/local setups.
 app.set('trust proxy', HAXCMS.getTrustProxySetting());
-// default helmet policies for CSP
+// default helmet policies for CSP. CSP is handled per-request (see the
+// cspNonceMiddleware below) so each served HTML response gets a unique
+// nonce in script-src, allowing 'unsafe-inline' to be dropped for scripts
+// on the backend-served path. The static CSP directives object is kept as
+// the base that the nonce middleware extends.
 var helmetPolicies = {
-  contentSecurityPolicy: {
-    directives: {
-      // NOTE: 'unsafe-eval' is required by HAXcms boot bundles (build.js /
-      // build-haxcms.js) and several web components which call new Function()/
-      // eval() at runtime (e.g. global detection, the wc-registry "magic"
-      // loader chain). Removing it causes a CSP EvalError that aborts build.js,
-      // so sites never finish loading. 'wasm-unsafe-eval' does NOT cover JS
-      // eval/new Function, so both are kept.
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'", "www.youtube.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
-      mediaSrc: ["'self'", "data:", "https:"],
-      imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
-      connectSrc: ["'self'", "https:", "ws:", "wss:"],
-      defaultSrc: ["'self'", "data:", "https:"],
-      objectSrc: ["'none'"],
-      fontSrc: ["'self'", "data:", "fonts.gstatic.com"],
-      frameAncestors: ["'self'"],
-    },
-  },
+  // contentSecurityPolicy is set per-request via cspNonceMiddleware, not via
+  // helmet's global middleware, so the nonce can vary per response.
+  contentSecurityPolicy: false,
   referrerPolicy: {
     policy: "same-origin",
   },
 };
+// Base CSP directives used by the per-request nonce middleware. 'unsafe-eval'
+// is still required because several third-party libs bundled into the build
+// (mobx, lunr, monaco, model-viewer, pouch-db, moment, openseadragon, mammoth,
+// html-midi-player, latex2html5) call eval()/new Function() at runtime.
+// 'wasm-unsafe-eval' does NOT cover JS eval/new Function, so both are kept.
+// 'unsafe-inline' for scripts is dropped on the backend-served path in favor
+// of per-response nonces (cspNonceMiddleware). 'unsafe-inline' stays for
+// styleSrc because inline <style> blocks and the DDD design system rely on it.
+var cspBaseDirectives = {
+  scriptSrc: ["'self'", "'unsafe-eval'", "'wasm-unsafe-eval'", "www.youtube.com"],
+  styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
+  mediaSrc: ["'self'", "data:", "https:"],
+  imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
+  connectSrc: ["'self'", "https:", "ws:", "wss:"],
+  defaultSrc: ["'self'", "data:", "https:"],
+  objectSrc: ["'none'"],
+  fontSrc: ["'self'", "data:", "fonts.gstatic.com"],
+  frameAncestors: ["'self'"],
+};
+// Security (EXPRESS-HEADERS-001 / M2): mint a per-request nonce and set a
+// Content-Security-Policy header with script-src 'nonce-<n>' (no
+// 'unsafe-inline' for scripts) so inline <script> blocks in the served
+// index.html can only execute when the server stamped them with the same
+// nonce. This closes the simplest inline-script XSS primitive on the
+// backend-served path. Stored on req.haxcmsCspNonce for injectNonce().
+// Non-CSP helmet policies (referrerPolicy, x-content-type-options, etc.) are
+// still applied globally via helmet(helmetPolicies) below; only CSP is split
+// out here so the nonce can vary per response.
+var cspNonceEnabled = true;
+function cspNonceMiddleware(req, res, next) {
+  // Security (M2): when the local-dev/webcontainer bypass disabled CSP
+  // (HAXCMS_DISABLE_JWT_CHECKS, non-production), skip the nonce header so the
+  // playground/CDN module loads are not blocked. Otherwise mint a per-request
+  // nonce and set script-src 'nonce-<n>' (no 'unsafe-inline' for scripts).
+  if (!cspNonceEnabled) {
+    next();
+    return;
+  }
+  var nonce = crypto.randomBytes(16).toString('base64');
+  req.haxcmsCspNonce = nonce;
+  var directives = {};
+  var directiveKeys = Object.keys(cspBaseDirectives);
+  for (var i = 0; i < directiveKeys.length; i++) {
+    var key = directiveKeys[i];
+    var baseValue = cspBaseDirectives[key];
+    if (key === 'scriptSrc') {
+      directives[key] = baseValue.concat(["'nonce-" + nonce + "'"]);
+    } else {
+      directives[key] = baseValue.slice();
+    }
+  }
+  res.setHeader('Content-Security-Policy', formatCspDirectives(directives));
+  next();
+}
+
+// Security (M2): format a CSP directives object into the header string shape
+// "directive-a v1 v2; directive-b v1; ...". Replaces helmet's
+// contentSecurityPolicy.formatDirectives, which is not exposed in helmet 7.x.
+// Directive keys are camelCase here; CSP header keys are kebab-case, so
+// scriptSrc -> script-src, frameAncestors -> frame-ancestors, etc.
+function formatCspDirectives(directives) {
+  var parts = [];
+  var keys = Object.keys(directives || {});
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    var headerName = key.replace(/([A-Z])/g, function (_, ch) { return '-' + ch.toLowerCase(); });
+    var value = directives[key];
+    if (!Array.isArray(value)) {
+      value = value === undefined || value === null ? [] : [String(value)];
+    }
+    parts.push(headerName + ' ' + value.join(' '));
+  }
+  return parts.join('; ');
+}
 
 // flag in local development that disables security
 // this way you launch from local and don't need a U/P relationship
@@ -72,6 +135,11 @@ if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT
     // disable security policies that would otherwise block local development
     // also enables webcontainer environments which is what our playground runs
     helmetPolicies.contentSecurityPolicy = false;
+    // Security (M2): skip the per-request CSP nonce middleware in local dev /
+    // webcontainer mode so the playground and CDN module loads (which omit
+    // nonces) are not blocked. CSP is re-enabled for production automatically
+    // because this branch only runs when not isProductionRuntime().
+    cspNonceEnabled = false;
     helmetPolicies.crossOriginResourcePolicy = false;
     // COEP must be the object form ({ policy }) for helmet to honor the value;
     // a bare string silently falls back to the require-corp default. Use
@@ -635,6 +703,79 @@ function mergeImportMapMarkup(existingMarkup = '', linkedDevMarkup = '') {
   return `<script type="importmap" data-haxcms-linked-dev-importmap>${JSON.stringify(merged)}</script>`;
 }
 
+// Security (EXPRESS-HEADERS-001 / M2): stamp every inline <script> (and
+// inline <script type="importmap">) in the served index.html with nonce="<n>"
+// so the per-request CSP (cspNonceMiddleware) allows them to execute while
+// 'unsafe-inline' is dropped from script-src. Only inline scripts need a
+// nonce; external <script src> tags are covered by 'self'. A no-op when the
+// nonce is empty (e.g. CSP disabled in local dev) or a tag already has a
+// nonce attribute. Run this LAST, after all inline-script injectors, so it
+// catches every inline script including the injected ones.
+//
+// Also injects <meta name="csp-nonce" content="<n>"> into <head> so same-
+// origin frontend JS can read the per-request nonce and stamp it onto
+// inline scripts it creates dynamically at runtime (e.g. the speculation-
+// rules <script type="speculationrules"> injected by haxcms-site-store).
+// The meta tag is used instead of reading an existing script's nonce
+// attribute because browsers hide the nonce content attribute from
+// getAttribute/CSS selectors for security; a <meta> tag is not subject to
+// that hiding and is reliably readable by same-origin script.
+function injectNonce(indexFile = '', nonce = '') {
+  var cleanNonce = String(nonce || '').trim();
+  if (cleanNonce === '') {
+    return String(indexFile || '');
+  }
+  var output = String(indexFile || '');
+  // Stamp nonce="<n>" on inline <script> tags (including importmap). External
+  // scripts (with src) are covered by script-src 'self' and skipped. Tags that
+  // already have a nonce are left alone.
+  output = output.replace(/<script((?:\s[^>]*)?)>/gi, function (match, attrs) {
+    var attrsStr = String(attrs || '');
+    if (/\snonce\s*=/i.test(attrsStr)) {
+      return match;
+    }
+    if (/\ssrc\s*=/i.test(attrsStr)) {
+      return match;
+    }
+    return '<script' + attrsStr + ' nonce="' + cleanNonce + '">';
+  });
+  // Expose the nonce to frontend JS via a <meta> tag so dynamically-created
+  // inline scripts (e.g. speculation rules) can pick it up. Idempotent: if the
+  // meta is already present, don't add a second one.
+  var nonceMetaTag = '<meta name="csp-nonce" content="' + cleanNonce + '">';
+  if (output.indexOf('name="csp-nonce"') === -1) {
+    if (output.indexOf('<head') !== -1) {
+      // inject immediately after the <head ...> opening tag
+      output = output.replace(/<head([^>]*)>/i, function (m, attrs) {
+        return '<head' + attrs + '>' + nonceMetaTag;
+      });
+    } else {
+      // no <head> — prepend
+      output = nonceMetaTag + output;
+    }
+  }
+  return output;
+}
+
+// Security (M2): read an index.html from disk, stamp its inline scripts
+// with the per-request CSP nonce, and send it. Used for the static index
+// fallback paths (single-site catch, multisite dashboard non-dev, multisite
+// site catch) so their inline <script> blocks are authorized under the nonce
+// CSP now that 'unsafe-inline' is dropped from script-src. Falls back to a
+// plain res.sendFile if the file cannot be read (preserving prior behavior).
+function sendNonceIndex(res, req, absoluteFilePath) {
+  try {
+    var indexFile = fs.readFileSync(absoluteFilePath, 'utf8');
+    indexFile = injectNonce(indexFile, req && req.haxcmsCspNonce);
+    setNoStoreResponseHeaders(res);
+    res.send(indexFile);
+  }
+  catch (e) {
+    setNoStoreResponseHeaders(res);
+    res.sendFile(path.basename(absoluteFilePath), { root: path.dirname(absoluteFilePath) });
+  }
+}
+
 function injectLinkedDevImportMap(indexFile = '') {
   let output = String(indexFile || '');
   if (!linkedDevImportMapMarkup) {
@@ -730,6 +871,10 @@ if (process.env.NODE_ENV === "development") {
 // (including to static/GET requests). It is now scoped to POST/PUT/PATCH/
 // DELETE routes via formBodyParser in the per-route parser selectors above.
 app.use(helmet(helmetPolicies));
+// Security (M2): per-request CSP nonce middleware. Runs after helmet so the
+// nonce header is set on every response (alongside helmet's other headers).
+// When cspNonceEnabled is false (local-dev/webcontainer bypass) it is a no-op.
+app.use(cspNonceMiddleware);
 app.use(cookieParser());
 app.use(compression());
 app.use((req, res, next) => {
@@ -982,15 +1127,17 @@ systemStructureContext().then((site) => {
           indexFile = injectLinkedDevDedupingFix(indexFile);
           indexFile = injectLinkedDevImportMap(indexFile);
           indexFile = injectDevReloadScript(indexFile, currentPort);
+          // Security (M2): stamp inline scripts with the per-request CSP nonce
+          // (last so it covers all injected inline scripts too).
+          indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
           setNoStoreResponseHeaders(res);
           res.send(indexFile);
         }
         catch (e) {
           console.warn('Runtime injection failed for single-site index, falling back to static delivery:', e);
-          setNoStoreResponseHeaders(res);
-          res.sendFile(`index.html`, {
-            root: publicDir
-          });
+          // Security (M2): stamp the static fallback with the nonce too so its
+          // inline scripts still execute under the nonce CSP.
+          sendNonceIndex(res, req, path.join(publicDir, 'index.html'));
         }
       }
     });
@@ -1001,7 +1148,12 @@ systemStructureContext().then((site) => {
       app.use(express.static(publicDir, { index: false }));
     }
     else {
-      app.use(express.static(publicDir));
+      // Security (M2): index:false so the dashboard index.html is served by
+      // the app.use('/') handler below (which stamps inline scripts with the
+      // per-request CSP nonce) rather than by express.static streaming the
+      // raw file (which would bypass the nonce and break under the nonce CSP).
+      // Non-index assets are still served by express.static.
+      app.use(express.static(publicDir, { index: false }));
     }
     app.use('/', (req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`${serverProtocol}://localhost:${currentPort}`));
@@ -1032,6 +1184,9 @@ systemStructureContext().then((site) => {
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
+            // Security (M2): stamp inline scripts with the per-request CSP nonce
+            // (last so it covers all injected inline scripts too).
+            indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
             setNoStoreResponseHeaders(res);
             res.send(indexFile);
             return;
@@ -1040,10 +1195,9 @@ systemStructureContext().then((site) => {
             console.warn('Runtime injection failed for dashboard index, falling back to static delivery:', e);
           }
         }
-        setNoStoreResponseHeaders(res);
-        res.sendFile(requestPath.replace(/\/createSite-step-(.*)/, '/').replace(/\/home/, '/'), {
-          root: publicDir
-        });
+        // Security (M2): non-dev dashboard index. Read+nonce+send so inline
+        // scripts are authorized under the nonce CSP (no 'unsafe-inline').
+        sendNonceIndex(res, req, path.join(publicDir, 'index.html'));
       }
     });
     if (process.env.NODE_ENV === "development") {
@@ -1187,6 +1341,9 @@ systemStructureContext().then((site) => {
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
+            // Security (M2): stamp inline scripts with the per-request CSP nonce
+            // (last so it covers all injected inline scripts too).
+            indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
             setNoStoreResponseHeaders(res);
             res.send(indexFile);
             return;
@@ -1195,11 +1352,11 @@ systemStructureContext().then((site) => {
             console.warn('Runtime injection failed for site index, falling back to static delivery:', e);
           }
         }
-        setNoStoreResponseHeaders(res);
-        // send static index fallback even if route points to a non-file path
-        res.sendFile(req.url.replace(/\/(.*?)\/(.*)/, `/${HAXCMS.sitesDirectory}/$1/index.html`), {
-          root: process.cwd()
-        });
+        // Security (M2): static index fallback — read+nonce+send so inline
+        // scripts are authorized under the nonce CSP (no 'unsafe-inline').
+        // Mirrors the prior res.sendFile path resolution.
+        var fallbackRelativePath = req.url.replace(/\/(.*?)\/(.*)/, `/${HAXCMS.sitesDirectory}/$1/index.html`);
+        sendNonceIndex(res, req, path.join(process.cwd(), fallbackRelativePath));
       }
     });
     // published directory route if it exists
@@ -1459,6 +1616,9 @@ systemStructureContext().then((site) => {
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
+            // Security (M2): stamp inline scripts with the per-request CSP nonce
+            // (last so it covers all injected inline scripts too).
+            indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
             setNoStoreResponseHeaders(res);
             res.send(indexFile);
             return;
@@ -1467,10 +1627,9 @@ systemStructureContext().then((site) => {
             console.warn('Runtime injection failed for catch-all index, falling back to static delivery:', e);
           }
         }
-        setNoStoreResponseHeaders(res);
-        res.sendFile('/', {
-          root: `${__dirname}/public/`
-        });
+        // Security (M2): non-dev catch-all fallback — read+nonce+send so inline
+        // scripts are authorized under the nonce CSP (no 'unsafe-inline').
+        sendNonceIndex(res, req, path.join(__dirname, 'public', 'index.html'));
       }
       else {
         next();
