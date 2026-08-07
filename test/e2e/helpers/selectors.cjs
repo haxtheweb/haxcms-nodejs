@@ -445,6 +445,65 @@ const selectors = {
     // VERIFIED at runtime: dialog.shadowRoot.querySelector('#outline') + '.hax-modal-btn'
   },
 
+  // --- AUTH-DASHBOARD (VERIFIED at runtime by .discovery-auth-dashboard.cjs) ---
+  // User menu + logout control, dashboard search input, and the site card
+  // click target (the real dashboard→editor entry point).
+  //
+  // LOGOUT: document > app-hax (shadow) > app-hax-user-menu (light DOM) >
+  //   app-hax-user-menu-button.logout (slotted into post-menu). The menu is
+  //   opened by clicking #tbchar (app-hax-user-menu-toggle, slotted into
+  //   menuButton). The logout button has an inner button.menu-button in its
+  //   shadowRoot; clicking it fires @click=${this.logout} on the host (bubbles).
+  //   POST /system/api/v1/session/logout → {status:200, data:"loggedout"}.
+  //   After logout: login modal reappears, JWT cleared from localStorage,
+  //   haxcms_refresh_token cookie cleared.
+  //
+  // SEARCH: #searchField input inside app-hax-use-case-filter shadowRoot.
+  //   Typing dispatches input → handleSearch → sets store.searchTerm +
+  //   applyFilters() which filters displayItems CLIENT-SIDE (no search API
+  //   fires). app-hax-search-results.displayItems narrows; a non-matching term
+  //   yields 0 app-hax-site-bar cards.
+  //
+  // SITE CARD CLICK: app-hax-site-bar has a.imageLink in its shadowRoot with
+  //   href="/_sites/<slug>/" — clicking it navigates to the site editor.
+  authDashboard: {
+    // --- logout control ---
+    // The user menu host inside app-hax shadowRoot.
+    // VERIFIED: app-hax.shadowRoot.querySelector('app-hax-user-menu') (id="user-menu")
+    userMenu: 'app-hax-user-menu',
+    // The menu toggle button (slotted into menuButton slot).
+    // VERIFIED: app-hax-user-menu-toggle#tbchar — click to open the menu.
+    userMenuToggle: '#tbchar',
+    // The logout button (light-DOM child of app-hax-user-menu, slotted post-menu).
+    // VERIFIED: app-hax-user-menu-button.logout, label="Log out", icon="account-circle".
+    logoutButton: 'app-hax-user-menu-button.logout',
+    // The inner button inside logout button's shadowRoot.
+    // VERIFIED: button.menu-button (clicking it bubbles to host → this.logout())
+    logoutInnerButton: '.menu-button',
+    // Logout API path.
+    // VERIFIED: POST /system/api/v1/session/logout → {status:200, data:"loggedout"}
+    logoutApi: '/system/api/v1/session/logout',
+    // The refresh-token cookie cleared on logout.
+    // VERIFIED: haxcms_refresh_token cookie is empty after logout.
+    refreshTokenCookie: 'haxcms_refresh_token',
+
+    // --- search input ---
+    // The search input inside app-hax-use-case-filter shadowRoot.
+    // VERIFIED: input#searchField type=text placeholder="Search" aria-label="Search"
+    searchField: '#searchField',
+    // Full chain to the search input: document > app-hax > app-hax-use-case-filter > #searchField
+    // VERIFIED at runtime.
+    searchFieldChain: ['app-hax', 'app-hax-use-case-filter', '#searchField'],
+
+    // --- site card click target ---
+    // The image link inside app-hax-site-bar shadowRoot.
+    // VERIFIED: a.imageLink href="/_sites/<slug>/" aria-label="Open <title>"
+    siteCardImageLink: 'a.imageLink',
+    // The heading link (slotted into app-hax-site-bar heading slot).
+    // VERIFIED: a[slot="heading"] href="/_sites/<slug>/"
+    siteCardHeadingLink: 'a[slot="heading"]',
+  },
+
   // --- API PATHS (canonical v1 system + site API) -------------------------
   api: {
     // system API (dashboard / site lifecycle)
