@@ -788,6 +788,109 @@ const selectors = {
     // → {status:200, data:{changed:bool, preview:bool, changes:[{id,title,oldSlug,newSlug}], skipped:[...]}}
     // Without preview: applies the slug changes to the manifest + commits.
     normalizeSlugs: '/x/api/v1/site/normalize-slugs',
+    // --- settings endpoints (all PATCH, require X-HAXCMS-Site-Token header) ---
+    // VERIFIED at runtime by .discovery-settings*.cjs
+    saveManifest: '/x/api/v1/site',
+    saveAppearance: '/x/api/v1/site/appearance',
+    saveSeo: '/x/api/v1/site/seo',
+    saveEditor: '/x/api/v1/site/editor',
+    saveAllowedBlocks: '/x/api/v1/site/blocks',
+    activeTheme: '/x/api/v1/themes/active',
+  },
+
+  // --- SITE SETTINGS MODAL (VERIFIED at runtime by .discovery-settings*.cjs) ---
+  // The settings modal is opened via #manifestbtn (selectors.editor.manifestButton,
+  // VERIFIED as a button). Clicking it opens a simple-modal with
+  // haxcms-site-settings-dashboard as a LIGHT-DOM (slotted) child — same pattern
+  // as login and outline-editor. The dashboard shadowRoot contains 13
+  // button.dashboard-action buttons (primary: Appearance, Structure, Content,
+  // Reports, About; advanced: Files, Views, Features, Editor, Blocks, SEO,
+  // Import/Export, Details). Clicking a dashboard button replaces the modal
+  // content with the corresponding sub-panel dialog (also a light-DOM child of
+  // simple-modal). Each sub-panel has form fields in its shadowRoot + a
+  // button.action text="Save" that fires the matching PATCH endpoint.
+  //
+  // To reach a sub-panel dialog: document.querySelector('simple-modal').querySelector(<dialogTag>)
+  // then operate on its shadowRoot (same light-then-shadow pattern as login).
+  siteSettings: {
+    // The settings dashboard host element (light-DOM child of simple-modal).
+    // VERIFIED: haxcms-site-settings-dashboard in simple-modal light DOM.
+    dashboard: 'haxcms-site-settings-dashboard',
+    // Dashboard action buttons (in dashboard shadowRoot).
+    // VERIFIED: button.dashboard-action with text labels (Appearance, Details, SEO, etc.)
+    dashboardActionButton: 'button.dashboard-action',
+    // Dashboard button text labels (used to click by text content).
+    // VERIFIED at runtime.
+    dashboardButtons: {
+      appearance: 'Appearance',
+      structure: 'Structure',
+      content: 'Content',
+      reports: 'Reports',
+      about: 'About',
+      files: 'Files',
+      views: 'Views',
+      features: 'Features',
+      editor: 'Editor',
+      blocks: 'Blocks',
+      seo: 'SEO',
+      importExport: 'Import / Export',
+      details: 'Details',
+    },
+    // Sub-panel dialog host tags (light-DOM children of simple-modal, each has shadowRoot).
+    // VERIFIED at runtime: clicking the dashboard button replaces the modal content
+    // with the corresponding dialog element.
+    detailsDialog: 'haxcms-site-details-dialog',
+    appearanceDialog: 'haxcms-appearance-admin-dialog',
+    seoDialog: 'haxcms-seo-admin-dialog',
+    editorDialog: 'haxcms-editor-settings-dialog-ui',
+    blocksDialog: 'haxcms-allowed-blocks-ui',
+    // Save button in each sub-panel dialog shadowRoot.
+    // VERIFIED: button.action with text "Save" (some panels have multiple button.action
+    // elements, e.g. SEO has "Normalize slugs" + "Save" — disambiguate by text).
+    saveButton: 'button.action',
+    saveButtonText: 'Save',
+    // --- Details panel form fields (in haxcms-site-details-dialog shadowRoot) ---
+    // VERIFIED: simple-fields-field#manifest-title wraps input[name="manifest-title"]
+    // (type=text). The inner input is directly in the dialog shadowRoot (not inside
+    // simple-fields-field's shadow) and has name + id attributes.
+    detailsTitleInput: 'input[name="manifest-title"]',
+    detailsHomePageIdSelect: 'select[name="manifest-metadata-site-homePageId"]',
+    detailsSwCheckbox: 'input[name="manifest-metadata-site-settings-sw"]',
+    detailsForceUpgradeCheckbox: 'input[name="manifest-metadata-site-settings-forceUpgrade"]',
+    // --- Appearance panel form fields (in haxcms-appearance-admin-dialog shadowRoot) ---
+    // VERIFIED: theme picker is a radio group: input[type=radio][name="manifest-metadata-theme-element"]
+    // with value = theme machine name (bootstrap-theme, clean-one, clean-two, etc.).
+    // The active theme's radio has a label.option.selected.active class.
+    appearanceThemeRadio: 'input[name="manifest-metadata-theme-element"]',
+    // Palette picker (radio group): input[type=radio][name="manifest-metadata-theme-variables-palette"]
+    appearancePaletteRadio: 'input[name="manifest-metadata-theme-variables-palette"]',
+    // Branding fields
+    appearanceImageAltInput: 'input[name="manifest-metadata-theme-variables-imageAlt"]',
+    appearanceImageLinkInput: 'input[name="manifest-metadata-theme-variables-imageLink"]',
+    // --- SEO panel form fields (in haxcms-seo-admin-dialog shadowRoot) ---
+    // VERIFIED: simple-fields-field#manifest-description wraps input[name="manifest-description"]
+    seoDescriptionInput: 'input[name="manifest-description"]',
+    seoDomainInput: 'input[name="manifest-metadata-site-domain"]',
+    seoLangInput: 'input[name="manifest-metadata-site-settings-lang"]',
+    seoGaIdInput: 'input[name="manifest-metadata-site-settings-gaID"]',
+    seoPrivateCheckbox: 'input[name="manifest-metadata-site-settings-private"]',
+    seoCanonicalCheckbox: 'input[name="manifest-metadata-site-settings-canonical"]',
+    seoPathautoCheckbox: 'input[name="manifest-metadata-site-settings-pathauto"]',
+    seoPublishPagesOnCheckbox: 'input[name="manifest-metadata-site-settings-publishPagesOn"]',
+    // Author fields
+    seoLicenseSelect: 'select[name="manifest-license"]',
+    seoAuthorNameInput: 'input[name="manifest-metadata-author-name"]',
+    seoAuthorEmailInput: 'input[name="manifest-metadata-author-email"]',
+    seoAuthorWebsiteInput: 'input[name="manifest-metadata-author-website"]',
+    // --- Editor panel form fields (in haxcms-editor-settings-dialog-ui shadowRoot) ---
+    // VERIFIED: select#audience (name=audience) with options Expert/Novice.
+    editorAudienceSelect: 'select#audience',
+    // --- Blocks panel form fields (in haxcms-allowed-blocks-ui shadowRoot) ---
+    // VERIFIED: input#blockFilter (text filter) + input#allowed-block-<tag> (checkboxes).
+    // Each checkbox id is "allowed-block-" + the webcomponent tag with dashes replaced
+    // (e.g. allowed-block-img, allowed-block-grid-plate, allowed-block-multiple-choice).
+    blocksFilterInput: '#blockFilter',
+    blocksCheckboxPrefix: 'allowed-block-',
   },
 }
 
