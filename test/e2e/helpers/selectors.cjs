@@ -722,6 +722,69 @@ const selectors = {
     ],
   },
 
+  // --- AUTHORING-MEDIA (VERIFIED at runtime by .discovery-authoring-media.cjs) ---
+  // Block-insertion + media-upload surfaces in the site editor. All verified
+  // by the authoring-media discovery pass (login -> create -> editor -> edit
+  // mode -> dump chrome + recursive tag search + files API via axios).
+  //
+  // EDIT-MODE BUTTONS (haxcms-site-editor-ui shadowRoot):
+  //   #content-add  simple-toolbar-button label="Blocks • Ctrl⇧3" icon="hax:add-brick"
+  //     — ENABLED in edit mode (disabled/hidden when viewing). Opens the HAX
+  //       tray / super-daemon block browser. This is the block-insertion entry.
+  //   #content-map  simple-toolbar-button label="Structure • Ctrl⇧2" — enabled in edit mode.
+  //   #content-edit simple-toolbar-button label="Configure • Ctrl⇧4" — enabled in edit mode.
+  //   #exportbtn    simple-toolbar-button label="Source • Ctrl⇧1" — enabled in edit mode.
+  //   #addpagebutton haxcms-button-add label="Add page • Ctrl⇧1" — DISABLED in edit mode.
+  //
+  // AUTHORING SURFACES (recursive shadow walk from document):
+  //   super-daemon  — 1 found, shadow: web-dialog, super-daemon-ui, div, a, simple-icon-button.
+  //   hax-tray      — 1 found, shadow: hax-tray-button, hax-tray-upload, hax-gizmo-browser,
+  //                   hax-stax-browser, hax-app-search, simple-fields, a11y-collapse, etc.
+  //   hax-tray-upload — 1 found (inside hax-tray shadow), shadow: simple-file-upload, button,
+  //                   simple-fields-url-combo, simple-toolbar-button.
+  //   input#fileInput.hidden-input — 1 found (light DOM, the hidden file input used by uploads).
+  //   media-manager / simple-fields-upload / hax-upload-field / file-input — NOT found.
+  //
+  // HAX-BODY (edit mode): children are [page-break, p] (the default page content).
+  //   importContent(html) + 'input' event is the verified way to set content.
+  //   <page-break> is REQUIRED for saveNode to write the file (pageBreakParser).
+  //
+  // FILES API (direct axios, Bearer JWT + X-HAXCMS-Site-Token):
+  //   GET  /x/api/v1/files           → {status:200, data:{count,total,page:{limit,offset,total},files:[...],links}}
+  //   POST /x/api/v1/files           → multipart field "file-upload" → {status:200, data:{file:{path,fullUrl,url,type,name,size}}}
+  //   PATCH /x/api/v1/files/:uuid    → {operation:'rename', newName} → {status:200, data:{operation:'rename',source,path,file:{...new uuid...}}}
+  //   DELETE /x/api/v1/files/:uuid   → {status:200, data:{operation:'delete',path,deleted:true}}
+  //   Query params: filter.extension, filter.type, filter.startsWith, filter.nameContains, page.limit, page.offset, sort, fields.
+  //   NOTE: after rename, the file's uuid CHANGES (uuid = sha256(siteName:canonicalPath:size)).
+  //         DELETE must use the CURRENT uuid (data.file.uuid from the rename response),
+  //         not the pre-rename uuid, or resolveRequestedFilePath throws a 404.
+  authoringMedia: {
+    // Block-insertion button (enabled in edit mode). Opens the HAX tray / block browser.
+    // VERIFIED: simple-toolbar-button#content-add label="Blocks • Ctrl⇧3" icon="hax:add-brick".
+    blocksButton: '#content-add',
+    // Structure / outline-of-content button (enabled in edit mode).
+    // VERIFIED: simple-toolbar-button#content-map label="Structure • Ctrl⇧2".
+    structureButton: '#content-map',
+    // Configure / tune active element button (enabled in edit mode).
+    // VERIFIED: simple-toolbar-button#content-edit label="Configure • Ctrl⇧4".
+    configureButton: '#content-edit',
+    // Source / HTML view button (enabled in edit mode).
+    // VERIFIED: simple-toolbar-button#exportbtn label="Source • Ctrl⇧1".
+    sourceButton: '#exportbtn',
+    // The HAX tray host (block browser + upload). Found via recursive shadow walk.
+    // VERIFIED: hax-tray with shadow containing hax-tray-upload, hax-gizmo-browser, etc.
+    haxTray: 'hax-tray',
+    // The upload widget inside hax-tray shadow. Found via recursive shadow walk.
+    // VERIFIED: hax-tray-upload with shadow containing simple-file-upload + button.
+    haxTrayUpload: 'hax-tray-upload',
+    // The hidden file input (light DOM) used by the upload widget.
+    // VERIFIED: input#fileInput.hidden-input (no shadowRoot).
+    fileInput: '#fileInput',
+    // The super-daemon host (block search / insert dialog). Found via recursive walk.
+    // VERIFIED: super-daemon with shadow: web-dialog, super-daemon-ui.
+    superDaemon: 'super-daemon',
+  },
+
   // --- API PATHS (canonical v1 system + site API) -------------------------
   api: {
     // system API (dashboard / site lifecycle)
