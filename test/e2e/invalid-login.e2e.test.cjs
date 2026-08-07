@@ -50,6 +50,17 @@ const {
   captureScreenshot,
   compareBaseline,
   selectors,
+  // flows helpers (single source of truth in helpers/flows.cjs)
+  getLoginElement,
+  waitForLoginModal,
+  waitForLoginModalRetry,
+  waitForPasswordInput,
+  loginSetInput,
+  loginClickButton,
+  findCookie,
+  parseJsonSafely,
+  summariseViolations,
+  createStatusWatcher,
 } = require('./helpers')
 
 // Bad credentials captured in the recording (invalid-user-login.js). These are
@@ -67,181 +78,9 @@ const state = {
   statusWatcher: null,
 }
 
-// --- login-specific helpers (light DOM -> shadow DOM) ---
-// Copied from login.e2e.test.cjs / create-site.e2e.test.cjs. Login helpers are
-// intentionally inlined per file rather than shared (no over-modularisation),
-// matching the existing convention.
-
-// Resolve the app-hax-site-login element: document > simple-modal (light) >
-// app-hax-site-login (light slotted child). Returns an element handle or null.
-async function getLoginElement(page) {
-  const handle = await page.evaluateHandle(() => {
-    const modal = document.querySelector('simple-modal')
-    if (!modal) {
-      return null
-    }
-    return modal.querySelector('app-hax-site-login')
-  })
-  const el = handle.asElement()
-  if (!el) {
-    await handle.dispose()
-    return null
-  }
-  return el
-}
-
-// Wait for the login modal to render: simple-modal present, opened, and its
-// slotted app-hax-site-login child has a shadowRoot. Returns the login handle.
-async function waitForLoginModal(page, timeoutMs) {
-  const timeout = timeoutMs || 30000
-  await page.waitForFunction(
-    () => {
-      const modal = document.querySelector('simple-modal')
-      if (!modal || modal.opened !== true) {
-        return false
-      }
-      const loginEl = modal.querySelector('app-hax-site-login')
-      return !!(loginEl && loginEl.shadowRoot)
-    },
-    { timeout },
-  )
-  return getLoginElement(page)
-}
-
-// Wait for the password input to appear inside app-hax-site-login shadowRoot
-// (only present after clicking "Next").
-async function waitForPasswordInput(page, timeoutMs) {
-  const timeout = timeoutMs || 15000
-  await page.waitForFunction(
-    () => {
-      const modal = document.querySelector('simple-modal')
-      if (!modal) {
-        return false
-      }
-      const loginEl = modal.querySelector('app-hax-site-login')
-      if (!loginEl || !loginEl.shadowRoot) {
-        return false
-      }
-      return !!loginEl.shadowRoot.querySelector('#password')
-    },
-    { timeout },
-  )
-}
-
-// Wait for a login input (#username / #password) to exist in the login
-// element's shadowRoot, then set its value and dispatch input/change.
-async function loginSetInput(p, inputId, text) {
-  await p.waitForFunction(
-    (id) => {
-      const modal = document.querySelector('simple-modal')
-      const login = modal && modal.querySelector('app-hax-site-login')
-      return !!(login && login.shadowRoot && login.shadowRoot.querySelector('#' + id))
-    },
-    { timeout: 15000 },
-    inputId,
-  )
-  const set = await p.evaluate((id, val) => {
-    const modal = document.querySelector('simple-modal')
-    const login = modal && modal.querySelector('app-hax-site-login')
-    const input = login && login.shadowRoot && login.shadowRoot.querySelector('#' + id)
-    if (!input) return false
-    input.value = val
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    return true
-  }, inputId, text)
-  if (!set) throw new Error('login input not found: #' + inputId)
-}
-
-// Click the first button whose visible text contains `text`, searching the
-// login element's shadowRoot. Waits for the button to appear first.
-async function loginClickButton(p, text) {
-  await p.waitForFunction(
-    (t) => {
-      const modal = document.querySelector('simple-modal')
-      const login = modal && modal.querySelector('app-hax-site-login')
-      if (!login || !login.shadowRoot) return false
-      const btns = login.shadowRoot.querySelectorAll('button')
-      for (let i = 0; i < btns.length; i++) {
-        if (btns[i].textContent.trim().toLowerCase().indexOf(t.toLowerCase()) !== -1) return true
-      }
-      return false
-    },
-    { timeout: 10000 },
-    text,
-  )
-  const clicked = await p.evaluate((t) => {
-    const modal = document.querySelector('simple-modal')
-    const login = modal && modal.querySelector('app-hax-site-login')
-    if (!login || !login.shadowRoot) return false
-    const btns = login.shadowRoot.querySelectorAll('button')
-    for (let i = 0; i < btns.length; i++) {
-      if (btns[i].textContent.trim().toLowerCase().indexOf(t.toLowerCase()) !== -1) {
-        btns[i].click()
-        return true
-      }
-    }
-    return false
-  }, text)
-  if (!clicked) throw new Error('login button not found: ' + text)
-}
-
-// Reload-robust variant of waitForLoginModal. A failed login may trigger a
-// full page reload (the recording captured a waitForNavigation after submit),
-// which destroys the execution context mid-poll and makes waitForFunction
-// reject with "Execution context was destroyed". Retry in short windows until
-// the deadline so the modal (re-opened after reload, or still showing an inline
-// error) is found. Returns the login handle or null.
-async function waitForLoginModalRetry(page, timeoutMs) {
-  const deadline = Date.now() + (timeoutMs || 25000)
-  while (Date.now() < deadline) {
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) break
-    try {
-      const el = await waitForLoginModal(page, Math.min(5000, remaining))
-      if (el) return el
-    } catch (e) {
-      // Context likely destroyed by an in-flight reload; back off and retry.
-      await new Promise((r) => setTimeout(r, 300))
-    }
-  }
-  return null
-}
-
-// --- generic helpers ---
-
-function findCookie(cookies, name) {
-  if (!Array.isArray(cookies)) {
-    return null
-  }
-  for (let i = 0; i < cookies.length; i++) {
-    if (cookies[i] && cookies[i].name === name) {
-      return cookies[i]
-    }
-  }
-  return null
-}
-
-function parseJsonSafely(value) {
-  try {
-    return JSON.parse(String(value || ''))
-  } catch (e) {
-    return null
-  }
-}
-
-function summariseViolations(list) {
-  if (!Array.isArray(list) || list.length === 0) {
-    return '(none)'
-  }
-  return list
-    .map((v) => {
-      const id = (v && v.id) || 'unknown'
-      const desc = (v && v.description) || ''
-      return id + ': ' + desc
-    })
-    .join(' | ')
-}
+// --- login helpers live in helpers/flows.cjs (getLoginElement, waitForLoginModal,
+// waitForLoginModalRetry, waitForPasswordInput, loginSetInput, loginClickButton). ---
+// readErrorText below is unique to this negative-login test.
 
 // Read the #errorText content from the login element's shadowRoot (or null if
 // the element is not present). Non-fatal diagnostic — reports whether the form
@@ -256,60 +95,7 @@ async function readErrorText(page, errorSelector) {
   }, errorSelector)
 }
 
-// Status-only response watcher. The shared ResponseCollector awaits
-// response.text() before recording a response, which hangs indefinitely for
-// some 4xx responses in puppeteer — so 401/403 rejections (exactly what this
-// negative-login test needs to assert on) never get pushed to the collector's
-// records. This watcher records url + status synchronously when the response
-// event fires (status() is sync and always available), then best-effort reads
-// the body with a 3s timeout race so a hung response.text() never blocks the
-// record. Used alongside the collector: the collector remains the source for
-// 200s (kept for consistency with the other e2e files); this watcher is the
-// source for error responses.
-function createStatusWatcher(page) {
-  const records = []
-  const handler = (response) => {
-    const rec = {
-      url: response.url(),
-      status: response.status(),
-      bodyText: '',
-      timestamp: Date.now(),
-    }
-    records.push(rec)
-    // Best-effort body read; status is already recorded above so a hang or
-    // rejection here only affects bodyText (defaults to '').
-    Promise.race([
-      response.text().catch(() => ''),
-      new Promise((r) => setTimeout(() => r(''), 3000)),
-    ]).then((bodyText) => {
-      rec.bodyText = bodyText
-    })
-  }
-  page.on('response', handler)
-  return {
-    getAll: () => records.slice(),
-    getFor: (urlSubstring) =>
-      records.filter((r) => r.url.indexOf(urlSubstring) !== -1),
-    waitFor: (urlSubstring, timeoutMs) =>
-      new Promise((resolve) => {
-        const deadline = Date.now() + (timeoutMs || 20000)
-        const poll = () => {
-          const matches = records.filter(
-            (r) => r.url.indexOf(urlSubstring) !== -1,
-          )
-          if (matches.length > 0) {
-            return resolve(matches[matches.length - 1])
-          }
-          if (Date.now() >= deadline) {
-            return resolve(null)
-          }
-          setTimeout(poll, 200)
-        }
-        poll()
-      }),
-    detach: () => page.off('response', handler),
-  }
-}
+// createStatusWatcher is imported from helpers/flows.cjs (see require block).
 
 // --- setup / teardown ---
 

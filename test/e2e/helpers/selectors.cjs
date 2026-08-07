@@ -443,6 +443,346 @@ const selectors = {
     // reach it (same as login). Use: document.querySelector('simple-modal').querySelector('haxcms-outline-editor-dialog')
     // then operate on its shadowRoot.
     // VERIFIED at runtime: dialog.shadowRoot.querySelector('#outline') + '.hax-modal-btn'
+
+    // --- outline-designer row detail controls (VERIFIED by .discovery-outline.cjs) ---
+    // Each page in the outline is a <li class="item indent-N" data-item-id="...">
+    // inside outline-designer shadowRoot. Rows have leading-operations, a
+    // content-toggle-btn, a .label.shown (title display) + .label-edit
+    // (contenteditable title input), and a simple-context-menu.actions-menu
+    // with 10 simple-toolbar-button[value=...] action items.
+    //
+    // The actions menu is opened by clicking .actions-menu-button
+    // (simple-toolbar-button icon="icons:more-vert"). Each menu item is a
+    // simple-toolbar-button with a `value` attribute identifying the operation.
+    // The outline-designer.itemOp(index, op) method applies the change in-memory;
+    // clicking "Save Outline" (.hax-modal-btn) then dispatches
+    // haxcms-save-outline with the full items array → PATCH /x/api/v1/site/outline.
+    //
+    // To rename: click the edit-title menu item (value="edit-title") which calls
+    // outline-designer.editTitle() on the row's .label.shown, making .label-edit
+    // contenteditable. Type the new title + Enter (monitorTitle handler) to
+    // commit the change in-memory. Then click Save Outline to persist.
+    //
+    // To reorder/nest: click the up/down/in/out menu items which call
+    // outline-designer.itemOp(index, op) to swap orders or change parent+indent.
+    // Then click Save Outline to persist.
+
+    // Row selector inside outline-designer shadowRoot.
+    // VERIFIED: li.item with data-item-id attribute; role="treeitem".
+    row: 'li.item',
+    // The data attribute holding the page id on each row.
+    // VERIFIED: data-item-id="item-<uuid>"
+    rowItemIdAttr: 'data-item-id',
+    // The title display span (visible when not editing).
+    // VERIFIED: span.label.shown with the page title textContent.
+    rowLabel: '.label.shown',
+    // The contenteditable title edit span (visible when editing title).
+    // VERIFIED: span.label-edit; gets contenteditable="true" on editTitle().
+    rowLabelEdit: '.label-edit',
+    // The more-vert actions menu trigger button per row.
+    // VERIFIED: simple-toolbar-button.actions-menu-button icon="icons:more-vert".
+    rowActionsMenuButton: '.actions-menu-button',
+    // The actions context menu per row.
+    // VERIFIED: simple-context-menu.actions-menu with 10 simple-toolbar-button children.
+    rowActionsMenu: 'simple-context-menu.actions-menu',
+    // Action menu item values (simple-toolbar-button[value=...]).
+    // VERIFIED at runtime: up, down, in, out, edit-title, add, duplicate, goto, lock, delete.
+    actionValues: {
+      moveUp: 'up',
+      moveDown: 'down',
+      indent: 'in',
+      outdent: 'out',
+      editTitle: 'edit-title',
+      add: 'add',
+      duplicate: 'duplicate',
+      goToPage: 'goto',
+      lock: 'lock',
+      delete: 'delete',
+    },
+    // The top-level "Add page" control button (in .controls toolbar).
+    // VERIFIED: simple-toolbar-button[icon="add"] label="Add page".
+    addPageControlButton: 'simple-toolbar-button[icon="add"]',
+    // Event dispatched by Import From File (.hax-modal-btn.import) — triggers
+    // _selectFileForHierarchyImport on the site-editor-ui which opens a file
+    // picker. For E2E, dispatching haxcms-docx-import-items with test items
+    // simulates the post-file-pick result (opens the import hierarchy dialog).
+    // VERIFIED from source (haxcms-outline-editor-dialog.js _importTap +
+    // haxcms-site-editor-ui.js __winEvents mapping).
+    importRequestEvent: 'haxcms-outline-import-request',
+    // Event that opens the import hierarchy dialog with pre-parsed items.
+    // VERIFIED from source (haxcms-site-editor.js createNode handler dispatches
+    // haxcms-docx-import-items with {items, parentId} after a successful import API call).
+    importItemsEvent: 'haxcms-docx-import-items',
+  },
+
+  // --- AUTH-DASHBOARD (VERIFIED at runtime by .discovery-auth-dashboard.cjs) ---
+  // User menu + logout control, dashboard search input, and the site card
+  // click target (the real dashboard→editor entry point).
+  //
+  // LOGOUT: document > app-hax (shadow) > app-hax-user-menu (light DOM) >
+  //   app-hax-user-menu-button.logout (slotted into post-menu). The menu is
+  //   opened by clicking #tbchar (app-hax-user-menu-toggle, slotted into
+  //   menuButton). The logout button has an inner button.menu-button in its
+  //   shadowRoot; clicking it fires @click=${this.logout} on the host (bubbles).
+  //   POST /system/api/v1/session/logout → {status:200, data:"loggedout"}.
+  //   After logout: login modal reappears, JWT cleared from localStorage,
+  //   haxcms_refresh_token cookie cleared.
+  //
+  // SEARCH: #searchField input inside app-hax-use-case-filter shadowRoot.
+  //   Typing dispatches input → handleSearch → sets store.searchTerm +
+  //   applyFilters() which filters displayItems CLIENT-SIDE (no search API
+  //   fires). app-hax-search-results.displayItems narrows; a non-matching term
+  //   yields 0 app-hax-site-bar cards.
+  //
+  // SITE CARD CLICK: app-hax-site-bar has a.imageLink in its shadowRoot with
+  //   href="/_sites/<slug>/" — clicking it navigates to the site editor.
+  authDashboard: {
+    // --- logout control ---
+    // The user menu host inside app-hax shadowRoot.
+    // VERIFIED: app-hax.shadowRoot.querySelector('app-hax-user-menu') (id="user-menu")
+    userMenu: 'app-hax-user-menu',
+    // The menu toggle button (slotted into menuButton slot).
+    // VERIFIED: app-hax-user-menu-toggle#tbchar — click to open the menu.
+    userMenuToggle: '#tbchar',
+    // The logout button (light-DOM child of app-hax-user-menu, slotted post-menu).
+    // VERIFIED: app-hax-user-menu-button.logout, label="Log out", icon="account-circle".
+    logoutButton: 'app-hax-user-menu-button.logout',
+    // The inner button inside logout button's shadowRoot.
+    // VERIFIED: button.menu-button (clicking it bubbles to host → this.logout())
+    logoutInnerButton: '.menu-button',
+    // Logout API path.
+    // VERIFIED: POST /system/api/v1/session/logout → {status:200, data:"loggedout"}
+    logoutApi: '/system/api/v1/session/logout',
+    // The refresh-token cookie cleared on logout.
+    // VERIFIED: haxcms_refresh_token cookie is empty after logout.
+    refreshTokenCookie: 'haxcms_refresh_token',
+
+    // --- search input ---
+    // The search input inside app-hax-use-case-filter shadowRoot.
+    // VERIFIED: input#searchField type=text placeholder="Search" aria-label="Search"
+    searchField: '#searchField',
+    // Full chain to the search input: document > app-hax > app-hax-use-case-filter > #searchField
+    // VERIFIED at runtime.
+    searchFieldChain: ['app-hax', 'app-hax-use-case-filter', '#searchField'],
+
+    // --- site card click target ---
+    // The image link inside app-hax-site-bar shadowRoot.
+    // VERIFIED: a.imageLink href="/_sites/<slug>/" aria-label="Open <title>"
+    siteCardImageLink: 'a.imageLink',
+    // The heading link (slotted into app-hax-site-bar heading slot).
+    // VERIFIED: a[slot="heading"] href="/_sites/<slug>/"
+    siteCardHeadingLink: 'a[slot="heading"]',
+  },
+
+  // --- REVISIONS (VERIFIED at runtime by .discovery-revisions.cjs) ---------
+  // The page revisions UI is a haxcms-page-revisions-dialog element slotted
+  // as a light-DOM child of simple-modal (same pattern as login + outline).
+  // It is opened by dispatching the global event `haxcms-open-page-revisions`
+  // with detail { nodeId, nodeTitle, source }. The site-editor listens for
+  // this event and opens the dialog via simple-modal-show.
+  //
+  // The dialog renders an editable-table-display with revision rows. Each row
+  // has two simple-icon-button-lite action buttons: a preview button
+  // (data-action="preview", icon="icons:visibility") and a restore button
+  // (data-action="restore", icon="icons:restore"). Both carry data-hash="<full
+  // git hash>". The FIRST row (current revision) has both buttons disabled.
+  //
+  // The dialog loads revisions by dispatching `haxcms-load-node-revisions`
+  // which the site-editor answers by calling @site/listItemRevisions
+  // (GET /x/api/v1/items/:idOrSlug/revisions). Selecting a row dispatches
+  // `haxcms-load-node-revision` → @site/getItemRevisionById (GET
+  // .../revisions/:revisionId). Restore dispatches `haxcms-restore-node-revision`
+  // → @site/restoreItemRevision (POST .../revisions/:revisionId/restore), which
+  // writes the old content to disk AND creates a new git commit.
+  //
+  // Auth: revisions routes require Bearer JWT + X-HAXCMS-Site-Token header
+  // (policy 'authenticated-site'). The site token is
+  // HAXCMS.getRequestToken(userName + ':' + siteName), computed server-side.
+  // The browser frontend auto-attaches it; direct axios calls must add it.
+  revisions: {
+    // The revisions dialog host element (slotted into simple-modal light DOM).
+    // VERIFIED: haxcms-page-revisions-dialog is a light-DOM child of simple-modal.
+    // To reach it: document.querySelector('simple-modal').querySelector('haxcms-page-revisions-dialog')
+    // then operate on its shadowRoot.
+    revisionsDialog: 'haxcms-page-revisions-dialog',
+    // Global event to open the revisions dialog.
+    // VERIFIED: dispatching haxcms-open-page-revisions with
+    // detail { nodeId, nodeTitle, source } opens the dialog.
+    openRevisionsEvent: 'haxcms-open-page-revisions',
+    // Global event fired by the dialog to request the revisions list.
+    // VERIFIED from source (haxcms-page-revisions-dialog.js _loadRevisions).
+    loadRevisionsEvent: 'haxcms-load-node-revisions',
+    // Global event fired by the dialog to request one revision detail.
+    loadRevisionEvent: 'haxcms-load-node-revision',
+    // Global event fired by the dialog to request a restore.
+    restoreRevisionEvent: 'haxcms-restore-node-revision',
+    // Global event fired by the site-editor when revisions list loads.
+    revisionsLoadedEvent: 'haxcms-node-revisions-loaded',
+    // Global event fired when one revision detail loads.
+    revisionLoadedEvent: 'haxcms-node-revision-loaded',
+    // Global event fired when a restore completes.
+    revisionRestoredEvent: 'haxcms-node-revision-restored',
+    // The table row selector inside the dialog shadowRoot.
+    // VERIFIED: tbody tr inside editable-table-display.
+    revisionRow: 'tbody tr',
+    // The restore action button inside a row.
+    // VERIFIED: simple-icon-button-lite[icon="icons:restore"][data-action="restore"]
+    // with data-hash="<full hash>". Disabled on the first row (current revision).
+    restoreButton: 'simple-icon-button-lite[data-action="restore"]',
+    // The preview action button inside a row.
+    // VERIFIED: simple-icon-button-lite[icon="icons:visibility"][data-action="preview"]
+    previewButton: 'simple-icon-button-lite[data-action="preview"]',
+    // The preview <pre> element inside the dialog shadowRoot (source mode).
+    // VERIFIED: pre element contains the revision content as HTML source text.
+    previewPre: 'pre',
+    // Dialog properties (read via elementHandle.evaluate):
+    //   nodeId (string), nodeTitle (string), revisions (array),
+    //   selectedHash (string), loading (bool), restoring (bool),
+    //   previewMode ('source' | 'rendered'), previewContent (string).
+    // VERIFIED at runtime.
+  },
+
+  // --- LIFECYCLE (VERIFIED at runtime by .discovery-lifecycle.cjs) ---------
+  // These surfaces reuse the more-vert menu on app-hax-site-bar (Copy, Create
+  // Template, Archive) and the use-case-filter skeleton picker. The more-vert
+  // menu items are VERIFIED, but clicking the simple-toolbar-button HOST does
+  // NOT reliably open the app-hax-confirmation-modal (store-manifest timing
+  // issue — same as archive/download). Tests must escalate: call the card
+  // method directly (el.copySite(), el.createTemplate(), el.archiveSite()) if
+  // the modal does not appear after the host click, then click .button-confirm.
+  lifecycle: {
+    // The more-options trigger button on a site card (same as archive/export).
+    // VERIFIED: simple-icon-button-lite[icon="lrn:more-vert"] in app-hax-site-bar shadowRoot.
+    moreOptionsButton: 'simple-icon-button-lite[icon="lrn:more-vert"]',
+    // The context menu that opens (same as archive/export).
+    // VERIFIED: simple-context-menu title="Options" in app-hax-site-bar shadowRoot.
+    contextMenu: 'simple-context-menu',
+    // Menu items in the more-vert context menu (VERIFIED labels + icons).
+    // Order: Copy (content-copy), Download (file-download), Create Template
+    // (icons:add-circle), Archive (archive).
+    menuItems: {
+      copy: 'Copy',
+      createTemplate: 'Create Template',
+      archive: 'Archive',
+    },
+    // Card methods to call directly if the host click does not open the modal.
+    // VERIFIED: el.copySite() / el.createTemplate() / el.archiveSite() each
+    // create an app-hax-confirmation-modal on document.body.
+    copySiteMethod: 'copySite',
+    createTemplateMethod: 'createTemplate',
+    archiveSiteMethod: 'archiveSite',
+    // The confirmation modal appended to document.body (same as archive/export).
+    // VERIFIED: app-hax-confirmation-modal on document.body with
+    // .button.button-confirm + .button.button-cancel in its shadowRoot.
+    confirmationModal: 'app-hax-confirmation-modal',
+    confirmButton: '.button.button-confirm',
+    cancelButton: '.button.button-cancel',
+    confirmButtonChain: ['app-hax-confirmation-modal', '.button.button-confirm'],
+    cancelButtonChain: ['app-hax-confirmation-modal', '.button.button-cancel'],
+    // Save-template modal button text (VERIFIED):
+    //   confirmText = "Save to templates" (.button.button-confirm)
+    //   cancelText  = "Download skeleton" (.button.button-cancel)
+    //   title       = "Create template from <name>?"
+    saveTemplateConfirmText: 'Save to templates',
+    saveTemplateCancelText: 'Download skeleton',
+    // Clone (Copy) modal button text (VERIFIED):
+    //   confirmText = "Confirm" (.button.button-confirm)
+    //   cancelText  = "Cancel" (.button.button-cancel)
+    //   title       = "Copy <name>?"
+    cloneConfirmText: 'Confirm',
+    // --- Skeleton picker (create-from-template) ---
+    // The use-case card element that renders skeleton/blank/import templates.
+    // VERIFIED: app-hax-use-case in app-hax-use-case-filter shadowRoot. Each
+    // card has a data-item-index attribute matching its filteredItems index.
+    useCaseCard: 'app-hax-use-case',
+    // The use-case-filter element (same chain as dashboard.useCaseFilterChain).
+    // VERIFIED: continueAction(index) on this element opens the creation modal
+    // pre-filled with skeletonData + skeletonMachineName for the skeleton at
+    // that filteredItems index. The skeleton card is found by matching
+    // machineName in ucf.filteredItems (dataType === 'skeleton').
+    useCaseFilterChain: ['app-hax', 'app-hax-use-case-filter'],
+    // The creation modal chains (same as selectors.create.* but duplicated here
+    // for the create-from-template flow which reuses the same modal).
+    siteCreationModalChain: [
+      'app-hax',
+      'app-hax-use-case-filter',
+      'app-hax-site-creation-modal',
+    ],
+    siteNameInputChain: [
+      'app-hax',
+      'app-hax-use-case-filter',
+      'app-hax-site-creation-modal',
+      '#siteName',
+    ],
+    createSiteButtonChain: [
+      'app-hax',
+      'app-hax-use-case-filter',
+      'app-hax-site-creation-modal',
+      '.button.button-primary',
+    ],
+  },
+
+  // --- AUTHORING-MEDIA (VERIFIED at runtime by .discovery-authoring-media.cjs) ---
+  // Block-insertion + media-upload surfaces in the site editor. All verified
+  // by the authoring-media discovery pass (login -> create -> editor -> edit
+  // mode -> dump chrome + recursive tag search + files API via axios).
+  //
+  // EDIT-MODE BUTTONS (haxcms-site-editor-ui shadowRoot):
+  //   #content-add  simple-toolbar-button label="Blocks • Ctrl⇧3" icon="hax:add-brick"
+  //     — ENABLED in edit mode (disabled/hidden when viewing). Opens the HAX
+  //       tray / super-daemon block browser. This is the block-insertion entry.
+  //   #content-map  simple-toolbar-button label="Structure • Ctrl⇧2" — enabled in edit mode.
+  //   #content-edit simple-toolbar-button label="Configure • Ctrl⇧4" — enabled in edit mode.
+  //   #exportbtn    simple-toolbar-button label="Source • Ctrl⇧1" — enabled in edit mode.
+  //   #addpagebutton haxcms-button-add label="Add page • Ctrl⇧1" — DISABLED in edit mode.
+  //
+  // AUTHORING SURFACES (recursive shadow walk from document):
+  //   super-daemon  — 1 found, shadow: web-dialog, super-daemon-ui, div, a, simple-icon-button.
+  //   hax-tray      — 1 found, shadow: hax-tray-button, hax-tray-upload, hax-gizmo-browser,
+  //                   hax-stax-browser, hax-app-search, simple-fields, a11y-collapse, etc.
+  //   hax-tray-upload — 1 found (inside hax-tray shadow), shadow: simple-file-upload, button,
+  //                   simple-fields-url-combo, simple-toolbar-button.
+  //   input#fileInput.hidden-input — 1 found (light DOM, the hidden file input used by uploads).
+  //   media-manager / simple-fields-upload / hax-upload-field / file-input — NOT found.
+  //
+  // HAX-BODY (edit mode): children are [page-break, p] (the default page content).
+  //   importContent(html) + 'input' event is the verified way to set content.
+  //   <page-break> is REQUIRED for saveNode to write the file (pageBreakParser).
+  //
+  // FILES API (direct axios, Bearer JWT + X-HAXCMS-Site-Token):
+  //   GET  /x/api/v1/files           → {status:200, data:{count,total,page:{limit,offset,total},files:[...],links}}
+  //   POST /x/api/v1/files           → multipart field "file-upload" → {status:200, data:{file:{path,fullUrl,url,type,name,size}}}
+  //   PATCH /x/api/v1/files/:uuid    → {operation:'rename', newName} → {status:200, data:{operation:'rename',source,path,file:{...new uuid...}}}
+  //   DELETE /x/api/v1/files/:uuid   → {status:200, data:{operation:'delete',path,deleted:true}}
+  //   Query params: filter.extension, filter.type, filter.startsWith, filter.nameContains, page.limit, page.offset, sort, fields.
+  //   NOTE: after rename, the file's uuid CHANGES (uuid = sha256(siteName:canonicalPath:size)).
+  //         DELETE must use the CURRENT uuid (data.file.uuid from the rename response),
+  //         not the pre-rename uuid, or resolveRequestedFilePath throws a 404.
+  authoringMedia: {
+    // Block-insertion button (enabled in edit mode). Opens the HAX tray / block browser.
+    // VERIFIED: simple-toolbar-button#content-add label="Blocks • Ctrl⇧3" icon="hax:add-brick".
+    blocksButton: '#content-add',
+    // Structure / outline-of-content button (enabled in edit mode).
+    // VERIFIED: simple-toolbar-button#content-map label="Structure • Ctrl⇧2".
+    structureButton: '#content-map',
+    // Configure / tune active element button (enabled in edit mode).
+    // VERIFIED: simple-toolbar-button#content-edit label="Configure • Ctrl⇧4".
+    configureButton: '#content-edit',
+    // Source / HTML view button (enabled in edit mode).
+    // VERIFIED: simple-toolbar-button#exportbtn label="Source • Ctrl⇧1".
+    sourceButton: '#exportbtn',
+    // The HAX tray host (block browser + upload). Found via recursive shadow walk.
+    // VERIFIED: hax-tray with shadow containing hax-tray-upload, hax-gizmo-browser, etc.
+    haxTray: 'hax-tray',
+    // The upload widget inside hax-tray shadow. Found via recursive shadow walk.
+    // VERIFIED: hax-tray-upload with shadow containing simple-file-upload + button.
+    haxTrayUpload: 'hax-tray-upload',
+    // The hidden file input (light DOM) used by the upload widget.
+    // VERIFIED: input#fileInput.hidden-input (no shadowRoot).
+    fileInput: '#fileInput',
+    // The super-daemon host (block search / insert dialog). Found via recursive walk.
+    // VERIFIED: super-daemon with shadow: web-dialog, super-daemon-ui.
+    superDaemon: 'super-daemon',
   },
 
   // --- API PATHS (canonical v1 system + site API) -------------------------
@@ -461,8 +801,159 @@ const selectors = {
     createNode: '/x/api/v1/items',
     // deleteNode: DELETE /x/api/v1/items/:idOrSlug → {status:200, data:item}
     deleteNode: '/x/api/v1/items/:idOrSlug',
-    // saveOutline: PATCH /x/api/v1/site/outline → {status:200, data:...}
+    // saveOutline: PATCH /x/api/v1/site/outline → {status:200, data:{items:[...]}}
     saveOutline: '/x/api/v1/site/outline',
+    // --- revisions (VERIFIED at runtime) ---
+    // listItemRevisions: GET → {status:200, data:{nodeId, nodeSlug, nodeTitle,
+    //   count, total, page:{limit,offset,total}, revisions:[{revisionNumber,
+    //   hash, shortHash, author, authorEmail, timestamp, date, message}],
+    //   links:{self, item}}}
+    listItemRevisions: '/x/api/v1/items/:idOrSlug/revisions',
+    // itemRevisionDetail: GET → {status:200, data:{..., revision:{...},
+    //   content, jsonVariantLocation, hasItemMetadata, itemMetadata,
+    //   links:{self, revisions, restore, item}}}
+    itemRevisionDetail: '/x/api/v1/items/:idOrSlug/revisions/:revisionId',
+    // restoreItemRevision: POST → {status:200, data:{..., restoredFromHash,
+    //   itemMetadataRestored, links:{self, revision, revisions, item}}}
+    restoreItemRevision:
+      '/x/api/v1/items/:idOrSlug/revisions/:revisionId/restore',
+    // --- site reads (VERIFIED at runtime) ---
+    // search: GET → {status:200, data:{query, fields, count, total, page,
+    //   results:[{id, title, slug, location, score, snippet, matches, links}]}}
+    // Auth: PUBLIC (security: [] in OpenAPI) — no token needed.
+    search: '/x/api/v1/search',
+    // tags: GET → {status:200, data:{count, total, page, tags:[{tag, count}],
+    //   links:{self}}}. Auth: PUBLIC.
+    tags: '/x/api/v1/tags',
+    // siteSummary: GET → {status:200, data:{id, name, title, description,
+    //   language, basePath, theme, updated, counts:{items, publishedItems,
+    //   tags, regions, files}, links:{...}, jsonld:{...}}}. Auth: PUBLIC.
+    siteSummary: '/x/api/v1/site',
+    // --- system admin (VERIFIED at runtime) ---
+    // themesList: GET → {status:200, data:[{machineName, ..., enabled, hidden}]}
+    // saveEnabledThemes: PATCH (or POST) → {status:200, data:{enabledThemes, settings}}
+    // Auth: Bearer JWT; PATCH additionally requires X-HAXCMS-User-Token.
+    themesList: '/system/api/v1/themes',
+    // skeletonsList: GET → {status:200, data:[{machineName, ..., enabled}]}
+    // saveEnabledSkeletons: PATCH (or POST) → {status:200, data:{enabledSkeletons, settings}}
+    skeletonsList: '/system/api/v1/skeletons',
+    // getApiKeys: GET (or POST) → {status:200, data:{...apiKeys}}
+    // saveApiKeys: PATCH (or POST) → {status:200, data:{...apiKeys}}
+    apiKeys: '/system/api/v1/configuration/api-keys',
+    // getMediaSettings: GET (or POST) → {status:200, data:{...mediaSettings}}
+    // saveMediaSettings: PATCH (or POST) → {status:200, data:{...mediaSettings}}
+    mediaSettings: '/system/api/v1/configuration/media',
+    // systemStatus: GET (or POST) → {status:200, data:{...statusReport}}
+    systemStatus: '/system/api/v1/status',
+    // systemVersion: GET (or POST) → {status:200, data:{version}}
+    systemVersion: '/system/api/v1/system/version',
+    // normalizeSiteSlugs: POST /x/api/v1/site/normalize-slugs?preview=true
+    // → {status:200, data:{changed:bool, preview:bool, changes:[{id,title,oldSlug,newSlug}], skipped:[...]}}
+    // Without preview: applies the slug changes to the manifest + commits.
+    normalizeSlugs: '/x/api/v1/site/normalize-slugs',
+    // --- settings endpoints (all PATCH, require X-HAXCMS-Site-Token header) ---
+    // VERIFIED at runtime by .discovery-settings*.cjs
+    saveManifest: '/x/api/v1/site',
+    saveAppearance: '/x/api/v1/site/appearance',
+    saveSeo: '/x/api/v1/site/seo',
+    saveEditor: '/x/api/v1/site/editor',
+    saveAllowedBlocks: '/x/api/v1/site/blocks',
+    activeTheme: '/x/api/v1/themes/active',
+  },
+
+  // --- SITE SETTINGS MODAL (VERIFIED at runtime by .discovery-settings*.cjs) ---
+  // The settings modal is opened via #manifestbtn (selectors.editor.manifestButton,
+  // VERIFIED as a button). Clicking it opens a simple-modal with
+  // haxcms-site-settings-dashboard as a LIGHT-DOM (slotted) child — same pattern
+  // as login and outline-editor. The dashboard shadowRoot contains 13
+  // button.dashboard-action buttons (primary: Appearance, Structure, Content,
+  // Reports, About; advanced: Files, Views, Features, Editor, Blocks, SEO,
+  // Import/Export, Details). Clicking a dashboard button replaces the modal
+  // content with the corresponding sub-panel dialog (also a light-DOM child of
+  // simple-modal). Each sub-panel has form fields in its shadowRoot + a
+  // button.action text="Save" that fires the matching PATCH endpoint.
+  //
+  // To reach a sub-panel dialog: document.querySelector('simple-modal').querySelector(<dialogTag>)
+  // then operate on its shadowRoot (same light-then-shadow pattern as login).
+  siteSettings: {
+    // The settings dashboard host element (light-DOM child of simple-modal).
+    // VERIFIED: haxcms-site-settings-dashboard in simple-modal light DOM.
+    dashboard: 'haxcms-site-settings-dashboard',
+    // Dashboard action buttons (in dashboard shadowRoot).
+    // VERIFIED: button.dashboard-action with text labels (Appearance, Details, SEO, etc.)
+    dashboardActionButton: 'button.dashboard-action',
+    // Dashboard button text labels (used to click by text content).
+    // VERIFIED at runtime.
+    dashboardButtons: {
+      appearance: 'Appearance',
+      structure: 'Structure',
+      content: 'Content',
+      reports: 'Reports',
+      about: 'About',
+      files: 'Files',
+      views: 'Views',
+      features: 'Features',
+      editor: 'Editor',
+      blocks: 'Blocks',
+      seo: 'SEO',
+      importExport: 'Import / Export',
+      details: 'Details',
+    },
+    // Sub-panel dialog host tags (light-DOM children of simple-modal, each has shadowRoot).
+    // VERIFIED at runtime: clicking the dashboard button replaces the modal content
+    // with the corresponding dialog element.
+    detailsDialog: 'haxcms-site-details-dialog',
+    appearanceDialog: 'haxcms-appearance-admin-dialog',
+    seoDialog: 'haxcms-seo-admin-dialog',
+    editorDialog: 'haxcms-editor-settings-dialog-ui',
+    blocksDialog: 'haxcms-allowed-blocks-ui',
+    // Save button in each sub-panel dialog shadowRoot.
+    // VERIFIED: button.action with text "Save" (some panels have multiple button.action
+    // elements, e.g. SEO has "Normalize slugs" + "Save" — disambiguate by text).
+    saveButton: 'button.action',
+    saveButtonText: 'Save',
+    // --- Details panel form fields (in haxcms-site-details-dialog shadowRoot) ---
+    // VERIFIED: simple-fields-field#manifest-title wraps input[name="manifest-title"]
+    // (type=text). The inner input is directly in the dialog shadowRoot (not inside
+    // simple-fields-field's shadow) and has name + id attributes.
+    detailsTitleInput: 'input[name="manifest-title"]',
+    detailsHomePageIdSelect: 'select[name="manifest-metadata-site-homePageId"]',
+    detailsSwCheckbox: 'input[name="manifest-metadata-site-settings-sw"]',
+    detailsForceUpgradeCheckbox: 'input[name="manifest-metadata-site-settings-forceUpgrade"]',
+    // --- Appearance panel form fields (in haxcms-appearance-admin-dialog shadowRoot) ---
+    // VERIFIED: theme picker is a radio group: input[type=radio][name="manifest-metadata-theme-element"]
+    // with value = theme machine name (bootstrap-theme, clean-one, clean-two, etc.).
+    // The active theme's radio has a label.option.selected.active class.
+    appearanceThemeRadio: 'input[name="manifest-metadata-theme-element"]',
+    // Palette picker (radio group): input[type=radio][name="manifest-metadata-theme-variables-palette"]
+    appearancePaletteRadio: 'input[name="manifest-metadata-theme-variables-palette"]',
+    // Branding fields
+    appearanceImageAltInput: 'input[name="manifest-metadata-theme-variables-imageAlt"]',
+    appearanceImageLinkInput: 'input[name="manifest-metadata-theme-variables-imageLink"]',
+    // --- SEO panel form fields (in haxcms-seo-admin-dialog shadowRoot) ---
+    // VERIFIED: simple-fields-field#manifest-description wraps input[name="manifest-description"]
+    seoDescriptionInput: 'input[name="manifest-description"]',
+    seoDomainInput: 'input[name="manifest-metadata-site-domain"]',
+    seoLangInput: 'input[name="manifest-metadata-site-settings-lang"]',
+    seoGaIdInput: 'input[name="manifest-metadata-site-settings-gaID"]',
+    seoPrivateCheckbox: 'input[name="manifest-metadata-site-settings-private"]',
+    seoCanonicalCheckbox: 'input[name="manifest-metadata-site-settings-canonical"]',
+    seoPathautoCheckbox: 'input[name="manifest-metadata-site-settings-pathauto"]',
+    seoPublishPagesOnCheckbox: 'input[name="manifest-metadata-site-settings-publishPagesOn"]',
+    // Author fields
+    seoLicenseSelect: 'select[name="manifest-license"]',
+    seoAuthorNameInput: 'input[name="manifest-metadata-author-name"]',
+    seoAuthorEmailInput: 'input[name="manifest-metadata-author-email"]',
+    seoAuthorWebsiteInput: 'input[name="manifest-metadata-author-website"]',
+    // --- Editor panel form fields (in haxcms-editor-settings-dialog-ui shadowRoot) ---
+    // VERIFIED: select#audience (name=audience) with options Expert/Novice.
+    editorAudienceSelect: 'select#audience',
+    // --- Blocks panel form fields (in haxcms-allowed-blocks-ui shadowRoot) ---
+    // VERIFIED: input#blockFilter (text filter) + input#allowed-block-<tag> (checkboxes).
+    // Each checkbox id is "allowed-block-" + the webcomponent tag with dashes replaced
+    // (e.g. allowed-block-img, allowed-block-grid-plate, allowed-block-multiple-choice).
+    blocksFilterInput: '#blockFilter',
+    blocksCheckboxPrefix: 'allowed-block-',
   },
 }
 

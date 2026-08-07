@@ -28,19 +28,9 @@ const assert = require('node:assert/strict')
 const fs = require('fs-extra')
 const path = require('path')
 
-// pixelmatch v7 is pure ESM ("type":"module"), so require('pixelmatch') returns
-// {__esModule, default} — an object, not a function. The visual helper calls
-// pixelmatch(...) directly, which throws "pixelmatch is not a function" once a
-// baseline exists. We cannot edit helper files, so we shim the CJS/ESM interop
-// HERE by re-binding the cached module's exports to the default function BEFORE
-// the helper loads. In-memory patch only; no files modified.
-const _pmPath = require.resolve('pixelmatch')
-const _pm = require(_pmPath)
-if (_pm && typeof _pm !== 'function' && _pm.default && typeof _pm.default === 'function') {
-  if (require.cache[_pmPath]) {
-    require.cache[_pmPath].exports = _pm.default
-  }
-}
+// pixelmatch ESM interop is handled by visual.cjs itself (line 14:
+// `require('pixelmatch').default || require('pixelmatch')`), so no per-test
+// shim is needed.
 
 const {
   setupE2ERuntime,
@@ -56,311 +46,29 @@ const {
   deepQuery,
   E2E_USER_NAME,
   E2E_USER_PASSWORD,
+  // flows helpers (single source of truth in helpers/flows.cjs)
+  waitFor,
+  waitForDeep,
+  safeCompareBaseline,
+  typeIntoShadow,
+  loginSetInput,
+  loginClickButton,
+  createSiteViaUI,
+  reloadDashboard,
+  findSiteCard,
+  patchHaxcmsRootForHarness,
+  relocateCreatedSite,
+  findCreateSiteResponse: waitForCreateResponse,
 } = require('./helpers')
 
 const EXPECTED_SITE_NAME = FIXED_SITE_NAME.toLowerCase()
 const SITES_DIR = '_sites'
 const PUBLISHED_DIR = '_published'
 
-// --- HAXCMS_ROOT harness workaround ---------------------------------------
-// The E2E harness sets process.env.HAXCMS_ROOT to runtimeRoot WITHOUT a
-// trailing slash. HAXCMS.js captures a module-level const HAXCMS_ROOT at load
-// time, and createSite() uses STRING concatenation (HAXCMS_ROOT + sitesDirectory)
-// which yields "runtimeRoot_sites" (missing path separator) instead of
-// "runtimeRoot/_sites". loadSite() and downloadSite() use the INSTANCE property
-// HAXCMS.HAXCMS_ROOT, so patching the instance property fixes those routes.
-// We cannot patch the module-level const, so after create we relocate the site
-// dir from "runtimeRoot_sites" into "runtimeRoot/_sites" so the patched
-// load/download routes find it. Same workaround as archive-site test.
-function patchHaxcmsRootForHarness(runtime) {
-  const { HAXCMS } = require('../../src/lib/HAXCMS.js')
-  const root = String(runtime.runtimeRoot)
-  HAXCMS.HAXCMS_ROOT = root.charAt(root.length - 1) === '/' ? root : root + '/'
-  return HAXCMS
-}
+// patchHaxcmsRootForHarness + relocateCreatedSite are imported from helpers/flows.cjs.
 
-// Relocate the just-created site from the module-const write path
-// (runtimeRoot + "_sites" = "runtimeRoot_sites") into the path.join path
-// (runtimeRoot/_sites) so the patched load/download routes find it.
-function relocateCreatedSite(runtime, siteName) {
-  const name = String(siteName).toLowerCase()
-  const fromDir = path.join(runtime.runtimeRoot + '_sites', name)
-  const toDir = path.join(runtime.runtimeRoot, SITES_DIR, name)
-  if (fs.pathExistsSync(fromDir)) {
-    fs.moveSync(fromDir, toDir, { overwrite: true })
-    return true
-  }
-  return false
-}
-
-// --- local utility helpers -------------------------------------------------
-
-// Poll an async predicate until it returns a truthy value or timeout.
-async function waitFor(fn, timeoutMs, intervalMs) {
-  const interval = intervalMs || 250
-  const start = Date.now()
-  let last = null
-  while (Date.now() - start < timeoutMs) {
-    last = await fn()
-    if (last) {
-      return last
-    }
-    await new Promise((r) => setTimeout(r, interval))
-  }
-  return last
-}
-
-// Poll a deepQuery chain until the element exists.
-async function waitForDeep(page, chain, timeoutMs) {
-  return waitFor(async () => deepQuery(page, chain), timeoutMs)
-}
-
-// Safe visual comparison wrapper. The helper visual.cjs may throw if
-// pixelmatch interop fails even with the shim. A throw becomes a WARN
-// diagnostic and never fails the test (per the visual-diffs-warn-only rule).
-async function safeCompareBaseline(name, buf, opts, t) {
-  try {
-    return await compareBaseline(name, buf, opts)
-  } catch (e) {
-    const msg = e && e.message ? e.message : String(e)
-    t.diagnostic(
-      'visual compareBaseline for "' + name + '" threw (helper bug, non-fatal): ' + msg,
-    )
-    return {
-      diffPixels: -1,
-      totalPixels: -1,
-      diffPercent: -1,
-      baselineExists: false,
-      baselineUpdated: false,
-      error: msg,
-    }
-  }
-}
-
-// Type into a shadow-DOM input reached by a full chain.
-// Uses evaluate to set .value + dispatch 'input'/'change' — proven reliable for
-// Lit-bound inputs in this app.
-async function typeIntoShadow(page, chain, text) {
-  const el = await deepQuery(page, chain)
-  if (!el) {
-    throw new Error('input not found: ' + chain.join('>'))
-  }
-  await el.evaluate((input, value) => {
-    input.focus()
-    input.value = value
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-  }, text)
-}
-
-// --- login helpers (light-DOM aware) --------------------------------------
-// app-hax-site-login is a LIGHT-DOM (slotted) child of simple-modal, so
-// deepQuery cannot reach it. We query via document.querySelector directly and
-// operate on the login element's own shadowRoot.
-
-async function loginSetInput(p, inputId, text) {
-  await p.waitForFunction(
-    (id) => {
-      const m = document.querySelector('simple-modal')
-      const l = m && m.querySelector('app-hax-site-login')
-      return !!(l && l.shadowRoot && l.shadowRoot.querySelector('#' + id))
-    },
-    { timeout: 15000 },
-    inputId,
-  )
-  const set = await p.evaluate((id, val) => {
-    const m = document.querySelector('simple-modal')
-    const l = m && m.querySelector('app-hax-site-login')
-    const i = l && l.shadowRoot && l.shadowRoot.querySelector('#' + id)
-    if (!i) return false
-    i.value = val
-    i.dispatchEvent(new Event('input', { bubbles: true }))
-    i.dispatchEvent(new Event('change', { bubbles: true }))
-    return true
-  }, inputId, text)
-  if (!set) throw new Error('login input not found: #' + inputId)
-}
-
-async function loginClickButton(p, text) {
-  await p.waitForFunction(
-    (t) => {
-      const m = document.querySelector('simple-modal')
-      const l = m && m.querySelector('app-hax-site-login')
-      if (!l || !l.shadowRoot) return false
-      const b = l.shadowRoot.querySelectorAll('button')
-      for (let i = 0; i < b.length; i++) {
-        if (b[i].textContent.trim().toLowerCase().indexOf(t.toLowerCase()) !== -1) return true
-      }
-      return false
-    },
-    { timeout: 10000 },
-    text,
-  )
-  const clicked = await p.evaluate((t) => {
-    const m = document.querySelector('simple-modal')
-    const l = m && m.querySelector('app-hax-site-login')
-    if (!l || !l.shadowRoot) return false
-    const b = l.shadowRoot.querySelectorAll('button')
-    for (let i = 0; i < b.length; i++) {
-      if (b[i].textContent.trim().toLowerCase().indexOf(t.toLowerCase()) !== -1) {
-        b[i].click()
-        return true
-      }
-    }
-    return false
-  }, text)
-  if (!clicked) throw new Error('login button not found: ' + text)
-}
-
-// --- create site helper ----------------------------------------------------
-
-// Find the create-site POST response among all /system/api/v1/sites matches.
-// The GET listSites response has data.items (no data.metadata.site), while the
-// POST createSite response has data.metadata.site.name. Disambiguate by shape.
-async function waitForCreateResponse(collector, siteName, timeoutMs) {
-  const target = String(siteName).toLowerCase()
-  return waitFor(async () => {
-    const all = collector.getResponsesFor('/system/api/v1/sites')
-    for (let i = 0; i < all.length; i++) {
-      let parsed = null
-      try {
-        parsed = JSON.parse(all[i].bodyText)
-      } catch (e) {
-        continue
-      }
-      const metaSite =
-        parsed && parsed.data && parsed.data.metadata && parsed.data.metadata.site
-          ? parsed.data.metadata.site
-          : null
-      if (
-        parsed &&
-        parsed.status === 200 &&
-        metaSite &&
-        typeof metaSite.name === 'string' &&
-        metaSite.name.toLowerCase() === target
-      ) {
-        return all[i]
-      }
-    }
-    return null
-  }, timeoutMs)
-}
-
-// Open the create-site modal via continueAction(-1), type the site name, click
-// Create Site, and return the create API response record.
-async function createSiteViaUI(page, collector, siteName) {
-  const useCaseFilter = await waitForDeep(
-    page,
-    selectors.dashboard.useCaseFilterChain,
-    30000,
-  )
-  await useCaseFilter.evaluate((el) => {
-    el.continueAction(-1)
-  })
-
-  await waitFor(
-    async () => {
-      const m = await deepQuery(page, selectors.create.siteCreationModalChain)
-      if (!m) {
-        return false
-      }
-      return m.evaluate((el) => el.open === true)
-    },
-    15000,
-  )
-  await waitForDeep(page, selectors.create.siteNameInputChain, 10000)
-
-  // continueAction(-1) pre-fills siteName with "Blank Site" — overwrite it.
-  await typeIntoShadow(page, selectors.create.siteNameInputChain, siteName)
-
-  // Sanity-check the Lit binding accepted the value.
-  const nameInput = await deepQuery(page, selectors.create.siteNameInputChain)
-  const typedValue = await nameInput.evaluate((i) => i.value)
-  if (String(typedValue).toLowerCase() !== String(siteName).toLowerCase()) {
-    throw new Error(
-      'siteName input did not accept value; got="' + typedValue + '" expected="' + siteName + '"',
-    )
-  }
-
-  const createBtn = await deepQuery(page, selectors.create.createSiteButtonChain)
-  if (!createBtn) {
-    throw new Error('Create Site button not found')
-  }
-  await createBtn.evaluate((b) => b.click())
-
-  return waitForCreateResponse(collector, siteName, 60000)
-}
-
-// --- dashboard reload + card finder ----------------------------------------
-
-// Reload the dashboard. The JWT is persisted to localStorage by the store, so a
-// reload normally auto-logs-in and re-fetches the sites list fresh from the
-// filesystem. If auto-login does not happen, fall back to the two-step UI login.
-async function reloadDashboard(page, t) {
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 })
-  await page.waitForSelector('app-hax', { timeout: 30000 })
-  await new Promise((r) => setTimeout(r, 2000))
-  const needsLogin = await page.evaluate(() => {
-    const m = document.querySelector('simple-modal')
-    if (!m) {
-      return false
-    }
-    const l = m.querySelector('app-hax-site-login')
-    return !!(l && l.shadowRoot && l.shadowRoot.querySelector('#username'))
-  })
-  if (needsLogin) {
-    t.diagnostic('login modal present after reload; performing UI re-login')
-    await loginSetInput(page, 'username', E2E_USER_NAME)
-    await new Promise((r) => setTimeout(r, 200))
-    await loginClickButton(page, 'Next')
-    await loginSetInput(page, 'password', E2E_USER_PASSWORD)
-    await new Promise((r) => setTimeout(r, 200))
-    await loginClickButton(page, 'Login')
-  }
-}
-
-// Traverse the dashboard shadow DOM directly (document > app-hax >
-// app-hax-use-case-filter > app-hax-search-results > app-hax-site-bar) and
-// return the first card whose text includes the site name. Uses
-// page.evaluateHandle returning the element itself (deepQueryAll's
-// evaluateHandle+getProperties path was unreliable for this chain in the
-// archive test). Polls generously since the SPA is slow to re-render.
-async function findSiteCard(page, siteName) {
-  const target = String(siteName).toLowerCase()
-  return waitFor(
-    async () => {
-      const handle = await page.evaluateHandle((t) => {
-        const appHax = document.querySelector('app-hax')
-        if (!appHax || !appHax.shadowRoot) {
-          return null
-        }
-        const ucf = appHax.shadowRoot.querySelector('app-hax-use-case-filter')
-        if (!ucf || !ucf.shadowRoot) {
-          return null
-        }
-        const sr = ucf.shadowRoot.querySelector('app-hax-search-results')
-        if (!sr || !sr.shadowRoot) {
-          return null
-        }
-        const cards = sr.shadowRoot.querySelectorAll('app-hax-site-bar')
-        for (let i = 0; i < cards.length; i++) {
-          if ((cards[i].textContent || '').toLowerCase().indexOf(t) !== -1) {
-            return cards[i]
-          }
-        }
-        return null
-      }, target)
-      const el = handle.asElement()
-      if (!el) {
-        await handle.dispose()
-        return null
-      }
-      return el
-    },
-    75000,
-  )
-}
-
+// reloadDashboard + findSiteCard are imported from helpers/flows.cjs.
+// openDownloadConfirmation + runtimeBaseUrl below are unique to this test.
 // --- export/download helpers -----------------------------------------------
 
 // Click more-options -> Download menu item on a site card. Returns the

@@ -19,21 +19,9 @@ const fs = require('fs')
 const path = require('path')
 const axeCore = require('axe-core')
 
-// pixelmatch v7 is pure ESM ("type":"module"), so require('pixelmatch') returns
-// {__esModule, default} — an object, not a function. The visual helper
-// (test/e2e/helpers/visual.cjs) calls pixelmatch(...) directly, which throws
-// "pixelmatch is not a function" on the diff path (any run AFTER baselines
-// already exist). We are not allowed to edit the helper files, so we shim the
-// CJS/ESM interop HERE by re-binding the cached module's exports to the default
-// function BEFORE the helper loads. This is a runtime in-memory patch only; no
-// helper or node_modules files are modified.
-const _pmPath = require.resolve('pixelmatch')
-const _pm = require(_pmPath)
-if (_pm && typeof _pm !== 'function' && _pm.default && typeof _pm.default === 'function') {
-  if (require.cache[_pmPath]) {
-    require.cache[_pmPath].exports = _pm.default
-  }
-}
+// pixelmatch ESM interop is handled by visual.cjs itself (line 14:
+// `require('pixelmatch').default || require('pixelmatch')`), so no per-test
+// shim is needed.
 
 const {
   setupE2ERuntime,
@@ -50,6 +38,15 @@ const {
   deepQueryAll,
   E2E_USER_NAME,
   E2E_USER_PASSWORD,
+  // flows helpers (single source of truth in helpers/flows.cjs)
+  typeIntoShadow,
+  setShadowInput,
+  clickShadowButton,
+  loginSetInput,
+  loginClickButton,
+  waitForDeep,
+  waitForSiteCards,
+  dumpSiteListDiagnostics,
 } = require('./helpers')
 
 // NOTE on site-name normalization: the create API (createSite.js) runs the
@@ -69,125 +66,12 @@ let browser = null
 let page = null
 let collector = null
 
-// --- local shadow-DOM UI helpers (no optional chaining) -------------------
-
-// Type text into a shadow-DOM input reached by a full selector chain.
-// Selects-all then types, so existing content is replaced.
-async function typeIntoShadow(p, chain, text) {
-  const el = await deepQuery(p, chain)
-  if (!el) throw new Error('input not found: ' + chain.join('>'))
-  await el.click({ clickCount: 3 })
-  await el.type(text)
-}
-
-// Reliable fallback for lit two-way-bound inputs: set .value directly and
-// dispatch an input event so the element's @input handler picks it up.
-// (This mirrors the verified login approach from the discovery pass.)
-async function setShadowInput(p, chain, text) {
-  const el = await deepQuery(p, chain)
-  if (!el) throw new Error('input not found: ' + chain.join('>'))
-  await el.evaluate((input, val) => {
-    input.value = val
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-  }, text)
-}
-
-// Click the first button whose visible text contains `buttonText`, searching
-// the shadowRoot of the host reached by `hostChain`.
-async function clickShadowButton(p, hostChain, buttonText) {
-  const host = await deepQuery(p, hostChain)
-  if (!host) throw new Error('host not found: ' + hostChain.join('>'))
-  const clicked = await host.evaluate((el, text) => {
-    const btns = el.shadowRoot ? el.shadowRoot.querySelectorAll('button') : []
-    for (let i = 0; i < btns.length; i++) {
-      if (btns[i].textContent.trim().toLowerCase().indexOf(text.toLowerCase()) !== -1) {
-        btns[i].click()
-        return true
-      }
-    }
-    return false
-  }, buttonText)
-  if (!clicked) throw new Error('button text not found: ' + buttonText)
-}
-
-// --- login helpers (light-DOM aware) -------------------------------------
-// <app-hax-site-login> is a LIGHT-DOM child of <simple-modal> (slotted into
-// its `content` slot), so it is NOT in simple-modal's shadowRoot. deepQuery
-// pierces shadow roots at every step, so the selectors.cjs login chains
-// (['simple-modal','app-hax-site-login',...]) do NOT resolve with deepQuery.
-// We query the login element directly via the light DOM (matching the verified
-// discovery pass) and operate on its own shadowRoot for inputs/buttons. The
-// dashboard/create chains are unaffected (those hosts live in shadow roots).
-
-// Wait for a login input (#username / #password) to exist in the login
-// element's shadowRoot, then set its value and dispatch input/change.
-async function loginSetInput(p, inputId, text) {
-  await p.waitForFunction(
-    (id) => {
-      const modal = document.querySelector('simple-modal')
-      const login = modal && modal.querySelector('app-hax-site-login')
-      return !!(login && login.shadowRoot && login.shadowRoot.querySelector('#' + id))
-    },
-    { timeout: 15000 },
-    inputId,
-  )
-  const set = await p.evaluate((id, val) => {
-    const modal = document.querySelector('simple-modal')
-    const login = modal && modal.querySelector('app-hax-site-login')
-    const input = login && login.shadowRoot && login.shadowRoot.querySelector('#' + id)
-    if (!input) return false
-    input.value = val
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    return true
-  }, inputId, text)
-  if (!set) throw new Error('login input not found: #' + inputId)
-}
-
-// Click the first button whose visible text contains `text`, searching the
-// login element's shadowRoot. Waits for the button to appear first.
-async function loginClickButton(p, text) {
-  await p.waitForFunction(
-    (t) => {
-      const modal = document.querySelector('simple-modal')
-      const login = modal && modal.querySelector('app-hax-site-login')
-      if (!login || !login.shadowRoot) return false
-      const btns = login.shadowRoot.querySelectorAll('button')
-      for (let i = 0; i < btns.length; i++) {
-        if (btns[i].textContent.trim().toLowerCase().indexOf(t.toLowerCase()) !== -1) return true
-      }
-      return false
-    },
-    { timeout: 10000 },
-    text,
-  )
-  const clicked = await p.evaluate((t) => {
-    const modal = document.querySelector('simple-modal')
-    const login = modal && modal.querySelector('app-hax-site-login')
-    if (!login || !login.shadowRoot) return false
-    const btns = login.shadowRoot.querySelectorAll('button')
-    for (let i = 0; i < btns.length; i++) {
-      if (btns[i].textContent.trim().toLowerCase().indexOf(t.toLowerCase()) !== -1) {
-        btns[i].click()
-        return true
-      }
-    }
-    return false
-  }, text)
-  if (!clicked) throw new Error('login button not found: ' + text)
-}
-
-// Poll a deepQuery chain until it resolves to an element, or timeout.
-async function waitForDeep(p, chain, timeoutMs) {
-  const deadline = Date.now() + (timeoutMs || 15000)
-  while (Date.now() < deadline) {
-    const el = await deepQuery(p, chain)
-    if (el) return el
-    await new Promise((r) => setTimeout(r, 200))
-  }
-  return null
-}
+// --- local helpers unique to this test (shared ones live in helpers/flows.cjs) ---
+// Imported from flows: typeIntoShadow, setShadowInput, clickShadowButton,
+// loginSetInput, loginClickButton, waitForDeep, waitForSiteCards,
+// dumpSiteListDiagnostics. Kept locally below: waitForModalOpen,
+// findCreateSiteResponse (returns {record, parsed} — different shape from flows),
+// awaitListResponseContainingSite, runA11yOnModalElement.
 
 // Wait for the create-site modal to report open === true.
 async function waitForModalOpen(p, timeoutMs) {
@@ -263,58 +147,7 @@ async function awaitListResponseContainingSite(coll, expectedName, timeoutMs) {
   return null
 }
 
-// Poll for app-hax-site-bar cards in the dashboard site list.
-async function waitForSiteCards(p, timeoutMs) {
-  const chain = selectors.dashboard.siteListChain.concat(['app-hax-site-bar'])
-  const deadline = Date.now() + (timeoutMs || 20000)
-  while (Date.now() < deadline) {
-    const cards = await deepQueryAll(p, chain)
-    if (cards && cards.length > 0) return cards
-    await new Promise((r) => setTimeout(r, 400))
-  }
-  return []
-}
-
-// Dump the dashboard site-list structure for diagnostics when cards don't
-// appear. Reports whether app-hax-search-results exists, its displayItems /
-// searchItems / searchTerm / totalItems, and the #results <li> + app-hax-site-bar
-// counts in its shadowRoot.
-async function dumpSiteListDiagnostics(p) {
-  const info = await p.evaluate(() => {
-    const appHax = document.querySelector('app-hax')
-    const ucf = appHax && appHax.shadowRoot && appHax.shadowRoot.querySelector('app-hax-use-case-filter')
-    const ret = ucf && ucf.shadowRoot && ucf.shadowRoot.querySelector('#returnToSection')
-    const sr = ret && ret.querySelector('app-hax-search-results')
-    if (!sr) return { searchResultsFound: false }
-    const resultsUl = sr.shadowRoot ? sr.shadowRoot.querySelector('#results') : null
-    const liCount = resultsUl ? resultsUl.querySelectorAll('li').length : -1
-    const barCount = sr.shadowRoot ? sr.shadowRoot.querySelectorAll('app-hax-site-bar').length : -1
-    const headings = []
-    if (sr.shadowRoot) {
-      sr.shadowRoot.querySelectorAll('app-hax-site-bar').forEach((bar) => {
-        const slot = bar.shadowRoot ? bar.shadowRoot.querySelector('slot[name="heading"]') : null
-        let txt = ''
-        if (slot) {
-          slot.assignedNodes().forEach((n) => { txt += n.textContent || '' })
-        }
-        headings.push((txt || '').trim())
-      })
-    }
-    return {
-      searchResultsFound: true,
-      displayItemsLen: Array.isArray(sr.displayItems) ? sr.displayItems.length : -1,
-      searchItemsLen: Array.isArray(sr.searchItems) ? sr.searchItems.length : -1,
-      searchTerm: sr.searchTerm || '',
-      totalItems: sr.totalItems,
-      resultsLiCount: liCount,
-      siteBarCount: barCount,
-      headings: headings,
-    }
-  })
-  console.warn('[diag] site-list: ' + JSON.stringify(info))
-  return info
-}
-
+// waitForSiteCards + dumpSiteListDiagnostics are imported from helpers/flows.cjs.
 // axe-core's string-selector context resolves against the light DOM
 // (document.querySelectorAll) and does NOT pierce the nested shadow roots
 // (app-hax > app-hax-use-case-filter > app-hax-site-creation-modal). So when
