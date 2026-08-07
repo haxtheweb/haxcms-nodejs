@@ -642,6 +642,86 @@ const selectors = {
     // VERIFIED at runtime.
   },
 
+  // --- LIFECYCLE (VERIFIED at runtime by .discovery-lifecycle.cjs) ---------
+  // These surfaces reuse the more-vert menu on app-hax-site-bar (Copy, Create
+  // Template, Archive) and the use-case-filter skeleton picker. The more-vert
+  // menu items are VERIFIED, but clicking the simple-toolbar-button HOST does
+  // NOT reliably open the app-hax-confirmation-modal (store-manifest timing
+  // issue — same as archive/download). Tests must escalate: call the card
+  // method directly (el.copySite(), el.createTemplate(), el.archiveSite()) if
+  // the modal does not appear after the host click, then click .button-confirm.
+  lifecycle: {
+    // The more-options trigger button on a site card (same as archive/export).
+    // VERIFIED: simple-icon-button-lite[icon="lrn:more-vert"] in app-hax-site-bar shadowRoot.
+    moreOptionsButton: 'simple-icon-button-lite[icon="lrn:more-vert"]',
+    // The context menu that opens (same as archive/export).
+    // VERIFIED: simple-context-menu title="Options" in app-hax-site-bar shadowRoot.
+    contextMenu: 'simple-context-menu',
+    // Menu items in the more-vert context menu (VERIFIED labels + icons).
+    // Order: Copy (content-copy), Download (file-download), Create Template
+    // (icons:add-circle), Archive (archive).
+    menuItems: {
+      copy: 'Copy',
+      createTemplate: 'Create Template',
+      archive: 'Archive',
+    },
+    // Card methods to call directly if the host click does not open the modal.
+    // VERIFIED: el.copySite() / el.createTemplate() / el.archiveSite() each
+    // create an app-hax-confirmation-modal on document.body.
+    copySiteMethod: 'copySite',
+    createTemplateMethod: 'createTemplate',
+    archiveSiteMethod: 'archiveSite',
+    // The confirmation modal appended to document.body (same as archive/export).
+    // VERIFIED: app-hax-confirmation-modal on document.body with
+    // .button.button-confirm + .button.button-cancel in its shadowRoot.
+    confirmationModal: 'app-hax-confirmation-modal',
+    confirmButton: '.button.button-confirm',
+    cancelButton: '.button.button-cancel',
+    confirmButtonChain: ['app-hax-confirmation-modal', '.button.button-confirm'],
+    cancelButtonChain: ['app-hax-confirmation-modal', '.button.button-cancel'],
+    // Save-template modal button text (VERIFIED):
+    //   confirmText = "Save to templates" (.button.button-confirm)
+    //   cancelText  = "Download skeleton" (.button.button-cancel)
+    //   title       = "Create template from <name>?"
+    saveTemplateConfirmText: 'Save to templates',
+    saveTemplateCancelText: 'Download skeleton',
+    // Clone (Copy) modal button text (VERIFIED):
+    //   confirmText = "Confirm" (.button.button-confirm)
+    //   cancelText  = "Cancel" (.button.button-cancel)
+    //   title       = "Copy <name>?"
+    cloneConfirmText: 'Confirm',
+    // --- Skeleton picker (create-from-template) ---
+    // The use-case card element that renders skeleton/blank/import templates.
+    // VERIFIED: app-hax-use-case in app-hax-use-case-filter shadowRoot. Each
+    // card has a data-item-index attribute matching its filteredItems index.
+    useCaseCard: 'app-hax-use-case',
+    // The use-case-filter element (same chain as dashboard.useCaseFilterChain).
+    // VERIFIED: continueAction(index) on this element opens the creation modal
+    // pre-filled with skeletonData + skeletonMachineName for the skeleton at
+    // that filteredItems index. The skeleton card is found by matching
+    // machineName in ucf.filteredItems (dataType === 'skeleton').
+    useCaseFilterChain: ['app-hax', 'app-hax-use-case-filter'],
+    // The creation modal chains (same as selectors.create.* but duplicated here
+    // for the create-from-template flow which reuses the same modal).
+    siteCreationModalChain: [
+      'app-hax',
+      'app-hax-use-case-filter',
+      'app-hax-site-creation-modal',
+    ],
+    siteNameInputChain: [
+      'app-hax',
+      'app-hax-use-case-filter',
+      'app-hax-site-creation-modal',
+      '#siteName',
+    ],
+    createSiteButtonChain: [
+      'app-hax',
+      'app-hax-use-case-filter',
+      'app-hax-site-creation-modal',
+      '.button.button-primary',
+    ],
+  },
+
   // --- API PATHS (canonical v1 system + site API) -------------------------
   api: {
     // system API (dashboard / site lifecycle)
