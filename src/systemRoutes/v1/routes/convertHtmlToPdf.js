@@ -1,4 +1,4 @@
-const { htmlToPdfBuffer } = require('../../../lib/convertUtils.js');
+const { htmlToPdfBuffer, validURL } = require('../../../lib/convertUtils.js');
 
 /**
  * POST /system/api/v1/actions/html-to-pdf
@@ -58,7 +58,13 @@ async function convertHtmlToPdf(req, res) {
       });
     }
 
-    const base = req.body && req.body.base ? String(req.body.base) : '/';
+    const rawBase = req.body && req.body.base ? String(req.body.base) : '/';
+    // Security (EXPRESS-XSS-001 / L4): validate the base field as an http(s)
+    // URL before injecting it into the PDF's <base> tag so a crafted value
+    // cannot break the attribute quoting. Falls back to '/' for empty or
+    // non-http(s) values rather than 400ing, so existing callers that pass a
+    // relative path still work.
+    const base = rawBase && rawBase !== '/' && validURL(rawBase) ? rawBase : '/';
     const pdfBuffer = await htmlToPdfBuffer(String(html), base);
     const pdfFilename = filename.replace(/\.(html|htm)$/i, '.pdf');
     return res.json({

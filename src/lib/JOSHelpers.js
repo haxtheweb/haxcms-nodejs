@@ -363,7 +363,9 @@ async function getYoutubeDuration(vid) {
     return 0;
   }
   let duration = 0;
-  const url = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&key=${process.env.YOUTUBE_API_KEY}&id=${vid}`;
+  // Security (I1): encode the video id so a crafted value cannot inject
+  // extra query parameters into the YouTube Data API request.
+  const url = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&key=${process.env.YOUTUBE_API_KEY}&id=${encodeURIComponent(vid)}`;
   let ytData = {};
   try {
     ytData = await fetch(url).then((d) => (d.ok ? d.json() : {}));

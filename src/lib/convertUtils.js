@@ -319,14 +319,27 @@ async function htmlToPdfBuffer(html, base = '/') {
   }
   let browser = null;
   try {
+    // Security (L3): enable Chromium's OS-level sandbox when not running as
+    // root. --no-sandbox is only required for containerized/CI runs as root
+    // where the setuid sandbox cannot engage; production should run Chrome as
+    // a non-root user so the sandbox is active. Keeping the root branch
+    // preserves existing CI/E2E behavior unchanged.
+    var launchArgs = [];
+    if (typeof process.getuid === 'function' && process.getuid() === 0) {
+      launchArgs.push('--no-sandbox', '--disable-setuid-sandbox');
+    }
     browser = await puppeteer.launch({
       executablePath,
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: launchArgs,
     });
     const page = await browser.newPage();
     if (base && base !== '/') {
-      const baseTag = `<base href="${base.replace(/"/g, '&quot;')}" />`;
+      // Security (L4): full HTML-attribute escape as defense-in-depth even
+      // though the route validates base as a URL. Escaping &, ", <, > ensures
+      // the value can never break out of the double-quoted href attribute.
+      var escapedBase = base.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const baseTag = `<base href="${escapedBase}" />`;
       sanitized = sanitized.replace(/<head>/i, `<head>${baseTag}`);
       if (!sanitized.includes('<head>')) {
         sanitized = `<head>${baseTag}</head>${sanitized}`;

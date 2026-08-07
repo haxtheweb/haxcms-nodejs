@@ -9,6 +9,10 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 const helmet = require('helmet');
 const app = express();
+// Security (EXPRESS-FINGERPRINT-001 / I3): disable X-Powered-By explicitly
+// at the Express layer so the header is never set, independent of helmet's
+// default middleware. Defense-in-depth that survives any future helmet config.
+app.disable('x-powered-by');
 const mime = require('mime');
 const path = require('path');
 const fs = require("fs-extra");
