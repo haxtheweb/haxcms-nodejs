@@ -443,6 +443,76 @@ const selectors = {
     // reach it (same as login). Use: document.querySelector('simple-modal').querySelector('haxcms-outline-editor-dialog')
     // then operate on its shadowRoot.
     // VERIFIED at runtime: dialog.shadowRoot.querySelector('#outline') + '.hax-modal-btn'
+
+    // --- outline-designer row detail controls (VERIFIED by .discovery-outline.cjs) ---
+    // Each page in the outline is a <li class="item indent-N" data-item-id="...">
+    // inside outline-designer shadowRoot. Rows have leading-operations, a
+    // content-toggle-btn, a .label.shown (title display) + .label-edit
+    // (contenteditable title input), and a simple-context-menu.actions-menu
+    // with 10 simple-toolbar-button[value=...] action items.
+    //
+    // The actions menu is opened by clicking .actions-menu-button
+    // (simple-toolbar-button icon="icons:more-vert"). Each menu item is a
+    // simple-toolbar-button with a `value` attribute identifying the operation.
+    // The outline-designer.itemOp(index, op) method applies the change in-memory;
+    // clicking "Save Outline" (.hax-modal-btn) then dispatches
+    // haxcms-save-outline with the full items array → PATCH /x/api/v1/site/outline.
+    //
+    // To rename: click the edit-title menu item (value="edit-title") which calls
+    // outline-designer.editTitle() on the row's .label.shown, making .label-edit
+    // contenteditable. Type the new title + Enter (monitorTitle handler) to
+    // commit the change in-memory. Then click Save Outline to persist.
+    //
+    // To reorder/nest: click the up/down/in/out menu items which call
+    // outline-designer.itemOp(index, op) to swap orders or change parent+indent.
+    // Then click Save Outline to persist.
+
+    // Row selector inside outline-designer shadowRoot.
+    // VERIFIED: li.item with data-item-id attribute; role="treeitem".
+    row: 'li.item',
+    // The data attribute holding the page id on each row.
+    // VERIFIED: data-item-id="item-<uuid>"
+    rowItemIdAttr: 'data-item-id',
+    // The title display span (visible when not editing).
+    // VERIFIED: span.label.shown with the page title textContent.
+    rowLabel: '.label.shown',
+    // The contenteditable title edit span (visible when editing title).
+    // VERIFIED: span.label-edit; gets contenteditable="true" on editTitle().
+    rowLabelEdit: '.label-edit',
+    // The more-vert actions menu trigger button per row.
+    // VERIFIED: simple-toolbar-button.actions-menu-button icon="icons:more-vert".
+    rowActionsMenuButton: '.actions-menu-button',
+    // The actions context menu per row.
+    // VERIFIED: simple-context-menu.actions-menu with 10 simple-toolbar-button children.
+    rowActionsMenu: 'simple-context-menu.actions-menu',
+    // Action menu item values (simple-toolbar-button[value=...]).
+    // VERIFIED at runtime: up, down, in, out, edit-title, add, duplicate, goto, lock, delete.
+    actionValues: {
+      moveUp: 'up',
+      moveDown: 'down',
+      indent: 'in',
+      outdent: 'out',
+      editTitle: 'edit-title',
+      add: 'add',
+      duplicate: 'duplicate',
+      goToPage: 'goto',
+      lock: 'lock',
+      delete: 'delete',
+    },
+    // The top-level "Add page" control button (in .controls toolbar).
+    // VERIFIED: simple-toolbar-button[icon="add"] label="Add page".
+    addPageControlButton: 'simple-toolbar-button[icon="add"]',
+    // Event dispatched by Import From File (.hax-modal-btn.import) — triggers
+    // _selectFileForHierarchyImport on the site-editor-ui which opens a file
+    // picker. For E2E, dispatching haxcms-docx-import-items with test items
+    // simulates the post-file-pick result (opens the import hierarchy dialog).
+    // VERIFIED from source (haxcms-outline-editor-dialog.js _importTap +
+    // haxcms-site-editor-ui.js __winEvents mapping).
+    importRequestEvent: 'haxcms-outline-import-request',
+    // Event that opens the import hierarchy dialog with pre-parsed items.
+    // VERIFIED from source (haxcms-site-editor.js createNode handler dispatches
+    // haxcms-docx-import-items with {items, parentId} after a successful import API call).
+    importItemsEvent: 'haxcms-docx-import-items',
   },
 
   // --- AUTH-DASHBOARD (VERIFIED at runtime by .discovery-auth-dashboard.cjs) ---
@@ -588,7 +658,7 @@ const selectors = {
     createNode: '/x/api/v1/items',
     // deleteNode: DELETE /x/api/v1/items/:idOrSlug → {status:200, data:item}
     deleteNode: '/x/api/v1/items/:idOrSlug',
-    // saveOutline: PATCH /x/api/v1/site/outline → {status:200, data:...}
+    // saveOutline: PATCH /x/api/v1/site/outline → {status:200, data:{items:[...]}}
     saveOutline: '/x/api/v1/site/outline',
     // --- revisions (VERIFIED at runtime) ---
     // listItemRevisions: GET → {status:200, data:{nodeId, nodeSlug, nodeTitle,
@@ -634,6 +704,10 @@ const selectors = {
     systemStatus: '/system/api/v1/status',
     // systemVersion: GET (or POST) → {status:200, data:{version}}
     systemVersion: '/system/api/v1/system/version',
+    // normalizeSiteSlugs: POST /x/api/v1/site/normalize-slugs?preview=true
+    // → {status:200, data:{changed:bool, preview:bool, changes:[{id,title,oldSlug,newSlug}], skipped:[...]}}
+    // Without preview: applies the slug changes to the manifest + commits.
+    normalizeSlugs: '/x/api/v1/site/normalize-slugs',
   },
 }
 
