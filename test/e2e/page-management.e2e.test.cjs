@@ -28,21 +28,9 @@ const fs = require('fs-extra')
 const path = require('path')
 const axeCore = require('axe-core')
 
-// pixelmatch v7 is pure ESM ("type":"module"), so require('pixelmatch') returns
-// {__esModule, default} — an object, not a function. The visual helper calls
-// pixelmatch(...) directly, which throws "pixelmatch is not a function" on the
-// diff path (any run AFTER a baseline already exists). We cannot edit the helper
-// files, so shim the CJS/ESM interop HERE by re-binding the cached module's
-// exports to the default function BEFORE the helper loads. In-memory patch only;
-// no helper or node_modules files are modified. (Same technique as create-site
-// E2E test.)
-const _pmPath = require.resolve('pixelmatch')
-const _pm = require(_pmPath)
-if (_pm && typeof _pm !== 'function' && _pm.default && typeof _pm.default === 'function') {
-  if (require.cache[_pmPath]) {
-    require.cache[_pmPath].exports = _pm.default
-  }
-}
+// pixelmatch ESM interop is handled by visual.cjs itself (line 14:
+// `require('pixelmatch').default || require('pixelmatch')`), so no per-test
+// shim is needed.
 
 const {
   setupE2ERuntime,
@@ -58,6 +46,17 @@ const {
   deepQuery,
   E2E_USER_NAME,
   E2E_USER_PASSWORD,
+  // flows helpers (single source of truth in helpers/flows.cjs)
+  waitFor,
+  waitForDeep,
+  ensureOutlineOpen,
+  safeCompareBaseline,
+  setShadowInput,
+  loginSetInput,
+  loginClickButton,
+  findCreateSiteResponse,
+  patchHaxcmsRootForHarness,
+  relocateCreatedSiteIfStale,
 } = require('./helpers')
 
 // The create API lowercases the site name (generateMachineName -> toLowerCase),
@@ -75,224 +74,13 @@ let browser = null
 let page = null
 let collector = null
 
-// --- HAXCMS_ROOT harness hardening (defensive, matches verified discovery) ---
-// The harness sets process.env.HAXCMS_ROOT WITH a trailing slash now, so the
-// module-const HAXCMS_ROOT and the instance HAXCMS.HAXCMS_ROOT both resolve
-// createSite (string concat) and loadSite (instance prop) to runtimeRoot/_sites.
-// The discovery-editor pass (which VERIFIED the editor + global-event flow) kept
-// these two helpers as belt-and-suspenders against any trailing-slash regression,
-// so we keep them too. Both are harmless no-ops when the slash is present.
-function patchHaxcmsRootForHarness(rt) {
-  const { HAXCMS } = require('../../src/lib/HAXCMS.js')
-  const root = String(rt.runtimeRoot)
-  HAXCMS.HAXCMS_ROOT = root.charAt(root.length - 1) === '/' ? root : root + '/'
-  return HAXCMS
-}
+// patchHaxcmsRootForHarness + relocateCreatedSiteIfStale are imported from
+// helpers/flows.cjs.
 
-function relocateCreatedSiteIfStale(rt, siteName) {
-  const name = String(siteName).toLowerCase()
-  const fromDir = path.join(rt.runtimeRoot + '_sites', name)
-  const toDir = path.join(rt.runtimeRoot, SITES_DIR, name)
-  if (fs.pathExistsSync(fromDir)) {
-    fs.moveSync(fromDir, toDir, { overwrite: true })
-    return true
-  }
-  return false
-}
-
-// --- local utility helpers (no optional chaining) -------------------------
-
-// Poll an async predicate until it returns a truthy value or timeout.
-async function waitFor(fn, timeoutMs, intervalMs) {
-  const interval = intervalMs || 250
-  const start = Date.now()
-  let last = null
-  while (Date.now() - start < timeoutMs) {
-    last = await fn()
-    if (last) return last
-    await new Promise((r) => setTimeout(r, interval))
-  }
-  return last
-}
-
-// Poll a deepQuery chain until the element exists.
-async function waitForDeep(p, chain, timeoutMs) {
-  return waitFor(async () => deepQuery(p, chain), timeoutMs)
-}
-
-// Ensure the outline editor dialog is open (re-click #outlinebutton if the
-// dialog is not currently present). The outline modal can auto-dismiss during
-// slow operations (e.g. axe-core injection), so call this before the a11y scan
-// and before the visual capture to guarantee the dialog is on screen. Returns
-// true when the dialog is present (with a stamped shadowRoot).
-async function ensureOutlineOpen(p, t) {
-  const present = await p.evaluate(() => {
-    var modals = document.querySelectorAll('simple-modal')
-    for (var i = 0; i < modals.length; i++) {
-      var d = modals[i].querySelector('haxcms-outline-editor-dialog')
-      if (d && d.shadowRoot) return true
-    }
-    var d2 = document.querySelector('haxcms-outline-editor-dialog')
-    return !!(d2 && d2.shadowRoot)
-  })
-  if (present) return true
-  if (t) t.diagnostic('[outline] dialog not present; re-clicking #outlinebutton to reopen')
-  await p.evaluate(() => {
-    var ui = document.querySelector('haxcms-site-editor-ui')
-    if (!ui || !ui.shadowRoot) return false
-    var btn = ui.shadowRoot.querySelector('#outlinebutton')
-    if (!btn) return false
-    var inner = btn.shadowRoot && btn.shadowRoot.querySelector('button')
-    if (inner) inner.click()
-    else btn.click()
-    return true
-  })
-  const ready = await waitFor(
-    async () =>
-      p.evaluate(() => {
-        var modals = document.querySelectorAll('simple-modal')
-        for (var i = 0; i < modals.length; i++) {
-          var d = modals[i].querySelector('haxcms-outline-editor-dialog')
-          if (d && d.shadowRoot) return true
-        }
-        var d2 = document.querySelector('haxcms-outline-editor-dialog')
-        return !!(d2 && d2.shadowRoot)
-      }),
-    20000,
-  )
-  return !!ready
-}
-
-// Safe visual comparison wrapper. The helper visual.cjs calls pixelmatch() but
-// pixelmatch v7 is ESM-only; the shim above rebinds it, but wrap anyway so a
-// throw never fails the test (visual diffs WARN-only per the task spec).
-async function safeCompareBaseline(name, buf, opts, t) {
-  try {
-    return await compareBaseline(name, buf, opts)
-  } catch (e) {
-    const msg = e && e.message ? e.message : String(e)
-    t.diagnostic(
-      'visual compareBaseline for "' + name + '" threw (non-fatal): ' + msg,
-    )
-    return {
-      diffPixels: -1,
-      totalPixels: -1,
-      diffPercent: -1,
-      baselineExists: false,
-      baselineUpdated: false,
-      error: msg,
-    }
-  }
-}
-
-// Set a shadow-DOM input reached by a full chain (Lit two-way binding needs the
-// input event, not just .value).
-async function setShadowInput(p, chain, text) {
-  const el = await deepQuery(p, chain)
-  if (!el) throw new Error('input not found: ' + chain.join('>'))
-  await el.evaluate((input, val) => {
-    input.focus()
-    input.value = val
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-  }, text)
-}
-
-// --- login helpers (light-DOM aware) ---------------------------------------
-// <app-hax-site-login> is a LIGHT-DOM (slotted) child of <simple-modal>, so it
-// is NOT in simple-modal's shadowRoot and deepQuery (which pierces shadow roots
-// at every step) cannot reach it. We query the login element directly via the
-// light DOM and operate on its own shadowRoot for inputs/buttons. This matches
-// the verified discovery + create-site/archive-site E2E tests.
-
-async function loginSetInput(p, inputId, text) {
-  await p.waitForFunction(
-    (id) => {
-      const m = document.querySelector('simple-modal')
-      const l = m && m.querySelector('app-hax-site-login')
-      return !!(l && l.shadowRoot && l.shadowRoot.querySelector('#' + id))
-    },
-    { timeout: 15000 },
-    inputId,
-  )
-  const set = await p.evaluate((id, val) => {
-    const m = document.querySelector('simple-modal')
-    const l = m && m.querySelector('app-hax-site-login')
-    const input = l && l.shadowRoot && l.shadowRoot.querySelector('#' + id)
-    if (!input) return false
-    input.value = val
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    return true
-  }, inputId, text)
-  if (!set) throw new Error('login input not found: #' + inputId)
-}
-
-async function loginClickButton(p, text) {
-  await p.waitForFunction(
-    (t) => {
-      const m = document.querySelector('simple-modal')
-      const l = m && m.querySelector('app-hax-site-login')
-      if (!l || !l.shadowRoot) return false
-      const btns = l.shadowRoot.querySelectorAll('button')
-      for (let i = 0; i < btns.length; i++) {
-        if (btns[i].textContent.trim().toLowerCase().indexOf(t.toLowerCase()) !== -1) return true
-      }
-      return false
-    },
-    { timeout: 10000 },
-    text,
-  )
-  const clicked = await p.evaluate((t) => {
-    const m = document.querySelector('simple-modal')
-    const l = m && m.querySelector('app-hax-site-login')
-    if (!l || !l.shadowRoot) return false
-    const btns = l.shadowRoot.querySelectorAll('button')
-    for (let i = 0; i < btns.length; i++) {
-      if (btns[i].textContent.trim().toLowerCase().indexOf(t.toLowerCase()) !== -1) {
-        btns[i].click()
-        return true
-      }
-    }
-    return false
-  }, text)
-  if (!clicked) throw new Error('login button not found: ' + text)
-}
-
-// --- create-site response finder -------------------------------------------
-// The dashboard fires GET /system/api/v1/sites on load, so awaiting the bare
-// '/system/api/v1/sites' substring would resolve to the stale list response.
-// Disambiguate by body shape: the create POST response carries
-// data.metadata.site.name; the list response carries data.items. Poll until the
-// create response for our lowercased site name appears. Returns the record or null.
-async function findCreateSiteResponse(coll, expectedName, timeoutMs) {
-  const target = String(expectedName).toLowerCase()
-  return waitFor(async () => {
-    const all = coll.getResponsesFor('/system/api/v1/sites')
-    for (let i = 0; i < all.length; i++) {
-      let parsed = null
-      try {
-        parsed = JSON.parse(all[i].bodyText)
-      } catch (e) {
-        continue
-      }
-      const metaSite =
-        parsed && parsed.data && parsed.data.metadata && parsed.data.metadata.site
-          ? parsed.data.metadata.site
-          : null
-      if (
-        parsed &&
-        parsed.status === 200 &&
-        metaSite &&
-        typeof metaSite.name === 'string' &&
-        metaSite.name.toLowerCase() === target
-      ) {
-        return all[i]
-      }
-    }
-    return null
-  }, timeoutMs)
-}
+// --- utility helpers imported from helpers/flows.cjs ---
+// waitFor, waitForDeep, ensureOutlineOpen, safeCompareBaseline, setShadowInput
+// live in flows. Kept locally below: findCreateItemResponse, findDeleteItemResponse
+// (unique to this test).
 
 // --- create-item (POST /x/api/v1/items) response finder --------------------
 // The editor may fire a GET /x/api/v1/items (list) on load, so awaiting the bare

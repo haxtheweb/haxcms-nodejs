@@ -20,21 +20,9 @@ const fs = require('fs-extra')
 const path = require('path')
 const axios = require('axios')
 
-// pixelmatch v7 is pure ESM ("type":"module"), so require('pixelmatch') returns
-// {__esModule, default} — an object, not a function. The visual helper calls
-// pixelmatch(...) directly, which can throw "pixelmatch is not a function" on
-// the diff path (any run AFTER baselines already exist). We are not allowed to
-// edit the helper files, so we shim the CJS/ESM interop HERE by re-binding the
-// cached module's exports to the default function BEFORE the helper loads. This
-// is a runtime in-memory patch only; no helper or node_modules files are
-// modified.
-const _pmPath = require.resolve('pixelmatch')
-const _pm = require(_pmPath)
-if (_pm && typeof _pm !== 'function' && _pm.default && typeof _pm.default === 'function') {
-  if (require.cache[_pmPath]) {
-    require.cache[_pmPath].exports = _pm.default
-  }
-}
+// pixelmatch ESM interop is handled by visual.cjs itself (line 14:
+// `require('pixelmatch').default || require('pixelmatch')`), so no per-test
+// shim is needed.
 
 const {
   setupE2ERuntime,
@@ -50,6 +38,21 @@ const {
   deepQuery,
   E2E_USER_NAME,
   E2E_USER_PASSWORD,
+  // flows helpers (single source of truth in helpers/flows.cjs)
+  waitFor,
+  waitForDeep,
+  typeIntoShadow,
+  loginSetInput,
+  loginClickButton,
+  deepFindRecursive,
+  WALK_HAX_BODY_FN,
+  haxBodyEditModeActive,
+  markerInHaxBody,
+  clickEditorButtonById,
+  safeCompareBaseline,
+  findCreateSiteResponse,
+  patchHaxcmsRootForHarness,
+  relocateCreatedSite,
 } = require('./helpers')
 
 // The create API normalises the site name to lowercase via
@@ -60,273 +63,11 @@ const {
 const EXPECTED_SITE_NAME = FIXED_SITE_NAME.toLowerCase()
 const SITES_DIR = '_sites'
 
-// --- HAXCMS_ROOT harness workaround ---------------------------------------
-// The harness sets process.env.HAXCMS_ROOT with a trailing slash, but the HAXCMS
-// singleton captures a module-level const HAXCMS_ROOT at load time and some
-// code paths (createSite) use string concat (HAXCMS_ROOT + sitesDirectory). We
-// patch the instance property to guarantee the trailing slash, and relocate the
-// created site if the module-const path wrote it to the wrong location. This
-// mirrors the archive-site + discovery-editor tests. Harmless no-ops if the
-// harness already wrote to the correct path.
-function patchHaxcmsRootForHarness(runtime) {
-  const { HAXCMS } = require('../../src/lib/HAXCMS.js')
-  const root = String(runtime.runtimeRoot)
-  HAXCMS.HAXCMS_ROOT = root.charAt(root.length - 1) === '/' ? root : root + '/'
-  return HAXCMS
-}
-
-function relocateCreatedSite(runtime, siteName) {
-  const name = String(siteName).toLowerCase()
-  const fromDir = path.join(runtime.runtimeRoot + '_sites', name)
-  const toDir = path.join(runtime.runtimeRoot, SITES_DIR, name)
-  if (fs.pathExistsSync(fromDir)) {
-    fs.moveSync(fromDir, toDir, { overwrite: true })
-    return true
-  }
-  return false
-}
-
-// --- local utility helpers -------------------------------------------------
-
-// Poll an async predicate until it returns a truthy value or timeout.
-async function waitFor(fn, timeoutMs, intervalMs) {
-  const interval = intervalMs || 250
-  const start = Date.now()
-  let last = null
-  while (Date.now() - start < timeoutMs) {
-    last = await fn()
-    if (last) return last
-    await new Promise((r) => setTimeout(r, interval))
-  }
-  return last
-}
-
-// Poll a deepQuery chain until the element exists.
-async function waitForDeep(page, chain, timeoutMs) {
-  return waitFor(async () => deepQuery(page, chain), timeoutMs)
-}
-
-// Set a shadow-DOM input's value + dispatch input/change (proven reliable for
-// Lit-bound inputs in this app).
-async function typeIntoShadow(page, chain, text) {
-  const el = await deepQuery(page, chain)
-  if (!el) throw new Error('input not found: ' + chain.join('>'))
-  await el.evaluate((input, value) => {
-    input.focus()
-    input.value = value
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-  }, text)
-}
-
-// --- login helpers (light-DOM aware) --------------------------------------
-// <app-hax-site-login> is a LIGHT-DOM child of <simple-modal> (slotted content),
-// so deepQuery (which pierces shadow roots at every step) cannot reach it. We
-// query the login element directly via the light DOM and operate on its own
-// shadowRoot for inputs/buttons. Matches the verified discovery pass + the
-// create-site test.
-
-async function loginSetInput(p, inputId, text) {
-  await p.waitForFunction(
-    (id) => {
-      const modal = document.querySelector('simple-modal')
-      const login = modal && modal.querySelector('app-hax-site-login')
-      return !!(login && login.shadowRoot && login.shadowRoot.querySelector('#' + id))
-    },
-    { timeout: 15000 },
-    inputId,
-  )
-  const set = await p.evaluate((id, val) => {
-    const modal = document.querySelector('simple-modal')
-    const login = modal && modal.querySelector('app-hax-site-login')
-    const input = login && login.shadowRoot && login.shadowRoot.querySelector('#' + id)
-    if (!input) return false
-    input.value = val
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    return true
-  }, inputId, text)
-  if (!set) throw new Error('login input not found: #' + inputId)
-}
-
-async function loginClickButton(p, text) {
-  await p.waitForFunction(
-    (t) => {
-      const modal = document.querySelector('simple-modal')
-      const login = modal && modal.querySelector('app-hax-site-login')
-      if (!login || !login.shadowRoot) return false
-      const btns = login.shadowRoot.querySelectorAll('button')
-      for (let i = 0; i < btns.length; i++) {
-        if (btns[i].textContent.trim().toLowerCase().indexOf(t.toLowerCase()) !== -1) return true
-      }
-      return false
-    },
-    { timeout: 10000 },
-    text,
-  )
-  const clicked = await p.evaluate((t) => {
-    const modal = document.querySelector('simple-modal')
-    const login = modal && modal.querySelector('app-hax-site-login')
-    if (!login || !login.shadowRoot) return false
-    const btns = login.shadowRoot.querySelectorAll('button')
-    for (let i = 0; i < btns.length; i++) {
-      if (btns[i].textContent.trim().toLowerCase().indexOf(t.toLowerCase()) !== -1) {
-        btns[i].click()
-        return true
-      }
-    }
-    return false
-  }, text)
-  if (!clicked) throw new Error('login button not found: ' + text)
-}
-
-// --- recursive shadow-DOM walk for hax-body --------------------------------
-// haxcms-site-editor renders inside the active theme at a VARIABLE shadow-DOM
-// depth, so deepQuery (which walks a fixed chain) cannot reach hax-body. This
-// helper recursively walks all shadow roots to find an element by selector.
-// hax-body lives at: <theme ...> shadowRoot > haxcms-site-editor (light DOM) >
-// h-a-x#hax (light DOM) > shadowRoot > hax-body.
-async function deepFindRecursive(page, selector) {
-  const handle = await page.evaluateHandle((sel) => {
-    function walk(root) {
-      if (!root) return null
-      var found = root.querySelector(sel)
-      if (found) return found
-      var els = root.querySelectorAll('*')
-      for (var i = 0; i < els.length; i++) {
-        if (els[i].shadowRoot) {
-          var r = walk(els[i].shadowRoot)
-          if (r) return r
-        }
-      }
-      return null
-    }
-    return walk(document)
-  }, selector)
-  const el = handle.asElement()
-  if (!el) {
-    await handle.dispose()
-    return null
-  }
-  return el
-}
-
-// Shared recursive walk helper (used in multiple page.evaluate calls).
-// Returns the hax-body element or null.
-const WALK_HAX_BODY_FN = `
-function walk(root) {
-  if (!root) return null
-  var found = root.querySelector('hax-body')
-  if (found) return found
-  var els = root.querySelectorAll('*')
-  for (var i = 0; i < els.length; i++) {
-    if (els[i].shadowRoot) {
-      var r = walk(els[i].shadowRoot)
-      if (r) return r
-    }
-  }
-  return null
-}
-`
-
-// Check if hax-body is in edit mode (edit-mode attribute present). This is the
-// reliable readiness signal — hax-body itself does NOT always get the
-// `contenteditable` attribute; _editModeChanged applies contenteditable to the
-// slotted CHILDREN, and hax-body only gets it when _activeNodeChanged fires for
-// a text element. The edit-mode attribute reflects the editMode property from
-// the store.
-async function haxBodyEditModeActive(page) {
-  return page.evaluate((walkSrc) => {
-    eval(walkSrc)
-    var body = walk(document)
-    if (!body) return { found: false }
-    return {
-      found: true,
-      editModeAttr: body.hasAttribute('edit-mode'),
-      childCount: body.children ? body.children.length : -1,
-    }
-  }, WALK_HAX_BODY_FN)
-}
-
-// Check if a marker string appears in hax-body's slotted content.
-async function markerInHaxBody(page, marker) {
-  return page.evaluate((walkSrc, m) => {
-    eval(walkSrc)
-    var body = walk(document)
-    if (!body || !body.shadowRoot) return false
-    var slot = body.shadowRoot.querySelector('#body')
-    if (!slot) return false
-    var nodes = slot.assignedNodes({ flatten: true })
-    for (var i = 0; i < nodes.length; i++) {
-      if (nodes[i] && nodes[i].textContent && nodes[i].textContent.indexOf(m) !== -1) {
-        return true
-      }
-    }
-    return false
-  }, WALK_HAX_BODY_FN, marker)
-}
-
-// Click a button inside the haxcms-site-editor-ui shadowRoot by id. The
-// simple-toolbar-button hosts wrap an inner <button>; click the inner button
-// if present, else click the host. Returns { clicked: true } or { error: ... }.
-async function clickEditorButtonById(page, id) {
-  return page.evaluate((btnId) => {
-    const ui = document.querySelector('haxcms-site-editor-ui')
-    if (!ui || !ui.shadowRoot) return { error: 'no ui' }
-    const btn = ui.shadowRoot.querySelector(btnId)
-    if (!btn) return { error: 'no ' + btnId }
-    var inner = btn.shadowRoot && btn.shadowRoot.querySelector('button')
-    if (inner) inner.click()
-    else btn.click()
-    return { clicked: true }
-  }, id)
-}
-
-// Safe visual comparison wrapper: pixelmatch ESM interop can throw on the diff
-// path. We catch + WARN (never fail), per the visual-diffs-warn-only rule.
-async function safeCompareBaseline(name, buf, opts, t) {
-  try {
-    return await compareBaseline(name, buf, opts)
-  } catch (e) {
-    const msg = e && e.message ? e.message : String(e)
-    t.diagnostic(
-      'visual compareBaseline for "' + name + '" threw (helper bug, non-fatal): ' + msg,
-    )
-    return {
-      diffPixels: -1,
-      totalPixels: -1,
-      diffPercent: -1,
-      baselineExists: false,
-      baselineUpdated: false,
-      error: msg,
-    }
-  }
-}
-
-// Find the POST /system/api/v1/sites (create) response among ALL /sites
-// responses. The dashboard fires GET /sites on load, so we disambiguate by
-// body shape: the create response carries data.metadata.site.name; the list
-// response carries data.items. Returns the matching record or null.
-async function findCreateSiteResponse(coll, expectedName, timeoutMs) {
-  return waitFor(async () => {
-    const all = coll.getResponsesFor('/system/api/v1/sites')
-    for (let i = 0; i < all.length; i++) {
-      let parsed = null
-      try {
-        parsed = JSON.parse(all[i].bodyText)
-      } catch (e) {
-        continue
-      }
-      const data = parsed && parsed.data
-      const siteName =
-        data && data.metadata && data.metadata.site && data.metadata.site.name
-      if (siteName === expectedName) {
-        return all[i]
-      }
-    }
-    return null
-  }, timeoutMs)
-}
+// --- all helpers below were moved to helpers/flows.cjs ---
+// patchHaxcmsRootForHarness, relocateCreatedSite, waitFor, waitForDeep,
+// typeIntoShadow, loginSetInput, loginClickButton, deepFindRecursive,
+// WALK_HAX_BODY_FN, haxBodyEditModeActive, markerInHaxBody, clickEditorButtonById,
+// safeCompareBaseline, findCreateSiteResponse — all imported from flows.
 
 // --- shared state (populated in before / cleaned in after) -----------------
 let runtime = null

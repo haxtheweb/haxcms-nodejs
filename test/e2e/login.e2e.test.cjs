@@ -40,6 +40,16 @@ const {
   E2E_USER_NAME,
   E2E_USER_PASSWORD,
   DEFAULT_VIEWPORT,
+  // flows helpers (single source of truth in helpers/flows.cjs)
+  waitForLoginModal,
+  getLoginElement,
+  waitForPasswordInput,
+  awaitResponseStatus,
+  awaitCookie,
+  findCookie,
+  parseJsonSafely,
+  summariseViolations,
+  loginClickButton: clickLoginButton,
 } = require('./helpers')
 
 // Shared state populated by test.before; consumed by subtests + test.after.
@@ -50,63 +60,9 @@ const state = {
   collector: null,
 }
 
-// --- login-specific helpers (light DOM -> shadow DOM) ---
-
-// Resolve the app-hax-site-login element: document > simple-modal (light) >
-// app-hax-site-login (light slotted child). Returns an element handle or null.
-async function getLoginElement(page) {
-  const handle = await page.evaluateHandle(() => {
-    const modal = document.querySelector('simple-modal')
-    if (!modal) {
-      return null
-    }
-    return modal.querySelector('app-hax-site-login')
-  })
-  const el = handle.asElement()
-  if (!el) {
-    await handle.dispose()
-    return null
-  }
-  return el
-}
-
-// Wait for the login modal to render: simple-modal present, opened, and its slotted
-// app-hax-site-login child has a shadowRoot (so the form controls are ready).
-async function waitForLoginModal(page, timeoutMs) {
-  const timeout = timeoutMs || 30000
-  await page.waitForFunction(
-    () => {
-      const modal = document.querySelector('simple-modal')
-      if (!modal || modal.opened !== true) {
-        return false
-      }
-      const loginEl = modal.querySelector('app-hax-site-login')
-      return !!(loginEl && loginEl.shadowRoot)
-    },
-    { timeout },
-  )
-  return getLoginElement(page)
-}
-
-// Wait for the password input to appear inside app-hax-site-login shadowRoot
-// (only present after clicking "Next").
-async function waitForPasswordInput(page, timeoutMs) {
-  const timeout = timeoutMs || 15000
-  await page.waitForFunction(
-    () => {
-      const modal = document.querySelector('simple-modal')
-      if (!modal) {
-        return false
-      }
-      const loginEl = modal.querySelector('app-hax-site-login')
-      if (!loginEl || !loginEl.shadowRoot) {
-        return false
-      }
-      return !!loginEl.shadowRoot.querySelector('#password')
-    },
-    { timeout },
-  )
-}
+// --- login-specific helpers kept local (the rest live in helpers/flows.cjs) ---
+// typeIntoLoginInput + waitForDeepShadow below are unique to this test; the shared
+// login/modal/password/cookie/parse/a11y-summary helpers are imported from flows.
 
 // Type into a login input (#username or #password) inside app-hax-site-login shadowRoot.
 // Uses .value + input event (the verified discovery approach) for reliable framework
@@ -128,31 +84,6 @@ async function typeIntoLoginInput(page, inputSelector, text) {
   await loginEl.dispose()
   if (!ok) {
     throw new Error('login input not found: ' + inputSelector)
-  }
-}
-
-// Click a button by visible (substring, case-insensitive) text inside
-// app-hax-site-login shadowRoot (e.g. "Next", "Login").
-async function clickLoginButton(page, buttonText) {
-  const loginEl = await getLoginElement(page)
-  if (!loginEl) {
-    throw new Error('app-hax-site-login not found for clicking ' + buttonText)
-  }
-  const clicked = await loginEl.evaluate((el, text) => {
-    const btns = el.shadowRoot ? el.shadowRoot.querySelectorAll('button') : []
-    for (let i = 0; i < btns.length; i++) {
-      if (
-        btns[i].textContent.trim().toLowerCase().indexOf(text.toLowerCase()) !== -1
-      ) {
-        btns[i].click()
-        return true
-      }
-    }
-    return false
-  }, buttonText)
-  await loginEl.dispose()
-  if (!clicked) {
-    throw new Error('login button text not found: ' + buttonText)
   }
 }
 
@@ -190,72 +121,8 @@ async function waitForDeepShadow(page, chain, timeoutMs) {
   return deepQuery(page, chain)
 }
 
-// Poll collected responses for one matching urlSubstring with the expected status.
-// Needed because the SPA fires a pre-login GET /sites (401) that would otherwise
-// satisfy a plain awaitCollectorFor; we specifically want the authenticated 200.
-async function awaitResponseStatus(collector, urlSubstring, status, timeoutMs) {
-  const timeout = timeoutMs || 30000
-  const start = Date.now()
-  while (Date.now() - start < timeout) {
-    const matches = collector.getResponsesFor(urlSubstring)
-    for (let i = 0; i < matches.length; i++) {
-      if (matches[i] && matches[i].status === status) {
-        return matches[i]
-      }
-    }
-    await new Promise((r) => setTimeout(r, 250))
-  }
-  return null
-}
-
-// Poll page.cookies() until a cookie named `name` appears (or timeout).
-async function awaitCookie(page, name, timeoutMs) {
-  const timeout = timeoutMs || 10000
-  const start = Date.now()
-  while (Date.now() - start < timeout) {
-    const cookies = await page.cookies()
-    for (let i = 0; i < cookies.length; i++) {
-      if (cookies[i] && cookies[i].name === name) {
-        return cookies[i]
-      }
-    }
-    await new Promise((r) => setTimeout(r, 200))
-  }
-  return null
-}
-
-function findCookie(cookies, name) {
-  if (!Array.isArray(cookies)) {
-    return null
-  }
-  for (let i = 0; i < cookies.length; i++) {
-    if (cookies[i] && cookies[i].name === name) {
-      return cookies[i]
-    }
-  }
-  return null
-}
-
-function parseJsonSafely(value) {
-  try {
-    return JSON.parse(String(value || ''))
-  } catch (e) {
-    return null
-  }
-}
-
-function summariseViolations(list) {
-  if (!Array.isArray(list) || list.length === 0) {
-    return '(none)'
-  }
-  return list
-    .map((v) => {
-      const id = (v && v.id) || 'unknown'
-      const desc = (v && v.description) || ''
-      return id + ': ' + desc
-    })
-    .join(' | ')
-}
+// awaitResponseStatus, awaitCookie, findCookie, parseJsonSafely, summariseViolations
+// are imported from helpers/flows.cjs (see the require block above).
 
 // --- setup / teardown ---
 

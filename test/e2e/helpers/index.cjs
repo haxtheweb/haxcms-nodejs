@@ -8,6 +8,7 @@ const browser = require('./browser.cjs')
 const axe = require('./axe.cjs')
 const visual = require('./visual.cjs')
 const selectors = require('./selectors.cjs')
+const flows = require('./flows.cjs')
 
 module.exports = {
   // harness
@@ -32,4 +33,10 @@ module.exports = {
   FIXED_SITE_NAME: selectors.FIXED_SITE_NAME,
   deepQuery: selectors.deepQuery,
   deepQueryAll: selectors.deepQueryAll,
+  // flows (consolidated high-level UI flow helpers — single source of truth).
+  // Spread to the top level so tests can destructure helper names directly:
+  //   const { waitFor, loginViaUI, findSiteCard } = require('./helpers')
+  // The `flows` namespace is also kept for tests that prefer flows.loginViaUI.
+  flows,
+  ...flows,
 }
