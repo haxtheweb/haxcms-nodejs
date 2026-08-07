@@ -504,6 +504,74 @@ const selectors = {
     siteCardHeadingLink: 'a[slot="heading"]',
   },
 
+  // --- REVISIONS (VERIFIED at runtime by .discovery-revisions.cjs) ---------
+  // The page revisions UI is a haxcms-page-revisions-dialog element slotted
+  // as a light-DOM child of simple-modal (same pattern as login + outline).
+  // It is opened by dispatching the global event `haxcms-open-page-revisions`
+  // with detail { nodeId, nodeTitle, source }. The site-editor listens for
+  // this event and opens the dialog via simple-modal-show.
+  //
+  // The dialog renders an editable-table-display with revision rows. Each row
+  // has two simple-icon-button-lite action buttons: a preview button
+  // (data-action="preview", icon="icons:visibility") and a restore button
+  // (data-action="restore", icon="icons:restore"). Both carry data-hash="<full
+  // git hash>". The FIRST row (current revision) has both buttons disabled.
+  //
+  // The dialog loads revisions by dispatching `haxcms-load-node-revisions`
+  // which the site-editor answers by calling @site/listItemRevisions
+  // (GET /x/api/v1/items/:idOrSlug/revisions). Selecting a row dispatches
+  // `haxcms-load-node-revision` → @site/getItemRevisionById (GET
+  // .../revisions/:revisionId). Restore dispatches `haxcms-restore-node-revision`
+  // → @site/restoreItemRevision (POST .../revisions/:revisionId/restore), which
+  // writes the old content to disk AND creates a new git commit.
+  //
+  // Auth: revisions routes require Bearer JWT + X-HAXCMS-Site-Token header
+  // (policy 'authenticated-site'). The site token is
+  // HAXCMS.getRequestToken(userName + ':' + siteName), computed server-side.
+  // The browser frontend auto-attaches it; direct axios calls must add it.
+  revisions: {
+    // The revisions dialog host element (slotted into simple-modal light DOM).
+    // VERIFIED: haxcms-page-revisions-dialog is a light-DOM child of simple-modal.
+    // To reach it: document.querySelector('simple-modal').querySelector('haxcms-page-revisions-dialog')
+    // then operate on its shadowRoot.
+    revisionsDialog: 'haxcms-page-revisions-dialog',
+    // Global event to open the revisions dialog.
+    // VERIFIED: dispatching haxcms-open-page-revisions with
+    // detail { nodeId, nodeTitle, source } opens the dialog.
+    openRevisionsEvent: 'haxcms-open-page-revisions',
+    // Global event fired by the dialog to request the revisions list.
+    // VERIFIED from source (haxcms-page-revisions-dialog.js _loadRevisions).
+    loadRevisionsEvent: 'haxcms-load-node-revisions',
+    // Global event fired by the dialog to request one revision detail.
+    loadRevisionEvent: 'haxcms-load-node-revision',
+    // Global event fired by the dialog to request a restore.
+    restoreRevisionEvent: 'haxcms-restore-node-revision',
+    // Global event fired by the site-editor when revisions list loads.
+    revisionsLoadedEvent: 'haxcms-node-revisions-loaded',
+    // Global event fired when one revision detail loads.
+    revisionLoadedEvent: 'haxcms-node-revision-loaded',
+    // Global event fired when a restore completes.
+    revisionRestoredEvent: 'haxcms-node-revision-restored',
+    // The table row selector inside the dialog shadowRoot.
+    // VERIFIED: tbody tr inside editable-table-display.
+    revisionRow: 'tbody tr',
+    // The restore action button inside a row.
+    // VERIFIED: simple-icon-button-lite[icon="icons:restore"][data-action="restore"]
+    // with data-hash="<full hash>". Disabled on the first row (current revision).
+    restoreButton: 'simple-icon-button-lite[data-action="restore"]',
+    // The preview action button inside a row.
+    // VERIFIED: simple-icon-button-lite[icon="icons:visibility"][data-action="preview"]
+    previewButton: 'simple-icon-button-lite[data-action="preview"]',
+    // The preview <pre> element inside the dialog shadowRoot (source mode).
+    // VERIFIED: pre element contains the revision content as HTML source text.
+    previewPre: 'pre',
+    // Dialog properties (read via elementHandle.evaluate):
+    //   nodeId (string), nodeTitle (string), revisions (array),
+    //   selectedHash (string), loading (bool), restoring (bool),
+    //   previewMode ('source' | 'rendered'), previewContent (string).
+    // VERIFIED at runtime.
+  },
+
   // --- API PATHS (canonical v1 system + site API) -------------------------
   api: {
     // system API (dashboard / site lifecycle)
@@ -522,6 +590,50 @@ const selectors = {
     deleteNode: '/x/api/v1/items/:idOrSlug',
     // saveOutline: PATCH /x/api/v1/site/outline → {status:200, data:...}
     saveOutline: '/x/api/v1/site/outline',
+    // --- revisions (VERIFIED at runtime) ---
+    // listItemRevisions: GET → {status:200, data:{nodeId, nodeSlug, nodeTitle,
+    //   count, total, page:{limit,offset,total}, revisions:[{revisionNumber,
+    //   hash, shortHash, author, authorEmail, timestamp, date, message}],
+    //   links:{self, item}}}
+    listItemRevisions: '/x/api/v1/items/:idOrSlug/revisions',
+    // itemRevisionDetail: GET → {status:200, data:{..., revision:{...},
+    //   content, jsonVariantLocation, hasItemMetadata, itemMetadata,
+    //   links:{self, revisions, restore, item}}}
+    itemRevisionDetail: '/x/api/v1/items/:idOrSlug/revisions/:revisionId',
+    // restoreItemRevision: POST → {status:200, data:{..., restoredFromHash,
+    //   itemMetadataRestored, links:{self, revision, revisions, item}}}
+    restoreItemRevision:
+      '/x/api/v1/items/:idOrSlug/revisions/:revisionId/restore',
+    // --- site reads (VERIFIED at runtime) ---
+    // search: GET → {status:200, data:{query, fields, count, total, page,
+    //   results:[{id, title, slug, location, score, snippet, matches, links}]}}
+    // Auth: PUBLIC (security: [] in OpenAPI) — no token needed.
+    search: '/x/api/v1/search',
+    // tags: GET → {status:200, data:{count, total, page, tags:[{tag, count}],
+    //   links:{self}}}. Auth: PUBLIC.
+    tags: '/x/api/v1/tags',
+    // siteSummary: GET → {status:200, data:{id, name, title, description,
+    //   language, basePath, theme, updated, counts:{items, publishedItems,
+    //   tags, regions, files}, links:{...}, jsonld:{...}}}. Auth: PUBLIC.
+    siteSummary: '/x/api/v1/site',
+    // --- system admin (VERIFIED at runtime) ---
+    // themesList: GET → {status:200, data:[{machineName, ..., enabled, hidden}]}
+    // saveEnabledThemes: PATCH (or POST) → {status:200, data:{enabledThemes, settings}}
+    // Auth: Bearer JWT; PATCH additionally requires X-HAXCMS-User-Token.
+    themesList: '/system/api/v1/themes',
+    // skeletonsList: GET → {status:200, data:[{machineName, ..., enabled}]}
+    // saveEnabledSkeletons: PATCH (or POST) → {status:200, data:{enabledSkeletons, settings}}
+    skeletonsList: '/system/api/v1/skeletons',
+    // getApiKeys: GET (or POST) → {status:200, data:{...apiKeys}}
+    // saveApiKeys: PATCH (or POST) → {status:200, data:{...apiKeys}}
+    apiKeys: '/system/api/v1/configuration/api-keys',
+    // getMediaSettings: GET (or POST) → {status:200, data:{...mediaSettings}}
+    // saveMediaSettings: PATCH (or POST) → {status:200, data:{...mediaSettings}}
+    mediaSettings: '/system/api/v1/configuration/media',
+    // systemStatus: GET (or POST) → {status:200, data:{...statusReport}}
+    systemStatus: '/system/api/v1/status',
+    // systemVersion: GET (or POST) → {status:200, data:{version}}
+    systemVersion: '/system/api/v1/system/version',
   },
 }
 
