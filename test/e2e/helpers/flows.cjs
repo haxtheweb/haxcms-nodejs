@@ -870,7 +870,7 @@ async function dumpSiteListDiagnostics(page) {
 // instance property guarantees the trailing slash for the path.join paths. Harmless
 // no-op when the harness already set the slash. Returns the HAXCMS singleton.
 function patchHaxcmsRootForHarness(runtime) {
-  const { HAXCMS } = require('../../src/lib/HAXCMS.js')
+  const { HAXCMS } = require('../../../src/lib/HAXCMS.js')
   const root = String(runtime.runtimeRoot)
   HAXCMS.HAXCMS_ROOT = root.charAt(root.length - 1) === '/' ? root : root + '/'
   return HAXCMS
