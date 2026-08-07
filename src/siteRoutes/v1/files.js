@@ -1089,13 +1089,6 @@ async function updateFile(req, res) {
       'File operations are disabled for this site',
     );
   }
-  const requestedPath = resolveRequestedFilePath(req, site);
-  if (!requestedPath) {
-    return res.status(400).json({
-      status: 400,
-      data: { message: 'File uuid is required', }
-    });
-  }
   const payload = readOperationPayload(req);
   if (!payload.operation) {
     return res.status(400).json({
@@ -1115,6 +1108,17 @@ async function updateFile(req, res) {
   } catch (e) {}
   const jpegQuality = resolveJpegQualityFromSettings(mediaSettings);
   try {
+    // resolveRequestedFilePath can throw createStatusError (404 when the uuid
+    // no longer matches a file on disk, e.g. after a rename changed the uuid;
+    // 400 for an invalid uuid). Wrap it so the error returns cleanly with the
+    // correct status instead of bubbling up as an unhandled 500.
+    const requestedPath = resolveRequestedFilePath(req, site);
+    if (!requestedPath) {
+      return res.status(400).json({
+        status: 400,
+        data: { message: 'File uuid is required', }
+      });
+    }
     const result = await performFileOperation(
       site,
       requestedPath,
@@ -1154,19 +1158,23 @@ async function deleteFile(req, res) {
       'File operations are disabled for this site',
     );
   }
-  const requestedPath = resolveRequestedFilePath(req, site);
-  if (!requestedPath) {
-    return res.status(400).json({
-      status: 400,
-      data: { message: 'File uuid is required', }
-    });
-  }
   let mediaSettings = {};
   try {
     mediaSettings = await readMediaSettings(HAXCMS);
   } catch (e) {}
   const jpegQuality = resolveJpegQualityFromSettings(mediaSettings);
   try {
+    // resolveRequestedFilePath can throw createStatusError (404 when the uuid
+    // no longer matches a file on disk, e.g. after a rename changed the uuid;
+    // 400 for an invalid uuid). Wrap it so the error returns cleanly with the
+    // correct status instead of bubbling up as an unhandled 500.
+    const requestedPath = resolveRequestedFilePath(req, site);
+    if (!requestedPath) {
+      return res.status(400).json({
+        status: 400,
+        data: { message: 'File uuid is required', }
+      });
+    }
     const result = await performFileOperation(
       site,
       requestedPath,
