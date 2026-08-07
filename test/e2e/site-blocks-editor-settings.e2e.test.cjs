@@ -43,29 +43,10 @@ const {
 const EXPECTED_SITE_NAME = FIXED_SITE_NAME.toLowerCase()
 const SITES_DIR = '_sites'
 
-// Suppress the unhandled rejection from saveAllowedBlocks.js's source bug
-// (ensureSiteMetadataContainers is called but never imported, causing a
-// ReferenceError that surfaces as an unhandled rejection after the test ends).
-// The test correctly documents this as a non-fatal WARNING; this handler
-// prevents Node's test runner from counting the rejection as a separate
-// test failure. Removed in test.after.
-function suppressEnsureSiteMetadataContainersRejection(err) {
-  if (
-    err &&
-    err.message &&
-    err.message.indexOf('ensureSiteMetadataContainers') !== -1
-  ) {
-    // Known source bug — suppress.
-    return
-  }
-  // For any other unhandled rejection, log it (do not re-throw to avoid
-  // masking — the test runner will still see it via its own handler).
-  // eslint-disable-next-line no-console
-  console.error('[unhandledRejection]', err && err.message ? err.message : err)
-}
-process.on('unhandledRejection', suppressEnsureSiteMetadataContainersRejection)
-
 // --- settings-specific local helpers ---
+// (The saveAllowedBlocks.js source bug — ensureSiteMetadataContainers called
+// but not imported — is now fixed in src/, so the rejection-suppression
+// workaround that used to live here is no longer needed.)
 
 function createSettingsResponseWatcher(page) {
   const records = []
@@ -384,26 +365,9 @@ test.before(async () => {
   collector = createResponseCollector(page)
   settingsWatcher = createSettingsResponseWatcher(page)
   requestWatcher = createSettingsRequestWatcher(page)
-  // Temporarily remove ALL unhandledRejection listeners (including the Node
-  // test runner's) and add our own that suppresses the specific
-  // ensureSiteMetadataContainers rejection from saveAllowedBlocks.js's source
-  // bug. The test runner's handler would otherwise count it as a test
-  // failure. Original listeners are restored in test.after.
-  runtime._originalUnhandledRejectionHandlers = process.listeners('unhandledRejection')
-  process.removeAllListeners('unhandledRejection')
-  process.on('unhandledRejection', suppressEnsureSiteMetadataContainersRejection)
 }, { timeout: 120000 })
 
 test.after(async () => {
-  // Restore original unhandledRejection listeners (including the test runner's).
-  try {
-    process.removeAllListeners('unhandledRejection')
-    if (runtime && runtime._originalUnhandledRejectionHandlers) {
-      for (let i = 0; i < runtime._originalUnhandledRejectionHandlers.length; i++) {
-        process.on('unhandledRejection', runtime._originalUnhandledRejectionHandlers[i])
-      }
-    }
-  } catch (e) { /* ignore */ }
   if (requestWatcher) {
     try { requestWatcher.detach() } catch (e) { /* ignore */ }
   }
@@ -574,15 +538,9 @@ test(
     )
 
     // Click Save + intercept PATCH /x/api/v1/site/blocks.
-    // NOTE: saveAllowedBlocks.js has a source bug — it calls
-    // ensureSiteMetadataContainers(site) but never imports it from
-    // siteRouteUtils.js (the destructure only pulls getRequestHeaderValue).
-    // This causes a server-side ReferenceError that prevents a 200 response.
-    // We assert the PATCH REQUEST was fired (proving the UI works) and make
-    // the 200 response check non-fatal with a diagnostic about the source bug.
-    // The task spec says "assert PATCH /x/api/v1/site/blocks AND/OR
-    // /x/api/v1/site/editor 200" — the editor 200 above satisfies the hard
-    // assertion; the blocks portion is documented as a known source bug.
+    // (saveAllowedBlocks.js previously had a source bug — ensureSiteMetadataContainers
+    // was called but not imported, causing a ReferenceError that prevented a 200.
+    // That bug is now fixed in src/, so we hard-assert the 200 + the request fires.)
     const blocksSaveResult = await clickDialogSave(blocksDialog)
     assert.ok(blocksSaveResult && blocksSaveResult.clicked, 'Blocks Save clicked')
 
@@ -594,26 +552,16 @@ test(
     )
     t.diagnostic('[e2e] saveBlocks REQUEST: ' + blocksPatchReq.method + ' ' + blocksPatchReq.url)
 
-    // Wait for the response (may not come if the server crashes).
+    // Assert the PATCH response is 200 (was non-fatal while the source bug existed).
     const blocksPatchResp = await settingsWatcher.waitForPatch('/x/api/v1/site/blocks', 15000)
-    if (blocksPatchResp) {
-      t.diagnostic('[e2e] saveBlocks response: ' + blocksPatchResp.method + ' ' + blocksPatchResp.url + ' ' + blocksPatchResp.status)
-      if (blocksPatchResp.status === 200) {
-        // If the source bug is fixed, this will pass.
-        assert.equal(blocksPatchResp.status, 200, 'saveAllowedBlocks returned 200')
-      } else {
-        // Non-fatal: document the source bug.
-        t.diagnostic(
-          '[e2e] WARNING: saveAllowedBlocks returned ' + blocksPatchResp.status +
-            ' — likely due to source bug in saveAllowedBlocks.js (ensureSiteMetadataContainers not imported). Non-fatal per task spec.',
-        )
-      }
-    } else {
-      // No response — server crashed before sending one (known source bug).
-      t.diagnostic(
-        '[e2e] WARNING: PATCH /x/api/v1/site/blocks produced no response (server-side ReferenceError: ensureSiteMetadataContainers is not defined in saveAllowedBlocks.js). The UI correctly fired the save request. Non-fatal per task spec.',
-      )
-    }
+    assert.ok(blocksPatchResp, 'PATCH /x/api/v1/site/blocks response captured')
+    t.diagnostic('[e2e] saveBlocks response: ' + blocksPatchResp.method + ' ' + blocksPatchResp.url + ' ' + blocksPatchResp.status)
+    assert.equal(
+      blocksPatchResp.status,
+      200,
+      'saveAllowedBlocks (PATCH /x/api/v1/site/blocks) should return 200, got ' +
+        blocksPatchResp.status + ' body: ' + String(blocksPatchResp.bodyText || '').slice(0, 200),
+    )
 
     // ====================================================================
     // Disk cross-check: read site.json + verify audience + allowedBlocks.
@@ -639,27 +587,19 @@ test(
       'site.json metadata.platform.audience should match the new audience',
     )
 
-    // Verify allowedBlocks: non-fatal because saveAllowedBlocks.js has a source
-    // bug (ensureSiteMetadataContainers not imported) that may prevent the save
-    // from persisting. We document the state but do not hard-assert.
+    // Verify allowedBlocks persisted to site.json (hard-assert now that the
+    // saveAllowedBlocks source bug is fixed and the PATCH returned 200).
     const savedAllowedBlocks = platform ? platform.allowedBlocks : null
     t.diagnostic('[e2e] site.json platform.allowedBlocks: ' + JSON.stringify(savedAllowedBlocks))
-    if (blocksPatchResp && blocksPatchResp.status === 200) {
-      // Only hard-assert allowedBlocks if the PATCH succeeded (200).
-      if (toggleResult && toggleResult.checked === true) {
-        assert.ok(
-          Array.isArray(savedAllowedBlocks) && savedAllowedBlocks.indexOf('img') !== -1,
-          'img should be in allowedBlocks after toggling it ON (PATCH 200 confirmed)',
-        )
-      } else if (toggleResult && toggleResult.checked === false) {
-        assert.ok(
-          !Array.isArray(savedAllowedBlocks) || savedAllowedBlocks.indexOf('img') === -1,
-          'img should NOT be in allowedBlocks after toggling it OFF (PATCH 200 confirmed)',
-        )
-      }
-    } else {
-      t.diagnostic(
-        '[e2e] WARNING: allowedBlocks disk verification skipped — saveAllowedBlocks PATCH did not return 200 (source bug: ensureSiteMetadataContainers not imported in saveAllowedBlocks.js). Non-fatal.',
+    if (toggleResult && toggleResult.checked === true) {
+      assert.ok(
+        Array.isArray(savedAllowedBlocks) && savedAllowedBlocks.indexOf('img') !== -1,
+        'img should be in allowedBlocks after toggling it ON',
+      )
+    } else if (toggleResult && toggleResult.checked === false) {
+      assert.ok(
+        !Array.isArray(savedAllowedBlocks) || savedAllowedBlocks.indexOf('img') === -1,
+        'img should NOT be in allowedBlocks after toggling it OFF',
       )
     }
 

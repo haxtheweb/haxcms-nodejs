@@ -322,6 +322,20 @@ test('files-ops: list / filter / rename / delete via files API', { timeout: 3000
   assert.strictEqual(deleteData.deleted, true, 'delete data.deleted === true')
   t.diagnostic('[e2e] delete OK: ' + renamedPath + ' deleted')
 
+  // 12b. Regression check for the resolveRequestedFilePath 404 bug: deleting
+  //      by the STALE (pre-rename) uuid must return a clean 404, not a 500 or
+  //      crash. Before the fix, resolveRequestedFilePath was called outside the
+  //      try/catch in deleteFile, so its createStatusError(404) bubbled up as an
+  //      unhandled 500. After the fix, deleteFile wraps the call and returns 404.
+  const staleDeleteResp = await filesDelete(runtime, EXPECTED_SITE_NAME, siteToken, uuidA)
+  assert.strictEqual(
+    staleDeleteResp.status,
+    404,
+    'DELETE by stale (pre-rename) uuid should return 404, got ' +
+      staleDeleteResp.status + ' (regression: was 500 before resolveRequestedFilePath was wrapped in try/catch)',
+  )
+  t.diagnostic('[e2e] stale-uuid delete returns 404 (regression fixed): status=' + staleDeleteResp.status)
+
   // 13. LIST after delete — should be 1 file (file B).
   const listAfterDelete = await filesList(runtime, EXPECTED_SITE_NAME, siteToken, {})
   assert.strictEqual(listAfterDelete.status, 200, 'GET after delete returned 200')

@@ -3,7 +3,7 @@ const {
   platformAllows,
   featureDisabledResponse,
 } = require('../../../lib/platformFeatures.js');
-const { getRequestHeaderValue } = require('../siteRouteUtils.js');
+const { getRequestHeaderValue, ensureSiteMetadataContainers } = require('../siteRouteUtils.js');
 
 /**
  * @OA\Post(
