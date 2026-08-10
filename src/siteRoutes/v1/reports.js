@@ -3,6 +3,7 @@ const {
   getApiBasePath,
   getCsvQuery,
   getQueryValue,
+  getSiteBasePath,
   resolveSiteForRequest,
   sendFormattedResponse,
 } = require('./siteRouteUtils.js');
@@ -31,14 +32,6 @@ const REPORT_DEFINITIONS = {
     icon: 'hax:graph',
     title: 'Overview report',
     description: 'Aggregate site statistics for dashboard overview cards.',
-    includes: null,
-  },
-  insights: {
-    id: 'insights',
-    label: 'Insights',
-    icon: 'icons:assessment',
-    title: 'Insights report',
-    description: 'Content insight metrics including readability and structure counts.',
     includes: null,
   },
   content: {
@@ -165,7 +158,7 @@ async function reportDetail(req, res) {
       ? definition.includes
       : null;
   const data = await courseStatsFromOutline('', site, ancestor, includes);
-  if (reportName === 'overview' || reportName === 'insights') {
+  if (reportName === 'overview') {
     const text = await siteHTMLContent(site, null, ancestor, true, true);
     const readabilityText = typeof text === 'string' ? text : '';
     data.readability = {
@@ -175,6 +168,52 @@ async function reportDetail(req, res) {
       lexiconCount: safeReadabilityMetric(rs.lexiconCount, readabilityText),
       sentenceCount: safeReadabilityMetric(rs.sentenceCount, readabilityText),
     };
+  }
+  const siteBasePath = getSiteBasePath(site);
+  if (data.contentData && Array.isArray(data.contentData)) {
+    for (let i = 0; i < data.contentData.length; i++) {
+      const item = data.contentData[i];
+      if (item) {
+        item.link = siteBasePath + (item.slug || '');
+      }
+    }
+  }
+  if (
+    data.linkData &&
+    typeof data.linkData === 'object' &&
+    !Array.isArray(data.linkData)
+  ) {
+    for (const href in data.linkData) {
+      const usages = data.linkData[href];
+      if (!Array.isArray(usages)) {
+        continue;
+      }
+      for (let i = 0; i < usages.length; i++) {
+        const usage = usages[i];
+        if (!usage) {
+          continue;
+        }
+        const page = usage.itemId
+          ? site.manifest.getItemById(usage.itemId)
+          : null;
+        usage.link = page ? siteBasePath + (page.slug || '') : '';
+        usage.pageTitle = page && page.title ? page.title : '';
+      }
+    }
+  }
+  if (data.mediaData && Array.isArray(data.mediaData)) {
+    for (let i = 0; i < data.mediaData.length; i++) {
+      const item = data.mediaData[i];
+      if (!item) {
+        continue;
+      }
+      const page = item.itemId
+        ? site.manifest.getItemById(item.itemId)
+        : null;
+      item.pageLink = page ? siteBasePath + (page.slug || '') : '';
+      item.pageSlug = page && page.slug ? page.slug : '';
+      item.pageTitle = page && page.title ? page.title : '';
+    }
   }
   const apiBasePath = getApiBasePath(req);
   const fields = getCsvQuery(req, 'fields');

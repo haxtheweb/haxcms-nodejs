@@ -496,6 +496,13 @@ async function siteHTMLContent(
   return siteContent;
 }
 
+function isItemPublished(el) {
+  if (el && el.metadata && el.metadata.published === false) {
+    return false;
+  }
+  return true;
+}
+
 async function courseStatsFromOutline(
   siteLocation,
   siteData = null,
@@ -508,20 +515,10 @@ async function courseStatsFromOutline(
   }
   let items = [];
   if (ancestor != null) {
-    items = getBranchItems(site, ancestor).filter(function (el) {
-      if (el && el.metadata && el.metadata.published) {
-        return true;
-      }
-      return false;
-    });
+    items = getBranchItems(site, ancestor).filter(isItemPublished);
   }
   else {
-    items = getOrderedItems(site).filter(function (el) {
-      if (el && el.metadata && el.metadata.published === false) {
-        return false;
-      }
-      return true;
-    });
+    items = getOrderedItems(site).filter(isItemPublished);
   }
   const html = await siteHTMLContent(site, null, ancestor);
   const doc = parse(`<div id="wrapper">${html}</div>`);
