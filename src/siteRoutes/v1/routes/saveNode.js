@@ -286,6 +286,27 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
                 else if ((page.metadata.image)) {
                   delete page.metadata.image;
                 }
+                // support for defining and updating linkUrl (page redirect)
+                if ((data["attributes"]["link-url"]) && data["attributes"]["link-url"] != '') {
+                  page.metadata.linkUrl = sanitizeURLValue(
+                    data["attributes"]["link-url"],
+                    ''
+                  );
+                }
+                // they sent across nothing but we had something previously
+                else if ((page.metadata.linkUrl)) {
+                  delete page.metadata.linkUrl;
+                }
+                // support for defining and updating linkTarget (redirect window target)
+                if ((data["attributes"]["link-target"]) && data["attributes"]["link-target"] != '') {
+                  page.metadata.linkTarget = sanitizeMetadataValue(
+                    data["attributes"]["link-target"]
+                  );
+                }
+                // they sent across nothing but we had something previously
+                else if ((page.metadata.linkTarget)) {
+                  delete page.metadata.linkTarget;
+                }
                 if (!(data["attributes"]["locked"])) {
                   page.metadata.locked = false;
                 }
