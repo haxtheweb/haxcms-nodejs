@@ -22,7 +22,12 @@ async function importPptxDeck(req, res) {
       return res.status(400).json({ status: 400, data: { error: `Invalid file type. Expected .pptx, got: ${filename}` } });
     }
 
-    const buffer = fs.readFileSync(file.path);
+    let buffer;
+    try {
+      buffer = fs.readFileSync(file.path);
+    } catch (e) {
+      return res.status(400).json({ status: 400, data: { error: `Unable to read uploaded file: ${e.message}` } });
+    }
     if (!buffer || buffer.length === 0) {
       return res.status(400).json({ status: 400, data: { error: 'Uploaded file is empty' } });
     }
@@ -65,13 +70,25 @@ async function importPptxDeck(req, res) {
       fs.writeFileSync(path.join(deckDir, destName), extracted.buffer);
     }
 
+    // convertSlideToHTML() (via getOrCreateImageReference) embeds image src
+    // paths as "files/pptx-media/<name>" - a fixed, deck-agnostic location.
+    // Actual files are written above into this deck's own folder instead
+    // (avoids collisions between separate deck imports on the same site), so
+    // slide HTML must be rewritten to match where the files actually landed.
+    const deckSlides = manifest.slides.map((slide) => ({
+      ...slide,
+      html: typeof slide.html === 'string'
+        ? slide.html.replace(/files\/pptx-media\//g, `files/decks/${deckName}/`)
+        : slide.html,
+    }));
+
     const deckManifest = {
       title: deckName,
       source: filename,
       pptx: `files/decks/${deckName}/original.pptx`,
       thumbnail: null,
       renderTier: 'client',
-      slides: manifest.slides,
+      slides: deckSlides,
     };
     fs.writeFileSync(path.join(deckDir, 'deck.json'), JSON.stringify(deckManifest, null, 2));
 

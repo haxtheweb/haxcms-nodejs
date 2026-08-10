@@ -126,6 +126,53 @@ async function createMinimalPptxBuffer() {
   return zip.generateAsync({ type: 'nodebuffer' })
 }
 
+// a well-known, minimal valid 1x1 transparent PNG
+const MINIMAL_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+
+// builds a real (single-slide) .pptx whose slide contains an actual embedded
+// image, so tests can verify the deck.json image path actually matches where
+// the extracted file gets written on disk (regression coverage for the
+// files/pptx-media/ vs files/decks/<name>/ path-mismatch bug).
+async function createPptxBufferWithImage() {
+  const zip = new JSZip()
+  zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
+  <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
+</Types>`)
+  zip.folder('_rels').file('.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>`)
+  zip.folder('ppt').file('presentation.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <p:sldIdLst><p:sldId id="256" r:id="rIdSlide1"/></p:sldIdLst>
+</p:presentation>`)
+  zip.folder('ppt/slides').file('slide1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:sp>
+        <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+        <p:txBody><a:p><a:r><a:t>Slide with an image</a:t></a:r></a:p></p:txBody>
+      </p:sp>
+      <p:pic>
+        <p:blipFill><a:blip r:embed="rId2"/></p:blipFill>
+      </p:pic>
+    </p:spTree>
+  </p:cSld>
+</p:sld>`)
+  zip.folder('ppt/slides/_rels').file('slide1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
+</Relationships>`)
+  zip.folder('ppt/media').file('image1.png', Buffer.from(MINIMAL_PNG_BASE64, 'base64'))
+  return zip.generateAsync({ type: 'nodebuffer' })
+}
+
 async function sendHttpRequest(requestConfig) {
   const response = await axios({
     method: requestConfig.method,
@@ -1314,6 +1361,41 @@ test('system actions endpoints conformance', async (t) => {
     )
     assert.ok(Array.isArray(body.data.manifest && body.data.manifest.slides), 'Expected slides array in manifest')
     assert.equal(body.data.manifest.pptx, 'files/decks/Sample-Deck/original.pptx')
+  })
+
+  await t.test('import-pptx-deck rewrites slide image src to match where the file is actually written', async () => {
+    const deckSiteName = `pptx-deck-image-harness-${Date.now()}`
+    await createHarnessSite(runtime.baseUrl, runtime.jwt, runtime.dashboardSettings, deckSiteName)
+
+    const pptxBuffer = await createPptxBufferWithImage()
+    const multipart = buildMultipartBody({
+      fileName: 'Deck With Image.pptx',
+      fileContents: pptxBuffer,
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      extraFields: { siteName: deckSiteName },
+    })
+    const result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 200, `Expected 200, got ${result.status}: ${result.bodyText}`)
+    const body = JSON.parse(result.bodyText)
+    const slides = body.data.manifest.slides
+    assert.equal(slides.length, 1, 'Expected exactly one slide')
+
+    const imgSrcMatch = String(slides[0].html).match(/<img src="([^"]+)"/)
+    assert.ok(imgSrcMatch, 'Expected an <img> tag in the slide html')
+    const imgSrc = imgSrcMatch[1]
+
+    // the src must NOT still point at the converter's deck-agnostic default
+    // location - this is exactly the bug found in code review
+    assert.ok(
+      imgSrc.indexOf('files/pptx-media/') === -1,
+      `Expected image src to be rewritten away from files/pptx-media/, got: ${imgSrc}`,
+    )
+    assert.equal(imgSrc, 'files/decks/Deck-With-Image/slide-1-image-1.png')
   })
 
   await t.test('actions endpoints are listed in system OpenAPI spec', async () => {
