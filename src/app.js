@@ -56,8 +56,15 @@ var helmetPolicies = {
 // 'unsafe-inline' for scripts is dropped on the backend-served path in favor
 // of per-response nonces (cspNonceMiddleware). 'unsafe-inline' stays for
 // styleSrc because inline <style> blocks and the DDD design system rely on it.
+// The YouTube IFrame API (loaded from www.youtube.com by a11y-media-youtube
+// when video-player embeds a YouTube video) injects a small inline script
+// into the page at runtime that we cannot nonce (it is Google's code, not
+// ours). The sha256 hash below allowlists that specific inline script so
+// YouTube playback works under the nonce CSP without re-adding
+// 'unsafe-inline'. If YouTube rotates that script the hash will need updating
+// (the browser reports the new hash in the CSP violation console message).
 var cspBaseDirectives = {
-  scriptSrc: ["'self'", "'unsafe-eval'", "'wasm-unsafe-eval'", "www.youtube.com"],
+  scriptSrc: ["'self'", "'unsafe-eval'", "'wasm-unsafe-eval'", "www.youtube.com", "'sha256-8eohedfRaQoWnH7igD20HvjedM7lPcYbqukJ7DEpMOk='"],
   styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
   mediaSrc: ["'self'", "data:", "https:"],
   imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
