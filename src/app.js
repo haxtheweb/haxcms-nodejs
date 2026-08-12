@@ -3091,6 +3091,11 @@ function replaceSiteBuilderContent(indexFile = '', pageContent = '') {
 
 function injectDevReloadScript(indexFile = '', port = 3000) {
   let output = String(indexFile || '');
+  // dev-reload websocket only makes sense (and only has a server-side
+  // listener) when running in development; never inject it otherwise.
+  if (process.env.NODE_ENV !== "development") {
+    return output;
+  }
   if (output.indexOf('data-haxcms-dev-reload') !== -1) {
     return output;
   }
