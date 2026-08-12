@@ -434,7 +434,9 @@ async function htmlToPdfBuffer(html, base = '/') {
         sanitized = `<head>${baseTag}</head>${sanitized}`;
       }
     }
-    await page.setContent(sanitized, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Wait for network to be idle (images/fonts loaded) before printing,
+    // otherwise relative images resolved via <base> may not have rendered yet.
+    await page.setContent(sanitized, { waitUntil: 'networkidle0', timeout: 30000 });
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,

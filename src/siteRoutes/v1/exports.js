@@ -143,6 +143,24 @@ function getExportMediaType(format = 'pdf') {
   return 'application/octet-stream'
 }
 
+/**
+ * Build an absolute http(s):// URL to use as the <base> for PDF export so
+ * relative image/resource URLs resolve when Puppeteer renders the page.
+ * Falls back to the site-relative base path when no Host header is available
+ * (e.g. CLI context). Mirrors app.js getRequestAbsoluteUrl by delegating to
+ * HAXCMS.resolveTrustedProtocol / resolveTrustedHost for trust-proxy +
+ * allowedHosts safety.
+ */
+function buildAbsoluteSiteBaseUrl(req, site) {
+  const siteBasePath = getSiteBasePath(site)
+  const protocol = HAXCMS.resolveTrustedProtocol(req)
+  const host = HAXCMS.resolveTrustedHost(req)
+  if (host === '') {
+    return siteBasePath
+  }
+  return protocol + '://' + host + siteBasePath
+}
+
 async function convertHtmlToDownloadBuffer(format = 'pdf', html = '', base = '/') {
   const normalizedFormat = normalizeFormatValue(format)
   if (normalizedFormat === 'docx') {
@@ -348,6 +366,18 @@ function normalizeHtmlForDocumentExport(html, basePath, items, mode = 'epub') {
       videoUrl = resolveUrlForEpub(source, basePath)
     } else if (src) {
       videoUrl = resolveUrlForEpub(src, basePath)
+    }
+
+    // PDF print cannot render iframe/embed content; replace with a clickable
+    // link so the video reference is preserved instead of an empty box.
+    if (mode === 'pdf') {
+      if (videoUrl) {
+        const link = `<p><a href="${escapeHtmlValue(videoUrl)}">${escapeHtmlValue(videoUrl)}</a></p>`
+        el.replaceWith(link)
+      } else {
+        el.remove()
+      }
+      continue
     }
 
     if (videoUrl) {
@@ -775,8 +805,17 @@ async function siteExport(req, res) {
             html = normalizeHtmlForDocumentExport(html, getSiteBasePath(site), getOrderedItems(site), 'docx')
           }
           catch (e) {}
+          outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site))
+        } else {
+          // format === 'pdf': normalize so media-image/simple-img become <img>,
+          // and pass an absolute base URL so relative image srcs resolve in Puppeteer.
+          const pdfBase = buildAbsoluteSiteBaseUrl(req, site)
+          try {
+            html = normalizeHtmlForDocumentExport(html, pdfBase, getOrderedItems(site), 'pdf')
+          }
+          catch (e) {}
+          outputBuffer = await convertHtmlToDownloadBuffer(format, html, pdfBase)
         }
-        outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site))
       }
     }
     catch (e) {
@@ -896,15 +935,18 @@ async function itemExport(req, res) {
         },
       })
     }
-    if (format === 'docx') {
-      try {
-        html = normalizeHtmlForDocumentExport(html, getSiteBasePath(site), getOrderedItems(site), 'docx')
-      }
-      catch (e) {}
+    // pdf uses an absolute base URL so relative image srcs resolve in Puppeteer;
+    // docx keeps the site-relative base (html-to-docx embeds images directly).
+    const exportBase = format === 'pdf'
+      ? buildAbsoluteSiteBaseUrl(req, site)
+      : getSiteBasePath(site)
+    try {
+      html = normalizeHtmlForDocumentExport(html, exportBase, getOrderedItems(site), format)
     }
+    catch (e) {}
     let outputBuffer = null
     try {
-      outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site))
+      outputBuffer = await convertHtmlToDownloadBuffer(format, html, exportBase)
     }
     catch (e) {
       return res.status(e && e.status ? e.status : 502).json({
