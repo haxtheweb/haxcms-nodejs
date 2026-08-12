@@ -1,6 +1,6 @@
 module.exports = {
     plugins: ['babel-plugin-transform-dynamic-import'],
-    ignore: ['./src/boilerplate/**/*', './src/public/**/*', './src/public/*'],
+    ignore: ['./src/boilerplate/**/*', './src/public/**/*', './src/public/*', './src/lib/vendor/pptx-in-html-out/**/*'],
     presets: [
       [
         '@babel/env',
