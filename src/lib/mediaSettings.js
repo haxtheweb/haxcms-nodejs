@@ -5,6 +5,14 @@ const MIN_JPEG_QUALITY = 1;
 const MAX_JPEG_QUALITY = 100;
 const MIN_UPLOAD_SIZE_MB = 1;
 const MAX_UPLOAD_SIZE_MB = 10240;
+const DEFAULT_JPEG_QUALITY = 80;
+const DEFAULT_MAX_UPLOAD_SIZE_MB = 1024;
+const DEFAULT_ACCEPTED_FORMATS = 'jpg,jpeg,png,gif,webp,svg';
+const DEFAULT_MEDIA_SETTINGS = {
+  jpegQuality: DEFAULT_JPEG_QUALITY,
+  maxUploadSizeMb: DEFAULT_MAX_UPLOAD_SIZE_MB,
+  acceptedFormats: DEFAULT_ACCEPTED_FORMATS,
+};
 
 function getMediaSettingsFilePath(haxcms) {
   const configDirectory = (
@@ -93,6 +101,19 @@ function normalizeMediaSettings(input = {}) {
   };
 }
 
+function getEffectiveMediaSettings(settings = {}) {
+  const source = (
+    settings &&
+    typeof settings === 'object' &&
+    !Array.isArray(settings)
+  ) ? settings : {};
+  return {
+    jpegQuality: source.jpegQuality == null ? DEFAULT_JPEG_QUALITY : source.jpegQuality,
+    maxUploadSizeMb: source.maxUploadSizeMb == null ? DEFAULT_MAX_UPLOAD_SIZE_MB : source.maxUploadSizeMb,
+    acceptedFormats: source.acceptedFormats == null ? DEFAULT_ACCEPTED_FORMATS : source.acceptedFormats,
+  };
+}
+
 function hasSupportedMediaSettingsPayload(input = {}) {
   const source = (
     input &&
@@ -156,6 +177,8 @@ module.exports = {
   normalizeMaxUploadSizeMb,
   normalizeAcceptedFormats,
   normalizeMediaSettings,
+  getEffectiveMediaSettings,
+  DEFAULT_MEDIA_SETTINGS,
   hasSupportedMediaSettingsPayload,
   readMediaSettings,
   writeMediaSettings,

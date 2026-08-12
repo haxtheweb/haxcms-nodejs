@@ -1,5 +1,5 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const { readMediaSettings } = require('../../../lib/mediaSettings.js');
+const { readMediaSettings, getEffectiveMediaSettings } = require('../../../lib/mediaSettings.js');
 
 /**
  * @OA\Post(
@@ -16,7 +16,7 @@ async function getMediaSettings(req, res) {
     const mediaSettings = await readMediaSettings(HAXCMS);
     return res.json({
       status: 200,
-      data: mediaSettings,
+      data: getEffectiveMediaSettings(mediaSettings),
     });
   }
   catch (e) {

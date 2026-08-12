@@ -2296,9 +2296,9 @@ test('system API route groups match normalized v1 path structure', async () => {
     getMediaSettings: '/system/api/v1/configuration/media',
     schemaFileOperation: '/system/api/v1/configuration/schema-files/operations',
     systemThemesGet: '/system/api/v1/themes',
-    saveEnabledThemesPost: '/system/api/v1/themes',
+    saveEnabledThemesPatch: '/system/api/v1/themes',
     systemBlocksGet: '/system/api/v1/blocks',
-    saveEnabledBlocksPost: '/system/api/v1/blocks',
+    saveEnabledBlocksPatch: '/system/api/v1/blocks',
     systemSkeletonsPost: '/system/api/v1/skeletons',
     saveEnabledSkeletonsPatch: '/system/api/v1/skeletons',
   }

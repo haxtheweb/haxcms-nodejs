@@ -1111,7 +1111,6 @@ paths:
       summary: Return available system skeletons
       security:
         - bearerAuth: []
-          userTokenHeader: []
       responses:
         "200":
           description: Available skeleton list
@@ -1142,7 +1141,6 @@ paths:
         written by the single authenticated dashboard user.
       security:
         - bearerAuth: []
-          userTokenHeader: []
       responses:
         "200":
           description: Available skeleton list
