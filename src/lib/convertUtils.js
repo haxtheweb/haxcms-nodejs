@@ -2,6 +2,88 @@ const { parse } = require('node-html-parser');
 const HTMLtoDOCX = require('html-to-docx');
 
 /**
+ * Run async work over a list with bounded concurrency, so validating a large
+ * number of remote images (e.g. an entire site export) doesn't open hundreds
+ * of simultaneous connections.
+ */
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const current = cursor;
+      cursor += 1;
+      results[current] = await fn(items[current], current);
+    }
+  }
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = [];
+  for (let i = 0; i < workerCount; i++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * Check whether a remote URL actually resolves to image bytes. Authored
+ * content can reference URLs that 200-redirect into an unrelated HTML page
+ * (e.g. an auth/login flow) rather than 404ing, which would otherwise reach
+ * html-to-docx's image embedder and throw an opaque "unsupported file type:
+ * undefined" error that aborts the entire export.
+ */
+async function isRemoteImageUrl(url, timeoutMs = 8000) {
+  try {
+    const axios = require('axios');
+    const response = await axios.get(url, {
+      timeout: timeoutMs,
+      maxRedirects: 5,
+      responseType: 'arraybuffer',
+      validateStatus: () => true,
+    });
+    if (response.status < 200 || response.status >= 300) {
+      return false;
+    }
+    const contentType = String(
+      (response.headers && response.headers['content-type']) || '',
+    ).toLowerCase();
+    return contentType.indexOf('image/') === 0;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Remove <img> tags whose remote src does not resolve to actual image bytes,
+ * so a single broken/redirected image reference cannot abort the whole DOCX
+ * conversion. Local/data-URI images are left untouched.
+ */
+async function stripUnreachableRemoteImages(html) {
+  if (!html) {
+    return html;
+  }
+  let doc;
+  try {
+    doc = parse(html);
+  } catch (e) {
+    return html;
+  }
+  const images = doc.querySelectorAll('img').filter((img) =>
+    /^https?:\/\//i.test(img.getAttribute('src') || ''),
+  );
+  if (images.length === 0) {
+    return html;
+  }
+  await mapWithConcurrency(images, 8, async (img) => {
+    const valid = await isRemoteImageUrl(img.getAttribute('src'));
+    if (!valid) {
+      img.remove();
+    }
+  });
+  return doc.toString();
+}
+
+/**
  * Convert HTML string to a DOCX Buffer.
  * Shared between the system route handler and site export.
  */
@@ -16,6 +98,13 @@ async function convertHtmlToDocxBuffer(html) {
 
   if (!sanitized) {
     sanitized = '<p>No content available</p>';
+  }
+
+  try {
+    sanitized = await stripUnreachableRemoteImages(sanitized);
+  } catch (e) {
+    // Non-fatal: fall through with the original HTML if the validation pass
+    // itself fails for any reason.
   }
 
   const options = {

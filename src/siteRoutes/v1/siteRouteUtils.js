@@ -1405,4 +1405,6 @@ module.exports = {
   isAnonymousSiteApiRequest,
   isSiteApiRequestAuthenticated,
   applyItemFilters,
+  escapeHtmlValue,
+  escapeXmlValue,
 };
