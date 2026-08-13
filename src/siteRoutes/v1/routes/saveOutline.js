@@ -3,6 +3,7 @@ const path = require('path');
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
 const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
+const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 /**
    * @OA\Post(
@@ -92,10 +93,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
         if (item.metadata && item.metadata.overridePathauto === true) {
           overridePathauto = true;
         }
-        let pathautoEnabled = false;
-        if (site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.settings && site.manifest.metadata.site.settings.pathauto) {
-          pathautoEnabled = true;
-        }
+        let pathautoEnabled = isPathautoEnabled(site);
         // Determine slug based on pathauto and overridePathauto
         if (pathautoEnabled && !overridePathauto) {
           // Pathauto is on and user has not overridden: auto-generate from title
@@ -130,7 +128,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
                     tmpItem.slug != ''
                 ) {
                     // core support for automatically managing paths to make them nice
-                    if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto && !overridePathauto) {
+                    if (pathautoEnabled && !overridePathauto) {
                         moved = true;
                         page.slug = normalizeOutlineSlug(
                           site,
@@ -151,10 +149,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
               !moved &&
               !fs.existsSync(site.siteDirectory + '/' + page.location)
           ) {
-                let pAuto = false;
-                if (typeof site.manifest.metadata.site.settings.pathauto !== 'undefined' && site.manifest.metadata.site.settings.pathauto && !overridePathauto) {
-                  pAuto = true;
-                }
+                let pAuto = pathautoEnabled && !overridePathauto;
                 let tmpTitle = normalizeOutlineSlug(site, cleanTitle, page, pAuto);
                 page.location = 'pages/' + page.id + '/index.html';
                 page.slug = tmpTitle;

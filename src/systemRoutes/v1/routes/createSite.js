@@ -826,6 +826,9 @@ async function createSite(req, res) {
     if (typeof schema.metadata.site.settings.canonical === 'undefined') {
       schema.metadata.site.settings.canonical = true;
     }
+    if (typeof schema.metadata.site.settings.pathauto === 'undefined') {
+      schema.metadata.site.settings.pathauto = true;
+    }
     schema.metadata.site.created = Math.floor(Date.now() / 1000);
     schema.metadata.site.updated = Math.floor(Date.now() / 1000);
     // check for publishing settings being set globally in HAXCMS

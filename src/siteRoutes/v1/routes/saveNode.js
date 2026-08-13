@@ -8,6 +8,7 @@ const {
   sanitizeMetadataValue,
 } = require('../../../lib/sanitizeContent.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
+const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
 /**
    * @OA\Post(
    *    path="/saveNode",
@@ -148,9 +149,6 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
                   const val = data["attributes"]['override-pathauto'];
                   page.metadata.overridePathauto = val !== false && val !== 'false';
                 }
-                else {
-                  page.metadata.overridePathauto = false;
-                }
                 if ((data["attributes"]["slug"])) {
                   // account for x being the only front end reserved route
                   if (data["attributes"]["slug"] == "x") {
@@ -194,7 +192,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
                   page.order = parseInt(data["attributes"]["order"]);
                 }
                 // If pathauto is enabled and overridePathauto is not set, regenerate the slug from the title
-                const pathautoEnabled = site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.settings && site.manifest.metadata.site.settings.pathauto === true;
+                const pathautoEnabled = isPathautoEnabled(site);
                 if (pathautoEnabled && !page.metadata.overridePathauto) {
                   const cleanTitle = HAXCMS.cleanTitle(page.title);
                   page.slug = site.getUniqueSlugName(cleanTitle, page, true);

@@ -283,6 +283,15 @@ function applyOutlineMutation(site, page, items = [], details = {}, operation = 
           page.order = getLastChildOrder(items, previous.id) + 1;
         }
       }
+      // If pathauto is on and overridePathauto is not set, regenerate the slug and cascade
+      if (isPathautoEnabled(site) && !isOverridePathauto(page)) {
+        const cleanTitle = HAXCMS.cleanTitle(page.title);
+        page.slug = site.getUniqueSlugName(cleanTitle, page, true);
+        if (items) {
+          site.manifest.items = items;
+          cascadeSlugUpdates(site, items, [page.id]);
+        }
+      }
       break;
     case 'outdent':
       if (page.parent !== undefined && page.parent !== null) {
@@ -307,6 +316,15 @@ function applyOutlineMutation(site, page, items = [], details = {}, operation = 
         page.indent =
           page.indent !== undefined ? Math.max(parseInt(page.indent) - 1, 0) : 0;
         page.order = insertAfterOrder;
+      }
+      // If pathauto is on and overridePathauto is not set, regenerate the slug and cascade
+      if (isPathautoEnabled(site) && !isOverridePathauto(page)) {
+        const cleanTitle = HAXCMS.cleanTitle(page.title);
+        page.slug = site.getUniqueSlugName(cleanTitle, page, true);
+        if (items) {
+          site.manifest.items = items;
+          cascadeSlugUpdates(site, items, [page.id]);
+        }
       }
       break;
     case 'setParent':
@@ -409,4 +427,5 @@ module.exports = {
   applyNodeDetailOperation,
   PAGE_DETAIL_OPERATIONS,
   createStatusError,
+  isPathautoEnabled,
 };
