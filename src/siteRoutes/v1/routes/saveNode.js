@@ -149,6 +149,12 @@ const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
                   const val = data["attributes"]['override-pathauto'];
                   page.metadata.overridePathauto = val !== false && val !== 'false';
                 }
+                else {
+                  // attribute absent means the user unchecked the override toggle
+                  // (Lit reflect removes the attribute when the Boolean is false).
+                  // Clear it so the page returns to automatic slug behavior.
+                  page.metadata.overridePathauto = false;
+                }
                 if ((data["attributes"]["slug"])) {
                   // account for x being the only front end reserved route
                   if (data["attributes"]["slug"] == "x") {
