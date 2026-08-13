@@ -477,6 +477,26 @@ class HAXCMSSite
       return basePath + this.manifest.metadata.site.name + '/';
     }
     /**
+     * Detect a legacy (@lrnwebcomponents) bootstrap in index.html and rebuild
+     * managed files once to upgrade it. Self-extinguishing: the rebuild copies
+     * in the modern (@haxtheweb) boilerplate so the tell is gone next load.
+     */
+    async maybeUpgradeLegacyBootstrap() {
+      try {
+        const indexPath = this.siteDirectory + '/index.html';
+        if (!fs.pathExistsSync(indexPath)) {
+          return;
+        }
+        const indexHtml = fs.readFileSync(indexPath, 'utf8');
+        if (!indexHtml || indexHtml.indexOf('@lrnwebcomponents') === -1) {
+          return;
+        }
+        await this.rebuildManagedFiles();
+        await this.gitCommit('Managed files upgraded: legacy bootstrap');
+      }
+      catch (e) {}
+    }
+    /**
      * Reprocess the files that twig helps set in their static
      * form that the user is not in control of.
      */
@@ -3371,6 +3391,7 @@ class HAXCMSClass {
           await site.load(this.HAXCMS_ROOT + this.sitesDirectory,
               this.basePath + this.sitesDirectory + '/',
               tmpname);
+          await site.maybeUpgradeLegacyBootstrap();
           return site;
       }
       else if (create) {
