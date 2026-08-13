@@ -279,6 +279,27 @@ function htmlFromEl(el) {
       <simple-img width="300" src="${textValue}"></simple-img>
     </a11y-gif-player>`;
   }
+  // audio (mp3 / wav / ogg / m4a / flac / aac / mid / midi)
+  else if (
+    validURL(textValue) &&
+    (textValue.toLowerCase().includes('.mp3') ||
+      textValue.toLowerCase().includes('.wav') ||
+      textValue.toLowerCase().includes('.ogg') ||
+      textValue.toLowerCase().includes('.m4a') ||
+      textValue.toLowerCase().includes('.flac') ||
+      textValue.toLowerCase().includes('.aac') ||
+      textValue.toLowerCase().includes('.mid') ||
+      textValue.toLowerCase().includes('.midi'))
+  ) {
+    return `<audio-player source="${textValue}"></audio-player>`;
+  }
+  // pdf
+  else if (
+    validURL(textValue) &&
+    textValue.toLowerCase().includes('.pdf')
+  ) {
+    return `<pdf-browser-viewer file="${textValue}" width="100%"></pdf-browser-viewer>`;
+  }
   else if (textValue.startsWith('[') && textValue.endsWith(']')) {
     let tmp = textValue.split(':');
     if (tmp.length > 1) {
@@ -324,6 +345,27 @@ function htmlFromEl(el) {
       return `<a11y-gif-player src="${textValue}" style="width: 300px;">
         <simple-img width="300" src="${textValue}"></simple-img>
       </a11y-gif-player>`;
+    }
+    // audio (mp3 / wav / ogg / m4a / flac / aac / mid / midi)
+    else if (
+      validURL(textValue) &&
+      (textValue.toLowerCase().includes('.mp3') ||
+        textValue.toLowerCase().includes('.wav') ||
+        textValue.toLowerCase().includes('.ogg') ||
+        textValue.toLowerCase().includes('.m4a') ||
+        textValue.toLowerCase().includes('.flac') ||
+        textValue.toLowerCase().includes('.aac') ||
+        textValue.toLowerCase().includes('.mid') ||
+        textValue.toLowerCase().includes('.midi'))
+    ) {
+      return `<audio-player source="${textValue}"></audio-player>`;
+    }
+    // pdf
+    else if (
+      validURL(textValue) &&
+      textValue.toLowerCase().includes('.pdf')
+    ) {
+      return `<pdf-browser-viewer file="${textValue}" width="100%"></pdf-browser-viewer>`;
     }
     else {
       return `<place-holder type="text" text="${textValue}"></place-holder>`;

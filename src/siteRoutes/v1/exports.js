@@ -710,6 +710,10 @@ function buildSiteExportDetails(site, apiBasePath = '/x/api', format = '') {
   const siteBasePath = getSiteBasePath(site)
   const systemApiBasePath = getSystemApiBasePath(apiBasePath)
   const normalizedFormat = normalizeFormatValue(format)
+  const siteName =
+    site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.name
+      ? String(site.manifest.metadata.site.name)
+      : ''
   const exportDescriptors = {
     markdown: {
       rel: 'download',
@@ -719,8 +723,9 @@ function buildSiteExportDetails(site, apiBasePath = '/x/api', format = '') {
     zip: {
       rel: 'download',
       mediaType: 'application/zip',
-      href: `${siteBasePath}?download-site=true`,
-      authenticatedEndpoint: `${systemApiBasePath}/downloadSite`,
+      href: `${systemApiBasePath}/v1/sites/${encodeURIComponent(siteName)}/download`,
+      authenticatedEndpoint: `${systemApiBasePath}/v1/sites/${encodeURIComponent(siteName)}/download`,
+      method: 'POST',
     },
     pdf: {
       rel: 'download',
@@ -746,8 +751,8 @@ function buildSiteExportDetails(site, apiBasePath = '/x/api', format = '') {
     skeleton: {
       rel: 'download',
       mediaType: 'application/json',
-      href: `${systemApiBasePath}/downloadSiteSkeleton`,
-      authenticatedEndpoint: `${systemApiBasePath}/downloadSiteSkeleton`,
+      href: `${systemApiBasePath}/v1/sites/${encodeURIComponent(siteName)}/download-skeleton`,
+      authenticatedEndpoint: `${systemApiBasePath}/v1/sites/${encodeURIComponent(siteName)}/download-skeleton`,
       method: 'POST',
     },
   }
