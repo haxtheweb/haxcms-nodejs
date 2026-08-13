@@ -399,7 +399,7 @@ class HAXCMSSite
      * @return string status of forced upgrade, string as boolean since it'll get written into a JS file
      */
     getForceUpgrade() {
-        if (this.manifest.metadata.site.settings.forceUpgrade) {
+        if (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.forceUpgrade) {
             return "true";
         }
         return "false";
@@ -409,7 +409,7 @@ class HAXCMSSite
      * @return string status of forced upgrade, string as boolean since it'll get written into a JS file
      */
     getServiceWorkerStatus() {
-        if ((this.manifest.metadata.site.settings.sw) && this.manifest.metadata.site.settings.sw) {
+        if (this.manifest.metadata.site.settings && (this.manifest.metadata.site.settings.sw) && this.manifest.metadata.site.settings.sw) {
             return true;
         }
         return false;
@@ -537,7 +537,7 @@ class HAXCMSSite
           'domain': domain,
           'title': this.manifest.title,
           'short': this.manifest.metadata.site.name,
-          'privateSite' : this.manifest.metadata.site.settings.private,
+          'privateSite' : (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.private) ? this.manifest.metadata.site.settings.private : false,
           'description': this.manifest.description,
           'forceUpgrade': this.getForceUpgrade(),
           'swhash': [],
@@ -2363,7 +2363,7 @@ class HAXCMSSite
               for (var key in coreFields.configure) {
                 let item = coreFields.configure[key];
                 // edge case for pathauto
-                if (item.property == 'location' && (this.manifest.metadata.site.settings.pathauto) && this.manifest.metadata.site.settings.pathauto) {
+                if (item.property == 'location' && (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.pathauto) && this.manifest.metadata.site.settings.pathauto) {
                   // skip this core field if we have pathauto on
                   item.required = false;
                   item.disabled = true;
