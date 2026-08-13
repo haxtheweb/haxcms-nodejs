@@ -12,6 +12,26 @@ const explodeImport = require('locutus/php/strings/explode');
 const HAXCMS_ROOT = process.env.HAXCMS_ROOT || path.join(process.cwd(), "/");
 const HAXCMS_DEFAULT_THEME = 'clean-two';
 const HAXCMS_FALLBACK_HEX = '#3f51b5';
+// Scoped .htaccess written into every site's .well-known/agent-skills/ dir.
+// CORS open so browser-based agents on other origins can fetch the index +
+// skills; script-execution hardening so a slipped-through script file can never
+// run server-side. The discovery index only ships .md/.json/.txt; this is
+// defense in depth. Harmless on Node/static-hosted sites (ignored).
+const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskills.io v0.2.0)
+# CORS: open so browser-based agents on other origins can fetch the index + skills.
+<IfModule mod_headers.c>
+  Header set Access-Control-Allow-Origin "*"
+  Header set Vary "Origin"
+</IfModule>
+# Defense in depth: the discovery index only ships .md/.json/.txt, but harden
+# so a slipped-through script file can never execute server-side here.
+<FilesMatch "\.(php|phtml|php[3-7]|phps|pht|sh|cgi|pl|py)$">
+  php_flag engine off
+  RemoveHandler .php .phtml .php3 .php4 .php5 .php7
+  SetHandler text/plain
+  ForceType text/plain
+</FilesMatch>
+`;
 const SITE_FILE_NAME = 'site.json';
 // Security (H1 rotation): grace window in seconds during which the immediately
 // previous refresh-token jti is still accepted, so concurrent multi-tab
@@ -474,6 +494,13 @@ class HAXCMSSite
         }
         await fs.copySync(HAXCMS.boilerplatePath + "/site/" + templates[key], destinationPath);
       }
+      // agent-skills discovery index + curated skill files (agentskills.io v0.2.0).
+      // Pre-curated by ubiquity into the boilerplate; explicit per-file copy with
+      // sha256 verification, no filtering, no site.json reads. Best-effort.
+      try {
+        await this.rebuildAgentSkills();
+      }
+      catch (e) {}
       let licenseData = this.getLicenseData('all');
       let licenseLink = '';
       let licenseName = '';
@@ -634,6 +661,91 @@ class HAXCMSSite
         await this.updateAlternateFormats('llms');
       }
       catch (e) {}
+    }
+    /**
+     * Copy the boilerplate .well-known/agent-skills/ directory into the site.
+     * The boilerplate dir is pre-curated by ubiquity (site set only), so this
+     * does NO filtering and reads NO site.json. For each skill in the boilerplate
+     * index.json, copy SKILL.md + every files[] entry individually (flat copy,
+     * no recursion) with sha256 verification against the declared digest. Only
+     * .md / .json / .txt extensions are copied (defense in depth). Best-effort:
+     * a digest mismatch or missing file warns and continues; agent-skills never
+     * blocks a site save. Silent no-op if the boilerplate agent-skills index is
+     * absent (e.g. before ubiquity has populated it). Also writes a scoped
+     * .htaccess (CORS + script-execution hardening) for Apache-hosted sites.
+     */
+    async rebuildAgentSkills() {
+      let boilerAS = HAXCMS.boilerplatePath + '/site/.well-known/agent-skills';
+      let boilerIndex = boilerAS + '/index.json';
+      if (!fs.pathExistsSync(boilerIndex)) {
+        // ubiquity hasn't populated agent-skills yet; nothing to do
+        return;
+      }
+      let index;
+      try {
+        index = JSON.parse(fs.readFileSync(boilerIndex, 'utf8'));
+      } catch (e) {
+        return;
+      }
+      if (!index || !Array.isArray(index.skills)) {
+        return;
+      }
+      let siteAS = this.siteDirectory + '/.well-known/agent-skills';
+      // clean the site agent-skills dir so removed skills don't linger
+      try {
+        fs.removeSync(siteAS);
+      } catch (e) {}
+      fs.mkdirpSync(siteAS);
+      // scoped .htaccess: CORS + script-execution hardening (harmless on Node/static)
+      fs.writeFileSync(siteAS + '/.htaccess', HAXCMS_AGENT_SKILLS_HTACCESS);
+      // copy the index through verbatim
+      try {
+        fs.copySync(boilerIndex, siteAS + '/index.json');
+      } catch (e) {}
+      let allowedAuxExt = { md: true, json: true, txt: true };
+      for (let i = 0; i < index.skills.length; i++) {
+        let skill = index.skills[i];
+        if (!skill || !skill.name || !skill.url) {
+          continue;
+        }
+        // skill.url is relative, e.g. "hax-site-structure/SKILL.md"
+        let skillMdBoiler = boilerAS + '/' + skill.url;
+        let skillMdSite = siteAS + '/' + skill.url;
+        if (fs.pathExistsSync(skillMdBoiler)) {
+          let bytes = fs.readFileSync(skillMdBoiler);
+          let hash = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
+          if (skill.digest && hash === skill.digest) {
+            fs.mkdirpSync(path.dirname(skillMdSite));
+            fs.writeFileSync(skillMdSite, bytes);
+          } else {
+            console.warn('agent-skills: digest mismatch for ' + skill.url + ', skipping');
+          }
+        }
+        if (Array.isArray(skill.files)) {
+          for (let j = 0; j < skill.files.length; j++) {
+            let f = skill.files[j];
+            if (!f || !f.path) {
+              continue;
+            }
+            let ext = String(f.path).split('.').pop().toLowerCase();
+            if (!allowedAuxExt[ext]) {
+              continue;
+            }
+            let fBoiler = boilerAS + '/' + skill.name + '/' + f.path;
+            let fSite = siteAS + '/' + skill.name + '/' + f.path;
+            if (fs.pathExistsSync(fBoiler)) {
+              let bytes = fs.readFileSync(fBoiler);
+              let hash = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
+              if (f.digest && hash === f.digest) {
+                fs.mkdirpSync(path.dirname(fSite));
+                fs.writeFileSync(fSite, bytes);
+              } else {
+                console.warn('agent-skills: digest mismatch for ' + skill.name + '/' + f.path + ', skipping');
+              }
+            }
+          }
+        }
+      }
     }
     /**
      * Rename a page from one location to another
@@ -967,6 +1079,7 @@ class HAXCMSSite
       lines.push('- [RSS feed](' + this.getLLMSResourceURL(domain, 'rss.xml') + '): Site updates in RSS format.');
       lines.push('- [Atom feed](' + this.getLLMSResourceURL(domain, 'atom.xml') + '): Site updates in Atom format.');
       lines.push('- [Sitemap](' + this.getLLMSResourceURL(domain, 'sitemap.xml') + '): URL-level discovery map for the published site.');
+      lines.push('- [Agent skills](' + this.getLLMSResourceURL(domain, '.well-known/agent-skills/index.json') + '): Agent Skills discovery index (agentskills.io v0.2.0) listing skills that teach an agent how to read, author, audit, and remix this site.');
       return lines.join('\n') + '\n';
     }
     /**
@@ -1937,6 +2050,7 @@ class HAXCMSSite
   <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
   <link rel="llms" href="llms.txt" title="LLM Content Map" />
   <link rel="alternate" type="text/markdown" href="llms.txt" title="Markdown Summary" />
+  <link rel="https://agentskills.io/rels/skills-index" type="application/json" href=".well-known/agent-skills/index.json" title="Agent Skills Discovery Index" />
   <meta name="generator" content="HAXcms">
   ${canonical}${prevResource}${nextResource}
   <link rel="manifest" href="manifest.json" />

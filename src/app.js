@@ -1162,11 +1162,36 @@ systemStructureContext().then((site) => {
       // Non-index assets are still served by express.static.
       app.use(express.static(publicDir, { index: false }));
     }
+    // Deployment-root agent skills discovery (agentskills.io v0.2.0).
+    // Serves the system-tier skill set from the project root .well-known/agent-skills/
+    // so an agent discovering the HAXcms deployment itself can interface with the CMS.
+    // Per-site agent-skills are served by the site .well-known route below; this is
+    // only the deployment root. CORS open so browser-based agents can fetch it.
+    app.use('/.well-known/agent-skills', (req, res, next) => {
+      const asRoot = path.join(process.cwd(), '.well-known', 'agent-skills');
+      const reqPath = getRequestPathWithoutQuery(req.url).replace(/^\/+/, '');
+      const targetFile = path.join(asRoot, reqPath);
+      if (!reqPath || !fs.existsSync(targetFile) || fs.statSync(targetFile).isDirectory()) {
+        next();
+        return;
+      }
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Vary', 'Origin');
+      const contentType = mime.getType(reqPath);
+      if (contentType) {
+        res.setHeader('Content-Type', contentType);
+      } else {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      }
+      res.sendFile(reqPath, { root: asRoot });
+    });
     app.use('/', (req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`${serverProtocol}://localhost:${currentPort}`));
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
       res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
       res.setHeader('Content-Type', 'application/json');
+      // advertise the deployment-root agent skills index to header-parsing agents
+      res.setHeader('Link', '</.well-known/agent-skills/index.json>; rel="https://agentskills.io/rels/skills-index"; type="application/json"');
       // dynamic step routes in HAXcms site list UI
       const requestPath = getRequestPathWithoutQuery(req.url);
       const isDashboardIndexRequest = (
