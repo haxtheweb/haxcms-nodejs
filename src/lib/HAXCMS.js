@@ -1744,7 +1744,7 @@ class HAXCMSSite
       }
       // if we have a privacy flag, then tell robots not to index this were it to be found
       // which in HAXiam this isn't possible
-      if (this.manifest.metadata.site.settings.private) {
+      if (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.private) {
         robots = '<meta name="robots" content="none" />';
       }
       else {
@@ -1756,7 +1756,7 @@ class HAXCMSSite
         canonicalBase = sanitizeUrl(this.manifest.metadata.site.domain);
       }
       let canonicalUrl = canonicalBase;
-      if (this.manifest.metadata.site.settings.canonical) {
+      if (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.canonical) {
         if (canonicalPath && canonicalPath != '') {
           const normalizedCanonicalPath = String(canonicalPath).substring(0, 1) === '/'
             ? String(canonicalPath)
