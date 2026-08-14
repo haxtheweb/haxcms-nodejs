@@ -6,6 +6,16 @@ _sites
 _published
 _archived
 _config
+
+# HAXcms runtime secrets — generated per-install on first run with
+# crypto.randomBytes (src/lib/HAXCMS.js constructor). Never commit these:
+# they are JWT signing keys, refresh keys, password salt, and the hashed admin
+# user record. Ignored under the boilerplate fallback path (where
+# discoverConfigPath lands when ~/.haxcmsconfig creation fails) and _config.
+src/boilerplate/systemsetup/.pk
+src/boilerplate/systemsetup/.rpk
+src/boilerplate/systemsetup/.user
+src/boilerplate/systemsetup/SALT.txt
 package-lock.json
 
 # Logs
@@ -146,3 +156,8 @@ dist
 !src/public/build/es6/node_modules/**
 !build/es6/node_modules
 !build/es6/node_modules/**
+# Vendored SheetJS codepage file required at runtime by src/lib/vendor/xlsx/xlsx.js
+# (re-included because the blanket `dist` pattern above would otherwise keep it
+# out of fresh checkouts and CI, breaking xlsx import/export conformance tests).
+!src/lib/vendor/xlsx/dist/
+!src/lib/vendor/xlsx/dist/**

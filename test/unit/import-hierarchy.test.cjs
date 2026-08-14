@@ -9,7 +9,7 @@ const {
   importSinglePage,
   nextUntilElement,
   getFallbackContent,
-} = require('../../src/siteRoutes/v1/site.js')
+} = require('../../src/siteRoutes/v1/importUtils.js')
 
 test('getHighestHeadingLevel returns lowest heading level present', async () => {
   const h1Only = parse('<div><h1>Title</h1><p>Body</p></div>')
