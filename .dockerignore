@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+_sites
+_published
+_archived
+_config
+coverage
+*.log
+.DS_Store
