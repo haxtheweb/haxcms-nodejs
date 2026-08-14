@@ -445,3 +445,22 @@ test('safeFetch does not follow a 3xx that is actually a non-redirect (304 Not M
   assert.equal(res.status, 304)
   assert.equal(calls.length, 1)
 })
+
+test('safeFetch arrayBuffer() returns the raw binary body for byte-exact staging', async (t) => {
+  // Regression guard: the site-import converter stages downloaded files via
+  // Buffer.from(await res.arrayBuffer()). The response-like object MUST expose
+  // arrayBuffer() and return the raw bytes (not a UTF-8 string), or binary
+  // images corrupt / staging silently fails.
+  useLookup(t, lookupRecords([{ address: '93.184.216.34', family: 4 }]))
+  // 0x89 0x50 0x4E 0x47 is a PNG signature; 0x89 has no valid UTF-8 mapping,
+  // so a text() round-trip would mangle it — this proves byte-exactness.
+  var pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  useHttpSequence(t, [
+    { status: 200, headers: { 'content-type': 'image/png' }, body: pngBytes },
+  ])
+  var res = await safeFetch('http://target.test/files/img.png', {})
+  assert.equal(res.status, 200)
+  assert.equal(typeof res.arrayBuffer, 'function', 'arrayBuffer is a method on the response')
+  var buf = Buffer.from(await res.arrayBuffer())
+  assert.deepEqual(buf, pngBytes)
+})

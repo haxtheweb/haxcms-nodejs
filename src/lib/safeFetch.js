@@ -125,7 +125,10 @@ function buildPinnedRequestOptions(parsed, fetchOptions, pinnedIp) {
 /**
  * Minimal fetch-Response-compatible object covering the surface safeFetch
  * callers use: .ok, .status, .statusText, .headers.get(name), .text(),
- * .json(). Built from a Node http.IncomingMessage + buffered body.
+ * .json(), .arrayBuffer(). Built from a Node http.IncomingMessage + buffered
+ * body. arrayBuffer() returns the raw buffered bytes so binary content (image
+ * / file downloads staged by the site-import converter) round-trips without
+ * the UTF-8 corruption that .text() would introduce.
  */
 function buildResponseLike(statusCode, statusMessage, rawHeaders, bodyBuffer) {
   var ok = statusCode >= 200 && statusCode < 300;
@@ -154,6 +157,11 @@ function buildResponseLike(statusCode, statusMessage, rawHeaders, bodyBuffer) {
     },
     json: function () {
       return Promise.resolve(JSON.parse(bodyBuffer.toString('utf8')));
+    },
+    arrayBuffer: function () {
+      // Return the raw buffered bytes. Buffer.from(await res.arrayBuffer())
+      // works whether this is a Buffer or a real ArrayBuffer.
+      return Promise.resolve(bodyBuffer);
     },
   };
 }
