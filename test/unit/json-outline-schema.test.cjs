@@ -72,6 +72,20 @@ test('JSONOutlineSchema constructor establishes the documented defaults', () => 
   assert.strictEqual(schema.items.length, 0)
 })
 
+test('getLicenseDetails returns the matching license descriptor for the default by-sa', () => {
+  const schema = new JSONOutlineSchema()
+  const details = schema.getLicenseDetails()
+  assert.strictEqual(details.name, 'Creative Commons: Attribution Share a like')
+  assert.strictEqual(details.link, 'https://creativecommons.org/licenses/by-sa/4.0/')
+  assert.ok(typeof details.image === 'string' && details.image.length > 0)
+})
+
+test('getLicenseDetails returns {} for an unknown license', () => {
+  const schema = new JSONOutlineSchema()
+  schema.license = 'not-a-real-license'
+  assert.deepStrictEqual(schema.getLicenseDetails(), {})
+})
+
 test('newItem returns a JSONOutlineSchemaItem with the default fields', () => {
   const schema = new JSONOutlineSchema()
   const item = schema.newItem()
@@ -165,12 +179,7 @@ test('orderTree returns items in pre-order tree traversal when the items array i
   )
 })
 
-// BUG: orderTree does not sort children by their `order` field. The usort
-// comparator `return a.order > b.order` returns a boolean (1/0) which locutus
-// usort treats as a no-op, so children stay in whatever order they appear in
-// this.items instead of being sorted by `order`. This test locks in the
-// correct expected behavior and is expected to FAIL until the source is fixed.
-test('orderTree sorts sibling children by their order field', { skip: 'BUG: JSONOutlineSchema.js orderTree/usort comparator `return a.order > b.order` returns a boolean (1/0) which locutus usort treats as a no-op, so children are not sorted by `order`. Un-skip once fixed.' }, () => {
+test('orderTree sorts sibling children by their order field', () => {
   const schema = new JSONOutlineSchema()
   schema.items = [
     mkItem({ id: 'r1', order: 0, parent: '', indent: 0, title: 'Root 1' }),
@@ -257,12 +266,7 @@ test('removeItem returns false when the id is not present in the outline', () =>
   assert.strictEqual(schema.removeItem('nonexistent'), false)
 })
 
-// BUG: removeItem assigns to an undeclared variable `tmp` inside a class method.
-// Class bodies are implicitly strict-mode, so the write `tmp = this.items[key]`
-// throws ReferenceError: tmp is not defined whenever a matching item is found.
-// This test locks in the correct expected behavior (return the item and shrink
-// the outline) and is expected to FAIL until the source is fixed.
-test('removeItem returns the removed item and removes it from the outline', { skip: 'BUG: JSONOutlineSchema.js:128 `tmp = this.items[key]` has no declaration; class bodies are implicitly strict-mode so the write throws ReferenceError whenever a matching item is found. Un-skip once fixed.' }, () => {
+test('removeItem returns the removed item and removes it from the outline', () => {
   const schema = new JSONOutlineSchema()
   schema.items = inOrderTree()
   const removed = schema.removeItem('c1')

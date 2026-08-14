@@ -20,10 +20,16 @@ function filter_var(input, filter, options) {
         var actual = typeof val;
 
         if (actual === "object") {
-            return {
+            var subtype = {
                 "[object Array]": "array",
                 "[object RegExp]": "regex"
             } [Object.prototype.toString.call(val)] || "object";
+            // Return a boolean predicate, not the subtype string. The prior
+            // code returned the truthy string (e.g. "object") for every
+            // object regardless of the `type` asked, so callers like
+            // is(options, "number") / is(fn, "string") misdetected plain
+            // objects as numbers/strings and took the wrong branch.
+            return type === subtype;
         }
 
         if (actual === "number") {
@@ -32,7 +38,7 @@ function filter_var(input, filter, options) {
             }
 
             if (!isFinite(val)) {
-                return "inf";
+                return type === "inf";
             }
         }
 
@@ -158,8 +164,11 @@ function filter_var(input, filter, options) {
     case supportedFilters.FILTER_VALIDATE_REGEXP:
         if (is(options.regexp, "regex")) {
             // FIXME: we are passing pre-processed input data (trimmed data).
-            // check whether PHP also passess trimmed input
-            var matches = options.regexp(data)
+            // check whether PHP also passes trimmed input
+            // Use RegExp.prototype.exec (returns an Array whose [0] is the full
+            // match, or null) — the prior code called the RegExp object itself
+            // as a function, which throws TypeError (RegExps are not callable).
+            var matches = options.regexp.exec(data)
             return matches ? matches[0] : failure;
         }
         // TODO: support passing regexes as strings "#regex#is"
@@ -180,11 +189,11 @@ function filter_var(input, filter, options) {
             var ip = ipv4.test(input);
 
             if (ip) {
-                if ((flags & supportedFlags.FILTER_FLAG_NO_PRIV_RANGE) && privrange.test(data)) {
+                if ((flags & supportedFlags.FILTER_FLAG_NO_PRIV_RANGE) && ipv4privrange.test(data)) {
                     return failure;
                 }
 
-                if ((flags & supportedFlags.FILTER_FLAG_NO_RES_RANGE) && resrange.test(data)) {
+                if ((flags & supportedFlags.FILTER_FLAG_NO_RES_RANGE) && ipv4resrange.test(data)) {
                     return failure;
                 }
 
@@ -223,10 +232,10 @@ function filter_var(input, filter, options) {
         return ('' + input).replace(/[^\deE.,+\-]/g, '').replace(/[eE.,]/g,
         function(m) {
             return {
-                '.': (filter & supportedFilters.FILTER_FLAG_ALLOW_FRACTION) ? '.': '',
-                ',': (filter & supportedFilters.FILTER_FLAG_ALLOW_THOUSAND) ? ',': '',
-                'e': (filter & supportedFilters.FILTER_FLAG_ALLOW_SCIENTIFIC) ? 'e': '',
-                'E': (filter & supportedFilters.FILTER_FLAG_ALLOW_SCIENTIFIC) ? 'e': ''
+                '.': (flags & supportedFlags.FILTER_FLAG_ALLOW_FRACTION) ? '.': '',
+                ',': (flags & supportedFlags.FILTER_FLAG_ALLOW_THOUSAND) ? ',': '',
+                'e': (flags & supportedFlags.FILTER_FLAG_ALLOW_SCIENTIFIC) ? 'e': '',
+                'E': (flags & supportedFlags.FILTER_FLAG_ALLOW_SCIENTIFIC) ? 'e': ''
             } [m];
         });
 

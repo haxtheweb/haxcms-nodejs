@@ -153,21 +153,21 @@ test('FILTER_VALIDATE_IP rejects malformed addresses', () => {
   assert.equal(filter_var('256.0.0.0', 'FILTER_VALIDATE_IP'), false)
 })
 
-test('FILTER_VALIDATE_IP accepts a public IPv4 with NO_PRIV_RANGE+IPV4 (numeric flags)', { skip: 'BUG: filter_var.js:183 references undefined `privrange` (defined var is `ipv4privrange`); reaching NO_PRIV_RANGE throws ReferenceError instead of returning the validated public IP. Un-skip once fixed.' }, () => {
+test('FILTER_VALIDATE_IP accepts a public IPv4 with NO_PRIV_RANGE+IPV4 (numeric flags)', () => {
   assert.equal(
     filter_var('8.8.8.8', 'FILTER_VALIDATE_IP', F.FILTER_FLAG_IPV4 | F.FILTER_FLAG_NO_PRIV_RANGE),
     '8.8.8.8'
   )
 })
 
-test('FILTER_VALIDATE_IP rejects a private IPv4 with NO_PRIV_RANGE+IPV4 (numeric flags)', { skip: 'BUG: filter_var.js:183 undefined `privrange` (should be `ipv4privrange`); throws ReferenceError instead of returning false for a private-range address. Un-skip once fixed.' }, () => {
+test('FILTER_VALIDATE_IP rejects a private IPv4 with NO_PRIV_RANGE+IPV4 (numeric flags)', () => {
   assert.equal(
     filter_var('192.168.1.1', 'FILTER_VALIDATE_IP', F.FILTER_FLAG_IPV4 | F.FILTER_FLAG_NO_PRIV_RANGE),
     false
   )
 })
 
-test('FILTER_VALIDATE_IP honors flags supplied via object options {flags}', { skip: 'BUG: filter_var.js is() returns truthy "object" for any object, so the `is(options,"number")` branch fires first, sets flags=options, and `mode &= flags` coerces to NaN zeroing mode; IP validation always returns false for {flags} options. Un-skip once fixed.' }, () => {
+test('FILTER_VALIDATE_IP honors flags supplied via object options {flags}', () => {
   assert.equal(
     filter_var('8.8.8.8', 'FILTER_VALIDATE_IP', { flags: F.FILTER_FLAG_IPV4 }),
     '8.8.8.8'
@@ -189,7 +189,7 @@ test('FILTER_SANITIZE_NUMBER_FLOAT strips . , e E and keeps digits and sign by d
   assert.equal(filter_var('1.2e3,4-5', 'FILTER_SANITIZE_NUMBER_FLOAT'), '1234-5')
 })
 
-test('FILTER_SANITIZE_NUMBER_FLOAT keeps the decimal point when ALLOW_FRACTION is set', { skip: 'BUG: filter_var.js:226-229 uses `filter & ALLOW_FRACTION` (constant 520) instead of `flags & ALLOW_FRACTION`, so the flag is ignored and "." is always stripped. Un-skip once fixed.' }, () => {
+test('FILTER_SANITIZE_NUMBER_FLOAT keeps the decimal point when ALLOW_FRACTION is set', () => {
   assert.equal(
     filter_var('1.2e3,4-5', 'FILTER_SANITIZE_NUMBER_FLOAT', 'FILTER_FLAG_ALLOW_FRACTION'),
     '1.234-5'
@@ -288,13 +288,13 @@ test('FILTER_CALLBACK invokes the supplied options.options callback', () => {
   )
 })
 
-test('FILTER_CALLBACK returns failure when no callback is supplied', { skip: 'BUG: filter_var.js:210 is(fn,"string") returns truthy "object" for {} opts, code reaches `this.window[fn]` which is undefined in Node, throwing TypeError instead of returning false. Un-skip once fixed.' }, () => {
+test('FILTER_CALLBACK returns failure when no callback is supplied', () => {
   assert.equal(filter_var('hello', 'FILTER_CALLBACK'), false)
 })
 
 // --- FILTER_VALIDATE_REGEXP -------------------------------------------------
 
-test('FILTER_VALIDATE_REGEXP returns the matched substring for a RegExp option', { skip: 'BUG: filter_var.js:162 calls `options.regexp(data)` as if it were a function; RegExp objects are not callable, throws TypeError instead of returning the matched text. Un-skip once fixed.' }, () => {
+test('FILTER_VALIDATE_REGEXP returns the matched substring for a RegExp option', () => {
   assert.equal(
     filter_var('abc123', 'FILTER_VALIDATE_REGEXP', { regexp: /[0-9]+/ }),
     '123'
