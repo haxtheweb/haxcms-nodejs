@@ -92,7 +92,8 @@ async function createMinimalDocxBuffer() {
 }
 
 async function createMinimalXlsxBuffer() {
-  const XLSX = require('xlsx')
+  // security (DF1): use the vendored patched SheetJS 0.20.3 (replaces npm xlsx@0.18.5)
+  const XLSX = require(path.join(REPO_ROOT, 'src', 'lib', 'vendor', 'xlsx', 'xlsx.js'))
   const workbook = XLSX.utils.book_new()
   const worksheet = XLSX.utils.aoa_to_sheet([
     ['Name', 'Value'],

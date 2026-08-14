@@ -1,4 +1,6 @@
-const XLSX = require('xlsx');
+// security (DF1): vendored patched SheetJS 0.20.3 from https://cdn.sheetjs.com/
+// replaces xlsx@0.18.5 (npm) which has prototype pollution + ReDoS with NO npm fix
+const XLSX = require('../../../lib/vendor/xlsx/xlsx.js');
 const fs = require('fs-extra');
 
 function parseMultipartData(buffer, boundary) {
