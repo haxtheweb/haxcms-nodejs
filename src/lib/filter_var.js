@@ -229,10 +229,10 @@ function filter_var(input, filter, options) {
         return ('' + input).replace(/[^\deE.,+\-]/g, '').replace(/[eE.,]/g,
         function(m) {
             return {
-                '.': (filter & supportedFilters.FILTER_FLAG_ALLOW_FRACTION) ? '.': '',
-                ',': (filter & supportedFilters.FILTER_FLAG_ALLOW_THOUSAND) ? ',': '',
-                'e': (filter & supportedFilters.FILTER_FLAG_ALLOW_SCIENTIFIC) ? 'e': '',
-                'E': (filter & supportedFilters.FILTER_FLAG_ALLOW_SCIENTIFIC) ? 'e': ''
+                '.': (flags & supportedFlags.FILTER_FLAG_ALLOW_FRACTION) ? '.': '',
+                ',': (flags & supportedFlags.FILTER_FLAG_ALLOW_THOUSAND) ? ',': '',
+                'e': (flags & supportedFlags.FILTER_FLAG_ALLOW_SCIENTIFIC) ? 'e': '',
+                'E': (flags & supportedFlags.FILTER_FLAG_ALLOW_SCIENTIFIC) ? 'e': ''
             } [m];
         });
 

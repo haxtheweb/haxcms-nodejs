@@ -189,7 +189,7 @@ test('FILTER_SANITIZE_NUMBER_FLOAT strips . , e E and keeps digits and sign by d
   assert.equal(filter_var('1.2e3,4-5', 'FILTER_SANITIZE_NUMBER_FLOAT'), '1234-5')
 })
 
-test('FILTER_SANITIZE_NUMBER_FLOAT keeps the decimal point when ALLOW_FRACTION is set', { skip: 'BUG: filter_var.js:226-229 uses `filter & ALLOW_FRACTION` (constant 520) instead of `flags & ALLOW_FRACTION`, so the flag is ignored and "." is always stripped. Un-skip once fixed.' }, () => {
+test('FILTER_SANITIZE_NUMBER_FLOAT keeps the decimal point when ALLOW_FRACTION is set', () => {
   assert.equal(
     filter_var('1.2e3,4-5', 'FILTER_SANITIZE_NUMBER_FLOAT', 'FILTER_FLAG_ALLOW_FRACTION'),
     '1.234-5'
