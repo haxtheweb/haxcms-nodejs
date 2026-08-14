@@ -153,14 +153,14 @@ test('FILTER_VALIDATE_IP rejects malformed addresses', () => {
   assert.equal(filter_var('256.0.0.0', 'FILTER_VALIDATE_IP'), false)
 })
 
-test('FILTER_VALIDATE_IP accepts a public IPv4 with NO_PRIV_RANGE+IPV4 (numeric flags)', { skip: 'BUG: filter_var.js:183 references undefined `privrange` (defined var is `ipv4privrange`); reaching NO_PRIV_RANGE throws ReferenceError instead of returning the validated public IP. Un-skip once fixed.' }, () => {
+test('FILTER_VALIDATE_IP accepts a public IPv4 with NO_PRIV_RANGE+IPV4 (numeric flags)', () => {
   assert.equal(
     filter_var('8.8.8.8', 'FILTER_VALIDATE_IP', F.FILTER_FLAG_IPV4 | F.FILTER_FLAG_NO_PRIV_RANGE),
     '8.8.8.8'
   )
 })
 
-test('FILTER_VALIDATE_IP rejects a private IPv4 with NO_PRIV_RANGE+IPV4 (numeric flags)', { skip: 'BUG: filter_var.js:183 undefined `privrange` (should be `ipv4privrange`); throws ReferenceError instead of returning false for a private-range address. Un-skip once fixed.' }, () => {
+test('FILTER_VALIDATE_IP rejects a private IPv4 with NO_PRIV_RANGE+IPV4 (numeric flags)', () => {
   assert.equal(
     filter_var('192.168.1.1', 'FILTER_VALIDATE_IP', F.FILTER_FLAG_IPV4 | F.FILTER_FLAG_NO_PRIV_RANGE),
     false
