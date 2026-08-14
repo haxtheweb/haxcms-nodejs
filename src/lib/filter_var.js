@@ -164,7 +164,7 @@ function filter_var(input, filter, options) {
     case supportedFilters.FILTER_VALIDATE_REGEXP:
         if (is(options.regexp, "regex")) {
             // FIXME: we are passing pre-processed input data (trimmed data).
-            // check whether PHP also passess trimmed input
+            // check whether PHP also passes trimmed input
             // Use RegExp.prototype.exec (returns an Array whose [0] is the full
             // match, or null) — the prior code called the RegExp object itself
             // as a function, which throws TypeError (RegExps are not callable).
