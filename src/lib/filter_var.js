@@ -20,10 +20,16 @@ function filter_var(input, filter, options) {
         var actual = typeof val;
 
         if (actual === "object") {
-            return {
+            var subtype = {
                 "[object Array]": "array",
                 "[object RegExp]": "regex"
             } [Object.prototype.toString.call(val)] || "object";
+            // Return a boolean predicate, not the subtype string. The prior
+            // code returned the truthy string (e.g. "object") for every
+            // object regardless of the `type` asked, so callers like
+            // is(options, "number") / is(fn, "string") misdetected plain
+            // objects as numbers/strings and took the wrong branch.
+            return type === subtype;
         }
 
         if (actual === "number") {
@@ -32,7 +38,7 @@ function filter_var(input, filter, options) {
             }
 
             if (!isFinite(val)) {
-                return "inf";
+                return type === "inf";
             }
         }
 

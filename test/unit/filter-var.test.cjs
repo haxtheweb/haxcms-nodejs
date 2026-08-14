@@ -167,7 +167,7 @@ test('FILTER_VALIDATE_IP rejects a private IPv4 with NO_PRIV_RANGE+IPV4 (numeric
   )
 })
 
-test('FILTER_VALIDATE_IP honors flags supplied via object options {flags}', { skip: 'BUG: filter_var.js is() returns truthy "object" for any object, so the `is(options,"number")` branch fires first, sets flags=options, and `mode &= flags` coerces to NaN zeroing mode; IP validation always returns false for {flags} options. Un-skip once fixed.' }, () => {
+test('FILTER_VALIDATE_IP honors flags supplied via object options {flags}', () => {
   assert.equal(
     filter_var('8.8.8.8', 'FILTER_VALIDATE_IP', { flags: F.FILTER_FLAG_IPV4 }),
     '8.8.8.8'
@@ -288,7 +288,7 @@ test('FILTER_CALLBACK invokes the supplied options.options callback', () => {
   )
 })
 
-test('FILTER_CALLBACK returns failure when no callback is supplied', { skip: 'BUG: filter_var.js:210 is(fn,"string") returns truthy "object" for {} opts, code reaches `this.window[fn]` which is undefined in Node, throwing TypeError instead of returning false. Un-skip once fixed.' }, () => {
+test('FILTER_CALLBACK returns failure when no callback is supplied', () => {
   assert.equal(filter_var('hello', 'FILTER_CALLBACK'), false)
 })
 
