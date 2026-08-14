@@ -19,6 +19,7 @@ const convertHtmlToPdfRoute = require('../systemRoutes/v1/routes/convertHtmlToPd
 const convertXlsxToCsvRoute = require('../systemRoutes/v1/routes/convertXlsxToCsv.js');
 const convertPdfToHtmlRoute = require('../systemRoutes/v1/routes/convertPdfToHtml.js');
 const convertPptxToHtmlRoute = require('../systemRoutes/v1/routes/convertPptxToHtml.js');
+const importPptxDeckRoute = require('../systemRoutes/v1/routes/importPptxDeck.js');
 const convertDocxToPdfRoute = require('../systemRoutes/v1/routes/convertDocxToPdf.js');
 const siteImportRoute = require('../systemRoutes/v1/routes/siteImport.js');
 const v1IntegrationRoutes = require('../systemRoutes/v1/integrations.js');
@@ -276,6 +277,7 @@ addRouteHandler(SystemRoutesMap, 'post', 'actions/html-to-pdf', convertHtmlToPdf
 addRouteHandler(SystemRoutesMap, 'post', 'actions/xlsx-to-csv', convertXlsxToCsvRoute.convertXlsxToCsv);
 addRouteHandler(SystemRoutesMap, 'post', 'actions/pdf-to-html', convertPdfToHtmlRoute.convertPdfToHtml);
 addRouteHandler(SystemRoutesMap, 'post', 'actions/pptx-to-html', convertPptxToHtmlRoute.convertPptxToHtml);
+addRouteHandler(SystemRoutesMap, 'post', 'actions/import-pptx-deck', importPptxDeckRoute.importPptxDeck);
 addRouteHandler(SystemRoutesMap, 'post', 'actions/docx-to-pdf', convertDocxToPdfRoute.convertDocxToPdf);
 addRouteHandler(SystemRoutesMap, 'post', 'actions/import-pptx', importPptxRoute.importPptx);
 addRouteHandler(SystemRoutesMap, 'post', 'actions/import-html', importHtmlRoute.importHtml);
