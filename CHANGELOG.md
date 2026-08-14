@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [26.0.0](https://github.com/haxtheweb/haxcms-nodejs/compare/v26.0.1...v26.0.0) (2026-08-14)
+
+
+### Bug Fixes
+
+* **api-conformance:** align spec, tests, and media settings reads ([6642abf](https://github.com/haxtheweb/haxcms-nodejs/commit/6642abf0fcc17c779ba019b4ee4a18a7ea87fd4c))
+* **pptx:** exclude pptx-in-html-out vendor package from babel transpilation ([6227e66](https://github.com/haxtheweb/haxcms-nodejs/commit/6227e66e59ec31b682ef06accedb063be79d1c0d))
+
 ## [26.0.1](https://github.com/haxtheweb/haxcms-nodejs/compare/v26.0.0...v26.0.1) (2026-05-21)
 
 ## [26.0.0](https://github.com/haxtheweb/haxcms-nodejs/compare/v25.0.0...v26.0.0) (2026-05-12)
