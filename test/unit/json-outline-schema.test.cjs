@@ -257,12 +257,7 @@ test('removeItem returns false when the id is not present in the outline', () =>
   assert.strictEqual(schema.removeItem('nonexistent'), false)
 })
 
-// BUG: removeItem assigns to an undeclared variable `tmp` inside a class method.
-// Class bodies are implicitly strict-mode, so the write `tmp = this.items[key]`
-// throws ReferenceError: tmp is not defined whenever a matching item is found.
-// This test locks in the correct expected behavior (return the item and shrink
-// the outline) and is expected to FAIL until the source is fixed.
-test('removeItem returns the removed item and removes it from the outline', { skip: 'BUG: JSONOutlineSchema.js:128 `tmp = this.items[key]` has no declaration; class bodies are implicitly strict-mode so the write throws ReferenceError whenever a matching item is found. Un-skip once fixed.' }, () => {
+test('removeItem returns the removed item and removes it from the outline', () => {
   const schema = new JSONOutlineSchema()
   schema.items = inOrderTree()
   const removed = schema.removeItem('c1')

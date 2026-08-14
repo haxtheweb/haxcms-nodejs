@@ -125,8 +125,10 @@ class JSONOutlineSchema
     {
         for (var key in this.items) {
             if (this.items[key].id == id) {
-                tmp = this.items[key];
-                delete this.items[key];
+                let tmp = this.items[key];
+                // splice (not delete) so the array actually shrinks; delete
+                // leaves a hole and .length stays the same.
+                this.items.splice(key, 1);
                 return tmp;
             }
         }
