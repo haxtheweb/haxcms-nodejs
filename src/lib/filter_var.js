@@ -165,7 +165,10 @@ function filter_var(input, filter, options) {
         if (is(options.regexp, "regex")) {
             // FIXME: we are passing pre-processed input data (trimmed data).
             // check whether PHP also passess trimmed input
-            var matches = options.regexp(data)
+            // Use RegExp.prototype.exec (returns an Array whose [0] is the full
+            // match, or null) — the prior code called the RegExp object itself
+            // as a function, which throws TypeError (RegExps are not callable).
+            var matches = options.regexp.exec(data)
             return matches ? matches[0] : failure;
         }
         // TODO: support passing regexes as strings "#regex#is"

@@ -294,7 +294,7 @@ test('FILTER_CALLBACK returns failure when no callback is supplied', () => {
 
 // --- FILTER_VALIDATE_REGEXP -------------------------------------------------
 
-test('FILTER_VALIDATE_REGEXP returns the matched substring for a RegExp option', { skip: 'BUG: filter_var.js:162 calls `options.regexp(data)` as if it were a function; RegExp objects are not callable, throws TypeError instead of returning the matched text. Un-skip once fixed.' }, () => {
+test('FILTER_VALIDATE_REGEXP returns the matched substring for a RegExp option', () => {
   assert.equal(
     filter_var('abc123', 'FILTER_VALIDATE_REGEXP', { regexp: /[0-9]+/ }),
     '123'
