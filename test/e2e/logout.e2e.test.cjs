@@ -42,6 +42,7 @@ const {
   waitFor,
   loginViaUI,
   waitForLoginModal,
+  waitForLoginModalRetry,
   waitForDeep,
   patchHaxcmsRootForHarness,
   safeCompareBaseline,
@@ -259,7 +260,11 @@ test('logout e2e: dashboard logout flow', { timeout: 180000 }, async (t) => {
   await t.test('ui-state: login modal reappears after logout', async () => {
     // The SPA should re-open the login modal after logout. Use the
     // reload-robust variant since logout may trigger a navigation/reload.
-    const loginEl = await waitForLoginModal(page, 25000)
+    // app-hax.logout() -> _jwtLoggedIn -> setTimeout(reset(true), 100) ->
+    // globalThis.location.reload(), so the execution context is destroyed
+    // mid-poll; waitForLoginModalRetry catches that and retries in short
+    // windows until the reloaded page re-stamps the login modal.
+    const loginEl = await waitForLoginModalRetry(page, 25000)
     assert.ok(
       loginEl,
       'login modal (simple-modal > app-hax-site-login) should reappear after logout',
