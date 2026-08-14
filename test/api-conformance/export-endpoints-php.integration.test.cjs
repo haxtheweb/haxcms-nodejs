@@ -299,7 +299,16 @@ test('PHP unsupported item export format returns 400', async (t) => {
   assert.ok(body && body.data && Array.isArray(body.data.supportedFormats), '400 response missing supportedFormats array')
 })
 
-test('PHP site-spec.yaml ItemExportFormat enum includes all 8 formats', async () => {
+test('PHP site-spec.yaml ItemExportFormat enum includes all 8 formats', async (t) => {
+  // The PHP OpenAPI spec lives in the sibling haxcms-php repo (see
+  // HAXCMS_PHP_ROOT above). When that repo isn't checked out — e.g. the
+  // haxcms-nodejs CI, which only clones this repo — skip gracefully instead
+  // of hard-failing the conformance gate. Mirrors the t.skip(PHP_SKIP_REASON)
+  // pattern the HTTP-dependent tests in this suite use when ddev is absent.
+  if (!fs.existsSync(SITE_SPEC_PATH)) {
+    t.skip(`PHP site-spec.yaml not present at ${SITE_SPEC_PATH} — clone the sibling haxcms-php repo to run this parity check`)
+    return
+  }
   assert.ok(fs.existsSync(SITE_SPEC_PATH), `PHP site-spec.yaml not found at ${SITE_SPEC_PATH}`)
   const specRaw = fs.readFileSync(SITE_SPEC_PATH, 'utf8')
   // Lightweight parse: find the ItemExportFormat enum block and check the listed values.
