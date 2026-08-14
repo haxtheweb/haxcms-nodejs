@@ -36,7 +36,7 @@ class JSONOutlineSchema
      */
     getLicenseDetails()
     {
-        list = {
+        let list = {
             "by": {
                 'name':"Creative Commons: Attribution",
                 'link':"https://creativecommons.org/licenses/by/4.0/",

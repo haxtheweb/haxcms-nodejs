@@ -72,6 +72,20 @@ test('JSONOutlineSchema constructor establishes the documented defaults', () => 
   assert.strictEqual(schema.items.length, 0)
 })
 
+test('getLicenseDetails returns the matching license descriptor for the default by-sa', () => {
+  const schema = new JSONOutlineSchema()
+  const details = schema.getLicenseDetails()
+  assert.strictEqual(details.name, 'Creative Commons: Attribution Share a like')
+  assert.strictEqual(details.link, 'https://creativecommons.org/licenses/by-sa/4.0/')
+  assert.ok(typeof details.image === 'string' && details.image.length > 0)
+})
+
+test('getLicenseDetails returns {} for an unknown license', () => {
+  const schema = new JSONOutlineSchema()
+  schema.license = 'not-a-real-license'
+  assert.deepStrictEqual(schema.getLicenseDetails(), {})
+})
+
 test('newItem returns a JSONOutlineSchemaItem with the default fields', () => {
   const schema = new JSONOutlineSchema()
   const item = schema.newItem()
