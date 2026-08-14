@@ -165,12 +165,7 @@ test('orderTree returns items in pre-order tree traversal when the items array i
   )
 })
 
-// BUG: orderTree does not sort children by their `order` field. The usort
-// comparator `return a.order > b.order` returns a boolean (1/0) which locutus
-// usort treats as a no-op, so children stay in whatever order they appear in
-// this.items instead of being sorted by `order`. This test locks in the
-// correct expected behavior and is expected to FAIL until the source is fixed.
-test('orderTree sorts sibling children by their order field', { skip: 'BUG: JSONOutlineSchema.js orderTree/usort comparator `return a.order > b.order` returns a boolean (1/0) which locutus usort treats as a no-op, so children are not sorted by `order`. Un-skip once fixed.' }, () => {
+test('orderTree sorts sibling children by their order field', () => {
   const schema = new JSONOutlineSchema()
   schema.items = [
     mkItem({ id: 'r1', order: 0, parent: '', indent: 0, title: 'Root 1' }),
