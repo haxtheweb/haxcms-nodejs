@@ -4189,7 +4189,7 @@ class HAXCMSClass {
                 "id": "uuid"
               },
               "gizmo": {
-                "source": "fullUrl",
+                "source": "url",
                 "id": "uuid",
                 "title": "name",
                 "mimetype": "mimetype"
