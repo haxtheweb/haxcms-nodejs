@@ -320,4 +320,6 @@ async function saveAppearanceSettings(req, res) {
   })
 }
 
+saveAppearanceSettings.normalizeCssVariable = normalizeCssVariable
+saveAppearanceSettings.sanitizeRegionIds = sanitizeRegionIds
 module.exports = saveAppearanceSettings

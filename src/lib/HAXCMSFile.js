@@ -896,6 +896,8 @@ async function downloadAndSaveFile(url, filepath) {
   });
 }
 
+HAXCMSFile.stripExecutableExtensionPatterns = stripExecutableExtensionPatterns;
+HAXCMSFile.normalizeFilenameExtensionCasing = normalizeFilenameExtensionCasing;
 HAXCMSFile.isValidBulkImportStagedPath = isValidBulkImportStagedPath;
 HAXCMSFile.getBulkImportStagingRootPath = getBulkImportStagingRootPath;
 HAXCMSFile.isPathWithinRoot = isPathWithinRoot;
