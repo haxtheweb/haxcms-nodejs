@@ -384,4 +384,9 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
       data: { message: message },
     });
   }
+  saveOutline.normalizeOutlineLocation = normalizeOutlineLocation;
+  saveOutline.normalizeOutlineSlug = normalizeOutlineSlug;
+  saveOutline.getValidatedWritePath = getValidatedWritePath;
+  saveOutline.isLikelyHtmlContent = isLikelyHtmlContent;
+  saveOutline.saveOutlineError = saveOutlineError;
   module.exports = saveOutline;

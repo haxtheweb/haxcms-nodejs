@@ -644,4 +644,16 @@ async function siteSearch(req, res) {
   );
 }
 
+siteSearch.countTextMatches = countTextMatches;
+siteSearch.replaceTextMatches = replaceTextMatches;
+siteSearch.parseLimitValue = parseLimitValue;
+siteSearch.normalizeSearchFields = normalizeSearchFields;
+siteSearch.normalizeTagsValue = normalizeTagsValue;
+siteSearch.normalizeFieldValue = normalizeFieldValue;
+siteSearch.normalizeOperationValue = normalizeOperationValue;
+siteSearch.buildTextMatcher = buildTextMatcher;
+siteSearch.parseSimpleSelectorPart = parseSimpleSelectorPart;
+siteSearch.parseSimpleSelector = parseSimpleSelector;
+siteSearch.selectorMatchesInContent = selectorMatchesInContent;
+siteSearch.buildSearchResponse = buildSearchResponse;
 module.exports = siteSearch;
