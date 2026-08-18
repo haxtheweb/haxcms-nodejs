@@ -1408,7 +1408,7 @@ class HAXCMSSite
       return `
       <script>
         if ('serviceWorker' in navigator) {
-          var sitePath = '{basePath}';
+          var sitePath = ${JSON.stringify(basePath)};
           // discover this path downstream of the root of the domain
           var swScope = window.location.pathname.substring(0, window.location.pathname.indexOf(sitePath)) + sitePath;
           if (swScope != document.head.getElementsByTagName('base')[0].href) {
