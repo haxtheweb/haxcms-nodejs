@@ -968,9 +968,7 @@ if (linkedWebcomponentsRoot) {
       !req.url.includes('/custom/build/') &&
       isBuildAssetRequest(req.url)
     ) {
-      if (mime.getType(req.url.split('?')[0])) {
-        res.setHeader('Content-Type', mime.getType(req.url.split('?')[0]));
-      }
+      setStaticContentTypeWithCharset(res, req.url.split('?')[0], null);
       serveBuildAssetFile(req, res, path.join(__dirname, '/public'));
       return;
     }
@@ -1012,9 +1010,9 @@ systemStructureContext().then((site) => {
     if (process.env.NODE_ENV === "development") {
       // express.static will only serve the original static index.html file
       // so dev builds need to set this ignore option to inject any edits
-      app.use(express.static(publicDir, { index: false }));
+      app.use(express.static(publicDir, { index: false, setHeaders: setManagedFileCharsetHeader }));
     } else {
-      app.use(express.static(publicDir));
+      app.use(express.static(publicDir, { setHeaders: setManagedFileCharsetHeader }));
     }
     if (process.env.NODE_ENV === "development") {
       app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => {
@@ -1045,9 +1043,7 @@ systemStructureContext().then((site) => {
           req.url.includes('build-haxcms.js')
         )
       ) {
-        if (mime.getType(req.url.split('?')[0])) {
-          res.setHeader('Content-Type', mime.getType(req.url));
-        }
+        setStaticContentTypeWithCharset(res, req.url.split('?')[0], null);
         serveBuildAssetFile(req, res, path.join(__dirname, '/public'));
       }
       else if (
@@ -1070,12 +1066,7 @@ systemStructureContext().then((site) => {
         )
       ) {
         if (!setWellKnownContentType(res, req.url)) {
-          if (mime.getType(req.url.split('?')[0])) {
-            res.setHeader('Content-Type', mime.getType(req.url));
-          }
-          else {
-            res.setHeader('Content-Type', 'text/html');
-          }
+          setStaticContentTypeWithCharset(res, req.url.split('?')[0]);
         }
         res.sendFile(
           req.url.split('?')[0],
@@ -1115,12 +1106,7 @@ systemStructureContext().then((site) => {
           res.status(404);
         }
         // all page calls just go to the index and the front end will render them
-        if (mime.getType(req.url.split('?')[0])) {
-          res.setHeader('Content-Type', mime.getType(req.url));
-        }
-        else {
-          res.setHeader('Content-Type', 'text/html');
-        }
+        setStaticContentTypeWithCharset(res, req.url.split('?')[0]);
         try {
           let indexFile = await renderDynamicSiteIndexResponse(
             req,
@@ -1152,7 +1138,7 @@ systemStructureContext().then((site) => {
   else {
     HAXCMS.runtimeServerMode = 'multisite';
     if (process.env.NODE_ENV === "development") {
-      app.use(express.static(publicDir, { index: false }));
+      app.use(express.static(publicDir, { index: false, setHeaders: setManagedFileCharsetHeader }));
     }
     else {
       // Security (M2): index:false so the dashboard index.html is served by
@@ -1160,7 +1146,7 @@ systemStructureContext().then((site) => {
       // per-request CSP nonce) rather than by express.static streaming the
       // raw file (which would bypass the nonce and break under the nonce CSP).
       // Non-index assets are still served by express.static.
-      app.use(express.static(publicDir, { index: false }));
+      app.use(express.static(publicDir, { index: false, setHeaders: setManagedFileCharsetHeader }));
     }
     // Deployment-root agent skills discovery (agentskills.io v0.2.0).
     // Serves the system-tier skill set from the project root .well-known/agent-skills/
@@ -1177,12 +1163,7 @@ systemStructureContext().then((site) => {
       }
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Vary', 'Origin');
-      const contentType = mime.getType(reqPath);
-      if (contentType) {
-        res.setHeader('Content-Type', contentType);
-      } else {
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      }
+      setStaticContentTypeWithCharset(res, reqPath, 'text/plain; charset=utf-8');
       res.sendFile(reqPath, { root: asRoot });
     });
     app.use('/', (req, res, next) => {
@@ -1204,12 +1185,7 @@ systemStructureContext().then((site) => {
         next();
       }
       else {
-        if (mime.getType(requestPath)) {
-          res.setHeader('Content-Type', mime.getType(requestPath));
-        }
-        else {
-          res.setHeader('Content-Type', 'text/html');
-        }
+        setStaticContentTypeWithCharset(res, requestPath);
         if (process.env.NODE_ENV === "development") {
           try {
             let indexFile = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
@@ -1277,9 +1253,7 @@ systemStructureContext().then((site) => {
           req.url.includes('build-haxcms.js')
         )
       ) {
-        if (mime.getType(req.url.split('?')[0])) {
-          res.setHeader('Content-Type', mime.getType(req.url));
-        }
+        setStaticContentTypeWithCharset(res, req.url.split('?')[0], null);
         serveBuildAssetFile(req, res, publicDir);
       }
       else if (
@@ -1302,12 +1276,7 @@ systemStructureContext().then((site) => {
         )
       ) {
         if (!setWellKnownContentType(res, req.url)) {
-          if (mime.getType(req.url.split('?')[0])) {
-            res.setHeader('Content-Type', mime.getType(req.url));
-          }
-          else {
-            res.setHeader('Content-Type', 'text/html');
-          }
+          setStaticContentTypeWithCharset(res, req.url.split('?')[0]);
         }
         res.sendFile(
           req.url.split('?')[0],
@@ -1354,12 +1323,7 @@ systemStructureContext().then((site) => {
         if (pageMiss) {
           res.status(404);
         }
-        if (mime.getType(req.url.split('?')[0])) {
-          res.setHeader('Content-Type', mime.getType(req.url));
-        }
-        else {
-          res.setHeader('Content-Type', 'text/html');
-        }
+        setStaticContentTypeWithCharset(res, req.url.split('?')[0]);
         if (siteContext && siteContext.siteDirectory) {
           try {
             let indexFile = await renderDynamicSiteIndexResponse(
@@ -1393,12 +1357,7 @@ systemStructureContext().then((site) => {
     });
     // published directory route if it exists
     app.use(`/${HAXCMS.publishedDirectory}/`,(req, res, next) => {
-      if (mime.getType(req.url)) {
-        res.setHeader('Content-Type', mime.getType(req.url));
-      }
-      else {
-        res.setHeader('Content-Type', 'text/html');
-      }
+      setStaticContentTypeWithCharset(res, req.url);
       res.sendFile(req.url,
       {
         root: process.cwd() + `/${HAXCMS.publishedDirectory}`
@@ -2669,6 +2628,57 @@ function getStaticSendFileOptions(rootPath = '', requestPath = '') {
     options.dotfiles = 'allow';
   }
   return options;
+}
+// Extensions whose static files must be tagged charset=utf-8 so clients
+// don't guess an encoding and render UTF-8 bytes as mojibake. Mirrors the
+// AddCharset directive in system/boilerplate/site/.htaccess (.txt .md
+// .json .yaml .yml .xml). HAXcms tooling always writes these as UTF-8.
+const STATIC_CHARSET_EXTENSIONS = /\.(txt|md|json|ya?ml|xml)$/i;
+// Set Content-Type for an explicitly-served static file: appends
+// charset=utf-8 to the managed text formats above (matching the .htaccess
+// AddCharset), sets the bare mime type for other resolved extensions, and
+// falls back to `fallback` (default 'text/html') when mime can't resolve a
+// type. Pass null as `fallback` to only set a header when mime resolves.
+// Used at call sites that res.sendFile() afterward: send respects a
+// pre-set Content-Type (it does not override), so this header wins.
+function setStaticContentTypeWithCharset(res, requestPath = '', fallback = 'text/html') {
+  const cleanPath = getRequestPathWithoutQuery(requestPath);
+  const mimeType = mime.getType(cleanPath);
+  if (!mimeType) {
+    if (fallback !== null) {
+      res.setHeader('Content-Type', fallback);
+    }
+    return;
+  }
+  // Don't charset-tag user uploads in /files/ (encoding not guaranteed),
+  // matching the RemoveCharset in system/boilerplate/site/files/.htaccess.
+  if (STATIC_CHARSET_EXTENSIONS.test(cleanPath) && cleanPath.indexOf('/files/') === -1) {
+    res.setHeader('Content-Type', mimeType + '; charset=utf-8');
+  } else {
+    res.setHeader('Content-Type', mimeType);
+  }
+}
+// express.static setHeaders hook: only tag the managed text formats with
+// charset=utf-8 and leave every other type untouched so send's built-in
+// type/charset handling (which already charset-tags text/html, text/css,
+// application/javascript, etc.) stays intact for non-managed files. Runs
+// before send's type() (which skips when Content-Type is already set).
+// User uploads in /files/ get the bare type (no charset) to match the
+// RemoveCharset in system/boilerplate/site/files/.htaccess.
+function setManagedFileCharsetHeader(res, filePath = '') {
+  const cleanPath = getRequestPathWithoutQuery(filePath);
+  if (!STATIC_CHARSET_EXTENSIONS.test(cleanPath)) {
+    return;
+  }
+  const mimeType = mime.getType(cleanPath);
+  if (!mimeType) {
+    return;
+  }
+  if (cleanPath.indexOf('/files/') !== -1) {
+    res.setHeader('Content-Type', mimeType);
+  } else {
+    res.setHeader('Content-Type', mimeType + '; charset=utf-8');
+  }
 }
 // D60: 405+Allow dispatch helpers. These support the catch-all middleware
 // that checks if a request path matches a registered route for a different
