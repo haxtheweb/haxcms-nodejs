@@ -249,6 +249,7 @@ function getSystemV1RouteParser(method = 'get', route = '') {
       normalizedRoute === 'actions/html-to-pdf' ||
       normalizedRoute === 'actions/import-docx' ||
       normalizedRoute === 'actions/import-pptx' ||
+      normalizedRoute === 'actions/import-pptx-deck' ||
       normalizedRoute === 'actions/import-html' ||
       normalizedRoute === 'actions/import-xlsx' ||
       normalizedRoute === 'actions/import-pdf' ||
