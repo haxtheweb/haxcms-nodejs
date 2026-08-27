@@ -659,7 +659,7 @@ class HAXCMSSite
           ]);
         }
       }
-      if ((this.manifest.metadata.theme.variables.hexCode)) {
+      if (this.manifest.metadata.theme && this.manifest.metadata.theme.variables && this.manifest.metadata.theme.variables.hexCode) {
         templateVars['hexCode'] = this.manifest.metadata.theme.variables.hexCode;
       }
       // put the twig written output into the file
@@ -1368,7 +1368,7 @@ class HAXCMSSite
           }
         }
         // look for the theme banner
-        if ((this.manifest.metadata.theme.variables.image)) {
+        if (this.manifest.metadata.theme && this.manifest.metadata.theme.variables && this.manifest.metadata.theme.variables.image) {
           fileName = this.manifest.metadata.theme.variables.image;
         }
       }
@@ -1759,7 +1759,7 @@ class HAXCMSSite
         title = this.manifest.title;
         siteTitle = this.manifest.title;
       }
-      if ((this.manifest.metadata.theme.variables.hexCode)) {
+      if (this.manifest.metadata.theme && this.manifest.metadata.theme.variables && this.manifest.metadata.theme.variables.hexCode) {
           hexCode = this.manifest.metadata.theme.variables.hexCode;
       }
       // if we have a privacy flag, then tell robots not to index this were it to be found
