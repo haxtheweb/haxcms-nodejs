@@ -9,9 +9,14 @@
 [![Published on npm](https://img.shields.io/npm/v/@haxtheweb/haxcms-nodejs?style=flat)](https://www.npmjs.com/package/@haxtheweb/haxcms-nodejs)
 [![build](https://github.com/haxtheweb/haxcms-nodejs/workflows/build/badge.svg)](https://github.com/haxtheweb/haxcms-nodejs/actions)
 [![X](https://img.shields.io/twitter/follow/haxtheweb.svg?style=social&label=Follow)](https://twitter.com/intent/follow?screen_name=haxtheweb)
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/haxtheweb/haxcms-nodejs)
 
 # HAXcms with nodejs backend
 Start the server in any HAXsite or HAXcms instance
+
+## Onboarding
+
+New to the HAX ecosystem? **[Start here](https://github.com/haxtheweb/issues/blob/master/CONTRIBUTING.md)** — the single onboarding guide covers prerequisites, cloning the core repos, installing, and running each project locally.
 
 ![HAXcms nodejs backend](screenshots/haxcms-nodejs.png)
 
