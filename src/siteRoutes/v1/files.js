@@ -636,6 +636,64 @@ async function scaleImageToPreset(
     .toFile(outputPath);
 }
 
+async function scaleImageInPlace(
+  sourcePath,
+  targetWidth,
+  targetHeight,
+  jpegQuality = DEFAULT_JPEG_QUALITY,
+) {
+  let metadata = null;
+  try {
+    metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
+  } catch (e) {
+    throw createStatusError('Only raster images can be scaled', 400);
+  }
+  if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
+    throw createStatusError('Only raster images can be scaled', 400);
+  }
+  const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
+  const outputQuality =
+    normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
+  const temporaryPath = getTemporaryImagePath(sourcePath, 'scale');
+  try {
+    let pipeline = sharp(sourcePath)
+      .rotate()
+      .resize({
+        width: targetWidth,
+        height: targetHeight,
+        fit: 'inside',
+        withoutEnlargement: true,
+      });
+    const format = String(metadata.format);
+    if (format === 'jpeg') {
+      pipeline = pipeline.jpeg({ quality: outputQuality, mozjpeg: true });
+    } else if (format === 'png') {
+      pipeline = pipeline.png();
+    } else if (format === 'webp') {
+      pipeline = pipeline.webp({ quality: outputQuality });
+    } else if (format === 'gif') {
+      pipeline = pipeline.gif();
+    } else {
+      throw createStatusError('Image format does not support in-place scaling', 400);
+    }
+    const buffer = await pipeline.toBuffer();
+    await fs.writeFile(temporaryPath, buffer);
+    fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
+    try {
+      const now = new Date();
+      fs.utimesSync(sourcePath, now, now);
+    } catch (mtimeError) {}
+  } catch (e) {
+    if (fs.pathExistsSync(temporaryPath)) {
+      fs.removeSync(temporaryPath);
+    }
+    throw createStatusError(
+      e && e.message ? e.message : 'Unable to scale image',
+      e && e.status ? e.status : 500,
+    );
+  }
+}
+
 async function rotateImageInPlace(sourcePath, rotation = 90) {
   let metadata = null;
   try {
@@ -875,37 +933,23 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     };
   }
   const presetData = getScalePreset(payload.size);
-  const scaleOutput = getImgOpsOutputPath(
-    fileInfo.filesRootPath,
-    fileInfo.normalizedPath,
-    presetData.preset.width,
-    presetData.preset.height,
-  );
-  await scaleImageToPreset(
+  await scaleImageInPlace(
     fileInfo.resolvedPath,
-    scaleOutput.outputPath,
     presetData.preset.width,
     presetData.preset.height,
     jpegQuality,
   );
-  const scaledFile = buildFileRecord(site, scaleOutput.outputPath, scaleOutput.relativePath);
+  const scaledFile = buildFileRecord(
+    site,
+    fileInfo.resolvedPath,
+    fileInfo.normalizedPath,
+  );
   return {
     commitMessage:
-      'File scaled (' +
-      presetData.key +
-      '): ' +
-      fileInfo.normalizedPath +
-      ' -> ' +
-      scaleOutput.relativePath,
+      'File scaled (' + presetData.key + '): ' + fileInfo.normalizedPath,
     data: {
       operation: operation,
-      source: fileInfo.normalizedPath,
-      size: presetData.key,
-      dimensions: {
-        width: presetData.preset.width,
-        height: presetData.preset.height,
-      },
-      presets: IMAGE_SCALE_PRESETS,
+      path: fileInfo.normalizedPath,
       file: scaledFile,
     },
   };
@@ -1200,4 +1244,8 @@ module.exports = {
   createFile,
   updateFile,
   deleteFile,
+  // Exported for direct unit testing of the in-place, format-preserving
+  // resize path (see test/unit/files-image-ops.test.cjs). Not wired to a
+  // route; performFileOperation remains the sole production caller.
+  scaleImageInPlace,
 };
