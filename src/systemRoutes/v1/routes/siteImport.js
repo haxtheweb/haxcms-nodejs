@@ -7,14 +7,13 @@ const { convertWordpressToSite } = require('./imports/convertWordpressToSite.js'
 const { convertElmslnToSite } = require('./imports/convertElmslnToSite.js')
 const { convertDrupalBookToSite } = require('./imports/convertDrupalBookToSite.js')
 const { convertPloneToSite } = require('./imports/convertPloneToSite.js')
-const { convertRecipeToSite } = require('./imports/convertRecipeToSite.js')
 
 /**
  * POST /system/api/v1/site/import/:platform
  * Dispatcher that routes platform import requests to the correct converter.
  *
  * Supported platforms: haxcms, html, pressbooks, gitbook, notion, wordpress,
- * elmsln, drupal-book, plone, recipe.
+ * elmsln, drupal-book, plone.
  * Returns { status: 200, data: { items: [...], filename: string, ... } }.
  */
 async function siteImport(req, res) {
@@ -42,8 +41,6 @@ async function siteImport(req, res) {
       return convertDrupalBookToSite(req, res)
     case 'plone':
       return convertPloneToSite(req, res)
-    case 'recipe':
-      return convertRecipeToSite(req, res)
     default:
       return res.status(400).json({
         status: 400,

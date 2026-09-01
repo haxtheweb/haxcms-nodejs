@@ -76,7 +76,6 @@ const KNOWN_PLATFORMS = [
   'elmsln',
   'drupal-book',
   'plone',
-  'recipe',
 ]
 
 for (const platform of KNOWN_PLATFORMS) {
@@ -99,13 +98,6 @@ test('html platform with empty body returns the html converter own validation er
   assert.equal(res.body.data.error, 'missing `repoUrl` param')
 })
 
-test('recipe platform with empty body returns the recipe converter own validation error', async () => {
-  const res = stubRes()
-  await siteImport(stubReq('recipe'), res)
-  assert.equal(res.statusCode, 400)
-  assert.equal(res.body.data.error, 'missing recipe content, file upload, or `repoUrl` param')
-})
-
 test('platform is normalized to lowercase before dispatch (HTML routes to html converter)', async () => {
   const res = stubRes()
   await siteImport(stubReq('HTML'), res)
@@ -119,13 +111,6 @@ test('platform is trimmed before dispatch (" html " routes to html converter)', 
   await siteImport(stubReq(' html '), res)
   assert.equal(res.statusCode, 400)
   assert.equal(res.body.data.error, 'missing `repoUrl` param')
-})
-
-test('mixed-case platform "Recipe" routes to the recipe converter', async () => {
-  const res = stubRes()
-  await siteImport(stubReq('Recipe'), res)
-  assert.equal(res.statusCode, 400)
-  assert.equal(res.body.data.error, 'missing recipe content, file upload, or `repoUrl` param')
 })
 
 test('haxcms platform with empty body returns the haxcms converter own validation error', async () => {

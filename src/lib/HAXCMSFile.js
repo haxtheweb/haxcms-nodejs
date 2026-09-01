@@ -517,54 +517,169 @@ function isPrivateOrReservedIPv4(ip) {
 }
 
 /**
+ * Pack a textual IPv6 address into a 16-byte Buffer, or return null if the
+ * input is not a valid IPv6 address (including plain IPv4, which has no ':').
+ * Handles '::' compression and a trailing dotted-quad group
+ * (::ffff:127.0.0.1) so the caller can inspect the canonical bytes.
+ *
+ * Node has no built-in inet_pton; this parser is the dependency-free
+ * equivalent used by isPrivateOrReservedIP to detect IPv4-mapped and
+ * IPv4-compatible forms by their 12-byte prefix regardless of whether the
+ * embedded IPv4 is written as a dotted-quad or as hex groups.
+ */
+function ipv6ToBuffer(ip) {
+  if (!ip || typeof ip !== 'string' || ip.indexOf(':') === -1) {
+    return null;
+  }
+  var idx = ip.indexOf('::');
+  var leftPart = '';
+  var rightPart = '';
+  if (idx === -1) {
+    leftPart = ip;
+  } else {
+    // at most one '::' is allowed
+    if (ip.indexOf('::', idx + 1) !== -1) {
+      return null;
+    }
+    leftPart = ip.slice(0, idx);
+    rightPart = ip.slice(idx + 2);
+  }
+  var left = leftPart === '' ? [] : leftPart.split(':');
+  var right = rightPart === '' ? [] : rightPart.split(':');
+  // a trailing dotted-quad group occupies 2 group slots but is 1 array element
+  var hasDotted = right.length > 0 && right[right.length - 1].indexOf('.') !== -1;
+  var groupCount = left.length + right.length + (hasDotted ? 1 : 0);
+  if (idx === -1) {
+    if (groupCount !== 8) {
+      return null;
+    }
+  } else if (groupCount > 8) {
+    return null;
+  }
+  var groups = left.slice();
+  if (idx !== -1) {
+    var fill = 8 - groupCount;
+    for (var f = 0; f < fill; f++) {
+      groups.push('0');
+    }
+  }
+  for (var r = 0; r < right.length; r++) {
+    groups.push(right[r]);
+  }
+  var out = Buffer.alloc(16);
+  var bytePos = 0;
+  for (var i = 0; i < groups.length; i++) {
+    var g = groups[i];
+    if (g === '') {
+      return null;
+    }
+    if (g.indexOf('.') !== -1) {
+      // dotted-quad must be the last 4 bytes (groups 6+7)
+      if (bytePos !== 12) {
+        return null;
+      }
+      var octets = g.split('.');
+      if (octets.length !== 4) {
+        return null;
+      }
+      for (var j = 0; j < 4; j++) {
+        var ov = parseInt(octets[j], 10);
+        if (isNaN(ov) || ov < 0 || ov > 255 || String(ov) !== octets[j]) {
+          return null;
+        }
+        out[bytePos + j] = ov;
+      }
+      bytePos += 4;
+    } else {
+      if (bytePos >= 16) {
+        return null;
+      }
+      if (!/^[0-9a-fA-F]{1,4}$/.test(g)) {
+        return null;
+      }
+      var n = parseInt(g, 16);
+      out[bytePos] = (n >> 8) & 0xff;
+      out[bytePos + 1] = n & 0xff;
+      bytePos += 2;
+    }
+  }
+  if (bytePos !== 16) {
+    return null;
+  }
+  return out;
+}
+
+/**
  * Check if an IP address is in a private, reserved, loopback, link-local,
  * cloud-metadata, or carrier-grade NAT range.
  *
- * Security (HAX-SEC-007): normalizes IPv4-mapped IPv6 addresses
- * (::ffff:a.b.c.d) to their embedded IPv4 form before checking, because
- * dns.lookup(..., {all:true}) returns mapped addresses verbatim and an
- * attacker-published AAAA record of ::ffff:169.254.169.254 would otherwise
- * bypass the check and reach loopback/metadata via the shipped safeFetch
- * path. Mirrors PHP SsrfGuard's inet_pton-based normalization
- * (SsrfGuard.php:50-54) so both backends share the same posture.
+ * Security (HAX-SEC-007 / SSRF hex-form bypass): normalizes IPv4-mapped
+ * (::ffff:0:0/96) and IPv4-compatible (::/96) IPv6 addresses to their
+ * embedded IPv4 form before checking. dns.lookup(..., {all:true}) returns
+ * mapped/compat addresses verbatim, and an attacker-published AAAA record
+ * (or a literal IP in a URL) of ::ffff:7f00:1 / ::ffff:a9fe:a9fe would
+ * otherwise bypass the check and reach loopback/internal/metadata targets.
+ *
+ * The previous text-based match only recognized the dotted-quad spelling
+ * (::ffff:127.0.0.1) and fed substr to isPrivateOrReservedIPv4, which matched
+ * no private prefix for the hex spelling (::ffff:7f00:1 -> "7f00:1"). The
+ * packed-byte approach canonicalizes every equivalent spelling to the same 16
+ * bytes via ipv6ToBuffer, then decodes the trailing 4 bytes (inet_ntop
+ * equivalent) and re-checks. The prefix test (bytes 0-9 zero + bytes 10-11 =
+ * 0xffff for mapped; bytes 0-11 zero for compat) avoids touching legitimate
+ * public v6 like 2001:db8::1.2.3.4, whose trailing 4 bytes happen to look
+ * like an IPv4 address but whose prefix is not the mapped/compat prefix.
+ * Mirrors PHP SsrfGuard::isPrivateOrReservedIP so both backends share the
+ * same posture.
  */
 function isPrivateOrReservedIP(ip) {
   if (!ip || typeof ip !== 'string') {
     return true;
   }
-  var lowerIP = ip.toLowerCase();
-  // IPv4-mapped IPv6 (::ffff:a.b.c.d) — normalize to the embedded v4 and
-  // re-check. dns.lookup returns these verbatim for mapped AAAA records.
-  if (lowerIP.indexOf('::ffff:') === 0) {
-    return isPrivateOrReservedIPv4(ip.substring(7));
-  }
-  // IPv4-compatible IPv6 (::a.b.c.d, deprecated ::/96) — same normalization.
-  // dns.lookup returns ::127.0.0.1 for a ::7f00:1 AAAA record, and without
-  // this branch it falls through to the "contains ':' → public v6" case and
-  // bypasses the loopback/metadata check. ::/96 is deprecated (RFC 4291) but
-  // still resolves, so block it for parity with the ::ffff: path. The dotted
-  // quad guard avoids touching legitimate public v6 like 2001:db8::1.2.3.4.
-  // MUST run after the ::ffff: branch so mapped addresses are handled first.
-  if (lowerIP.indexOf('::') === 0 && ip.indexOf('.') !== -1) {
-    return isPrivateOrReservedIPv4(ip.substring(2));
-  }
-  // pure IPv6 special cases
-  if (ip === '::1' || ip === '0:0:0:0:0:0:0:1' || ip === '::') {
-    return true;
-  }
-  // IPv6 unique local (fc00::/7)
-  if (lowerIP.startsWith('fc') || lowerIP.startsWith('fd')) {
-    return true;
-  }
-  // IPv6 link-local (fe80::/10)
-  if (lowerIP.startsWith('fe80')) {
-    return true;
-  }
-  // if it still looks like IPv6 (contains ':'), it is a public v6 address
-  if (ip.indexOf(':') !== -1) {
+  var packed = ipv6ToBuffer(ip);
+  if (packed) {
+    // IPv6 unspecified (::) and loopback (::1) — matched on packed bytes so
+    // every equivalent spelling (::, ::0001, 0:0:0:0:0:0:0:1, ::0.0.0.1) is
+    // caught, not just the canonical text forms.
+    var allZero = true;
+    for (var z = 0; z < 16; z++) {
+      if (packed[z] !== 0) { allZero = false; break; }
+    }
+    if (allZero) {
+      return true;
+    }
+    var isLoopback = true;
+    for (var l = 0; l < 15; l++) {
+      if (packed[l] !== 0) { isLoopback = false; break; }
+    }
+    if (isLoopback && packed[15] === 1) {
+      return true;
+    }
+    var lowerIP = ip.toLowerCase();
+    // IPv6 unique local (fc00::/7)
+    if (lowerIP.startsWith('fc') || lowerIP.startsWith('fd')) {
+      return true;
+    }
+    // IPv6 link-local (fe80::/10)
+    if (lowerIP.startsWith('fe80')) {
+      return true;
+    }
+    // IPv4-mapped (::ffff:0:0/96) and IPv4-compatible (::/96, deprecated):
+    // decode the trailing 4 bytes to dotted-quad and re-check.
+    var prefixZero = true;
+    for (var p = 0; p < 10; p++) {
+      if (packed[p] !== 0) { prefixZero = false; break; }
+    }
+    var isMapped = prefixZero && packed[10] === 0xff && packed[11] === 0xff;
+    var isCompat = prefixZero && packed[10] === 0 && packed[11] === 0;
+    if (isMapped || isCompat) {
+      var v4 = packed[12] + '.' + packed[13] + '.' + packed[14] + '.' + packed[15];
+      return isPrivateOrReservedIPv4(v4);
+    }
+    // any other IPv6 is treated as a public v6 address
     return false;
   }
-  // otherwise treat as IPv4
+  // not IPv6 -> treat as IPv4
   return isPrivateOrReservedIPv4(ip);
 }
 

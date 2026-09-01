@@ -140,6 +140,39 @@ test('isPrivateOrReservedIP normalizes IPv4-compatible IPv6 (::a.b.c.d)', () => 
   assert.equal(isPrivateOrReservedIP('::8.8.8.8'), false)
 })
 
+test('isPrivateOrReservedIP flags hex-form IPv4-mapped IPv6 (SSRF hex-bypass, HAX-SEC-007)', () => {
+  // ::ffff:7f00:1 == 127.0.0.1, ::ffff:a9fe:a9fe == 169.254.169.254,
+  // ::ffff:c0a8:7 == 192.168.0.7, ::ffff:ac10:1 == 172.16.0.1,
+  // ::ffff:0a00:1 == 10.0.0.1, ::ffff:6440:1 == 100.64.0.1 (CGNAT).
+  // The previous text match only handled the dotted-quad spelling and fed
+  // "7f00:1" to isPrivateOrReservedIPv4, which matched no private prefix.
+  assert.equal(isPrivateOrReservedIP('::ffff:7f00:1'), true)
+  assert.equal(isPrivateOrReservedIP('::ffff:a9fe:a9fe'), true)
+  assert.equal(isPrivateOrReservedIP('::ffff:c0a8:7'), true)
+  assert.equal(isPrivateOrReservedIP('::ffff:ac10:1'), true)
+  assert.equal(isPrivateOrReservedIP('::ffff:0a00:1'), true)
+  assert.equal(isPrivateOrReservedIP('::ffff:6440:1'), true)
+})
+
+test('isPrivateOrReservedIP flags hex-form IPv4-compatible IPv6 (::/96)', () => {
+  assert.equal(isPrivateOrReservedIP('::7f00:1'), true)
+  assert.equal(isPrivateOrReservedIP('::a9fe:a9fe'), true)
+})
+
+test('isPrivateOrReservedIP leaves public mapped/compat and dotted-tail v6 public', () => {
+  assert.equal(isPrivateOrReservedIP('::ffff:8.8.8.8'), false)
+  assert.equal(isPrivateOrReservedIP('::8.8.8.8'), false)
+  // 2001:db8::1.2.3.4 trailing 4 bytes look like an IPv4 address, but its
+  // prefix is not the mapped/compat prefix -> must stay public.
+  assert.equal(isPrivateOrReservedIP('2001:db8::1.2.3.4'), false)
+})
+
+test('isPrivateOrReservedIP flags loopback alternate spellings via packed bytes', () => {
+  assert.equal(isPrivateOrReservedIP('::0001'), true)
+  assert.equal(isPrivateOrReservedIP('::0.0.0.1'), true)
+  assert.equal(isPrivateOrReservedIP('0:0:0:0:0:0:0:1'), true)
+})
+
 test('isPrivateOrReservedIP returns false for public IPv4 and IPv6', () => {
   assert.equal(isPrivateOrReservedIP('8.8.8.8'), false)
   assert.equal(isPrivateOrReservedIP('1.1.1.1'), false)
@@ -218,6 +251,21 @@ test('assertUrlNotSSRF rejects a hostname that resolves to cloud metadata 169.25
 test('assertUrlNotSSRF rejects a hostname that resolves to IPv4-mapped IPv6 ::ffff:127.0.0.1 with SSRF_PRIVATE', async (t) => {
   useLookup(t, lookupRecords([{ address: '::ffff:127.0.0.1', family: 6 }]))
   await rejectsCode(assertUrlNotSSRF('http://mapped.test/'), 'SSRF_PRIVATE')
+})
+
+test('assertUrlNotSSRF rejects hex-form ::ffff:7f00:1 (127.0.0.1) with SSRF_PRIVATE', async (t) => {
+  useLookup(t, lookupRecords([{ address: '::ffff:7f00:1', family: 6 }]))
+  await rejectsCode(assertUrlNotSSRF('http://mapped-hex.test/'), 'SSRF_PRIVATE')
+})
+
+test('assertUrlNotSSRF rejects hex-form ::ffff:a9fe:a9fe (cloud metadata) with SSRF_PRIVATE', async (t) => {
+  useLookup(t, lookupRecords([{ address: '::ffff:a9fe:a9fe', family: 6 }]))
+  await rejectsCode(assertUrlNotSSRF('http://metadata-hex.test/'), 'SSRF_PRIVATE')
+})
+
+test('assertUrlNotSSRF rejects hex-form compat ::7f00:1 (127.0.0.1) with SSRF_PRIVATE', async (t) => {
+  useLookup(t, lookupRecords([{ address: '::7f00:1', family: 6 }]))
+  await rejectsCode(assertUrlNotSSRF('http://compat-hex.test/'), 'SSRF_PRIVATE')
 })
 
 test('assertUrlNotSSRF rejects when ANY resolved record is private (round-robin)', async (t) => {
