@@ -422,6 +422,12 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
     if (isObjectLike(fullThemeConfig.settings)) {
       themeBase = cloneJsonValue(fullThemeConfig.settings, {});
     }
+    else if (isObjectLike(skeleton.theme)) {
+      // Trimmed skeletons drop fullThemeConfig.settings; fall back to the
+      // top-level theme object (registry defaults) so we keep path, name,
+      // thumbnail, regions, etc.
+      themeBase = cloneJsonValue(skeleton.theme, {});
+    }
     if (
       typeof fullThemeConfig.element === 'string' &&
       fullThemeConfig.element !== ''

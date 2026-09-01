@@ -172,9 +172,10 @@ async function generateSiteSkeleton(site) {
   if (typeof siteSettings.publishPagesOn === 'undefined') {
     siteSettings.publishPagesOn = true;
   }
-  if (typeof siteSettings.canonical === 'undefined') {
-    siteSettings.canonical = true;
-  }
+  // Reset instance-specific settings to sane defaults so skeletons never
+  // carry over the source site's live values.
+  siteSettings.canonical = true;
+  siteSettings.gaID = '';
   const platformSettings = isObjectLike(manifestMetadata.platform)
     ? cloneJson(manifestMetadata.platform, {})
     : {};
@@ -275,33 +276,12 @@ async function generateSiteSkeleton(site) {
       ...themeData.themeSettings,
     },
     _skeleton: {
-      originalMetadata: {
-        site: {
-          category,
-          tags,
-          settings: siteSettings,
-        },
-        licensing: isObjectLike(manifestMetadata.licensing)
-          ? cloneJson(manifestMetadata.licensing, {})
-          : {},
-        node: isObjectLike(manifestMetadata.node)
-          ? cloneJson(manifestMetadata.node, {})
-          : {},
-        platform: platformSettings,
-      },
-      originalSettings: siteSettings,
       fullThemeConfig: {
         element: themeData.themeElement,
         variables: themeData.themeVariables,
-        settings: {
-          ...themeData.themeSettings,
-        },
       },
     },
   };
-  if (typeof manifest.license === 'string' && manifest.license !== '') {
-    skeleton.site.license = manifest.license;
-  }
   return skeleton;
 }
 

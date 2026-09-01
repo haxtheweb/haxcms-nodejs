@@ -3104,7 +3104,27 @@ function replaceManagedHeadMarkup(indexFile = '', metadata = '', serviceWorkerSc
   let output = String(indexFile || '');
   const managedHeadPattern = /<meta charset[\s\S]*?(?=\s*<style[\s>])/i;
   if (managedHeadPattern.test(output)) {
-    output = output.replace(managedHeadPattern, managedHeadMarkup + '\n');
+    // Preserve <script> blocks (the base-href document.write setter and the
+    // importmap) that sit between <meta charset> and <style>. The managed
+    // metadata does not regenerate these, so without preservation they are
+    // swallowed by the replacement. This regressed when <meta charset> was
+    // moved to the top of <head> in the site boilerplate: the regex then
+    // spans the base/importmap scripts instead of starting below them.
+    // Without the base-href script no <base> tag is written, so relative
+    // asset paths resolve against the document URL on sub-pages and 404.
+    // Mirrors the PHP index.php template where getBaseTag() + the importmap
+    // are separate parts ahead of the metadata.
+    const matched = output.match(managedHeadPattern)[0];
+    const scriptBlockPattern = /<script[\s\S]*?<\/script>/gi;
+    const preservedScripts = [];
+    let scriptMatch;
+    while ((scriptMatch = scriptBlockPattern.exec(matched)) !== null) {
+      preservedScripts.push(scriptMatch[0]);
+    }
+    const preservedScriptsMarkup = preservedScripts.length > 0
+      ? preservedScripts.join('\n  ') + '\n  '
+      : '';
+    output = output.replace(managedHeadPattern, preservedScriptsMarkup + managedHeadMarkup + '\n');
     return output;
   }
   if (output.indexOf('</head>') !== -1) {
