@@ -5,6 +5,10 @@ process.env.haxcms_middleware = "node-cli";
 // HAXcms core settings
 const { HAXCMS } = require('./lib/HAXCMS.js');
 const { allRoutes } = require('./lib/allRoutes.js');
+// Shared CLI theme so the API-bridge CLI speaks with the same Merlin voice as
+// the server launcher (issue haxtheweb/issues#2973). Only human-facing error
+// lines are styled; structured route data is still printed verbatim.
+const cliTheme = require('./lib/cliTheme.js');
 const systemRouteRegistry =
   allRoutes && allRoutes.system && allRoutes.system.map
     ? allRoutes.system.map
@@ -65,7 +69,7 @@ for (var method in systemRouteRegistry) {
           systemRouteRegistry[rMethod][op](req, res);
         }
         else {
-          console.error("route connection issue");
+          console.error(cliTheme.merlinError("route connection issue"));
         }
       });
     }
@@ -147,7 +151,7 @@ export async function cliBridge(op, body = {}, method = 'post', file = null) {
   }
 
   if (!handler) {
-    console.error(`Route not found: ${method} ${op}`);
+    console.error(cliTheme.merlinError(`Route not found: ${method} ${op}`));
     return;
   }
 
@@ -198,7 +202,7 @@ export async function cliBridge(op, body = {}, method = 'post', file = null) {
     return {req: req, res: res};
   }
   else {
-    console.error("route connection issue");
+    console.error(cliTheme.merlinError("route connection issue"));
   }
 }
 

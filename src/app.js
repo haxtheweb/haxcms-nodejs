@@ -32,6 +32,10 @@ const PAGE_VARIANT_CONTENT_TYPES = {
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
 const loginRateLimiter = require('./lib/loginRateLimiter.js');
+// Shared CLI theme: replaces the bare `open: <url>` line with a unified,
+// colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
+// the plain `open: <url>` line when color is disabled (CI / non-TTY / NO_COLOR).
+const cliTheme = require('./lib/cliTheme.js');
 // trust proxy is config-driven so forwarded client IPs (req.ip) are accurate
 // behind a reverse proxy; defaults to false for single-host/local setups.
 app.set('trust proxy', HAXCMS.getTrustProxySetting());
@@ -987,6 +991,23 @@ const serverReady = new Promise((resolve) => {
   resolveServerReady = resolve
 })
 let serverReadyResolved = false
+// Captured from systemStructureContext().then((site) => so the top-level
+// onServerListening() can include site name/theme in the banner.
+let activeSite = null
+// Best-effort one-time version read (sync) for the server banner.
+let HAXCMS_VERSION = null
+try {
+  const _versionPaths = [
+    path.join(__dirname, '/../.version'),
+    path.join(__dirname, '/../public', 'VERSION.txt'),
+  ]
+  for (let _i = 0; _i < _versionPaths.length; _i++) {
+    if (fs.existsSync(_versionPaths[_i])) {
+      HAXCMS_VERSION = fs.readFileSync(_versionPaths[_i], 'utf8').trim()
+      break
+    }
+  }
+} catch (e) {}
 function getRuntimePort() {
   const address = server.address()
   if (
@@ -1007,6 +1028,7 @@ systemStructureContext().then((site) => {
     // works great w/ CLI in stand alone mode for local developer
     publicDir = site.siteDirectory;
     HAXCMS.runtimeServerMode = 'single-site';
+    activeSite = site;
     if (process.env.NODE_ENV === "development") {
       // express.static will only serve the original static index.html file
       // so dev builds need to set this ignore option to inject any edits
@@ -1658,8 +1680,21 @@ function onServerListening() {
     resolveServerReady(runtimePort)
     serverReadyResolved = true
   }
-  /* eslint-disable no-console */
-  console.log(`open: ${serverProtocol}://localhost:${runtimePort}`);
+  let _siteName = null;
+  let _themeName = null;
+  if (activeSite && activeSite.manifest && activeSite.manifest.metadata && activeSite.manifest.metadata.site && activeSite.manifest.metadata.site.name) {
+    _siteName = activeSite.manifest.metadata.site.name;
+  }
+  if (activeSite && activeSite.manifest && activeSite.manifest.metadata && activeSite.manifest.metadata.theme && activeSite.manifest.metadata.theme.element) {
+    _themeName = activeSite.manifest.metadata.theme.element;
+  }
+  cliTheme.printServerBanner({
+    url: `${serverProtocol}://localhost:${runtimePort}`,
+    mode: HAXCMS.runtimeServerMode || '',
+    siteName: _siteName,
+    theme: _themeName,
+    version: HAXCMS_VERSION,
+  });
 }
 
 function handleServerError(e) {
