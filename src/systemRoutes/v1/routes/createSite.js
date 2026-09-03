@@ -709,9 +709,17 @@ async function createSite(req, res) {
         allowedBlocks: []
       };
     }
-    // store build data in case we need it down the road
+    // store build provenance (version/structure/type) in case we need it
+    // down the road. NOTE: build.items is intentionally NOT retained here.
+    // Its only purpose was to create the pages/files on disk (via
+    // HAXCMS.newSite()/addPage() above); once the site exists, the
+    // manifest's own `items` array is the source of truth for the outline,
+    // so keeping a second, redundant copy (with full page HTML in a
+    // `contents`/`content` field for imports like WordPress) would only
+    // bloat site.json on every page load.
     if (build && !useTrustedSkeleton) {
-      schema.metadata.build = build;
+      const { items, ...buildProvenance } = build;
+      schema.metadata.build = buildProvenance;
     }
     schema.metadata.site.name = site.manifest.metadata.site.name;
     if (normalizedSiteLicense) {
