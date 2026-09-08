@@ -8,9 +8,14 @@ const GITHUB_RELEASES_LATEST_URL =
   'https://api.github.com/repos/haxtheweb/haxcms-nodejs/releases/latest';
 const RELEASE_CACHE_TTL_MS = 5 * 60 * 1000;
 const RELEASES_PAGE_URL = 'https://github.com/haxtheweb/haxcms-nodejs/releases';
+const RELEASES_LATEST_URL =
+  'https://github.com/haxtheweb/haxcms-nodejs/releases/latest';
 const DISCORD_SUPPORT_URL = 'https://discord.gg/qGBZMBnHc';
 const UPLOAD_LIMIT_HELP_URL =
   'https://expressjs.com/en/resources/middleware/body-parser.html';
+const HAXTHEWEB_URL = 'https://haxtheweb.org';
+const NODE_RELEASES_URL = 'https://nodejs.org/en/download/releases';
+const EXPRESS_URL = 'https://expressjs.com/';
 
 let latestReleaseCache = {
   expiresAt: 0,
@@ -246,6 +251,7 @@ function buildStatusRows(options = {}) {
     title: 'Programming language runtime',
     value: options.programmingLanguage || 'node',
     description: 'Detected runtime used by the active backend process.',
+    valueLink: NODE_RELEASES_URL,
   });
   rows.push({
     key: 'server',
@@ -253,6 +259,7 @@ function buildStatusRows(options = {}) {
     title: 'Server version',
     value: options.serverVersion || 'node-express',
     description: 'Detected web server stack serving this request.',
+    valueLink: EXPRESS_URL,
   });
   if (typeof options.configDirectory === 'string' && options.configDirectory !== '') {
     rows.push({
@@ -275,7 +282,13 @@ function buildStatusRows(options = {}) {
     tone: 'info',
     title: 'File upload limit',
     value: options.uploadLimit || 'Unknown',
-    description: `Increase upload limit via server/application settings: ${options.uploadLimitHelpUrl || UPLOAD_LIMIT_HELP_URL}`,
+    description: 'Increase upload limit via server/application settings.',
+    links: [
+      {
+        url: options.uploadLimitHelpUrl || UPLOAD_LIMIT_HELP_URL,
+        label: 'View upload limit documentation',
+      },
+    ],
   });
   const gitVersion = typeof options.gitVersion === 'string' ? options.gitVersion : '';
   const gitInstalled = gitVersion !== '';
@@ -350,13 +363,24 @@ function buildStatusRows(options = {}) {
     title: 'HAXcms version',
     value: currentVersion,
     description: versionDescription,
+    valueLink: RELEASES_LATEST_URL,
   });
   rows.push({
     key: 'community-support',
     tone: 'info',
     title: 'Community support',
     value: 'Discord',
-    description: `Join community support: ${options.supportUrl || DISCORD_SUPPORT_URL}`,
+    description: 'Join the HAX community for support and discussion.',
+    links: [
+      {
+        url: options.supportUrl || DISCORD_SUPPORT_URL,
+        label: 'Join Discord',
+      },
+      {
+        url: HAXTHEWEB_URL,
+        label: 'Visit haxtheweb.org',
+      },
+    ],
   });
   return rows;
 }
