@@ -368,11 +368,14 @@ function normalizeHtmlForDocumentExport(html, basePath, items, mode = 'epub') {
       videoUrl = resolveUrlForEpub(src, basePath)
     }
 
-    // PDF print cannot render iframe/embed content; replace with a clickable
-    // link so the video reference is preserved instead of an empty box.
-    if (mode === 'pdf') {
+    // PDF and DOCX can't render iframe/embed content; replace with a
+    // clickable link so the video reference is preserved instead of an empty
+    // box (PDF) or being stripped entirely (DOCX's html-to-docx removes
+    // <iframe> tags, which would silently drop the video). Aligns with the
+    // PHP ExportConverters pdf/docx branch.
+    if (mode === 'pdf' || mode === 'docx') {
       if (videoUrl) {
-        const link = `<p><a href="${escapeHtmlValue(videoUrl)}">${escapeHtmlValue(videoUrl)}</a></p>`
+        const link = `<p><a href="${escapeHtmlValue(videoUrl)}">[Video] ${escapeHtmlValue(videoUrl)}</a></p>`
         el.replaceWith(link)
       } else {
         el.remove()
@@ -1101,4 +1104,5 @@ module.exports = {
   siteExportMutation,
   itemExport,
   ITEM_EXPORT_FORMATS,
+  normalizeHtmlForDocumentExport,
 }
