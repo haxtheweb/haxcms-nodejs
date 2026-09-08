@@ -146,9 +146,9 @@ function printServerBanner(opts) {
   }
   const mode = String(opts.mode || '');
   const contentLines = [];
-  contentLines.push(`  ${merlinSays('The Web : CLI is summoning itself')}`);
+  contentLines.push(` ${merlinSays(' Summoning HAX The Web..')}`);
   contentLines.push('');
-  contentLines.push(`  🚀  Server running at: ${color.underline(color.cyan(url))}`);
+  contentLines.push(`  🚀 Server running at: ${color.underline(color.cyan(url))}`);
   if (mode) {
     contentLines.push(`  🏠  Mode: ${color.bold(mode)}`);
   }
@@ -162,7 +162,7 @@ function printServerBanner(opts) {
     contentLines.push(`  🏷️  Version: ${color.gray(String(opts.version))}`);
   }
   contentLines.push('');
-  contentLines.push(`  ⌨️  To stop server, press: ${color.bold(color.black(color.bgRed(' CTRL + C ')))}`);
+  contentLines.push(`  ⌨️  To stop server, press: ${color.bold(color.white(color.bgRed(' CTRL + C ')))}                      `);
   const W = INNER_WIDTH;
   const top = color.green('╔' + '═'.repeat(W) + '╗');
   const bottom = color.green('╚' + '═'.repeat(W) + '╝');
