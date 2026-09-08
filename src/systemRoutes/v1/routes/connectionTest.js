@@ -101,7 +101,16 @@ function validateIAMAuthorizationIfNeeded() {
  * )
  */
 function connectionTest(req, res) {
+  // Auth-state probes must never be cached: a cached authenticated body could
+  // be served to a different user (token leak), and a cached anonymous body
+  // could mask a now-logged-in session. Applies to every response branch.
+  res.setHeader('Cache-Control', 'no-store');
   let refreshed = false;
+  // Capture whether a Bearer credential was supplied so we can distinguish an
+  // anonymous probe (no Authorization header, no valid refresh cookie) from a
+  // supplied-but-rejected credential. The anonymous case is the majority
+  // audience and must not surface a 401 just for checking session state.
+  const suppliedBearerJWT = getRequestJWT(req);
   let jwt = getValidatedJWTFromRequest(req, res);
   if (!jwt) {
     jwt = getValidatedJWTFromRefresh(req, res);
@@ -113,11 +122,23 @@ function connectionTest(req, res) {
     // the Secure/SameSite/HttpOnly flags match how the cookie was set (required
     // for the browser to actually delete it).
     HAXCMS.setRefreshTokenCookie(res, '', 1);
-    return res.status(401).json({
-      status: 401,
+    // Anonymous probe (no Bearer and no valid refresh cookie): answer 200 with
+    // authenticated:false so the logged-out majority doesn't see a 401 in the
+    // console / network panel. Reserve 401 for when a credential was actually
+    // supplied but rejected (stale/expired Bearer that validateJWT rejected).
+    if (suppliedBearerJWT) {
+      return res.status(401).json({
+        status: 401,
+        authenticated: false,
+        reason: 'invalid_session',
+        message: 'Authentication failed',
+      });
+    }
+    return res.status(200).json({
+      status: 200,
       authenticated: false,
-      reason: 'invalid_session',
-      message: 'Authentication failed',
+      reason: 'no_session',
+      message: 'No active session',
     });
   }
 

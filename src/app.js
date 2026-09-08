@@ -979,6 +979,36 @@ if (linkedWebcomponentsRoot) {
     next();
   });
 }
+// Serve wc-registry-graph.json (server-side build artifact emitted by the
+// ubiquity gulp task). Intercept before the site routes so it works in both
+// single-site and multisite mode. When the artifact is absent (older CDN
+// builds / ubiquity not yet run), return an empty JSON stub instead of a 404
+// so the frontend editor-warmup no-ops cleanly without console noise.
+app.use((req, res, next) => {
+  if (req.url.indexOf('wc-registry-graph.json') === -1) {
+    return next();
+  }
+  const candidates = [];
+  if (linkedWebcomponentsRoot) {
+    candidates.push(path.join(linkedWebcomponentsRoot, 'wc-registry-graph.json'));
+  }
+  candidates.push(path.join(__dirname, 'public', 'wc-registry-graph.json'));
+  for (let i = 0; i < candidates.length; i++) {
+    if (
+      fs.existsSync(candidates[i]) &&
+      fs.lstatSync(candidates[i]).isFile()
+    ) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.sendFile(candidates[i]);
+      return;
+    }
+  }
+  // graceful degradation: empty graph so the frontend warmup finds no editor
+  // tags and no-ops without a 404 in the console
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ paths: [], adj: {}, tags: {} });
+});
 // attempt to establish context of site vs multi-site environment
 const DEFAULT_PORT = 3000
 const MAX_PORT = 65535

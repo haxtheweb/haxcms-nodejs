@@ -2050,6 +2050,66 @@ class HAXCMSSite
         });
         breadcrumbPosition++;
       }
+      // Phase 1: graph-driven shell modulepreload + per-tag content preload
+      // (parity with PHP backend). Reads wc-registry-graph.json (emitted by
+      // the ubiquity gulp task) to emit a capped (<=12, depth<=2) shell+theme
+      // modulepreload set, then scans page content for custom-element tags
+      // and emits per-tag preloads deduped against the shell set. Falls back
+      // to the fixed shell list when the graph artifact is absent.
+      let themePath = '';
+      if (this.manifest && this.manifest.metadata && this.manifest.metadata.theme && this.manifest.metadata.theme.path) {
+        themePath = String(this.manifest.metadata.theme.path).replace('@lrnwebcomponents/', '@haxtheweb/');
+      }
+      const shellPaths = HAXCMS.buildShellModulepreloadPaths(this, base, themePath);
+      let shellModulepreload = '';
+      const shellSet = {};
+      for (const sp of shellPaths) {
+        const sps = String(sp);
+        shellSet[sps] = true;
+        shellModulepreload += '  <link rel="modulepreload" href="' + base + 'build/es6/node_modules/' + sps + '" crossorigin="anonymous" />\n';
+      }
+      shellModulepreload = shellModulepreload.replace(/\n$/, '');
+      // per-tag content preload (entry only), deduped against the shell set.
+      // mirrors the PHP getSiteMetadata content scan so both backends match.
+      let contentPreload = '';
+      const contentSeen = {};
+      const preloadTags = {};
+      try {
+        const pageContent = await this.getPageContent(page);
+        if (pageContent && typeof pageContent === 'string') {
+          const tagMatches = pageContent.match(/<(?:"[^"]*"['"]*|'[^']*'['"]*|[^'">])+>/g);
+          if (tagMatches) {
+            for (const match of tagMatches) {
+              if (match.indexOf('-') !== -1) {
+                // mirror PHP: strip '</' then '>'; opening tags keep a leading
+                // '<' so only closing-tag forms match the registry, identically
+                let tag = match.replace(/<\//g, '').replace(/>/g, '');
+                preloadTags[tag] = tag;
+              }
+            }
+          }
+        }
+      }
+      catch (e) {}
+      for (const tag in preloadTags) {
+        const tagPath = HAXCMS.getContentTagPath(this, base, tag);
+        if (tagPath === false) {
+          continue;
+        }
+        const tagPathStr = String(tagPath);
+        if (shellSet[tagPathStr] || contentSeen[tagPathStr]) {
+          continue;
+        }
+        contentSeen[tagPathStr] = true;
+        contentPreload += '\n  <link rel="preload" href="' + base + 'build/es6/node_modules/' + tagPathStr + '" as="script" crossorigin="anonymous" />' +
+          '\n  <link rel="modulepreload" href="' + base + 'build/es6/node_modules/' + tagPathStr + '" />';
+      }
+      let themePreload = '';
+      if (themePath) {
+        // theme modulepreload is already in the shell set above; keep only
+        // the preload-as-script hint so the theme fetch is prioritized early.
+        themePreload = '  <link rel="preload" href="' + base + 'build/es6/node_modules/' + themePath + '" as="script" crossorigin="anonymous" />';
+      }
       let metadata = `<meta charset="utf-8" />
   ${preconnect}
   <link rel="preconnect" crossorigin href="https://fonts.googleapis.com">
@@ -2059,14 +2119,8 @@ class HAXCMSSite
   <link rel="preload" href="${base}build.js" as="script" />
   <link rel="preload" href="${base}build-haxcms.js" as="script" />
   <link rel="preload" href="${base}wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js" crossorigin="anonymous" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/dynamic-import-registry/dynamic-import-registry.js" crossorigin="anonymous" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-builder.js" crossorigin="anonymous" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-store.js" crossorigin="anonymous" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/haxcms-site-router.js" crossorigin="anonymous" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/HAXCMSThemeWiring.js" crossorigin="anonymous" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/core/HAXCMSLitElementTheme.js" crossorigin="anonymous" />
-  <link rel="modulepreload" href="${base}build/es6/node_modules/@haxtheweb/utils/utils.js" crossorigin="anonymous" />
+${shellModulepreload}
+${themePreload}${contentPreload}
   <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
   <link rel="llms" href="llms.txt" title="LLM Content Map" />
   <link rel="alternate" type="text/markdown" href="llms.txt" title="Markdown Summary" />
@@ -4288,6 +4342,137 @@ class HAXCMSClass {
       }
     }
     return wcMap;
+  }
+  /**
+   * Load wc-registry-graph.json relative to the site in question.
+   *
+   * Build artifact emitted by the ubiquity gulp `wc-autoloader` task; maps
+   * every module path to an index and stores the static-import adjacency
+   * so backends can emit accurate, capped modulepreload hints.
+   * { paths: [...], adj: {"idx": [impIdx,...]}, tags: {"tagName": entryIdx} }.
+   * NOT fetched by the browser. Mirrors the PHP getWCRegistryGraphJson.
+   */
+  getWCRegistryGraphJson(site, base = './') {
+    let graph = {};
+    let gPath = null;
+    let gPathCandidates = [];
+    if (base == './') {
+      if (site && site.siteDirectory) {
+        gPathCandidates.push(path.join(site.siteDirectory, 'wc-registry-graph.json'));
+      }
+      gPathCandidates.push(path.join(HAXCMS_ROOT, 'wc-registry-graph.json'));
+      gPathCandidates.push(path.join(HAXCMS_ROOT, 'src/public/wc-registry-graph.json'));
+      gPathCandidates.push(path.join(__dirname, '../public/wc-registry-graph.json'));
+    }
+    else {
+      gPathCandidates.push(path.join(base, 'wc-registry-graph.json'));
+    }
+    for (const candidatePath of gPathCandidates) {
+      if (fs.existsSync(candidatePath)) {
+        gPath = candidatePath;
+        break;
+      }
+    }
+    if (!process.env.IAM_PRIVATE_ADDRESS_SPACE && gPath) {
+      try {
+        graph = JSON.parse(fs.readFileSync(gPath, { encoding: 'utf8', flag: 'r' }));
+      }
+      catch (e) {
+        graph = {};
+      }
+    }
+    return graph;
+  }
+  /**
+   * Build the ordered, deduped list of registry-relative module paths to
+   * modulepreload for the render-critical shell + active theme.
+   *
+   * Caps at cap links (default 12) and depth <= 2 (entries + their direct
+   * imports), per Google/web.dev guidance. Falls back to the fixed shell
+   * entry list when the graph artifact is absent (older CDN builds / older
+   * backends), so graceful degradation is automatic. Mirrors PHP helper.
+   *
+   * @return string[] registry-relative paths (e.g. "@haxtheweb/.../x.js")
+   */
+  buildShellModulepreloadPaths(site, base = './', themePath = '', cap = 12) {
+    const shellEntries = [
+      '@haxtheweb/wc-autoload/wc-autoload.js',
+      '@haxtheweb/dynamic-import-registry/dynamic-import-registry.js',
+      '@haxtheweb/haxcms-elements/lib/core/haxcms-site-builder.js',
+      '@haxtheweb/haxcms-elements/lib/core/haxcms-site-store.js',
+      '@haxtheweb/haxcms-elements/lib/core/haxcms-site-router.js',
+      '@haxtheweb/haxcms-elements/lib/core/HAXCMSThemeWiring.js',
+      '@haxtheweb/haxcms-elements/lib/core/HAXCMSLitElementTheme.js',
+      '@haxtheweb/utils/utils.js',
+    ];
+    if (themePath) {
+      themePath = String(themePath);
+      if (!shellEntries.includes(themePath)) {
+        shellEntries.push(themePath);
+      }
+    }
+    const graph = this.getWCRegistryGraphJson(site, base);
+    // graceful degradation: no graph artifact -> fixed shell list as before
+    if (!graph || !graph.paths || !graph.adj) {
+      return shellEntries;
+    }
+    const paths = graph.paths;
+    const adj = graph.adj;
+    const pathToIdx = {};
+    for (let i = 0; i < paths.length; i++) {
+      pathToIdx[String(paths[i])] = i;
+    }
+    const result = [];
+    const seen = {};
+    // depth 1: entries in prioritized order (entry > all)
+    for (const e of shellEntries) {
+      const es = String(e);
+      if (!seen[es]) {
+        seen[es] = true;
+        result.push(es);
+      }
+    }
+    // depth 1: direct imports of entries, deduped, until cap. shared core
+    // (lit/DDD/mobx) surfaces first since the earliest entries import it,
+    // matching "entry > shared core > deps" priority without a sharedness pass
+    for (const e of shellEntries) {
+      if (result.length >= cap) {
+        break;
+      }
+      const es = String(e);
+      if (pathToIdx[es] !== undefined) {
+        const idx = String(pathToIdx[es]);
+        const imports = adj[idx];
+        if (Array.isArray(imports)) {
+          for (let j = 0; j < imports.length; j++) {
+            if (result.length >= cap) {
+              break;
+            }
+            const impIdx = imports[j];
+            const impPath = paths[impIdx] !== undefined ? String(paths[impIdx]) : '';
+            if (impPath && !seen[impPath]) {
+              seen[impPath] = true;
+              result.push(impPath);
+            }
+          }
+        }
+      }
+    }
+    return result;
+  }
+  /**
+   * Resolve a content tag name to its registry-relative entry path via the
+   * flat wc-registry.json. Returns false when the tag is not registered.
+   * Mirrors PHP getContentTagPath so getSiteMetadata can dedup content-tag
+   * preloads against the shell set without re-reading the registry.
+   */
+  getContentTagPath(site, base, tag) {
+    const wcMap = this.getWCRegistryJson(site, base);
+    tag = String(tag);
+    if (wcMap && wcMap[tag]) {
+      return String(wcMap[tag]);
+    }
+    return false;
   }
   /**
    * Test and ensure the name being returned is a location currently unused
