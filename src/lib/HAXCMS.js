@@ -37,6 +37,51 @@ const SITE_FILE_NAME = 'site.json';
 // previous refresh-token jti is still accepted, so concurrent multi-tab
 // refreshes don't mutually invalidate. Mirrors PHP HAXCMS_REFRESH_GRACE_SECONDS.
 const HAXCMS_REFRESH_GRACE_SECONDS = 30;
+// Safeguard config.json loading (haxtheweb/issues#2967): the config.json
+// read/boot path must NEVER write, copy, or overwrite anything on disk. A
+// missing file, an empty file, and a corrupt/unparseable file are all just
+// different triggers for the exact same in-memory-only fallback.
+//
+// Load config.json from configDirectory as a pure read (never writes, never
+// creates, never copies anything to disk). Missing / empty / corrupt files
+// are all normalized to the same in-memory-only fallback: read the shipped
+// boilerplate config.json fresh from disk (read-only) and, if that also
+// fails, fall back to a minimal hand-built object. The real cause is logged
+// server-side via console.error only — never leaked to any HTTP response, and
+// this function never throws.
+function loadConfigJson(configDirectory) {
+  const configPath = path.join(configDirectory, 'config.json');
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw = fs.readFileSync(configPath, { encoding: 'utf8', flag: 'r' });
+      return JSON.parse(raw);
+    }
+    catch (e) {
+      console.error('[HAXCMS] config.json exists but failed to parse; falling back to an in-memory default (no files were modified). Parse error: ' + e.message);
+    }
+  }
+  else {
+    console.error('[HAXCMS] config.json was not found; falling back to an in-memory default (no files were created).');
+  }
+  // in-memory-only fallback shared by the missing and corrupt/empty cases.
+  // Read the boilerplate config.json fresh each time — read-only, never
+  // written anywhere.
+  try {
+    const boilerplateConfigPath = path.join(__dirname, '/../boilerplate/systemsetup/config.json');
+    const raw = fs.readFileSync(boilerplateConfigPath, { encoding: 'utf8', flag: 'r' });
+    return JSON.parse(raw);
+  }
+  catch (e) {
+    console.error('[HAXCMS] boilerplate config.json could not be read/parsed either; using a minimal built-in fallback. Cause: ' + e.message);
+    return {
+      themes: {},
+      security: {},
+      site: { settings: {}, git: {}, static: {}, publishers: {} },
+      mcp: { enabled: true, readOnly: true },
+      deploymentProfile: 'single-site',
+    };
+  }
+}
 // HAXCMSSite which overlaps heavily and is referenced here often
 const utf8 = require('utf8');
 const JSONOutlineSchemaItem = require('./JSONOutlineSchemaItem.js');
@@ -3245,12 +3290,11 @@ class HAXCMSClass {
     
     // makes it easier to request a new item from the schema factory
     this.outlineSchema = new JSONOutlineSchema();
-    // self healing if config is missing
-    if (!fs.existsSync(path.join(this.configDirectory, "config.json"))) {
-      fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/config.json'), path.join(this.configDirectory, 'config.json'));
-    }
-    this.config = JSON.parse(fs.readFileSync(path.join(this.configDirectory, "config.json"),
-      {encoding:'utf8', flag:'r'}, 'utf8'));
+    // Safeguard (haxtheweb/issues#2967): never write, copy, or overwrite
+    // config.json on disk. Missing / empty / corrupt config.json are all
+    // treated the same way — an in-memory-only fallback is used and the
+    // real cause is logged server-side. See loadConfigJson above.
+    this.config = loadConfigJson(this.configDirectory);
     if (!this.config.themes) {
       this.config.themes = {};
     }
@@ -4959,4 +5003,4 @@ async function systemStructureContext(dir = null) {
   return null;
 }
 
-module.exports = { HAXCMS, HAXCMSClass, HAXCMSSite, systemStructureContext };
+module.exports = { HAXCMS, HAXCMSClass, HAXCMSSite, systemStructureContext, loadConfigJson };
