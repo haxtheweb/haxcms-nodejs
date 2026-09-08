@@ -4,6 +4,8 @@ const getApiKeysRoute = require('./routes/getApiKeys.js');
 const saveApiKeysRoute = require('./routes/saveApiKeys.js');
 const getMediaSettingsRoute = require('./routes/getMediaSettings.js');
 const saveMediaSettingsRoute = require('./routes/saveMediaSettings.js');
+const getLocalizationSettingsRoute = require('./routes/getLocalizationSettings.js');
+const saveLocalizationSettingsRoute = require('./routes/saveLocalizationSettings.js');
 const saveEnabledSkeletonsRoute = require('./routes/saveEnabledSkeletons.js');
 const schemaFileOperationRoute = require('./routes/schemaFileOperation.js');
 const saveEnabledThemesRoute = require('./routes/saveEnabledThemes.js');
@@ -58,6 +60,21 @@ async function configurationMedia(req, res, next) {
 
 async function saveMediaSettings(req, res, next) {
   return saveMediaSettingsRoute(req, res, next);
+}
+
+async function getLocalizationSettings(req, res, next) {
+  return getLocalizationSettingsRoute(req, res, next);
+}
+async function configurationLocalization(req, res, next) {
+  const method = String(req.method || '').toUpperCase();
+  if (method === 'PATCH') {
+    return saveLocalizationSettingsRoute(req, res, next);
+  }
+  return getLocalizationSettingsRoute(req, res, next);
+}
+
+async function saveLocalizationSettings(req, res, next) {
+  return saveLocalizationSettingsRoute(req, res, next);
 }
 
 async function saveEnabledSkeletons(req, res, next) {
@@ -174,6 +191,9 @@ module.exports = {
   getMediaSettings,
   configurationMedia,
   saveMediaSettings,
+  getLocalizationSettings,
+  configurationLocalization,
+  saveLocalizationSettings,
   saveEnabledSkeletons,
   schemaFileOperation,
   saveEnabledThemes,

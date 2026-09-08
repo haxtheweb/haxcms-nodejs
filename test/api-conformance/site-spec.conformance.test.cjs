@@ -2294,6 +2294,7 @@ test('system API route groups match normalized v1 path structure', async () => {
     systemStatusGet: '/system/api/v1/status',
     getApiKeys: '/system/api/v1/configuration/api-keys',
     getMediaSettings: '/system/api/v1/configuration/media',
+    getLocalizationSettings: '/system/api/v1/configuration/localization',
     schemaFileOperation: '/system/api/v1/configuration/schema-files/operations',
     systemThemesGet: '/system/api/v1/themes',
     saveEnabledThemesPatch: '/system/api/v1/themes',

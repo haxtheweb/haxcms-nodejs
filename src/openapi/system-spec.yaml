@@ -981,6 +981,87 @@ paths:
                 additionalProperties: true
         "403":
           $ref: "#/components/responses/Forbidden"
+  /system/api/v1/configuration/localization:
+    get:
+      tags:
+        - settings
+      operationId: getLocalizationSettings
+      summary: Return localization configuration
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      responses:
+        "200":
+          description: Localization settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                  data:
+                    $ref: "#/components/schemas/LocalizationSettingsData"
+                additionalProperties: true
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - settings
+      operationId: getLocalizationSettingsPost
+      summary: Return localization configuration (read alias of GET)
+      description: >
+        Read-only alias of GET /configuration/localization. POST is accepted for
+        callers that prefer POST over GET but does not write; use PATCH to
+        update localization settings. Single-user deployment assumption: the
+        NodeJS backend does not model an admin/superUser tier; these settings
+        are written by the single authenticated dashboard user.
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      responses:
+        "200":
+          description: Localization settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    patch:
+      tags:
+        - settings
+      operationId: saveLocalizationSettingsPatch
+      summary: Update localization configuration
+      description: >
+        Write operation — updates localization configuration (defaultLanguage,
+        a BCP-47 tag). Single-user deployment assumption: the NodeJS backend
+        does not model an admin/superUser tier; settings are written by the
+        single authenticated dashboard user.
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalizationSettings"
+      responses:
+        "200":
+          description: Localization settings update response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                  data:
+                    $ref: "#/components/schemas/LocalizationSettingsData"
+                additionalProperties: true
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /system/api/v1/configuration/schema-files/operations:
     post:
       tags:
@@ -3002,6 +3083,23 @@ components:
         maxUploadSizeMb:
           type: integer
         acceptedFormats:
+          type: string
+      additionalProperties: true
+    LocalizationSettings:
+      type: object
+      description: Localization settings payload (defaultLanguage BCP-47 tag)
+      properties:
+        defaultLanguage:
+          type: string
+          description: BCP-47 language tag (e.g. en-US, es-ES, fr-FR)
+      additionalProperties: true
+    LocalizationSettingsData:
+      type: object
+      description: >
+        Localization settings returned by getLocalizationSettings and
+        saveLocalizationSettingsPatch. The front-end reads defaultLanguage.
+      properties:
+        defaultLanguage:
           type: string
       additionalProperties: true
     SchemaFileOperationData:

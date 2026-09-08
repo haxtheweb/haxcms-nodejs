@@ -504,6 +504,100 @@ test(
       )
     })
 
+    // 5b. Localization settings: GET + PATCH (save).
+    await t.test(
+      'API: GET configuration/localization returns settings object',
+      async () => {
+        const resp = await systemApiGet('configuration/localization')
+        assert.strictEqual(
+          resp.status,
+          200,
+          'getLocalizationSettings GET returned 200',
+        )
+        let body = null
+        try {
+          body = JSON.parse(String(resp.data || ''))
+        } catch (e) {
+          body = null
+        }
+        assert.ok(
+          body && body.status === 200,
+          'getLocalizationSettings body status 200',
+        )
+        const data = body && body.data
+        assert.ok(
+          data && typeof data === 'object',
+          'localization settings data is an object',
+        )
+        assert.ok(
+          typeof data.defaultLanguage === 'string' &&
+            data.defaultLanguage.length > 0,
+          'defaultLanguage is a non-empty string',
+        )
+        t.diagnostic(
+          '[e2e] localization settings defaultLanguage: ' +
+            data.defaultLanguage,
+        )
+      },
+    )
+
+    await t.test(
+      'API: PATCH configuration/localization persists a setting',
+      async () => {
+        // Save a valid BCP-47 tag, verify via GET, then restore.
+        const testLang = 'es-ES'
+        const patchResp = await systemApiPatch(
+          'configuration/localization',
+          { localizationSettings: { defaultLanguage: testLang } },
+        )
+        assert.strictEqual(
+          patchResp.status,
+          200,
+          'saveLocalizationSettings PATCH returned 200',
+        )
+        let patchBody = null
+        try {
+          patchBody = JSON.parse(String(patchResp.data || ''))
+        } catch (e) {
+          patchBody = null
+        }
+        assert.ok(
+          patchBody && patchBody.status === 200,
+          'saveLocalizationSettings body status 200',
+        )
+        const savedData = patchBody && patchBody.data
+        assert.ok(
+          savedData && typeof savedData === 'object',
+          'saveLocalizationSettings data is an object',
+        )
+        // Verify via a fresh GET.
+        const getResp = await systemApiGet('configuration/localization')
+        let getBody = null
+        try {
+          getBody = JSON.parse(String(getResp.data || ''))
+        } catch (e) {
+          getBody = null
+        }
+        const getData = getBody && getBody.data
+        assert.ok(
+          getData &&
+            typeof getData.defaultLanguage === 'string' &&
+            getData.defaultLanguage === testLang,
+          'saved defaultLanguage is present in subsequent GET',
+        )
+        // Restore to en-US.
+        await systemApiPatch(
+          'configuration/localization',
+          { localizationSettings: { defaultLanguage: 'en-US' } },
+        )
+        t.diagnostic(
+          '[e2e] localization settings: saved defaultLanguage=' +
+            testLang +
+            ' + verified + restored',
+        )
+      },
+    )
+
     // 6. System status + version.
     await t.test('API: GET status returns a sane system status report', async () => {
       const resp = await systemApiGet('status')

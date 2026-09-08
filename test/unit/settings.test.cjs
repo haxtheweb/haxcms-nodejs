@@ -9,6 +9,7 @@ const path = require('path')
 const media = require('../../src/lib/mediaSettings.js')
 const theme = require('../../src/lib/themeSettings.js')
 const skeleton = require('../../src/lib/skeletonSettings.js')
+const localization = require('../../src/lib/localizationSettings.js')
 
 // Faithful mirror of HAXCMS.generateMachineName so the settings helpers see the
 // real machine-name convention without pulling the entire HAXCMS class into the
@@ -344,6 +345,247 @@ describe('mediaSettings read/write round-trip', () => {
         maxUploadSizeMb: null,
         acceptedFormats: null,
       })
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// localizationSettings
+// ---------------------------------------------------------------------------
+describe('localizationSettings.normalizeDefaultLanguage', () => {
+  test('returns null for null, undefined, and empty string', () => {
+    assert.equal(localization.normalizeDefaultLanguage(null), null)
+    assert.equal(localization.normalizeDefaultLanguage(undefined), null)
+    assert.equal(localization.normalizeDefaultLanguage(''), null)
+  })
+
+  test('returns null for values that do not match the BCP-47 shape', () => {
+    assert.equal(localization.normalizeDefaultLanguage('e'), null)
+    assert.equal(localization.normalizeDefaultLanguage('english'), null)
+    assert.equal(localization.normalizeDefaultLanguage('en-US-extra'), null)
+    assert.equal(localization.normalizeDefaultLanguage('en_Us'), null)
+    assert.equal(localization.normalizeDefaultLanguage('123'), null)
+  })
+
+  test('normalizes primary to lowercase and region to uppercase', () => {
+    assert.equal(localization.normalizeDefaultLanguage('EN-US'), 'en-US')
+    assert.equal(localization.normalizeDefaultLanguage('en-us'), 'en-US')
+    assert.equal(localization.normalizeDefaultLanguage('Es-Es'), 'es-ES')
+    assert.equal(localization.normalizeDefaultLanguage('FR-fr'), 'fr-FR')
+  })
+
+  test('passes through a lone primary subtag in lowercase', () => {
+    assert.equal(localization.normalizeDefaultLanguage('en'), 'en')
+    assert.equal(localization.normalizeDefaultLanguage('EN'), 'en')
+    assert.equal(localization.normalizeDefaultLanguage('fil'), 'fil')
+  })
+
+  test('accepts a 4-character region subtag', () => {
+    assert.equal(localization.normalizeDefaultLanguage('zh-Hant'), 'zh-HANT')
+  })
+
+  test('coerces non-string values to string before validating', () => {
+    assert.equal(localization.normalizeDefaultLanguage(42), null)
+  })
+})
+
+describe('localizationSettings.normalizeLocalizationSettings', () => {
+  test('returns a null defaultLanguage for an empty object', () => {
+    assert.deepEqual(localization.normalizeLocalizationSettings({}), {
+      defaultLanguage: null,
+    })
+  })
+
+  test('returns a null defaultLanguage for non-object input', () => {
+    assert.deepEqual(localization.normalizeLocalizationSettings(null), {
+      defaultLanguage: null,
+    })
+    assert.deepEqual(localization.normalizeLocalizationSettings('nope'), {
+      defaultLanguage: null,
+    })
+  })
+
+  test('normalizes the defaultLanguage field', () => {
+    assert.deepEqual(
+      localization.normalizeLocalizationSettings({ defaultLanguage: 'ES-es' }),
+      { defaultLanguage: 'es-ES' },
+    )
+  })
+})
+
+describe('localizationSettings.getEffectiveLocalizationSettings', () => {
+  test('fills the en-US default when defaultLanguage is null', () => {
+    assert.deepEqual(localization.getEffectiveLocalizationSettings({}), {
+      defaultLanguage: 'en-US',
+    })
+  })
+
+  test('preserves a provided non-null defaultLanguage', () => {
+    assert.deepEqual(
+      localization.getEffectiveLocalizationSettings({ defaultLanguage: 'es-ES' }),
+      { defaultLanguage: 'es-ES' },
+    )
+  })
+
+  test('DEFAULT_LOCALIZATION_SETTINGS matches the documented default', () => {
+    assert.deepEqual(localization.DEFAULT_LOCALIZATION_SETTINGS, {
+      defaultLanguage: 'en-US',
+    })
+  })
+})
+
+describe('localizationSettings.hasSupportedLocalizationSettingsPayload', () => {
+  test('is true when defaultLanguage key is present', () => {
+    assert.equal(
+      localization.hasSupportedLocalizationSettingsPayload({ defaultLanguage: 'en-US' }),
+      true,
+    )
+  })
+
+  test('is false when defaultLanguage key is absent', () => {
+    assert.equal(
+      localization.hasSupportedLocalizationSettingsPayload({}),
+      false,
+    )
+    assert.equal(
+      localization.hasSupportedLocalizationSettingsPayload({ unrelated: true }),
+      false,
+    )
+  })
+})
+
+describe('localizationSettings.isValidDefaultLanguagePayloadValue', () => {
+  test('is true for null, undefined, and empty string (clearable)', () => {
+    assert.equal(localization.isValidDefaultLanguagePayloadValue(null), true)
+    assert.equal(localization.isValidDefaultLanguagePayloadValue(undefined), true)
+    assert.equal(localization.isValidDefaultLanguagePayloadValue(''), true)
+  })
+
+  test('is true for a valid BCP-47 tag', () => {
+    assert.equal(localization.isValidDefaultLanguagePayloadValue('en-US'), true)
+    assert.equal(localization.isValidDefaultLanguagePayloadValue('fr'), true)
+  })
+
+  test('is false for an invalid tag', () => {
+    assert.equal(localization.isValidDefaultLanguagePayloadValue('english'), false)
+    assert.equal(localization.isValidDefaultLanguagePayloadValue('en-US-1'), false)
+  })
+})
+
+describe('localizationSettings.getLocalizationSettingsFilePath', () => {
+  test('resolves under <configDirectory>/config.json', () => {
+    const haxcms = makeHaxcms({ configDirectory: '/tmp/fake-cfg' })
+    assert.equal(
+      localization.getLocalizationSettingsFilePath(haxcms),
+      path.join('/tmp/fake-cfg', 'config.json'),
+    )
+  })
+
+  test('falls back to <cwd>/_config when configDirectory is missing', () => {
+    assert.equal(
+      localization.getLocalizationSettingsFilePath({}),
+      path.join(process.cwd(), '_config', 'config.json'),
+    )
+  })
+})
+
+describe('localizationSettings read/write round-trip', () => {
+  test('write then read returns the same normalized value', async () => {
+    const dir = tmpConfigDir('l10n-rt-')
+    const haxcms = makeHaxcms({ configDirectory: dir })
+    try {
+      const written = await localization.writeLocalizationSettings(haxcms, {
+        defaultLanguage: 'es-ES',
+      })
+      assert.deepEqual(written, { defaultLanguage: 'es-ES' })
+      const read = await localization.readLocalizationSettings(haxcms)
+      assert.deepEqual(read, { defaultLanguage: 'es-ES' })
+      const filePath = localization.getLocalizationSettingsFilePath(haxcms)
+      const raw = fs.readFileSync(filePath, 'utf8')
+      assert.ok(raw.indexOf('"defaultLanguage": "es-ES"') !== -1)
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('write normalizes the case before persisting', async () => {
+    const dir = tmpConfigDir('l10n-case-')
+    const haxcms = makeHaxcms({ configDirectory: dir })
+    try {
+      await localization.writeLocalizationSettings(haxcms, {
+        defaultLanguage: 'FR-fr',
+      })
+      const read = await localization.readLocalizationSettings(haxcms)
+      assert.equal(read.defaultLanguage, 'fr-FR')
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('write preserves other keys in config.json', async () => {
+    const dir = tmpConfigDir('l10n-preserve-')
+    const haxcms = makeHaxcms({ configDirectory: dir })
+    try {
+      const filePath = localization.getLocalizationSettingsFilePath(haxcms)
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({ themes: { clean: true }, security: { allowedHosts: [] } }),
+      )
+      await localization.writeLocalizationSettings(haxcms, {
+        defaultLanguage: 'de-DE',
+      })
+      const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      assert.deepEqual(raw.themes, { clean: true })
+      assert.deepEqual(raw.security, { allowedHosts: [] })
+      assert.equal(raw.localization.defaultLanguage, 'de-DE')
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('read returns a null defaultLanguage when no localization block exists', async () => {
+    const dir = tmpConfigDir('l10n-missing-')
+    const haxcms = makeHaxcms({ configDirectory: dir })
+    try {
+      const filePath = localization.getLocalizationSettingsFilePath(haxcms)
+      fs.writeFileSync(filePath, JSON.stringify({ themes: {} }))
+      const read = await localization.readLocalizationSettings(haxcms)
+      assert.deepEqual(read, { defaultLanguage: null })
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('read returns a null defaultLanguage when config.json does not exist', async () => {
+    const dir = tmpConfigDir('l10n-no-file-')
+    const haxcms = makeHaxcms({ configDirectory: dir })
+    try {
+      const read = await localization.readLocalizationSettings(haxcms)
+      assert.deepEqual(read, { defaultLanguage: null })
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('write updates the in-memory haxcms.config.localization', async () => {
+    const dir = tmpConfigDir('l10n-mem-')
+    const haxcms = makeHaxcms({
+      configDirectory: dir,
+      config: { themes: {} },
+    })
+    try {
+      await localization.writeLocalizationSettings(haxcms, {
+        defaultLanguage: 'ja-JP',
+      })
+      assert.deepEqual(haxcms.config.localization, { defaultLanguage: 'ja-JP' })
     }
     finally {
       fs.rmSync(dir, { recursive: true, force: true })

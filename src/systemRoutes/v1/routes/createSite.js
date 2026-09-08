@@ -832,7 +832,8 @@ async function createSite(req, res) {
       schema.metadata.site.settings = {};
     }
     if (!schema.metadata.site.settings.lang) {
-      schema.metadata.site.settings.lang = 'en-US';
+      var systemDefaultLang = (HAXCMS.config.localization && HAXCMS.config.localization.defaultLanguage) || 'en-US';
+      schema.metadata.site.settings.lang = systemDefaultLang;
     }
     if (typeof schema.metadata.site.settings.publishPagesOn === 'undefined') {
       schema.metadata.site.settings.publishPagesOn = true;
