@@ -3229,6 +3229,15 @@ class HAXCMSClass {
     if (!this.config.security.loginRateLimit) {
       this.config.security.loginRateLimit = {};
     }
+    // localization settings (parity with PHP HAXCMSLocalizationSettingsService):
+    // stored as a localization block on config.json so it is readable at boot
+    // before _config/settings/ is scanned. defaultLanguage is a BCP-47 tag.
+    if (!this.config.localization) {
+      this.config.localization = {};
+    }
+    if (!this.config.localization.defaultLanguage) {
+      this.config.localization.defaultLanguage = 'en-US';
+    }
     // load in core theme data
     let themeData = JSON.parse(fs.readFileSync(path.join(this.coreConfigPath, "themes.json"),
       {encoding:'utf8', flag:'r'}, 'utf8'));

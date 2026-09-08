@@ -209,6 +209,25 @@ addRouteHandler(
   'configuration/media',
   settingsRoutes.configurationMedia,
 );
+
+addRouteHandler(
+  SystemRoutesMap,
+  'get',
+  'configuration/localization',
+  settingsRoutes.configurationLocalization,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'post',
+  'configuration/localization',
+  settingsRoutes.configurationLocalization,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'patch',
+  'configuration/localization',
+  settingsRoutes.configurationLocalization,
+);
 addRouteHandler(
   SystemRoutesMap,
   'post',
@@ -315,6 +334,7 @@ const SystemV1AdminRoutes = [
   'schemas',
   'configuration/api-keys',
   'configuration/media',
+  'configuration/localization',
   'configuration/schema-files/operations',
   'themes',
   'blocks',
