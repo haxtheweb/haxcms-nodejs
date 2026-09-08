@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const GitPlus = require('./GitPlus.js');
 const JSONOutlineSchema = require('./JSONOutlineSchema.js');
 const { discoverConfigPath } = require('./discoverConfigPath.js');
+const { loadSystemConfig } = require('./loadSystemConfig.js');
 const filter_var = require('./filter_var.js');
 const explodeImport = require('locutus/php/strings/explode');
 // may need to change as we get into CLI integration
@@ -3245,12 +3246,10 @@ class HAXCMSClass {
     
     // makes it easier to request a new item from the schema factory
     this.outlineSchema = new JSONOutlineSchema();
-    // self healing if config is missing
-    if (!fs.existsSync(path.join(this.configDirectory, "config.json"))) {
-      fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/config.json'), path.join(this.configDirectory, 'config.json'));
-    }
-    this.config = JSON.parse(fs.readFileSync(path.join(this.configDirectory, "config.json"),
-      {encoding:'utf8', flag:'r'}, 'utf8'));
+    // Load config defensively. A missing file self-heals from boilerplate, and
+    // an empty/corrupt/unreadable one falls back in memory rather than throwing
+    // out of the constructor and bricking startup. See loadSystemConfig.js.
+    this.config = loadSystemConfig(this.configDirectory).config;
     if (!this.config.themes) {
       this.config.themes = {};
     }
