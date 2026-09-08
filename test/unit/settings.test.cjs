@@ -383,7 +383,7 @@ describe('localizationSettings.normalizeDefaultLanguage', () => {
     assert.equal(localization.normalizeDefaultLanguage('fil'), 'fil')
   })
 
-  test('accepts a 4-character region subtag', () => {
+  test('accepts a 4-character script subtag', () => {
     assert.equal(localization.normalizeDefaultLanguage('zh-Hant'), 'zh-HANT')
   })
 
