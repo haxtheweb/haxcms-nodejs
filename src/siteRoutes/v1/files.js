@@ -41,6 +41,13 @@ const DEFAULT_SCALE_PRESET = 'md';
 const DEFAULT_JPEG_QUALITY = 90;
 const MIN_JPEG_QUALITY = 1;
 const MAX_JPEG_QUALITY = 100;
+const COMPRESS_QUALITY_BY_LEVEL = {
+  light: 90,
+  medium: 70,
+  heavy: 50,
+  maximum: 30,
+};
+const DEFAULT_COMPRESS_LEVEL = 'medium';
 const ALLOWED_RENAME_EXTENSIONS = [
   'jpg',
   'jpeg',
@@ -419,6 +426,45 @@ function parseRenameRequestName(requestedName, sourceExtension) {
   return safeBaseName;
 }
 
+function getDuplicateFileInfo(fileInfo) {
+  const sourceFileName = path.basename(fileInfo.normalizedPath);
+  const sourceExtension = path.extname(sourceFileName);
+  const sourceBaseName = path.basename(sourceFileName, sourceExtension);
+  const sourceDirectory = path.dirname(fileInfo.normalizedPath);
+  let attempt = 0;
+  let outputFileName = '';
+  let outputPath = '';
+  let normalizedOutputPath = '';
+  do {
+    attempt++;
+    const suffix = attempt === 1 ? '-copy' : '-copy-' + attempt;
+    outputFileName = sourceBaseName + suffix + sourceExtension;
+    outputPath = path.resolve(
+      path.dirname(fileInfo.resolvedPath),
+      outputFileName,
+    );
+    normalizedOutputPath = normalizePathForResponse(
+      path.join(sourceDirectory, outputFileName),
+    ).replace(/^\/+/, '');
+  } while (fs.pathExistsSync(outputPath) && attempt < 1000);
+  if (fs.pathExistsSync(outputPath)) {
+    throw createStatusError(
+      'Unable to generate a unique duplicate file name',
+      400,
+    );
+  }
+  if (!isPathInsideDirectory(fileInfo.filesRootPath, outputPath)) {
+    throw createStatusError(
+      'Duplicated file path is outside of allowed files directory',
+      403,
+    );
+  }
+  return {
+    outputPath,
+    normalizedOutputPath,
+  };
+}
+
 function getRenamedFileInfo(fileInfo, requestedName) {
   const sourceFileName = path.basename(fileInfo.normalizedPath);
   const sourceRawExtension = path.extname(sourceFileName);
@@ -568,6 +614,20 @@ function getScalePreset(sizeKey) {
   };
 }
 
+function getCompressLevel(levelKey) {
+  const requestedKey = typeof levelKey === 'string' ? levelKey.toLowerCase() : '';
+  if (requestedKey && COMPRESS_QUALITY_BY_LEVEL[requestedKey]) {
+    return {
+      key: requestedKey,
+      quality: COMPRESS_QUALITY_BY_LEVEL[requestedKey],
+    };
+  }
+  return {
+    key: DEFAULT_COMPRESS_LEVEL,
+    quality: COMPRESS_QUALITY_BY_LEVEL[DEFAULT_COMPRESS_LEVEL],
+  };
+}
+
 function getTemporaryImagePath(sourcePath, operationLabel = 'tmp') {
   const sourceDirectory = path.dirname(sourcePath);
   const sourceExtension = path.extname(sourcePath);
@@ -694,6 +754,52 @@ async function scaleImageInPlace(
   }
 }
 
+async function compressImageInPlace(sourcePath, jpegQuality = DEFAULT_JPEG_QUALITY) {
+  let metadata = null;
+  try {
+    metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
+  } catch (e) {
+    throw createStatusError('Only raster images can be compressed', 400);
+  }
+  if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
+    throw createStatusError('Only raster images can be compressed', 400);
+  }
+  const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
+  const outputQuality =
+    normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
+  const temporaryPath = getTemporaryImagePath(sourcePath, 'compress');
+  try {
+    let pipeline = sharp(sourcePath).rotate();
+    const format = String(metadata.format);
+    if (format === 'jpeg') {
+      pipeline = pipeline.jpeg({ quality: outputQuality, mozjpeg: true });
+    } else if (format === 'png') {
+      pipeline = pipeline.png({ quality: outputQuality });
+    } else if (format === 'webp') {
+      pipeline = pipeline.webp({ quality: outputQuality });
+    } else if (format === 'gif') {
+      pipeline = pipeline.gif();
+    } else {
+      throw createStatusError('Image format does not support in-place compression', 400);
+    }
+    const buffer = await pipeline.toBuffer();
+    await fs.writeFile(temporaryPath, buffer);
+    fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
+    try {
+      const now = new Date();
+      fs.utimesSync(sourcePath, now, now);
+    } catch (mtimeError) {}
+  } catch (e) {
+    if (fs.pathExistsSync(temporaryPath)) {
+      fs.removeSync(temporaryPath);
+    }
+    throw createStatusError(
+      e && e.message ? e.message : 'Unable to compress image',
+      e && e.status ? e.status : 500,
+    );
+  }
+}
+
 async function rotateImageInPlace(sourcePath, rotation = 90) {
   let metadata = null;
   try {
@@ -766,6 +872,10 @@ function readOperationPayload(req, operationOverride = '') {
       typeof body.size === 'string'
         ? body.size.trim().toLowerCase()
         : String(body.size || '').trim().toLowerCase(),
+    level:
+      typeof body.level === 'string'
+        ? body.level.trim().toLowerCase()
+        : String(body.level || '').trim().toLowerCase(),
     newName:
       typeof body.newName === 'string'
         ? body.newName
@@ -788,6 +898,8 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       'sepia',
       'black-and-white',
       'rotate-90',
+      'compress',
+      'duplicate',
     ].includes(operation)
   ) {
     throw createStatusError('Unsupported file operation', 400);
@@ -929,6 +1041,46 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
         operation: operation,
         source: fileInfo.normalizedPath,
         file: transformedFile,
+      },
+    };
+  }
+  if (operation === 'duplicate') {
+    const duplicateInfo = getDuplicateFileInfo(fileInfo);
+    fs.copySync(fileInfo.resolvedPath, duplicateInfo.outputPath);
+    const duplicatedFile = buildFileRecord(
+      site,
+      duplicateInfo.outputPath,
+      duplicateInfo.normalizedOutputPath,
+    );
+    return {
+      commitMessage:
+        'File duplicated: ' +
+        fileInfo.normalizedPath +
+        ' -> ' +
+        duplicateInfo.normalizedOutputPath,
+      data: {
+        operation: operation,
+        source: fileInfo.normalizedPath,
+        path: duplicateInfo.normalizedOutputPath,
+        file: duplicatedFile,
+      },
+    };
+  }
+  if (operation === 'compress') {
+    const compressLevel = getCompressLevel(payload.level);
+    await compressImageInPlace(fileInfo.resolvedPath, compressLevel.quality);
+    const compressedFile = buildFileRecord(
+      site,
+      fileInfo.resolvedPath,
+      fileInfo.normalizedPath,
+    );
+    return {
+      commitMessage:
+        'File compressed (' + compressLevel.key + '): ' + fileInfo.normalizedPath,
+      data: {
+        operation: operation,
+        path: fileInfo.normalizedPath,
+        file: compressedFile,
       },
     };
   }
@@ -1248,4 +1400,10 @@ module.exports = {
   // resize path (see test/unit/files-image-ops.test.cjs). Not wired to a
   // route; performFileOperation remains the sole production caller.
   scaleImageInPlace,
+  // Exported for direct unit testing of the in-place compression path and
+  // the collision-safe duplicate-path generator (see
+  // test/unit/files-compress-duplicate.test.cjs). Not wired to a route;
+  // performFileOperation remains the sole production caller of both.
+  compressImageInPlace,
+  getDuplicateFileInfo,
 };
