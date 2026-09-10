@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const Axios = require('axios')
 const { HAXCMS } = require('./HAXCMS.js');
 const { buildFilePublicUrl } = require('./siteFileUrl.js');
+const { getDeterministicFileUuid } = require('./siteFileUuid.js');
 const { readMediaSettings } = require('./mediaSettings.js');
 const sharp = require('sharp');
 const dns = require('dns');
@@ -178,6 +179,28 @@ async function applyConfiguredJpegUploadQuality(filePath) {
     }
     throw e;
   }
+}
+
+// Best-effort image dimension read for the upload response (#3028 / #1541).
+// Returns {width, height} for raster images, {0, 0} for non-images / SVG /
+// errors so the inline recommendation UI can decide whether to suggest a
+// resize without an extra round-trip.
+async function readImageDimensions(filePath) {
+  try {
+    const metadata = await sharp(filePath, { failOn: 'none' }).metadata();
+    if (
+      metadata &&
+      metadata.format &&
+      String(metadata.format).indexOf('svg') !== 0
+    ) {
+      return {
+        width: typeof metadata.width === 'number' ? metadata.width : 0,
+        height: typeof metadata.height === 'number' ? metadata.height : 0,
+      };
+    }
+  }
+  catch (e) {}
+  return { width: 0, height: 0 };
 }
 
 function mimeMatchesAllowed(actualMime, allowedMimes) {
@@ -983,6 +1006,33 @@ class HAXCMSFile
             );
           break;
         }
+      }
+      // Enrich the file record with a deterministic uuid (matches the v1
+      // list/get records so the file can be operated on immediately via
+      // @site/updateFileByUuid) and, for images, pixel dimensions used by
+      // the inline post-upload recommendation UI (#3028 / #1541). Use the
+      // actual on-disk size so the uuid agrees with listFiles' stat-based
+      // uuid even after jpeg quality re-encoding or an in-place imageOps
+      // transform changed the byte count.
+      try {
+        let onDiskSize = tmpFile['size'] || 0;
+        if (fs.existsSync(fullpath)) {
+          const onDiskStats = fs.statSync(fullpath);
+          if (onDiskStats && typeof onDiskStats.size === 'number') {
+            onDiskSize = onDiskStats.size;
+          }
+        }
+        returnData.file.uuid = getDeterministicFileUuid(
+          site,
+          'files/' + newFilename,
+          onDiskSize,
+        );
+        const dims = await readImageDimensions(fullpath);
+        returnData.file.width = dims.width;
+        returnData.file.height = dims.height;
+      }
+      catch (enrichErr) {
+        // best-effort enrichment; never block an otherwise-successful upload
       }
       return {
           'status': 200,

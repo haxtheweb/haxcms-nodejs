@@ -2,7 +2,6 @@ const path = require('path');
 const fs = require('fs-extra');
 const mime = require('mime');
 const sharp = require('sharp');
-const crypto = require('crypto');
 const { HAXCMS } = require('../../lib/HAXCMS.js');
 const HAXCMSFile = require('../../lib/HAXCMSFile.js');
 const { readMediaSettings } = require('../../lib/mediaSettings.js');
@@ -29,6 +28,9 @@ const {
   isSiteApiRequestAuthenticated,
 } = require('./siteRouteUtils.js');
 const { buildFilePublicUrl } = require('../../lib/siteFileUrl.js');
+const {
+  getDeterministicFileUuid,
+} = require('../../lib/siteFileUuid.js');
 const fileOpsRateLimiter = require('../../lib/fileOpsRateLimiter.js');
 
 const IMAGE_SCALE_PRESETS = {
@@ -105,59 +107,6 @@ function getDateCreatedValue(entryStats) {
   }
   // E1: dateCreated in SECONDS (matches metadata.updated), not milliseconds
   return Math.floor(createdMs / 1000);
-}
-
-function getSiteNameForFileUuid(site) {
-  if (
-    site &&
-    site.manifest &&
-    site.manifest.metadata &&
-    site.manifest.metadata.site &&
-    site.manifest.metadata.site.name
-  ) {
-    return String(site.manifest.metadata.site.name);
-  }
-  if (site && site.name) {
-    return String(site.name);
-  }
-  return 'site';
-}
-
-function getCanonicalFilePathForUuid(relativePath) {
-  const normalizedPath = normalizePathForResponse(relativePath || '').replace(
-    /^\/+/,
-    '',
-  );
-  if (normalizedPath.indexOf('files/') === 0) {
-    return normalizedPath;
-  }
-  return normalizedPath === '' ? 'files' : 'files/' + normalizedPath;
-}
-
-function toUuidFromHash(hash) {
-  return (
-    hash.substring(0, 8) +
-    '-' +
-    hash.substring(8, 12) +
-    '-' +
-    hash.substring(12, 16) +
-    '-' +
-    hash.substring(16, 20) +
-    '-' +
-    hash.substring(20, 32)
-  );
-}
-
-function getDeterministicFileUuid(site, relativePath, fileSize) {
-  const canonicalPath = getCanonicalFilePathForUuid(relativePath);
-  const canonicalSize =
-    typeof fileSize === 'number' && Number.isFinite(fileSize) && fileSize > 0
-      ? Math.round(fileSize)
-      : 0;
-  const identityString =
-    getSiteNameForFileUuid(site) + ':' + canonicalPath + ':' + canonicalSize;
-  const hash = crypto.createHash('sha256').update(identityString).digest('hex');
-  return toUuidFromHash(hash);
 }
 
 function toFileRecord(site, file) {
