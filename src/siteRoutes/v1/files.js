@@ -29,6 +29,7 @@ const {
   isSiteApiRequestAuthenticated,
 } = require('./siteRouteUtils.js');
 const { buildFilePublicUrl } = require('../../lib/siteFileUrl.js');
+const fileOpsRateLimiter = require('../../lib/fileOpsRateLimiter.js');
 
 const IMAGE_SCALE_PRESETS = {
   xs: { width: 200, height: 150 },
@@ -250,6 +251,62 @@ function createStatusError(message, status) {
   const statusError = new Error(message);
   statusError.status = status;
   return statusError;
+}
+
+// Security (HAX-SEC-006 / error-leak): only surface exception messages that
+// come from intentional createStatusError validation errors (which carry a
+// .status). Unexpected internal exceptions (sharp, fs-extra, library
+// internals) have no .status and their .message may disclose internal
+// paths/structure, so they get the generic fallback. Used by every file
+// mutation/detail catch block so clients never receive raw internals.
+function resolveClientFacingErrorMessage(err, fallback) {
+  if (err && err.status && err.message) {
+    return err.message;
+  }
+  return fallback;
+}
+
+// Security (F3): count-window rate limit for authenticated file-mutation
+// ops, keyed by the validated auth context's userName:siteName (set by
+// validateSiteApiRouteAccess before dispatch). Returns true when the request
+// may proceed; returns false after sending a 429 + Retry-So the handler can
+// short-circuit. Mirrors the PHP HAXCMS::checkFileOpsRateLimit behavior.
+function checkFileOpsRateLimit(req, res) {
+  const settings = HAXCMS.getFileOpsRateLimitSettings();
+  if (!settings.enabled) {
+    return true;
+  }
+  const auth = req && req.haxcmsSiteApiAuth;
+  if (!auth || auth.authenticated !== true) {
+    return true;
+  }
+  const now = Date.now();
+  const key = fileOpsRateLimiter.getRateKey(auth.userName, auth.siteName);
+  const entry = fileOpsRateLimiter.getTrackerEntry(key, now, settings);
+  if (fileOpsRateLimiter.isBlocked(entry, now)) {
+    const retryAfter = fileOpsRateLimiter.getRetryAfterSeconds(entry, now);
+    if (retryAfter > 0) {
+      res.set('Retry-After', String(retryAfter));
+    }
+    res.status(429).json({
+      status: 429,
+      data: { message: fileOpsRateLimiter.buildRateLimitMessage(settings, retryAfter) },
+    });
+    return false;
+  }
+  const blockedNow = fileOpsRateLimiter.registerAttempt(entry, now, settings);
+  if (blockedNow) {
+    const retryAfter = fileOpsRateLimiter.getRetryAfterSeconds(entry, now);
+    if (retryAfter > 0) {
+      res.set('Retry-After', String(retryAfter));
+    }
+    res.status(429).json({
+      status: 429,
+      data: { message: fileOpsRateLimiter.buildRateLimitMessage(settings, retryAfter) },
+    });
+    return false;
+  }
+  return true;
 }
 
 function normalizeJpegQualityValue(value) {
@@ -1159,6 +1216,9 @@ async function createFile(req, res) {
       data: { message: 'Authenticated site access is required for this endpoint', }
     });
   }
+  if (!checkFileOpsRateLimit(req, res)) {
+    return;
+  }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
@@ -1199,7 +1259,7 @@ async function createFile(req, res) {
   } catch (e) {
     return res.status(500).json({
       status: 500,
-      data: { message: e && e.message ? e.message : 'Unable to save file', }
+      data: { message: resolveClientFacingErrorMessage(e, 'Unable to save file'), }
     });
   }
   if (!fileResult || Number(fileResult.status) !== 200) {
@@ -1259,7 +1319,7 @@ async function fileDetail(req, res) {
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
       data: {
-        message: e && e.message ? e.message : 'Unable to load file',
+        message: resolveClientFacingErrorMessage(e, 'Unable to load file'),
       },
     });
   }
@@ -1271,6 +1331,9 @@ async function updateFile(req, res) {
       status: 403,
       data: { message: 'Authenticated site access is required for this endpoint', }
     });
+  }
+  if (!checkFileOpsRateLimit(req, res)) {
+    return;
   }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
@@ -1329,7 +1392,7 @@ async function updateFile(req, res) {
   } catch (e) {
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
-      data: { message: e && e.message ? e.message : 'Unable to complete file operation', }
+      data: { message: resolveClientFacingErrorMessage(e, 'Unable to complete file operation'), }
     });
   }
 }
@@ -1340,6 +1403,9 @@ async function deleteFile(req, res) {
       status: 403,
       data: { message: 'Authenticated site access is required for this endpoint', }
     });
+  }
+  if (!checkFileOpsRateLimit(req, res)) {
+    return;
   }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
@@ -1385,7 +1451,7 @@ async function deleteFile(req, res) {
   } catch (e) {
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
-      data: { message: e && e.message ? e.message : 'Unable to complete file operation', }
+      data: { message: resolveClientFacingErrorMessage(e, 'Unable to complete file operation'), }
     });
   }
 }
@@ -1406,4 +1472,16 @@ module.exports = {
   // performFileOperation remains the sole production caller of both.
   compressImageInPlace,
   getDuplicateFileInfo,
+  // Exported for direct unit testing of the path-scoping / security gate
+  // (see test/unit/files-path-security.test.cjs). performFileOperation is
+  // the single entrypoint every mutation route (updateFile/deleteFile)
+  // funnels through, and resolveSiteFilePath is the gate that confines
+  // every operation to the requested site's files/ directory. Not wired to
+  // a new route; updateFile/deleteFile remain the sole production callers.
+  performFileOperation,
+  resolveSiteFilePath,
+  // Exported for direct unit testing of the error-leak gate (see
+  // test/unit/files-error-leak.test.cjs). Used by every file mutation/detail
+  // catch block; not a route handler.
+  resolveClientFacingErrorMessage,
 };

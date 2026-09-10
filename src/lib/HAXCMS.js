@@ -3058,6 +3058,39 @@ class HAXCMSClass {
       blockMs: this.getIntConfigValue(cfg.blockMs, defaults.blockMs, 10 * 1000, 24 * 60 * 60 * 1000),
     };
   }
+  // Security (F3): rate-limit settings for authenticated file-mutation
+  // operations (createFile/updateFile/deleteFile). Mirrors
+  // getLoginRateLimitSettings shape but uses `max` (count window) instead of
+  // `maxAttempts` (failed-credit block). Defaults (500 ops / 5 min, 5-min
+  // block) accommodate a realistic front-end bulk upload (N sequential
+  // single-file ops) while bounding runaway loops / scripted abuse. Config:
+  // config.security.fileOpsRateLimit.
+  getFileOpsRateLimitSettings() {
+    const defaults = {
+      enabled: true,
+      windowMs: 5 * 60 * 1000,
+      max: 500,
+      blockMs: 5 * 60 * 1000,
+    };
+    let cfg = {};
+    if (
+      this.config &&
+      this.config.security &&
+      this.config.security.fileOpsRateLimit
+    ) {
+      cfg = this.config.security.fileOpsRateLimit;
+    }
+    let enabled = defaults.enabled;
+    if (typeof cfg.enabled !== 'undefined') {
+      enabled = cfg.enabled === true;
+    }
+    return {
+      enabled: enabled,
+      windowMs: this.getIntConfigValue(cfg.windowMs, defaults.windowMs, 10 * 1000, 24 * 60 * 60 * 1000),
+      max: this.getIntConfigValue(cfg.max, defaults.max, 1, 100000),
+      blockMs: this.getIntConfigValue(cfg.blockMs, defaults.blockMs, 10 * 1000, 24 * 60 * 60 * 1000),
+    };
+  }
   // Express `trust proxy` setting, sourced from config so deployments behind a
   // reverse proxy can opt in to forwarded client IPs. Defaults to false (do not
   // trust any proxy), which keeps single-host/local setups using the socket IP.
