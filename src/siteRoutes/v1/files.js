@@ -806,6 +806,73 @@ async function compressImageInPlace(sourcePath, jpegQuality = DEFAULT_JPEG_QUALI
   }
 }
 
+async function transformImageInPlace(
+  sourcePath,
+  transformMode = 'none',
+  jpegQuality = DEFAULT_JPEG_QUALITY,
+) {
+  let metadata = null;
+  try {
+    metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
+  } catch (e) {
+    throw createStatusError('Only raster images can be transformed', 400);
+  }
+  if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
+    throw createStatusError('Only raster images can be transformed', 400);
+  }
+  const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
+  const outputQuality =
+    normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
+  const temporaryPath = getTemporaryImagePath(sourcePath, 'transform');
+  try {
+    let pipeline = sharp(sourcePath).rotate();
+    if (transformMode === 'black-and-white') {
+      pipeline = pipeline.grayscale();
+    } else if (transformMode === 'sepia') {
+      pipeline = pipeline
+        .grayscale()
+        .linear(1.08, 0)
+        .recomb([
+          [0.393, 0.769, 0.189],
+          [0.349, 0.686, 0.168],
+          [0.272, 0.534, 0.131],
+        ]);
+    } else {
+      throw createStatusError('Unsupported in-place transform: ' + transformMode, 400);
+    }
+    const format = String(metadata.format);
+    if (format === 'jpeg') {
+      pipeline = pipeline.jpeg({ quality: outputQuality, mozjpeg: true });
+    } else if (format === 'png') {
+      pipeline = pipeline.png({ quality: outputQuality });
+    } else if (format === 'webp') {
+      pipeline = pipeline.webp({ quality: outputQuality });
+    } else if (format === 'gif') {
+      pipeline = pipeline.gif();
+    } else {
+      throw createStatusError(
+        'Image format does not support in-place transform',
+        400,
+      );
+    }
+    const buffer = await pipeline.toBuffer();
+    await fs.writeFile(temporaryPath, buffer);
+    fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
+    try {
+      const now = new Date();
+      fs.utimesSync(sourcePath, now, now);
+    } catch (mtimeError) {}
+  } catch (e) {
+    if (fs.pathExistsSync(temporaryPath)) {
+      fs.removeSync(temporaryPath);
+    }
+    throw createStatusError(
+      e && e.message ? e.message : 'Unable to transform image',
+      e && e.status ? e.status : 500,
+    );
+  }
+}
+
 async function rotateImageInPlace(sourcePath, rotation = 90) {
   let metadata = null;
   try {
@@ -1007,45 +1074,24 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     };
   }
   if (operation === 'sepia' || operation === 'black-and-white') {
-    const sourceMetadata = await sharp(fileInfo.resolvedPath, {
-      failOn: 'none',
-    }).metadata();
-    const targetWidth =
-      sourceMetadata && sourceMetadata.width
-        ? sourceMetadata.width
-        : IMAGE_SCALE_PRESETS.md.width;
-    const targetHeight =
-      sourceMetadata && sourceMetadata.height
-        ? sourceMetadata.height
-        : IMAGE_SCALE_PRESETS.md.height;
-    const transformOutput = getImgOpsOutputPath(
-      fileInfo.filesRootPath,
-      fileInfo.normalizedPath + '-' + operation,
-      targetWidth,
-      targetHeight,
-    );
-    await convertImageToJpg(
+    // Apply the transform in place (preserving the original format/filename)
+    // so the operation does not create a new file in the site files list.
+    await transformImageInPlace(
       fileInfo.resolvedPath,
-      transformOutput.outputPath,
       operation,
       jpegQuality,
     );
     const transformedFile = buildFileRecord(
       site,
-      transformOutput.outputPath,
-      transformOutput.relativePath,
+      fileInfo.resolvedPath,
+      fileInfo.normalizedPath,
     );
     return {
       commitMessage:
-        'File transformed (' +
-        operation +
-        '): ' +
-        fileInfo.normalizedPath +
-        ' -> ' +
-        transformOutput.relativePath,
+        'File transformed (' + operation + '): ' + fileInfo.normalizedPath,
       data: {
         operation: operation,
-        source: fileInfo.normalizedPath,
+        path: fileInfo.normalizedPath,
         file: transformedFile,
       },
     };
