@@ -108,10 +108,20 @@ async function openCopyConfirmation(page, cardHandle, t) {
   return modal
 }
 
-// Add a synthetic file reference to the first item in the site's site.json so
-// the clone's path-rewrite logic has something to rewrite. The path uses the
-// original site's files/ dir prefix; cloneSite.js rewrites it to the clone's
-// files/ dir prefix.
+// Add a synthetic file record to the site's files.json datastore (Phase 2,
+// #3043) plus a uuid-string entry in the first item's metadata.files, so the
+// clone's files.json path-rewrite logic has something to rewrite. A real file
+// is dropped on disk so the record is not an orphan.
+//
+// #3043 changed page.metadata.files from full objects to an array of uuid
+// strings referencing files.json records. cloneSite.js now rewrites path/
+// fullUrl prefixes INSIDE files.json (preserving uuids), not in site.json
+// metadata.files. So the synthetic reference must be a files.json record + a
+// uuid string in metadata.files, and the assertion checks the clone's
+// files.json (rewritten fullUrl) + metadata.files (uuid strings preserved).
+const SYNTHETIC_FILE_UUID = '11111111-2222-3333-4444-555555555555'
+const SYNTHETIC_FILE_NAME = 'test-asset.txt'
+
 function addSyntheticFileReference(runtime, siteName) {
   const siteDir = path.join(runtime.runtimeRoot, SITES_DIR, siteName)
   const siteJsonPath = path.join(siteDir, 'site.json')
@@ -126,15 +136,45 @@ function addSyntheticFileReference(runtime, siteName) {
   if (!firstItem.metadata) {
     firstItem.metadata = {}
   }
-  // Use both an absolute filesystem path and a URL-style path so both rewrite
-  // paths in cloneSite.js are exercised.
-  const absFilesPrefix = path.join(siteDir, 'files').replace(/\\/g, '/')
-  firstItem.metadata.files = [
-    {
-      path: absFilesPrefix + '/test-asset.txt',
-      fullUrl: '/' + SITES_DIR + '/' + siteName + '/files/test-asset.txt',
+  // Drop a real file on disk so the record is not an orphan.
+  const filesDir = path.join(siteDir, 'files')
+  if (!fs.pathExistsSync(filesDir)) {
+    fs.ensureDirSync(filesDir)
+  }
+  fs.writeFileSync(
+    path.join(filesDir, SYNTHETIC_FILE_NAME),
+    'synthetic e2e clone-site test asset',
+    'utf8',
+  )
+  // Build the files.json datastore envelope with one record whose fullUrl
+  // references the original site name (cloneSite.js rewrites this prefix).
+  const fullUrl = '/' + SITES_DIR + '/' + siteName + '/files/' + SYNTHETIC_FILE_NAME
+  const filesJsonPath = path.join(filesDir, 'files.json')
+  const envelope = {
+    schema: 'HAXCMS-FILE-SCHEMA-V1',
+    site: siteName,
+    generated: Math.floor(Date.now() / 1000),
+    data: {
+      path: 'files',
+      files: [
+        {
+          uuid: SYNTHETIC_FILE_UUID,
+          path: 'files/' + SYNTHETIC_FILE_NAME,
+          name: SYNTHETIC_FILE_NAME,
+          mimetype: 'text/plain',
+          size: 36,
+          dateCreated: Math.floor(Date.now() / 1000),
+          fullUrl: fullUrl,
+          url: 'files/' + SYNTHETIC_FILE_NAME,
+          width: 0,
+          height: 0,
+        },
+      ],
     },
-  ]
+  }
+  fs.writeFileSync(filesJsonPath, JSON.stringify(envelope, null, 2), 'utf8')
+  // metadata.files is now a uuid-string array (Phase 2 shape).
+  firstItem.metadata.files = [SYNTHETIC_FILE_UUID]
   fs.writeFileSync(siteJsonPath, JSON.stringify(siteJson, null, 2), 'utf8')
   return true
 }
@@ -328,50 +368,69 @@ test(
         )
       })
 
-      // 10. Files/ path rewrite: the clone's item.metadata.files path should
-      //     contain the clone name (cloneSite.js rewrites the prefix).
+      // 10. Files/ path rewrite (#3043): cloneSite.js rewrites path/fullUrl
+      //     prefixes INSIDE the clone's files.json datastore (preserving uuids),
+      //     not in site.json metadata.files (which is now uuid strings). Assert
+      //     the clone's files.json record has a rewritten fullUrl containing the
+      //     clone name, the uuid is preserved, and metadata.files is uuid strings.
       await t.test('files/ path rewritten to clone name', { timeout: 30000 }, async () => {
         assert.ok(cloneName, 'need clone name for files-rewrite check')
         const cloneDir = path.join(runtime.runtimeRoot, SITES_DIR, cloneName)
+        const cloneFilesJsonPath = path.join(cloneDir, 'files', 'files.json')
+        assert.ok(
+          fs.pathExistsSync(cloneFilesJsonPath),
+          'clone files.json datastore should exist at ' + cloneFilesJsonPath,
+        )
+        const cloneFilesJson = JSON.parse(
+          fs.readFileSync(cloneFilesJsonPath, 'utf8'),
+        )
+        assert.ok(
+          cloneFilesJson && cloneFilesJson.data && Array.isArray(cloneFilesJson.data.files),
+          'clone files.json should have data.files array',
+        )
+        // Find the synthetic record by uuid (preserved across clone).
+        let synthRecord = null
+        for (let i = 0; i < cloneFilesJson.data.files.length; i++) {
+          const rec = cloneFilesJson.data.files[i]
+          if (rec && rec.uuid === SYNTHETIC_FILE_UUID) {
+            synthRecord = rec
+            break
+          }
+        }
+        assert.ok(synthRecord, 'clone files.json should contain the synthetic record (uuid preserved)')
+        t.diagnostic('[e2e] clone files.json record fullUrl: ' + (synthRecord && synthRecord.fullUrl))
+        assert.ok(
+          synthRecord && typeof synthRecord.fullUrl === 'string' &&
+            synthRecord.fullUrl.indexOf(cloneName) !== -1,
+          'clone files.json record fullUrl should contain the clone name (' +
+            cloneName + ') — cloneSite.js rewrites the files/ url prefix',
+        )
+        // The rewritten fullUrl should NOT contain the original site name.
+        assert.ok(
+          synthRecord.fullUrl.indexOf(SITE_NAME_LOWER + '/files') === -1,
+          'rewritten fullUrl should not contain the original site files/ prefix',
+        )
+        // metadata.files should be uuid strings (Phase 2 shape), and the
+        // synthetic uuid should be present (stable across clone).
         const cloneSiteJson = JSON.parse(
           fs.readFileSync(path.join(cloneDir, 'site.json'), 'utf8'),
         )
-        let filesRewritten = false
-        let rewrittenPath = null
-        let rewrittenFullUrl = null
+        let foundUuidRef = false
         const items = cloneSiteJson.items || []
         for (let i = 0; i < items.length; i++) {
           const files = items[i] && items[i].metadata && items[i].metadata.files
           if (Array.isArray(files)) {
             for (let j = 0; j < files.length; j++) {
-              const p = files[j] && files[j].path
-              const u = files[j] && files[j].fullUrl
-              if (typeof p === 'string' && p.indexOf(cloneName) !== -1) {
-                filesRewritten = true
-                rewrittenPath = p
-              }
-              if (typeof u === 'string' && u.indexOf(cloneName) !== -1) {
-                rewrittenFullUrl = u
+              if (typeof files[j] === 'string' && files[j] === SYNTHETIC_FILE_UUID) {
+                foundUuidRef = true
               }
             }
           }
         }
-        t.diagnostic('[e2e] rewritten path: ' + rewrittenPath)
-        t.diagnostic('[e2e] rewritten fullUrl: ' + rewrittenFullUrl)
         assert.ok(
-          filesRewritten,
-          'clone item.metadata.files path should contain the clone name (' +
-            cloneName +
-            ') — the cloneSite route rewrites the files/ prefix',
+          foundUuidRef,
+          'clone site.json metadata.files should contain the synthetic uuid string (stable across clone)',
         )
-        // The rewritten path should NOT contain the original site name (it
-        // should be replaced, not appended).
-        if (rewrittenPath) {
-          assert.ok(
-            rewrittenPath.indexOf(SITE_NAME_LOWER + '/files') === -1,
-            'rewritten path should not contain the original site files/ prefix',
-          )
-        }
       })
 
       // 11. The clone appears in the sites list after reload.
