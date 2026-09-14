@@ -49,13 +49,26 @@ function buildFilePublicUrl(site, relativeFilePath) {
   );
   let fullUrl = '/' + normalizedRelativePath;
   if (isMultisiteContext(site)) {
-    fullUrl =
-      HAXCMS.basePath +
-      HAXCMS.sitesDirectory +
-      '/' +
-      site.manifest.metadata.site.name +
-      '/' +
-      normalizedRelativePath;
+    // Guard the manifest access (mirrors getSiteNameForFileUuid in
+    // siteFileUuid.js): a minimal/test site fake may have no manifest, in
+    // which case fall back to the single-site URL shape rather than throwing.
+    const siteName =
+      site &&
+      site.manifest &&
+      site.manifest.metadata &&
+      site.manifest.metadata.site &&
+      site.manifest.metadata.site.name
+        ? String(site.manifest.metadata.site.name)
+        : '';
+    if (siteName) {
+      fullUrl =
+        HAXCMS.basePath +
+        HAXCMS.sitesDirectory +
+        '/' +
+        siteName +
+        '/' +
+        normalizedRelativePath;
+    }
   }
   return fullUrl;
 }
