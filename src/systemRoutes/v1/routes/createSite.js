@@ -6,7 +6,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { safeFetch } = require('../../../lib/safeFetch.js');
 
-const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i;
+const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml)$/i;
 const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
 const DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE = '--simple-colors-default-theme-light-blue-7';
 // Extensions permitted for build.siteFiles downloads (theme/ and custom/
@@ -14,8 +14,8 @@ const DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE = '--simple-colors-default-theme-li
 // deny-listing executable extensions blocks php/phtml/phar/cgi/pl/py/rb/sh/
 // asp/aspx/jsp/exe/etc. from being written into the web-served site tree
 // (CWE-434). Mirrors the SAFE_BULK_IMPORT_EXTENSION_REGEX gate on build.files.
-const SAFE_SITE_FILE_EXTENSION_REGEX = /\.(css|js|html?|json|md|txt|svg|png|jpe?g|gif|webp|webm|mp4|mp3|mov|vtt|woff2?|ttf|eot|csv|pdf)$/i;
-const SAFE_SITE_FILE_TEXT_EXTENSIONS = ['css', 'js', 'html', 'htm', 'json', 'md', 'txt', 'vtt', 'csv', 'svg'];
+const SAFE_SITE_FILE_EXTENSION_REGEX = /\.(css|js|html?|json|md|txt|svg|png|jpe?g|gif|webp|webm|mp4|mp3|mov|vtt|woff2?|ttf|eot|csv|pdf|xml)$/i;
+const SAFE_SITE_FILE_TEXT_EXTENSIONS = ['css', 'js', 'html', 'htm', 'json', 'md', 'txt', 'vtt', 'csv', 'svg', 'xml'];
 
 function normalizeSiteFilePath(relativePath) {
   if (typeof relativePath !== 'string') {

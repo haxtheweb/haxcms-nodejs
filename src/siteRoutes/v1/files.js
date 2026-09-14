@@ -77,6 +77,7 @@ const ALLOWED_RENAME_EXTENSIONS = [
   'vtt',
   'html',
   'md',
+  'xml',
 ];
 
 function getDateCreatedValue(entryStats) {

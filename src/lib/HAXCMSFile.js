@@ -9,7 +9,7 @@ const FilesDataStore = require('./FilesDataStore.js');
 const sharp = require('sharp');
 const dns = require('dns');
 
-const ALLOWED_UPLOAD_EXTENSION_PATTERN = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md)$/i;
+const ALLOWED_UPLOAD_EXTENSION_PATTERN = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml)$/i;
 const ALLOWED_MIME_BY_EXTENSION = {
   'jpg': ['image/jpeg'],
   'jpeg': ['image/jpeg'],
@@ -33,6 +33,7 @@ const ALLOWED_MIME_BY_EXTENSION = {
   'vtt': ['text/vtt', 'text/plain'],
   'html': ['text/html', 'application/xhtml+xml'],
   'md': ['text/markdown', 'text/plain'],
+  'xml': ['application/xml', 'text/xml'],
   'css': ['text/css'],
   'js': ['text/javascript', 'application/javascript', 'application/x-javascript', 'text/ecmascript'],
   'svg': ['image/svg+xml'],
@@ -343,6 +344,9 @@ function detectMimeTypeFromContent(filePath) {
   const lowerText = sample.toString('utf8').toLowerCase();
   if (lowerText.indexOf('{\\rtf') === 0 || lowerText.indexOf('{\\rtf') === 1) {
     return 'application/rtf';
+  }
+  if (lowerText.indexOf('<?xml') === 0) {
+    return 'application/xml';
   }
   if (
     lowerText.indexOf('<!doctype html') !== -1 ||
