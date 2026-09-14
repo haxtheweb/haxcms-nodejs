@@ -1,5 +1,6 @@
 const { HAXCMS, systemStructureContext } = require('../../lib/HAXCMS.js');
 const EntityRegistry = require('../../lib/EntityRegistry.js');
+const FileStorage = require('../../lib/FileStorage.js');
 
 function getRequestPath(req) {
   if (req && typeof req.originalUrl === 'string' && req.originalUrl !== '') {
@@ -77,6 +78,14 @@ async function entities(req, res) {
   }
   const apiBasePath = getApiBasePath(req);
   const registry = new EntityRegistry(site);
+  // Register the real FileStorage adapter for site-scope contexts so
+  // registry.getStorage('file') returns the writable adapter instead of
+  // NotImplementedStorage. Only register when the resolved site has a
+  // siteDirectory (real site context); the systemStructureContext fallback
+  // (no siteDirectory) keeps NotImplementedStorage for file.
+  if (site && site.siteDirectory) {
+    FileStorage.registerOn(registry);
+  }
   const scope = req && req.query && typeof req.query.scope === 'string'
     ? req.query.scope.trim()
     : '';
