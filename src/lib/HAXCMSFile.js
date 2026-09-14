@@ -5,6 +5,7 @@ const { HAXCMS } = require('./HAXCMS.js');
 const { buildFilePublicUrl } = require('./siteFileUrl.js');
 const { getDeterministicFileUuid } = require('./siteFileUuid.js');
 const { readMediaSettings } = require('./mediaSettings.js');
+const FilesDataStore = require('./FilesDataStore.js');
 const sharp = require('sharp');
 const dns = require('dns');
 
@@ -980,15 +981,10 @@ class HAXCMSFile
             }
         };
       }
-      // perform page level reference saving if available
-      if (page != null) {
-        // now update the page's metadata to suggest it uses this file. FTW!
-        if (!(page.metadata.files)) {
-          page.metadata.files = [];
-        }
-        page.metadata.files.push(returnData['file']);
-        await site.updateNode(page);
-      }
+      // #3043: page.metadata.files is now rebuilt by page save from a
+      // content path-scan, so upload NO LONGER appends to it. The file
+      // record is upserted into files.json below so the uuid is stable
+      // and O(1)-lookupable.
       // perform scale / crop operations if requested
       if (imageOps != null) {
         switch (imageOps) {
@@ -1033,6 +1029,22 @@ class HAXCMSFile
       }
       catch (enrichErr) {
         // best-effort enrichment; never block an otherwise-successful upload
+      }
+      // #3043: upsert the file record into the per-site files.json datastore
+      // so the uuid is stable across size changes and O(1)-lookupable. Only
+      // for real site uploads (site has a manifest), not system/user/tmp.
+      if (site && site.manifest) {
+        try {
+          const fileApiPath = 'files/' + newFilename;
+          const dataStore = new FilesDataStore(site);
+          const storeRecord = await dataStore.buildFileRecordFromDisk(fileApiPath);
+          if (storeRecord) {
+            dataStore.upsertRecord(storeRecord);
+          }
+        }
+        catch (dataStoreErr) {
+          // best-effort; never block an otherwise-successful upload
+        }
       }
       return {
           'status': 200,

@@ -32,6 +32,9 @@ const {
   getDeterministicFileUuid,
 } = require('../../lib/siteFileUuid.js');
 const fileOpsRateLimiter = require('../../lib/fileOpsRateLimiter.js');
+const FilesDataStore = require('../../lib/FilesDataStore.js');
+const FileStorage = require('../../lib/FileStorage.js');
+const EntityRegistry = require('../../lib/EntityRegistry.js');
 
 const IMAGE_SCALE_PRESETS = {
   xs: { width: 200, height: 150 },
@@ -923,15 +926,69 @@ function resolveRequestedFilePath(req, site) {
       400,
     );
   }
-  const siteFilePath = path.join(site.siteDirectory, 'files');
-  const fileEntries = collectSiteFiles(site, siteFilePath, '');
-  for (let i = 0; i < fileEntries.length; i++) {
-    const fileRecord = toFileRecord(site, fileEntries[i]);
-    if (String(fileRecord.uuid || '').toLowerCase() === normalizedUuid) {
-      return fileRecord.path;
-    }
+  // #3043: resolve the file path from the UUID via the files.json datastore
+  // (O(1) from the uuid index, stable UUID). This replaces the old O(n)
+  // directory walk + n-hash recompute — THE fix for the sepia 'File not found
+  // for fileUuid' bug (the deterministic UUID shifts when file size changes;
+  // files.json gives stable persisted UUIDs).
+  const dataStore = new FilesDataStore(site);
+  const record = dataStore.getByUuid(normalizedUuid);
+  if (record && record.path) {
+    return String(record.path);
   }
   throw createStatusError('Requested file was not found', 404);
+}
+
+// #3043: After a file operation (compress, scale, sepia, black-and-white,
+// rotate-90, convert-jpg, rename, duplicate), upsert the updated record into
+// the per-site files.json datastore so the uuid's metadata (size, dimensions,
+// mtime, fullUrl cache-buster) is current.
+//
+// For in-place transforms (compress, scale, sepia, black-and-white,
+// rotate-90) the uuid is preserved — files.json owns identity (hybrid
+// model), so the uuid stays stable across size/content changes while
+// the metadata updates. For new-path operations (convert-jpg to a new
+// filename, duplicate, rename) a new uuid is assigned from the new
+// path+size unless the old path's uuid is carried over (rename).
+async function upsertFileRecordInDataStore(site, normalizedPath, oldNormalizedPath) {
+  const dataStore = new FilesDataStore(site);
+  // Look up the existing uuid. For in-place ops this is the same path;
+  // for rename, look up by the OLD path (the file moved).
+  const lookupPath = oldNormalizedPath !== undefined && oldNormalizedPath !== null
+    ? oldNormalizedPath
+    : normalizedPath;
+  const existing = dataStore.getByPath(lookupPath);
+  let existingUuid = '';
+  if (existing && existing.uuid) {
+    existingUuid = String(existing.uuid);
+  }
+  // Build a fresh record from disk (new size, dimensions, mtime, fullUrl).
+  const record = await dataStore.buildFileRecordFromDisk(normalizedPath);
+  if (!record) {
+    return null;
+  }
+  // Preserve the existing uuid for in-place transforms / rename (hybrid
+  // model: files.json owns identity, uuid stable across content changes).
+  if (existingUuid !== '' && record.uuid) {
+    record.uuid = existingUuid;
+  }
+  dataStore.upsertRecord(record);
+  // For rename: remove the old-path record if the uuid changed or the
+  // old path is now stale.
+  if (
+    oldNormalizedPath !== undefined &&
+    oldNormalizedPath !== null &&
+    oldNormalizedPath !== normalizedPath
+  ) {
+    const oldRecord = dataStore.getByPath(oldNormalizedPath);
+    if (oldRecord && oldRecord.uuid && oldRecord.uuid !== existingUuid) {
+      dataStore.removeRecord(oldRecord.uuid);
+    }
+  }
+  // Return the upserted record so callers can sync the response uuid with
+  // the files.json uuid (the stable, preserved uuid — not the deterministic
+  // one from buildFileRecord which shifts on path/size changes).
+  return record;
 }
 
 function readOperationPayload(req, operationOverride = '') {
@@ -1003,6 +1060,14 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       renameInfo.outputPath,
       renameInfo.normalizedOutputPath,
     );
+    // #3043: carry the uuid to the new path in files.json (uuid stable,
+    // path/name/fullUrl updated; old path record scrubbed if stale).
+    const upsertedRecord = await upsertFileRecordInDataStore(site, renameInfo.normalizedOutputPath, fileInfo.normalizedPath);
+    // Sync the response uuid with the files.json uuid (the preserved uuid),
+    // so the caller can immediately operate on the file via the response uuid.
+    if (upsertedRecord && upsertedRecord.uuid) {
+      renamedFile.uuid = upsertedRecord.uuid;
+    }
     return {
       commitMessage:
         'File renamed: ' +
@@ -1024,6 +1089,12 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       fileInfo.resolvedPath,
       fileInfo.normalizedPath,
     );
+    // #3043: update the uuid's metadata in files.json (in-place transform —
+    // uuid preserved, size/dimensions/mtime refreshed).
+    const upsertedRecord = await upsertFileRecordInDataStore(site, fileInfo.normalizedPath);
+    if (upsertedRecord && upsertedRecord.uuid) {
+      rotatedFile.uuid = upsertedRecord.uuid;
+    }
     return {
       commitMessage: 'File rotated (90deg): ' + fileInfo.normalizedPath,
       data: {
@@ -1034,38 +1105,43 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     };
   }
   if (operation === 'convert-jpg') {
-    const sourceMetadata = await sharp(fileInfo.resolvedPath, { failOn: 'none' }).metadata();
-    const targetWidth =
-      sourceMetadata && sourceMetadata.width
-        ? sourceMetadata.width
-        : IMAGE_SCALE_PRESETS.md.width;
-    const targetHeight =
-      sourceMetadata && sourceMetadata.height
-        ? sourceMetadata.height
-        : IMAGE_SCALE_PRESETS.md.height;
-    const convertOutput = getImgOpsOutputPath(
-      fileInfo.filesRootPath,
-      fileInfo.normalizedPath,
-      targetWidth,
-      targetHeight,
-    );
+    // #3043: write the converted JPG in the SAME directory as the source
+    // file (files/<basename>.jpg), not under files/imgops/. The output
+    // path is derived from the validated source path so it stays within
+    // the files/ directory. If the source is already a .jpg the output
+    // path equals the source — an in-place re-encode.
+    const sourceBasename = path.basename(fileInfo.normalizedPath, path.extname(fileInfo.normalizedPath));
+    const sourceDir = path.dirname(fileInfo.normalizedPath);
+    const outputRelativePath = sourceDir + '/' + sourceBasename + '.jpg';
+    const outputAbsolutePath = path.join(path.dirname(fileInfo.resolvedPath), sourceBasename + '.jpg');
+    // Security: verify the output path stays within the files root.
+    if (!isPathInsideDirectory(fileInfo.filesRootPath, outputAbsolutePath)) {
+      throw createStatusError('Invalid output file path', 403);
+    }
     await convertImageToJpg(
       fileInfo.resolvedPath,
-      convertOutput.outputPath,
+      outputAbsolutePath,
       'none',
       jpegQuality,
     );
     const convertedFile = buildFileRecord(
       site,
-      convertOutput.outputPath,
-      convertOutput.relativePath,
+      outputAbsolutePath,
+      outputRelativePath,
     );
+    // #3043: upsert the new/updated file's record into files.json. For a
+    // new path (png -> jpg) this assigns a new uuid; for an in-place
+    // re-encode (jpg -> jpg) the existing uuid is preserved.
+    const upsertedRecord = await upsertFileRecordInDataStore(site, outputRelativePath);
+    if (upsertedRecord && upsertedRecord.uuid) {
+      convertedFile.uuid = upsertedRecord.uuid;
+    }
     return {
       commitMessage:
         'File converted to JPG: ' +
         fileInfo.normalizedPath +
         ' -> ' +
-        convertOutput.relativePath,
+        outputRelativePath,
       data: {
         operation: operation,
         source: fileInfo.normalizedPath,
@@ -1086,6 +1162,12 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       fileInfo.resolvedPath,
       fileInfo.normalizedPath,
     );
+    // #3043: update the uuid's metadata in files.json (in-place transform —
+    // uuid preserved, size/dimensions/mtime refreshed).
+    const upsertedRecord = await upsertFileRecordInDataStore(site, fileInfo.normalizedPath);
+    if (upsertedRecord && upsertedRecord.uuid) {
+      transformedFile.uuid = upsertedRecord.uuid;
+    }
     return {
       commitMessage:
         'File transformed (' + operation + '): ' + fileInfo.normalizedPath,
@@ -1104,6 +1186,12 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       duplicateInfo.outputPath,
       duplicateInfo.normalizedOutputPath,
     );
+    // #3043: upsert the new file's record into files.json (new path ->
+    // new uuid from path+size).
+    const upsertedRecord = await upsertFileRecordInDataStore(site, duplicateInfo.normalizedOutputPath);
+    if (upsertedRecord && upsertedRecord.uuid) {
+      duplicatedFile.uuid = upsertedRecord.uuid;
+    }
     return {
       commitMessage:
         'File duplicated: ' +
@@ -1126,6 +1214,12 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       fileInfo.resolvedPath,
       fileInfo.normalizedPath,
     );
+    // #3043: update the uuid's metadata in files.json after compression
+    // (in-place transform — uuid preserved, new size/dimensions/mtime).
+    const upsertedRecord = await upsertFileRecordInDataStore(site, fileInfo.normalizedPath);
+    if (upsertedRecord && upsertedRecord.uuid) {
+      compressedFile.uuid = upsertedRecord.uuid;
+    }
     return {
       commitMessage:
         'File compressed (' + compressLevel.key + '): ' + fileInfo.normalizedPath,
@@ -1148,6 +1242,12 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     fileInfo.resolvedPath,
     fileInfo.normalizedPath,
   );
+  // #3043: update the uuid's metadata in files.json after scaling
+  // (in-place transform — uuid preserved, new size/dimensions/mtime).
+  const upsertedRecord = await upsertFileRecordInDataStore(site, fileInfo.normalizedPath);
+  if (upsertedRecord && upsertedRecord.uuid) {
+    scaledFile.uuid = upsertedRecord.uuid;
+  }
   return {
     commitMessage:
       'File scaled (' + presetData.key + '): ' + fileInfo.normalizedPath,
@@ -1171,12 +1271,37 @@ async function listFiles(req, res) {
   }
   const apiBasePath = getApiBasePath(req);
   const fields = getCsvQuery(req, 'fields');
-  const siteFilePath = path.join(site.siteDirectory, 'files');
-  const records = collectSiteFiles(
-    site,
-    siteFilePath,
-    getQueryValue(req, 'filename', ''),
-  ).map((file) => toFileRecord(site, file));
+  // #3043: list reads from files.json. Before returning, auto-index any
+  // on-disk files missing from the index (reconcileMissingFromDisk) and
+  // flag orphans (records whose disk file is gone) into a non-destructive
+  // 'orphans' array — files.json is NOT mutated for orphans.
+  const dataStore = new FilesDataStore(site);
+  try {
+    await dataStore.reconcileMissingFromDisk();
+  } catch (e) {}
+  const orphans = dataStore.flagOrphans();
+  // Build a set of orphan uuids so we can exclude them from the main files
+  // list (orphans go only in the 'orphans' array, non-destructive).
+  const orphanUuids = {};
+  for (let i = 0; i < orphans.length; i++) {
+    const orphanUuid = orphans[i] && orphans[i].uuid ? String(orphans[i].uuid).toLowerCase() : '';
+    if (orphanUuid !== '') {
+      orphanUuids[orphanUuid] = true;
+    }
+  }
+  let records = dataStore.getRecords().filter((record) => {
+    const uuid = record && record.uuid ? String(record.uuid).toLowerCase() : '';
+    return uuid === '' || !Object.prototype.hasOwnProperty.call(orphanUuids, uuid);
+  });
+  // Apply the filename filter that collectSiteFiles used to handle.
+  const filterFilename = String(getQueryValue(req, 'filename', '') || '').toLowerCase();
+  if (filterFilename !== '') {
+    records = records.filter((record) => {
+      const name = String(record.name || '').toLowerCase();
+      const recordPath = String(record.path || '').toLowerCase();
+      return recordPath.indexOf(filterFilename) !== -1 || name.indexOf(filterFilename) !== -1;
+    });
+  }
   let filteredRecords = applyFileFilters(records, req);
   filteredRecords = sortRecords(
     filteredRecords,
@@ -1185,6 +1310,7 @@ async function listFiles(req, res) {
   );
   const paged = paginateRecords(filteredRecords, req, 25, 500);
   const outputRecords = projectCollection(paged.records, fields);
+  const outputOrphans = projectCollection(orphans, fields);
   return sendFormattedResponse(
     req,
     res,
@@ -1193,6 +1319,7 @@ async function listFiles(req, res) {
       total: paged.page.total,
       page: paged.page,
       files: outputRecords,
+      orphans: outputOrphans,
       links: {
         self: `${apiBasePath}/v1/files`,
       },
@@ -1291,21 +1418,35 @@ async function fileDetail(req, res) {
   }
   const fields = getCsvQuery(req, 'fields');
   try {
-    const requestedPath = resolveRequestedFilePath(req, site);
-    if (!requestedPath) {
+    // #3043: O(1) uuid load via the files.json datastore. The record is
+    // already the full FileRecord shape, so no directory walk or hash
+    // recompute is needed.
+    const params =
+      req && req.params && typeof req.params === 'object' ? req.params : {};
+    const decodedUuid = decodePathToken(params.fileUuid || '');
+    const normalizedUuid = String(decodedUuid || '').trim().toLowerCase();
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        normalizedUuid,
+      )
+    ) {
       return res.status(400).json({
         status: 400,
         data: {
-          message: 'File uuid is required',
+          message: 'File uuid is required and must be a valid UUID',
         },
       });
     }
-    const fileInfo = resolveSiteFilePath(site, requestedPath);
-    const resolvedPath = ensureExistingRegularFile(
-      fileInfo.resolvedPath,
-      fileInfo.filesRootPath,
-    );
-    const record = buildFileRecord(site, resolvedPath, fileInfo.normalizedPath);
+    const dataStore = new FilesDataStore(site);
+    const record = dataStore.getByUuid(normalizedUuid);
+    if (!record) {
+      return res.status(404).json({
+        status: 404,
+        data: {
+          message: 'Requested file was not found',
+        },
+      });
+    }
     return sendFormattedResponse(req, res, projectRecord(record, fields), {
       allowedFormats: ['json', 'md', 'yaml', 'xml'],
       defaultFormat: 'json',
@@ -1420,6 +1561,10 @@ async function deleteFile(req, res) {
     mediaSettings = await readMediaSettings(HAXCMS);
   } catch (e) {}
   const jpegQuality = resolveJpegQualityFromSettings(mediaSettings);
+  // #3043: resolve the file uuid for post-delete data-layer cleanup.
+  const params =
+    req && req.params && typeof req.params === 'object' ? req.params : {};
+  const deleteFileUuid = String(decodePathToken(params.fileUuid || '') || '').trim().toLowerCase();
   try {
     // resolveRequestedFilePath can throw createStatusError (404 when the uuid
     // no longer matches a file on disk, e.g. after a rename changed the uuid;
@@ -1439,6 +1584,22 @@ async function deleteFile(req, res) {
       jpegQuality,
     );
     await site.gitCommit(result.commitMessage);
+    // #3043: on DELETE, scrub the uuid from every page's
+    // page.metadata.files (one manifest save) via the FileStorage adapter.
+    // performFileOperation() deletes the disk file + git-commits; this
+    // handles the data-layer cleanup so 'used in' references stay clean.
+    if (
+      deleteFileUuid &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deleteFileUuid)
+    ) {
+      try {
+        const registry = new EntityRegistry(site);
+        const fileStorage = FileStorage.registerOn(registry);
+        fileStorage.delete(deleteFileUuid);
+      } catch (scrubErr) {
+        // best-effort cleanup; never block an otherwise-successful delete
+      }
+    }
     return res.status(200).json({
       status: 200,
       data: result.data,
@@ -1479,4 +1640,8 @@ module.exports = {
   // test/unit/files-error-leak.test.cjs). Used by every file mutation/detail
   // catch block; not a route handler.
   resolveClientFacingErrorMessage,
+  // #3043: Exported for direct unit testing of the files.json upsert path
+  // after file operations (see test/unit/siteRoutesFiles.test.cjs). Used by
+  // performFileOperation; not a route handler.
+  upsertFileRecordInDataStore,
 };

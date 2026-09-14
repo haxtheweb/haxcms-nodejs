@@ -8,6 +8,7 @@ const {
 const {
   platformAllows,
 } = require('./platformFeatures.js');
+const FileContentScanner = require('./FileContentScanner.js');
 
 const PAGE_DETAIL_OPERATIONS = new Set([
   'setTitle',
@@ -410,6 +411,19 @@ async function applyNodeDetailOperation(site, nodeId, details = {}) {
       `Item count mismatch: expected ${originalItemCount} but got ${site.manifest.items.length}. Operation aborted to prevent data loss.`,
     );
   }
+
+  // #3043: rebuild page.metadata.files from a content path-scan so the
+  // uuid set stays in sync (and legacy object-shape entries self-heal to
+  // uuids on the next details save). Reads the current on-disk content.
+  let pageContentForScan = '';
+  if (site && typeof site.getPageContent === 'function') {
+    try {
+      pageContentForScan = String(await site.getPageContent(page) || '');
+    } catch (e) {
+      pageContentForScan = '';
+    }
+  }
+  await FileContentScanner.rebuildPageFilesUuids(site, page, pageContentForScan);
 
   site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
   await site.manifest.save(false);

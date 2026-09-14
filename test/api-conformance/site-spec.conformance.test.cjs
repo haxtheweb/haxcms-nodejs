@@ -2761,7 +2761,7 @@ test('system API canonical user-token-secured reads enforce X-HAXCMS-User-Token'
   await t.test('getMediaSettings enforces user token on read', async () => {
     await assertSystemReadUserTokenEnforced('getMediaSettings')
   })
-  await t.test('systemEntitiesGet returns integration entity descriptor (D38 system-side)', async () => {
+  await t.test('systemEntitiesGet returns merged registry set from entities.yaml (#3043)', async () => {
     const result = await assertSystemReadUserTokenEnforced('systemEntitiesGet')
     assert.ok(
       result.bodyJson &&
@@ -2769,26 +2769,35 @@ test('system API canonical user-token-secured reads enforce X-HAXCMS-User-Token'
         Array.isArray(result.bodyJson.data.entities),
       'Expected system entity descriptors array',
     )
-    const integrationDescriptor = result.bodyJson.data.entities.find(
-      (entity) => entity && entity.name === 'integration',
+    // #3043: both /x/api/v1/entities and /system/api/v1/entities now source
+    // from the single merged entities.yaml registry (EntityRegistry).
+    // The old hand-maintained integration descriptor is no longer present;
+    // the response now contains the 6 registry types: file, item, theme,
+    // skeleton, site, system.
+    const types = result.bodyJson.data.entities.map(
+      (entity) => entity && entity.type,
     )
-    assert.ok(
-      integrationDescriptor,
-      'Expected integration entity descriptor on the system API',
-    )
+    for (const expected of ['file', 'item', 'theme', 'skeleton', 'site', 'system']) {
+      assert.ok(
+        types.indexOf(expected) !== -1,
+        `Expected registry type "${expected}" in system entities response`,
+      )
+    }
     assert.equal(
-      integrationDescriptor.auth,
-      'public',
-      'Expected system integration entity descriptor to declare public auth',
+      result.bodyJson.data.count,
+      6,
+      'Expected 6 entity descriptors from the merged registry',
     )
-    assert.ok(
-      Array.isArray(integrationDescriptor.endpoints) &&
-        integrationDescriptor.endpoints.some(
-          (endpoint) =>
-            String(endpoint || '').indexOf('/integrations/app-store') !== -1,
-        ),
-      'Expected system integration descriptor to include the app-store endpoint',
+    // Verify the system entity descriptor has the extended EntityDescriptor
+    // shape (storage block + scope).
+    const systemDescriptor = result.bodyJson.data.entities.find(
+      (entity) => entity && entity.type === 'system',
     )
+    assert.ok(systemDescriptor, 'Expected system entity descriptor')
+    assert.equal(systemDescriptor.scope, 'system')
+    assert.ok(systemDescriptor.storage, 'Expected storage block on system descriptor')
+    assert.equal(systemDescriptor.storage.type, 'config')
+    assert.equal(systemDescriptor.storage.enabled, false)
   })
   await t.test('systemEntitiesPost enforces user token on read', async () => {
     await assertSystemReadUserTokenEnforced('systemEntitiesPost')
