@@ -9,6 +9,7 @@ const {
 } = require('../../../lib/sanitizeContent.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
+const FileContentScanner = require('../../../lib/FileContentScanner.js');
 /**
    * @OA\Post(
    *    path="/saveNode",
@@ -382,6 +383,10 @@ const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
                     break;
                   }
                 }
+                // #3043: rebuild page.metadata.files as a deduped uuid-string
+                // array from a content path-scan. A file removed from the
+                // content drops out of the set automatically.
+                await FileContentScanner.rebuildPageFilesUuids(site, page, sanitizedContent);
                 await site.updateNode(page);
                 await site.writePageAlternateFormats(page, sanitizedContent);
                 site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);

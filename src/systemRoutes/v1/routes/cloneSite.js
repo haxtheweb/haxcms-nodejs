@@ -1,5 +1,6 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const path = require('path');
+const fs = require('fs-extra');
 
 function normalizeBasePath(basePath = '/') {
   let normalized = typeof basePath === 'string' ? basePath : '/';
@@ -114,45 +115,21 @@ function replaceWithKnownPrefix(value, sourcePrefixes = [], targetPrefix = '') {
       const targetFileSystemPrefix = `${path
         .join(newSite.siteDirectory, 'files')
         .replace(/\\/g, '/')}/`;
-      // loop through all items and rewrite the path to files as we cloned it
-      for (var delta in newSite.manifest.items) {
-        let item = newSite.manifest.items[delta];
-        if (item.metadata.files) {
-          for (var delta2 in item.metadata.files) {
-            if (newSite.manifest.items[delta].metadata.files[delta2].path) {
-              let migratedPath =
-                newSite.manifest.items[delta].metadata.files[delta2].path;
-              migratedPath = replaceWithKnownPrefix(
-                migratedPath,
-                [sourceFileSystemPrefix],
-                targetFileSystemPrefix,
-              );
-              migratedPath = replaceWithKnownPrefix(
-                migratedPath,
-                sourceUrlPrefixes,
-                targetUrlPrefix,
-              );
-              newSite.manifest.items[delta].metadata.files[delta2].path = migratedPath;
-            }
-            if (newSite.manifest.items[delta].metadata.files[delta2].fullUrl) {
-              let migratedFullUrl =
-                newSite.manifest.items[delta].metadata.files[delta2].fullUrl;
-              migratedFullUrl = replaceWithKnownPrefix(
-                migratedFullUrl,
-                [sourceFileSystemPrefix],
-                targetFileSystemPrefix,
-              );
-              migratedFullUrl = replaceWithKnownPrefix(
-                migratedFullUrl,
-                sourceUrlPrefixes,
-                targetUrlPrefix,
-              );
-              newSite.manifest.items[delta].metadata.files[delta2].fullUrl =
-                migratedFullUrl;
-            }
-          }
-        }
-      }
+      // #3043: page.metadata.files is now an array of uuid strings (stable,
+      // no rewrite needed). The files.json datastore is copied into the clone
+      // by recurseCopy and its path/fullUrl prefixes are rewritten inside it,
+      // PRESERVING uuids (per #3043: "uuids for files don't get rewritten if
+      // we clone the site"). Legacy object-shape page.metadata.files entries
+      // on old source sites are left as-is and self-heal to uuids on the next
+      // page save; the clone's files.json is lazily auto-built on first list.
+      rewriteCloneFilesJson({
+        cloneFilesJsonPath: path.join(newSite.siteDirectory, 'files', 'files.json'),
+        cloneName: cloneName,
+        sourceUrlPrefixes: sourceUrlPrefixes,
+        targetUrlPrefix: targetUrlPrefix,
+        sourceFileSystemPrefix: sourceFileSystemPrefix,
+        targetFileSystemPrefix: targetFileSystemPrefix,
+      });
 
       await newSite.save();
       res.send({
@@ -167,4 +144,98 @@ function replaceWithKnownPrefix(value, sourcePrefixes = [], targetPrefix = '') {
         },
       });
   }
+
+// #3043: Rewrite the clone's files.json datastore: rewrite path/fullUrl
+// prefixes for the new site name, PRESERVING uuids. Reads the files.json at
+// cloneFilesJsonPath, rewrites each record's path/fullUrl/url, updates the
+// envelope site name, and writes it back. Best-effort — silently no-ops if
+// the file is missing or corrupt (the clone still works; files.json is
+// lazily auto-built on first list).
+function rewriteCloneFilesJson(opts) {
+  const cloneFilesJsonPath = opts.cloneFilesJsonPath;
+  if (!cloneFilesJsonPath || !fs.pathExistsSync(cloneFilesJsonPath)) {
+    return false;
+  }
+  try {
+    const filesJsonContents = fs.readFileSync(cloneFilesJsonPath, 'utf8');
+    if (!filesJsonContents || filesJsonContents === '') {
+      return false;
+    }
+    const decoded = JSON.parse(filesJsonContents);
+    if (
+      !decoded ||
+      typeof decoded !== 'object' ||
+      !decoded.data ||
+      !Array.isArray(decoded.data.files)
+    ) {
+      return false;
+    }
+    const sourceUrlPrefixes = opts.sourceUrlPrefixes || [];
+    const targetUrlPrefix = opts.targetUrlPrefix || '';
+    const sourceFileSystemPrefix = opts.sourceFileSystemPrefix || '';
+    const targetFileSystemPrefix = opts.targetFileSystemPrefix || '';
+    for (let fIdx = 0; fIdx < decoded.data.files.length; fIdx++) {
+      const record = decoded.data.files[fIdx];
+      if (!record || typeof record !== 'object') {
+        continue;
+      }
+      const recordPath = record.path ? String(record.path) : '';
+      const fullUrl = record.fullUrl ? String(record.fullUrl) : '';
+      if (recordPath !== '') {
+        // Rewrite the files/ path prefix — the path stays relative
+        // (files/...) so only the fullUrl prefix actually changes.
+        let newPath = replaceWithKnownPrefix(
+          recordPath,
+          [sourceFileSystemPrefix],
+          targetFileSystemPrefix,
+        );
+        newPath = replaceWithKnownPrefix(
+          newPath,
+          sourceUrlPrefixes,
+          targetUrlPrefix,
+        );
+        // Normalize back to files/... if the prefix rewrite produced
+        // an absolute path (the canonical form is relative).
+        const filesPos = newPath.indexOf('files/');
+        if (filesPos > 0) {
+          newPath = newPath.substring(filesPos);
+        }
+        decoded.data.files[fIdx].path = newPath;
+      }
+      if (fullUrl !== '') {
+        let newFullUrl = replaceWithKnownPrefix(
+          fullUrl,
+          [sourceFileSystemPrefix],
+          targetFileSystemPrefix,
+        );
+        newFullUrl = replaceWithKnownPrefix(
+          newFullUrl,
+          sourceUrlPrefixes,
+          targetUrlPrefix,
+        );
+        decoded.data.files[fIdx].fullUrl = newFullUrl;
+      }
+      // url mirrors path
+      if (decoded.data.files[fIdx].url && recordPath !== '') {
+        decoded.data.files[fIdx].url = decoded.data.files[fIdx].path;
+      }
+    }
+    // site name in the envelope
+    if (opts.cloneName) {
+      decoded.site = opts.cloneName;
+    }
+    fs.writeFileSync(
+      cloneFilesJsonPath,
+      JSON.stringify(decoded, null, 2),
+      'utf8',
+    );
+    return true;
+  } catch (e) {
+    // best-effort; clone still works if files.json rewrite fails
+    return false;
+  }
+}
+
+cloneSite.rewriteCloneFilesJson = rewriteCloneFilesJson;
+cloneSite.replaceWithKnownPrefix = replaceWithKnownPrefix;
 module.exports = cloneSite;

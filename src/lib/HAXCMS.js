@@ -1404,11 +1404,34 @@ class HAXCMSSite
         if (page == null) {
           page = this.loadNodeByLocation();
         }
+        // #3043: page.metadata.files is now an array of uuid strings.
+        // Resolve each uuid to its files.json record and return the first
+        // image record's fullUrl. Tolerate legacy object-shape entries on
+        // old pages (read .type/.fullUrl directly) until those pages are
+        // re-saved and converge to uuid-shape.
         if (page && page.metadata && page.metadata.files) {
+          const FilesDataStore = require('./FilesDataStore.js');
+          const dataStore = new FilesDataStore(this);
           for (var key in page.metadata.files) {
-            let file = page.metadata.files[key];
-            if (file.type == 'image/jpeg') {
-              fileName = file.fullUrl;
+            let entry = page.metadata.files[key];
+            // uuid-string shape (Phase 2)
+            if (typeof entry === 'string') {
+              const record = dataStore.getByUuid(entry);
+              if (record) {
+                const mimetype = record.mimetype ? String(record.mimetype) : '';
+                if (mimetype.indexOf('image/') === 0 && mimetype !== 'image/svg+xml') {
+                  fileName = record.fullUrl ? record.fullUrl : null;
+                  break;
+                }
+              }
+            }
+            // legacy object shape (old pages)
+            else if (entry && typeof entry === 'object') {
+              const type = entry.type ? String(entry.type) : '';
+              if (type.indexOf('image/') === 0 && type !== 'image/svg+xml') {
+                fileName = entry.fullUrl ? entry.fullUrl : null;
+                break;
+              }
             }
           }
         }
