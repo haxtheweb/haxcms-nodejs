@@ -16,6 +16,11 @@ const FilesDataStore = require('./FilesDataStore.js');
  * @returns {Promise<{commitMessage: string, data: {operation: string, deckPath: string, embedHtml: string, manifest: object}}>}
  */
 async function convertPptxToDeck(site, resolvedPath, normalizedPath) {
+  if (!/\.pptx$/i.test(String(normalizedPath || ''))) {
+    const err = new Error('File must have a .pptx extension');
+    err.status = 400;
+    throw err;
+  }
   const buffer = fs.readFileSync(resolvedPath);
   if (!buffer || buffer.length === 0) {
     const err = new Error('PPTX file is empty');
@@ -107,9 +112,7 @@ async function convertPptxToDeck(site, resolvedPath, normalizedPath) {
   try {
     const dataStore = new FilesDataStore(site);
     const deckJsonPath = 'files/decks/' + deckName + '/deck.json';
-    const deckJsonRecord = dataStore.buildFileRecordFromDisk(deckJsonPath);
-    if (deckJsonRecord) {
-      dataStore.upsertRecord(deckJsonRecord);
+const deckJsonRecord = await dataStore.buildFileRecordFromDisk(deckJsonPath);
     }
     for (const fileReference in extractedFiles) {
       const destName = path.basename(fileReference);
