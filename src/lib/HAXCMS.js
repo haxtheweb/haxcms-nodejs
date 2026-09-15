@@ -4374,6 +4374,7 @@ class HAXCMSClass {
               "html",
               "document",
               "archive",
+              "pptx",
               "*"
             ],
             "resultMap": {
