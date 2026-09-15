@@ -2,6 +2,7 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const path = require('path');
 const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
 const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
+const { materializeInlineImages } = require('../../../lib/materializeInlineImages.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 /**
  * @OA\Post(
@@ -152,7 +153,9 @@ async function createNode(req, res) {
         let page;
         if (page = site.loadNode(item.id)) {
             // write it to the file system
-            alternateContent = sanitizeHTMLForStorage(nodeParams['node']['contents']);
+            alternateContent = sanitizeHTMLForStorage(
+              await materializeInlineImages(nodeParams['node']['contents'], site)
+            );
             let bytes = await page.writeLocation(
             alternateContent,
             site.siteDirectory

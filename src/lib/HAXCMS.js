@@ -112,6 +112,7 @@ const {
   escapeHTMLAttribute,
   escapeXMLValue,
 } = require('./sanitizeContent.js');
+const { materializeInlineImages } = require('./materializeInlineImages.js');
 const exec = util.promisify(child_process.exec);
 const turndownService = new TurndownService();
 turndownService.keep(function(node) {
@@ -1000,7 +1001,7 @@ class HAXCMSSite
         let alternateContent = '';
         if (template == 'html') {
           // now this should exist if it didn't a minute ago
-          alternateContent = sanitizeHTMLForStorage(html);
+          alternateContent = sanitizeHTMLForStorage(await materializeInlineImages(html, this));
           let bytes = page.writeLocation(
             alternateContent,
             this.siteDirectory
