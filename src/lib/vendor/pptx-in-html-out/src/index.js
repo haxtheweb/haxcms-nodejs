@@ -42,9 +42,9 @@ export class PPTXInHTMLOut {
     }
     return [value];
   }
-
+//pptx is a zip, powerpoint stores each slide as its own file, and slideFile in this case is a path string
   getSlideNumber(slideFile) {
-    const match = String(slideFile).match(/slide(\d+)\.xml/i);
+    const match = String(slideFile).match(/slide(\d+)\.xml/i);// the \d+eans one or more digits, and it captures it ie remembers what the number is for later retrieval, \.xml the backslash specifies to regex that this is a actual dot and not just any character, and the i means case insensitive.
     if (!match || !match[1]) {
       return 0;
     }
@@ -53,7 +53,7 @@ export class PPTXInHTMLOut {
 
   escapeHtml(value) {
     return String(value)
-      .replace(/&/g, '&amp;')
+      .replace(/&/g, '&amp;')//g means replace every occurence
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
@@ -223,11 +223,11 @@ export class PPTXInHTMLOut {
   async parseSlides() {
     const slideFiles = Object.keys(this.zip.files)
       .filter(name => name.startsWith('ppt/slides/slide') && name.endsWith('.xml'))
-      .sort();
+      .sort((a, b) => this.getSlideNumber(a) - this.getSlideNumber(b));
 
     this.slides = [];
-
-    for (const slideFile of slideFiles) {
+//every slide's XML must live at ppt/slides/slideN.xml
+    for (const slideFile of slideFiles) {//fetches the xml content of every slide
       try {
         const slideContent = await this.zip.file(slideFile).async('string');
         const slideXml = await parseStringPromise(slideContent);
@@ -246,46 +246,41 @@ export class PPTXInHTMLOut {
     return this.slides;
   }
 
+  // extracts a slide's (or notes slide's) text blocks + which one is the title,
+  // shared by convertSlideToHTML() and toDeckManifest() so title-detection logic
+  // only lives in one place
+  extractTextBlocks(slide) {
+    const sld = slide.content['p:sld'];
+    const cSld = sld ? this.asArray(sld['p:cSld'])[0] : null;
+    const spTree = cSld ? this.asArray(cSld['p:spTree'])[0] : null;
+    if (!spTree) {
+      return { spTree: null, textBlocks: [], titleIndex: -1 };
+    }
+    const textBlocks = [];
+    const shapes = this.asArray(spTree['p:sp']);
+    for (const shape of shapes) {
+      const text = this.getShapeText(shape);
+      if (!text) continue;
+      textBlocks.push({ text, isTitle: this.isTitleShape(shape) });
+    }
+    let titleIndex = textBlocks.findIndex((b) => b.isTitle);
+    if (titleIndex === -1 && textBlocks.length > 0) {
+      titleIndex = 0;
+    }
+    return { spTree, textBlocks, titleIndex };
+  }
+
   async convertSlideToHTML(slide, options = {}) {
     if (!slide || !slide.content) {
       console.error('Invalid slide content');
       return '';
     }
 
-    const sld = slide.content['p:sld'];
-    if (!sld) {
-      console.error('No p:sld found in slide content');
-      return '';
-    }
-    const cSld = this.asArray(sld['p:cSld'])[0];
-    const spTree = cSld ? this.asArray(cSld['p:spTree'])[0] : null;
+    const { spTree, textBlocks, titleIndex } = this.extractTextBlocks(slide);
     if (!spTree) {
       return '';
     }
 
-    const textBlocks = [];
-    const shapes = this.asArray(spTree['p:sp']);
-    for (const shape of shapes) {
-      const text = this.getShapeText(shape);
-      if (!text) {
-        continue;
-      }
-      textBlocks.push({
-        text,
-        isTitle: this.isTitleShape(shape),
-      });
-    }
-
-    let titleIndex = -1;
-    for (let i = 0; i < textBlocks.length; i += 1) {
-      if (textBlocks[i].isTitle) {
-        titleIndex = i;
-        break;
-      }
-    }
-    if (titleIndex === -1 && textBlocks.length > 0) {
-      titleIndex = 0;
-    }
     const slideNumber = this.getSlideNumber(slide.file);
     const title = titleIndex > -1
       ? textBlocks[titleIndex].text.replace(/\s+/g, ' ').trim()
@@ -395,8 +390,8 @@ export class PPTXInHTMLOut {
       if (!relsFile) {
         return {};
       }
-      const relsContent = await relsFile.async('string');
-      const relsXml = await parseStringPromise(relsContent);
+      const relsContent = await relsFile.async('string');//gets content from  slide and hands it back as a string
+      const relsXml = await parseStringPromise(relsContent);//takes a raw xml string and converts it into plain js object tree so the rest of the code can navigate the XML with normal property access instead of string parsing tags by hand.
       const relationshipNodes = relsXml && relsXml.Relationships
         ? relsXml.Relationships.Relationship
         : [];
@@ -409,6 +404,7 @@ export class PPTXInHTMLOut {
         rels[rel.$.Id] = {
           Id: rel.$.Id,
           Target: rel.$.Target,
+          Type: rel.$.Type, //the real Type field lets callers check the relationship's actual declared kind
         };
       }
       return rels;
@@ -418,8 +414,74 @@ export class PPTXInHTMLOut {
     }
   }
 
+  // relationships are not slide to slide - the only place which file holds a
+  // slide's notes is recorded is inside that slide's own .rels. reuses
+  // resolveRelationshipTarget() rather than duplicating path-resolution logic.
+  async getNotesSlidePath(slideFile) {
+    const rels = await this.getSlideRels(slideFile);
+    for (const id in rels) {
+      const rel = rels[id];
+      if (rel.Type && rel.Type.endsWith('/notesSlide')) {
+        return this.resolveRelationshipTarget(slideFile, rel.Target);
+      }
+    }
+    return null;
+  }
+
+  // opens the specific notes-slide zip entry, parses it, and reuses the
+  // already-existing getShapeText() unmodified because a notes slide's text
+  // structure mirrors a regular slide's
+  async getSlideNotesText(slideFile) {
+    const notesPath = await this.getNotesSlidePath(slideFile);
+    if (!notesPath) {
+      return '';
+    }
+    const notesFile = this.zip.file(notesPath);
+    if (!notesFile) {
+      return '';
+    }
+
+    const notesContent = await notesFile.async('string');//convert notesContent into string
+    const notesXml = await parseStringPromise(notesContent);// parse contents into XML format
+    const notes = notesXml['p:notes'];
+    const cSld = notes ? this.asArray(notes['p:cSld'])[0] : null;
+    const spTree = cSld ? this.asArray(cSld['p:spTree'])[0] : null;
+    if (!spTree) {
+      return '';
+    }
+    const shapes = this.asArray(spTree['p:sp']);
+    const lines = [];
+    for (const shape of shapes) {
+      const text = this.getShapeText(shape);
+      if (text) {
+        lines.push(text);
+      }
+    }
+    return lines.join('\n').trim();
+  }
+
   getExtractedFiles() {
     return this.extractedFiles;
+  }
+
+  // produces the structured per-slide manifest (title/html/notes/image) for
+  // deck.json, alongside the existing HTML-document export below. image stays
+  // null here on purpose - snapshot/pre-render is a separate, optional step.
+  async toDeckManifest(options = {}) {
+    await this.initialize();
+    const slides = await this.parseSlides();
+    const manifestSlides = [];
+    for (const slide of slides) {
+      const { textBlocks, titleIndex } = this.extractTextBlocks(slide);
+      const slideNumber = this.getSlideNumber(slide.file);
+      const title = titleIndex > -1
+        ? textBlocks[titleIndex].text.replace(/\s+/g, ' ').trim()
+        : `Slide ${slideNumber || 1}`;
+      const html = await this.convertSlideToHTML(slide, options);
+      const notes = await this.getSlideNotesText(slide.file);
+      manifestSlides.push({ number: slideNumber || 1, title, html, image: null, notes });
+    }
+    return { slides: manifestSlides };
   }
 
   async toHTML(options = { includeStyles: true, inlineImages: false, fullDocument: true }) {
