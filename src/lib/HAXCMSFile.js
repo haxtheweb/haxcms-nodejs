@@ -759,7 +759,7 @@ class HAXCMSFile
   /**
    * Save file into this site, optionally updating reference inside the page
    */
-  async save(tmpFile, site, page = null, imageOps = null)
+  async save(tmpFile, site, page = null, imageOps = null, subfolder = '')
   { 
     var returnData = {};
     // check for a file upload
@@ -767,10 +767,21 @@ class HAXCMSFile
       // get contents of the file if it was uploaded into a variable
       let filedata = tmpFile['path'];
       const isBulkImport = !!tmpFile['bulk-import'];
-      let pathPart = site.siteDirectory + '/files/';
-      // ensure this path exists
+      // optional subfolder under files/ (e.g. 'decks/mydeck') so callers like
+      // importPptxDeck can target a nested collection while still getting
+      // extension/MIME validation, sanitization, and collision-safe renaming.
+      // strip leading/trailing slashes so the join is predictable.
+      var subfolderPart = '';
+      if (subfolder && typeof subfolder === 'string') {
+        subfolderPart = subfolder.replace(/^\/+|\/+$/g, '');
+        if (subfolderPart) {
+          subfolderPart = subfolderPart + '/';
+        }
+      }
+      let pathPart = site.siteDirectory + '/files/' + subfolderPart;
+      // ensure this path exists (recursive handles nested subfolders)
       if (!fs.existsSync(pathPart)) {
-        fs.mkdirSync(pathPart);
+        fs.mkdirSync(pathPart, { recursive: true });
       }
       let incomingName = '';
       if (tmpFile.originalname) {
@@ -820,6 +831,10 @@ class HAXCMSFile
         newFilename = `${name}_${counter}${ext}`;
         counter++;
       }
+      // relative path (from site root) used in the response file object and the
+      // uuid/datastore records so callers learn the exact location, including
+      // any subfolder/collision suffix
+      var fileRelativePath = 'files/' + subfolderPart + newFilename;
       let sourcePath = filedata;
       let remoteDownloadPath = null;
       if (isBulkImport && !isValidBulkImportStagedPath(filedata)) {
@@ -963,9 +978,9 @@ class HAXCMSFile
         // fake the file object creation stuff from CMS land
         returnData = {
           'file': {
-            'path': 'files/' + newFilename,
-            'fullUrl': buildFilePublicUrl(site, 'files/' + newFilename),
-            'url' : 'files/' + newFilename,
+            'path': fileRelativePath,
+            'fullUrl': buildFilePublicUrl(site, fileRelativePath),
+            'url' : fileRelativePath,
             'type' : detectedMimeType,
             'name' : newFilename,
             'size' : tmpFile['size']
@@ -976,9 +991,9 @@ class HAXCMSFile
         // fake the file object creation stuff from CMS land
         returnData = {
             'file':{
-                'path': 'files/' + newFilename,
-                'fullUrl' : buildFilePublicUrl(site, 'files/' + newFilename),
-                'url': 'files/' + newFilename,
+                'path': fileRelativePath,
+                'fullUrl' : buildFilePublicUrl(site, fileRelativePath),
+                'url': fileRelativePath,
                 'type': detectedMimeType,
                 'name': newFilename,
                 'size': tmpFile['size']
@@ -1024,7 +1039,7 @@ class HAXCMSFile
         }
         returnData.file.uuid = getDeterministicFileUuid(
           site,
-          'files/' + newFilename,
+          fileRelativePath,
           onDiskSize,
         );
         const dims = await readImageDimensions(fullpath);
@@ -1039,7 +1054,7 @@ class HAXCMSFile
       // for real site uploads (site has a manifest), not system/user/tmp.
       if (site && site.manifest) {
         try {
-          const fileApiPath = 'files/' + newFilename;
+          const fileApiPath = fileRelativePath;
           const dataStore = new FilesDataStore(site);
           const storeRecord = await dataStore.buildFileRecordFromDisk(fileApiPath);
           if (storeRecord) {

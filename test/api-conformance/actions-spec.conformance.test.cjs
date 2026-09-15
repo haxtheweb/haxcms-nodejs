@@ -92,8 +92,7 @@ async function createMinimalDocxBuffer() {
 }
 
 async function createMinimalXlsxBuffer() {
-  // security (DF1): use the vendored patched SheetJS 0.20.3 (replaces npm xlsx@0.18.5)
-  const XLSX = require(path.join(REPO_ROOT, 'src', 'lib', 'vendor', 'xlsx', 'xlsx.js'))
+  const XLSX = require('xlsx')
   const workbook = XLSX.utils.book_new()
   const worksheet = XLSX.utils.aoa_to_sheet([
     ['Name', 'Value'],
@@ -1362,6 +1361,11 @@ test('system actions endpoints conformance', async (t) => {
     )
     assert.ok(Array.isArray(body.data.manifest && body.data.manifest.slides), 'Expected slides array in manifest')
     assert.equal(body.data.manifest.pptx, 'files/decks/Sample-Deck/original.pptx')
+    // thumbnail/renderTier (top-level) and image (per-slide) were pruned from
+    // the deck.json contract - slide-deck never reads them
+    assert.equal('thumbnail' in body.data.manifest, false, 'thumbnail should be absent from the manifest')
+    assert.equal('renderTier' in body.data.manifest, false, 'renderTier should be absent from the manifest')
+    assert.equal(body.data.manifest.slides.some((s) => 'image' in s), false, 'per-slide image field should be absent')
   })
 
   await t.test('import-pptx-deck rewrites slide image src to match where the file is actually written', async () => {
@@ -1397,6 +1401,50 @@ test('system actions endpoints conformance', async (t) => {
       `Expected image src to be rewritten away from files/pptx-media/, got: ${imgSrc}`,
     )
     assert.equal(imgSrc, 'files/decks/Deck-With-Image/slide-1-image-1.png')
+  })
+
+  await t.test('import-pptx-deck uniquifies the deck folder on name collision instead of overwriting', async () => {
+    const deckSiteName = `pptx-deck-collision-harness-${Date.now()}`
+    await createHarnessSite(runtime.baseUrl, runtime.jwt, runtime.dashboardSettings, deckSiteName)
+
+    const pptxBuffer = await createMinimalPptxBuffer()
+    const buildRequest = () => {
+      const multipart = buildMultipartBody({
+        fileName: 'Same Deck.pptx',
+        fileContents: pptxBuffer,
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        extraFields: { siteName: deckSiteName },
+      })
+      return {
+        multipart,
+        headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      }
+    }
+
+    const firstReq = buildRequest()
+    const first = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
+      headers: firstReq.headers,
+      data: firstReq.multipart.body,
+    })
+    assert.equal(first.status, 200, `Expected 200 on first import, got ${first.status}: ${first.bodyText}`)
+    const firstBody = JSON.parse(first.bodyText)
+    assert.equal(firstBody.data.deckPath, 'files/decks/Same-Deck/deck.json')
+
+    // second import of the same filename must NOT overwrite the first deck -
+    // it should land in a numbered sibling folder (-1, matching archiveSite)
+    const secondReq = buildRequest()
+    const second = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
+      headers: secondReq.headers,
+      data: secondReq.multipart.body,
+    })
+    assert.equal(second.status, 200, `Expected 200 on second import, got ${second.status}: ${second.bodyText}`)
+    const secondBody = JSON.parse(second.bodyText)
+    assert.equal(secondBody.data.deckPath, 'files/decks/Same-Deck-1/deck.json')
+    assert.notEqual(secondBody.data.deckPath, firstBody.data.deckPath, 'Second import must produce a distinct deck folder')
   })
 
   await t.test('actions endpoints are listed in system OpenAPI spec', async () => {

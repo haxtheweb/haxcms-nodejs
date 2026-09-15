@@ -464,9 +464,8 @@ export class PPTXInHTMLOut {
     return this.extractedFiles;
   }
 
-  // produces the structured per-slide manifest (title/html/notes/image) for
-  // deck.json, alongside the existing HTML-document export below. image stays
-  // null here on purpose - snapshot/pre-render is a separate, optional step.
+  // produces the structured per-slide manifest (title/html/notes) for
+  // deck.json, alongside the existing HTML-document export below.
   async toDeckManifest(options = {}) {
     await this.initialize();
     const slides = await this.parseSlides();
@@ -479,7 +478,7 @@ export class PPTXInHTMLOut {
         : `Slide ${slideNumber || 1}`;
       const html = await this.convertSlideToHTML(slide, options);
       const notes = await this.getSlideNotesText(slide.file);
-      manifestSlides.push({ number: slideNumber || 1, title, html, image: null, notes });
+      manifestSlides.push({ number: slideNumber || 1, title, html, notes });
     }
     return { slides: manifestSlides };
   }
