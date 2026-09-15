@@ -112,12 +112,14 @@ async function convertPptxToDeck(site, resolvedPath, normalizedPath) {
   try {
     const dataStore = new FilesDataStore(site);
     const deckJsonPath = 'files/decks/' + deckName + '/deck.json';
-const deckJsonRecord = await dataStore.buildFileRecordFromDisk(deckJsonPath);
+    const deckJsonRecord = await dataStore.buildFileRecordFromDisk(deckJsonPath);
+    if (deckJsonRecord) {
+      dataStore.upsertRecord(deckJsonRecord);
     }
     for (const fileReference in extractedFiles) {
       const destName = path.basename(fileReference);
       const mediaPath = 'files/decks/' + deckName + '/' + destName;
-      const mediaRecord = dataStore.buildFileRecordFromDisk(mediaPath);
+      const mediaRecord = await dataStore.buildFileRecordFromDisk(mediaPath);
       if (mediaRecord) {
         dataStore.upsertRecord(mediaRecord);
       }

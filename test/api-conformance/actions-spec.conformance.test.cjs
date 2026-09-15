@@ -92,7 +92,7 @@ async function createMinimalDocxBuffer() {
 }
 
 async function createMinimalXlsxBuffer() {
-  const XLSX = require('xlsx')
+  const XLSX = require(path.join(REPO_ROOT, 'src', 'lib', 'vendor', 'xlsx', 'xlsx.js'))
   const workbook = XLSX.utils.book_new()
   const worksheet = XLSX.utils.aoa_to_sheet([
     ['Name', 'Value'],
