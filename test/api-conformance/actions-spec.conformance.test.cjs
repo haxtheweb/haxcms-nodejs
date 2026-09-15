@@ -1232,48 +1232,14 @@ test('system actions endpoints conformance', async (t) => {
     )
   })
 
-  await t.test('import-pptx-deck returns 400 for empty file upload', async () => {
+  await t.test('import-pptx-deck system route has been removed (now a file operation)', async () => {
+    // The standalone import-pptx-deck system route was replaced by the
+    // convert-pptx-deck file operation (PATCH /x/api/v1/files/:fileUuid).
+    // The old route should now 404/405.
+    const pptxBuffer = await createMinimalPptxBuffer()
     const multipart = buildMultipartBody({
-      fileName: 'empty.pptx',
-      fileContents: Buffer.alloc(0),
-      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    })
-    const result = await sendHttpRequest({
-      method: 'POST',
-      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
-      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
-      data: multipart.body,
-    })
-    assert.equal(result.status, 400, `Expected 400, got ${result.status}: ${result.bodyText}`)
-    const body = JSON.parse(result.bodyText)
-    assert.ok(body && body.data && body.data.error, 'Expected error in response data')
-  })
-
-  await t.test('import-pptx-deck returns 400 for invalid file type', async () => {
-    const multipart = buildMultipartBody({
-      fileName: 'test.txt',
-      fileContents: 'not a pptx',
-      mimeType: 'text/plain',
-      extraFields: { siteName: 'does-not-matter' },
-    })
-    const result = await sendHttpRequest({
-      method: 'POST',
-      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
-      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
-      data: multipart.body,
-    })
-    assert.equal(result.status, 400, `Expected 400, got ${result.status}: ${result.bodyText}`)
-    const body = JSON.parse(result.bodyText)
-    assert.ok(
-      body && body.data && String(body.data.error || '').toLowerCase().indexOf('file type') !== -1,
-      'Expected file type error in response data',
-    )
-  })
-
-  await t.test('import-pptx-deck returns 400 for missing ZIP signature', async () => {
-    const multipart = buildMultipartBody({
-      fileName: 'fake.pptx',
-      fileContents: Buffer.from('This is not a zip file'),
+      fileName: 'test.pptx',
+      fileContents: pptxBuffer,
       mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       extraFields: { siteName: 'does-not-matter' },
     })
@@ -1283,168 +1249,10 @@ test('system actions endpoints conformance', async (t) => {
       headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
       data: multipart.body,
     })
-    assert.equal(result.status, 400, `Expected 400, got ${result.status}: ${result.bodyText}`)
-    const body = JSON.parse(result.bodyText)
     assert.ok(
-      String(body.data.error).toLowerCase().indexOf('zip') !== -1,
-      'Expected error message about ZIP signature',
+      result.status === 404 || result.status === 405,
+      `Expected 404/405 for removed import-pptx-deck route, got ${result.status}`,
     )
-  })
-
-  await t.test('import-pptx-deck returns 400 for missing siteName', async () => {
-    const pptxBuffer = await createMinimalPptxBuffer()
-    const multipart = buildMultipartBody({
-      fileName: 'test.pptx',
-      fileContents: pptxBuffer,
-      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    })
-    const result = await sendHttpRequest({
-      method: 'POST',
-      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
-      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
-      data: multipart.body,
-    })
-    assert.equal(result.status, 400, `Expected 400, got ${result.status}: ${result.bodyText}`)
-    const body = JSON.parse(result.bodyText)
-    assert.ok(
-      String(body.data.error).toLowerCase().indexOf('sitename') !== -1,
-      'Expected error message about missing siteName',
-    )
-  })
-
-  await t.test('import-pptx-deck returns 400 for unknown site', async () => {
-    const pptxBuffer = await createMinimalPptxBuffer()
-    const multipart = buildMultipartBody({
-      fileName: 'test.pptx',
-      fileContents: pptxBuffer,
-      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      extraFields: { siteName: 'this-site-does-not-exist-anywhere' },
-    })
-    const result = await sendHttpRequest({
-      method: 'POST',
-      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
-      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
-      data: multipart.body,
-    })
-    assert.equal(result.status, 400, `Expected 400, got ${result.status}: ${result.bodyText}`)
-    const body = JSON.parse(result.bodyText)
-    assert.ok(
-      String(body.data.error).toLowerCase().indexOf('not found') !== -1,
-      'Expected error message about the site not being found',
-    )
-  })
-
-  await t.test('import-pptx-deck converts a valid pptx and writes deck.json to the site', async () => {
-    const deckSiteName = `pptx-deck-harness-${Date.now()}`
-    await createHarnessSite(runtime.baseUrl, runtime.jwt, runtime.dashboardSettings, deckSiteName)
-
-    const pptxBuffer = await createMinimalPptxBuffer()
-    const multipart = buildMultipartBody({
-      fileName: 'Sample Deck.pptx',
-      fileContents: pptxBuffer,
-      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      extraFields: { siteName: deckSiteName },
-    })
-    const result = await sendHttpRequest({
-      method: 'POST',
-      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
-      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
-      data: multipart.body,
-    })
-    assert.equal(result.status, 200, `Expected 200, got ${result.status}: ${result.bodyText}`)
-    const body = JSON.parse(result.bodyText)
-    assert.ok(body && body.status === 200, 'Expected status 200 in response envelope')
-    assert.equal(body.data.deckPath, 'files/decks/Sample-Deck/deck.json')
-    assert.ok(
-      String(body.data.embedHtml || '').indexOf('<slide-deck source="files/decks/Sample-Deck/deck.json">') !== -1,
-      'Expected embedHtml to reference the deck.json path',
-    )
-    assert.ok(Array.isArray(body.data.manifest && body.data.manifest.slides), 'Expected slides array in manifest')
-    assert.equal(body.data.manifest.pptx, 'files/decks/Sample-Deck/original.pptx')
-    // thumbnail/renderTier (top-level) and image (per-slide) were pruned from
-    // the deck.json contract - slide-deck never reads them
-    assert.equal('thumbnail' in body.data.manifest, false, 'thumbnail should be absent from the manifest')
-    assert.equal('renderTier' in body.data.manifest, false, 'renderTier should be absent from the manifest')
-    assert.equal(body.data.manifest.slides.some((s) => 'image' in s), false, 'per-slide image field should be absent')
-  })
-
-  await t.test('import-pptx-deck rewrites slide image src to match where the file is actually written', async () => {
-    const deckSiteName = `pptx-deck-image-harness-${Date.now()}`
-    await createHarnessSite(runtime.baseUrl, runtime.jwt, runtime.dashboardSettings, deckSiteName)
-
-    const pptxBuffer = await createPptxBufferWithImage()
-    const multipart = buildMultipartBody({
-      fileName: 'Deck With Image.pptx',
-      fileContents: pptxBuffer,
-      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      extraFields: { siteName: deckSiteName },
-    })
-    const result = await sendHttpRequest({
-      method: 'POST',
-      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
-      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
-      data: multipart.body,
-    })
-    assert.equal(result.status, 200, `Expected 200, got ${result.status}: ${result.bodyText}`)
-    const body = JSON.parse(result.bodyText)
-    const slides = body.data.manifest.slides
-    assert.equal(slides.length, 1, 'Expected exactly one slide')
-
-    const imgSrcMatch = String(slides[0].html).match(/<img src="([^"]+)"/)
-    assert.ok(imgSrcMatch, 'Expected an <img> tag in the slide html')
-    const imgSrc = imgSrcMatch[1]
-
-    // the src must NOT still point at the converter's deck-agnostic default
-    // location - this is exactly the bug found in code review
-    assert.ok(
-      imgSrc.indexOf('files/pptx-media/') === -1,
-      `Expected image src to be rewritten away from files/pptx-media/, got: ${imgSrc}`,
-    )
-    assert.equal(imgSrc, 'files/decks/Deck-With-Image/slide-1-image-1.png')
-  })
-
-  await t.test('import-pptx-deck uniquifies the deck folder on name collision instead of overwriting', async () => {
-    const deckSiteName = `pptx-deck-collision-harness-${Date.now()}`
-    await createHarnessSite(runtime.baseUrl, runtime.jwt, runtime.dashboardSettings, deckSiteName)
-
-    const pptxBuffer = await createMinimalPptxBuffer()
-    const buildRequest = () => {
-      const multipart = buildMultipartBody({
-        fileName: 'Same Deck.pptx',
-        fileContents: pptxBuffer,
-        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        extraFields: { siteName: deckSiteName },
-      })
-      return {
-        multipart,
-        headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
-      }
-    }
-
-    const firstReq = buildRequest()
-    const first = await sendHttpRequest({
-      method: 'POST',
-      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
-      headers: firstReq.headers,
-      data: firstReq.multipart.body,
-    })
-    assert.equal(first.status, 200, `Expected 200 on first import, got ${first.status}: ${first.bodyText}`)
-    const firstBody = JSON.parse(first.bodyText)
-    assert.equal(firstBody.data.deckPath, 'files/decks/Same-Deck/deck.json')
-
-    // second import of the same filename must NOT overwrite the first deck -
-    // it should land in a numbered sibling folder (-1, matching archiveSite)
-    const secondReq = buildRequest()
-    const second = await sendHttpRequest({
-      method: 'POST',
-      url: `${runtime.baseUrl}/system/api/v1/actions/import-pptx-deck`,
-      headers: secondReq.headers,
-      data: secondReq.multipart.body,
-    })
-    assert.equal(second.status, 200, `Expected 200 on second import, got ${second.status}: ${second.bodyText}`)
-    const secondBody = JSON.parse(second.bodyText)
-    assert.equal(secondBody.data.deckPath, 'files/decks/Same-Deck-1/deck.json')
-    assert.notEqual(secondBody.data.deckPath, firstBody.data.deckPath, 'Second import must produce a distinct deck folder')
   })
 
   await t.test('actions endpoints are listed in system OpenAPI spec', async () => {
@@ -1469,7 +1277,6 @@ test('system actions endpoints conformance', async (t) => {
       '/system/api/v1/actions/pptx-to-html',
       '/system/api/v1/actions/import-docx',
       '/system/api/v1/actions/import-pptx',
-      '/system/api/v1/actions/import-pptx-deck',
       '/system/api/v1/actions/docx-to-pdf',
       '/system/api/v1/site/import/{platform}',
     ]
@@ -1507,7 +1314,6 @@ test('system actions endpoints conformance', async (t) => {
       '/system/api/v1/actions/pptx-to-html',
       '/system/api/v1/actions/import-docx',
       '/system/api/v1/actions/import-pptx',
-      '/system/api/v1/actions/import-pptx-deck',
       '/system/api/v1/actions/docx-to-pdf',
       '/system/api/v1/site/import/{platform}',
     ]

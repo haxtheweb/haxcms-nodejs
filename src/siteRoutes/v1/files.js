@@ -35,6 +35,7 @@ const fileOpsRateLimiter = require('../../lib/fileOpsRateLimiter.js');
 const FilesDataStore = require('../../lib/FilesDataStore.js');
 const FileStorage = require('../../lib/FileStorage.js');
 const EntityRegistry = require('../../lib/EntityRegistry.js');
+const { convertPptxToDeck } = require('../../lib/pptxDeckHelper.js');
 
 const IMAGE_SCALE_PRESETS = {
   xs: { width: 200, height: 150 },
@@ -1031,6 +1032,7 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       'rotate-90',
       'compress',
       'duplicate',
+      'convert-pptx-deck',
     ].includes(operation)
   ) {
     throw createStatusError('Unsupported file operation', 400);
@@ -1206,6 +1208,18 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
         file: duplicatedFile,
       },
     };
+  }
+  if (operation === 'convert-pptx-deck') {
+    // Convert an uploaded .pptx into a deck.json manifest + stored media.
+    // The .pptx stays where it was uploaded in files/; the deck folder gets
+    // only deck.json + extracted media. Not exposed in hax-file-actions
+    // (hidden from the files admin screen) — invoked by the slide-deck
+    // uploadTransform schema hook via @site/updateFileByUuid.
+    return await convertPptxToDeck(
+      site,
+      fileInfo.resolvedPath,
+      fileInfo.normalizedPath,
+    );
   }
   if (operation === 'compress') {
     const compressLevel = getCompressLevel(payload.level);
