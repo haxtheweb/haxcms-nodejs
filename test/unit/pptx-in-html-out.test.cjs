@@ -141,6 +141,9 @@ test('toDeckManifest() extracts speaker notes when a notesSlide relationship exi
   assert.equal(manifest.slides[0].notes, 'These are the speaker notes.')
   assert.equal(manifest.slides[0].title, 'Sample Title')
   assert.ok(manifest.slides[0].html.indexOf('Sample body text') !== -1)
+  // image was pruned from the per-slide contract (slide-deck never reads it);
+  // lock in its absence so it does not silently get reintroduced
+  assert.equal('image' in manifest.slides[0], false, 'per-slide image field should be absent from the manifest')
 })
 
 test('toDeckManifest() returns empty notes for a slide with no notesSlide relationship', async () => {

@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs-extra');
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const HAXCMSFile = require('../../../lib/HAXCMSFile.js');
 
 /**
  * POST /system/api/v1/actions/import-pptx-deck
@@ -56,14 +57,52 @@ async function importPptxDeck(req, res) {
 
     // sanitize the deck folder name - strip the extension, then drop anything
     // that isn't alphanumeric/hyphen/underscore so it's safe as a path segment
-    const deckName = filename.replace(/\.pptx$/i, '').replace(/[^a-zA-Z0-9-_]/g, '-');
-    if (!deckName) {
+    const baseDeckName = filename.replace(/\.pptx$/i, '').replace(/[^a-zA-Z0-9-_]/g, '-');
+    if (!baseDeckName) {
       return res.status(400).json({ status: 400, data: { error: 'Unable to derive a deck name from the uploaded filename' } });
     }
+    // uniquify the deck folder name when a deck of the same name already
+    // exists, matching the archiveSite/cloneSite pattern (-1, -2, ...) so a
+    // repeated import never silently overwrites a prior deck's files.
+    let deckName = baseDeckName;
+    let deckCounter = 1;
+    while (fs.existsSync(path.join(site.siteDirectory, 'files', 'decks', deckName))) {
+      deckName = `${baseDeckName}-${deckCounter}`;
+      deckCounter++;
+    }
     const deckDir = path.join(site.siteDirectory, 'files', 'decks', deckName);
-    fs.mkdirSync(deckDir, { recursive: true });
 
-    fs.writeFileSync(path.join(deckDir, 'original.pptx'), buffer);
+    // route the uploaded .pptx through HAXCMSFile.save() (the same validated
+    // code path createFile() uses) so it gets extension/MIME validation,
+    // filename sanitization, and collision-safe renaming. The subfolder targets
+    // files/decks/<deckName>/ and moves (cleans up) the multer temp file.
+    const fileSaver = new HAXCMSFile();
+    const pptxSaveResult = await fileSaver.save(
+      { path: file.path, originalname: 'original.pptx', size: file.size },
+      site,
+      null,
+      null,
+      'decks/' + deckName,
+    );
+    if (!pptxSaveResult || Number(pptxSaveResult.status) !== 200) {
+      return res.status(500).json({
+        status: 500,
+        data: {
+          error: 'Unable to save original pptx: ' +
+            (pptxSaveResult && pptxSaveResult.data && pptxSaveResult.data.message
+              ? pptxSaveResult.data.message
+              : 'unknown error'),
+        },
+      });
+    }
+    // use the server-sanitized relative path from the save result (handles any
+    // per-file collision suffix HAXCMSFile applied) instead of assuming
+    // original.pptx
+    const pptxRelativePath = pptxSaveResult.data.file.path;
+
+    // extracted media are derived from the already-validated PPTX archive and
+    // have converter-generated safe names (slide-N-image-M.ext); write them
+    // directly with path.basename() to strip any path components.
     for (const fileReference in extractedFiles) {
       const extracted = extractedFiles[fileReference];
       const destName = path.basename(fileReference);
@@ -85,9 +124,7 @@ async function importPptxDeck(req, res) {
     const deckManifest = {
       title: deckName,
       source: filename,
-      pptx: `files/decks/${deckName}/original.pptx`,
-      thumbnail: null,
-      renderTier: 'client',
+      pptx: pptxRelativePath,
       slides: deckSlides,
     };
     fs.writeFileSync(path.join(deckDir, 'deck.json'), JSON.stringify(deckManifest, null, 2));
