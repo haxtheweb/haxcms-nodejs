@@ -7,7 +7,8 @@
 // HAXCMSFile (so it is validated and recorded in files.json) and renders it
 // as media-image; anything it cannot save becomes an image place-holder.
 // Both write paths, HAXCMSSite.addPage and the createNode route, then
-// reference the saved file by uuid in page.metadata.files.
+// reference the saved file by its FileEntity uuid in page.metadata.files,
+// sourced from the Entity API by the helper rather than a content re-scan.
 //
 // Constraints honored: CommonJS (.cjs), require(), NO optional chaining,
 // node:test + node:assert/strict.
@@ -18,19 +19,34 @@ const path = require('path')
 const fs = require('fs-extra')
 const os = require('os')
 
-// createNode is required before HAXCMS.js on purpose: it loads
-// FileContentScanner at module scope, and this proves that order is free of
-// the HAXCMS require cycle (a cycle would leave uploads unable to save).
+// createNode is required before HAXCMS.js on purpose: createNode pulls
+// materializeInlineImages at module scope, which HAXCMS.js also does. This
+// exercises that module-scope chain and proves materializeInlineImages keeps
+// its Entity/FileStorage requires lazy (a module-scope require there would
+// cycle back through siteFileUrl -> HAXCMS and break file URLs).
 const createNode = require('../../src/siteRoutes/v1/routes/createNode.js')
 const { HAXCMS, HAXCMSSite } = require('../../src/lib/HAXCMS.js')
 const EntityRegistry = require('../../src/lib/EntityRegistry.js')
 const FileStorage = require('../../src/lib/FileStorage.js')
+const FilesDataStore = require('../../src/lib/FilesDataStore.js')
+const HAXCMSFile = require('../../src/lib/HAXCMSFile.js')
 const { materializeInlineImages } = require('../../src/lib/materializeInlineImages.js')
+const sharp = require('sharp')
 
 // a minimal valid 1x1 PNG, as mammoth would hand it over base64 encoded
 const PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 const PNG_DATA_URI = 'data:image/png;base64,' + PNG_BASE64
+
+// a second, different valid PNG for pages with more than one image
+async function otherPngDataUri() {
+  const buffer = await sharp({
+    create: { width: 2, height: 2, channels: 3, background: { r: 0, g: 0, b: 255 } },
+  })
+    .png()
+    .toBuffer()
+  return 'data:image/png;base64,' + buffer.toString('base64')
+}
 
 async function makeTempSite(siteName) {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'hax-test-'))
@@ -102,7 +118,7 @@ describe('materializeInlineImages — #2945', () => {
   })
 
   test('saves an inline image as a site file and renders media-image', async () => {
-    const result = await materializeInlineImages(
+    const { html: result, uuids } = await materializeInlineImages(
       '<p>Before</p><p><img alt="A red square" src="' + PNG_DATA_URI + '"></p>',
       site,
     )
@@ -114,6 +130,7 @@ describe('materializeInlineImages — #2945', () => {
         files[0] +
         '" alt="A red square"></media-image></p>',
     )
+    assert.equal(uuids.length, 1)
     assert.deepEqual(
       fs.readFileSync(path.join(siteDirectory, 'files', files[0])),
       Buffer.from(PNG_BASE64, 'base64'),
@@ -122,7 +139,10 @@ describe('materializeInlineImages — #2945', () => {
   })
 
   test('records the saved file as a file entity', async () => {
-    await materializeInlineImages('<p><img src="' + PNG_DATA_URI + '"></p>', site)
+    const { uuids } = await materializeInlineImages(
+      '<p><img src="' + PNG_DATA_URI + '"></p>',
+      site,
+    )
     const files = savedImages(siteDirectory)
     const loaded = await loadFileEntity(site, 'files/' + files[0])
     assert.notEqual(loaded.uuid, '')
@@ -130,27 +150,82 @@ describe('materializeInlineImages — #2945', () => {
     assert.equal(loaded.entity.get('path'), 'files/' + files[0])
     assert.equal(loaded.entity.getMimetype(), 'image/png')
     assert.ok(loaded.entity.isImage())
+    // the uuid the helper returns is the FileEntity uuid (Entity API source of truth)
+    assert.deepEqual(uuids, [loaded.uuid])
   })
 
   test('an image repeated on the page is saved once', async () => {
-    const result = await materializeInlineImages(
+    const { html: result, uuids } = await materializeInlineImages(
       '<p><img src="' + PNG_DATA_URI + '"></p><p><img src="' + PNG_DATA_URI + '"></p>',
       site,
     )
     const files = savedImages(siteDirectory)
     assert.equal(files.length, 1)
     assert.equal(result.split('source="files/' + files[0] + '"').length - 1, 2)
+    assert.equal(uuids.length, 1, 'one uuid despite two tags')
   })
 
   test('each import keeps its own file when names collide', async () => {
     const first = await materializeInlineImages('<p><img src="' + PNG_DATA_URI + '"></p>', site)
     const second = await materializeInlineImages('<p><img src="' + PNG_DATA_URI + '"></p>', site)
     assert.equal(savedImages(siteDirectory).length, 2)
-    assert.notEqual(first, second, 'the second import points at its own file')
+    assert.notEqual(first.html, second.html, 'the second import points at its own file')
+    assert.notEqual(first.uuids[0], second.uuids[0], 'each import has its own uuid')
+  })
+
+  test('each saved image is referenced by the uuid files.json holds, even for a reused path', async () => {
+    // files.json owns identity (#3043): a record can already exist for the
+    // name an import is about to take (a stale or cloned record), so the uuid
+    // must be read back from files.json after the save, not assumed
+    new FilesDataStore(site).upsertRecord({
+      uuid: '11111111-1111-1111-1111-111111111111',
+      path: 'files/image_1.png',
+      name: 'image_1.png',
+      mimetype: 'image/png',
+      size: 1,
+    })
+    const { html, uuids } = await materializeInlineImages(
+      '<p><img src="' + PNG_DATA_URI + '"></p><p><img src="' + (await otherPngDataUri()) + '"></p>',
+      site,
+    )
+    const sources = html.match(/source="[^"]+"/g).map(function (attribute) {
+      return attribute.slice('source="'.length, -1)
+    })
+    assert.deepEqual(sources, ['files/image.png', 'files/image_1.png'])
+    for (let i = 0; i < sources.length; i++) {
+      const loaded = await loadFileEntity(site, sources[i])
+      assert.equal(uuids[i], loaded.uuid, sources[i] + ' is referenced by the uuid files.json resolves')
+    }
+  })
+
+  test('keeps files.json records another upload writes while images are saved', async () => {
+    const originalSave = HAXCMSFile.prototype.save
+    let calls = 0
+    HAXCMSFile.prototype.save = async function () {
+      const result = await originalSave.apply(this, arguments)
+      calls++
+      if (calls === 2) {
+        // another request uploads a file before this import has finished
+        await fs.writeFile(path.join(siteDirectory, 'files', 'other.png'), Buffer.from(PNG_BASE64, 'base64'))
+        const other = new FilesDataStore(site)
+        other.upsertRecord(await other.buildFileRecordFromDisk('files/other.png'))
+      }
+      return result
+    }
+    try {
+      await materializeInlineImages(
+        '<p><img src="' + PNG_DATA_URI + '"></p><p><img src="' + (await otherPngDataUri()) + '"></p>',
+        site,
+      )
+    } finally {
+      HAXCMSFile.prototype.save = originalSave
+    }
+    assert.equal(calls, 2)
+    assert.ok(new FilesDataStore(site).getByPath('files/other.png'), 'the other upload is still recorded')
   })
 
   test('missing alt becomes an empty alt, and alt text is escaped', async () => {
-    const result = await materializeInlineImages(
+    const { html: result } = await materializeInlineImages(
       '<p><img src="' + PNG_DATA_URI + '"></p><p><img alt="a &quot;q&quot; b" src="' + PNG_DATA_URI + '"></p>',
       site,
     )
@@ -165,7 +240,7 @@ describe('materializeInlineImages — #2945', () => {
       ['data:image/png;base64,' + Buffer.from('not a png').toString('base64'), 'broken'],
     ]
     for (const entry of cases) {
-      const result = await materializeInlineImages(
+      const { html: result, uuids } = await materializeInlineImages(
         '<p><img alt="' + entry[1] + '" src="' + entry[0] + '"></p>',
         site,
       )
@@ -173,6 +248,7 @@ describe('materializeInlineImages — #2945', () => {
         result,
         '<p><place-holder type="image" text="' + entry[1] + '"></place-holder></p>',
       )
+      assert.deepEqual(uuids, [])
     }
     assert.deepEqual(savedImages(siteDirectory), [])
   })
@@ -192,7 +268,9 @@ describe('materializeInlineImages — #2945', () => {
       '<p><a href="data:text/plain,hi">link</a></p>',
     ]
     for (const html of cases) {
-      assert.equal(await materializeInlineImages(html, site), html)
+      const { html: out, uuids } = await materializeInlineImages(html, site)
+      assert.equal(out, html)
+      assert.deepEqual(uuids, [])
     }
     assert.deepEqual(savedImages(siteDirectory), [])
   })
@@ -441,7 +519,11 @@ describe('materializeInlineImages — #2945', () => {
   })
 
   test('non-string content is returned as it came in', async () => {
-    assert.equal(await materializeInlineImages(undefined, site), undefined)
-    assert.equal(await materializeInlineImages(null, site), null)
+    const u = await materializeInlineImages(undefined, site)
+    assert.equal(u.html, undefined)
+    assert.deepEqual(u.uuids, [])
+    const n = await materializeInlineImages(null, site)
+    assert.equal(n.html, null)
+    assert.deepEqual(n.uuids, [])
   })
 })
