@@ -112,6 +112,7 @@ const {
   escapeHTMLAttribute,
   escapeXMLValue,
 } = require('./sanitizeContent.js');
+const { materializeInlineImages } = require('./materializeInlineImages.js');
 const exec = util.promisify(child_process.exec);
 const turndownService = new TurndownService();
 turndownService.keep(function(node) {
@@ -1000,11 +1001,19 @@ class HAXCMSSite
         let alternateContent = '';
         if (template == 'html') {
           // now this should exist if it didn't a minute ago
-          alternateContent = sanitizeHTMLForStorage(html);
+          alternateContent = sanitizeHTMLForStorage(await materializeInlineImages(html, this));
           let bytes = page.writeLocation(
             alternateContent,
             this.siteDirectory
           );
+          // #3043: imported files are referenced by uuid like any other save.
+          // required here as this module loads before FileContentScanner's own
+          // require chain resolves back to it
+          const FileContentScanner = require('./FileContentScanner.js');
+          const files = await FileContentScanner.rebuildPageFilesUuids(this, page, alternateContent);
+          if (files.length > 0) {
+            await this.manifest.save();
+          }
         }
         this.writePageAlternateFormats(page, alternateContent);
         this.updateAlternateFormats();
