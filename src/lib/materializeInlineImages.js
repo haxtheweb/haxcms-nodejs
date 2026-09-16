@@ -61,14 +61,13 @@ async function materializeImage(img, site, saved) {
   const match = BASE64_DATA_URI.exec(src);
   const extension = match && EXTENSION_BY_MIME[match[1].toLowerCase()];
   if (extension) {
-    const buffer = Buffer.from(match[2], 'base64');
-    const hash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 16);
-    // an image repeated on the page is saved once
-    if (!saved.has(hash)) {
-      saved.set(hash, await saveImage(buffer, `image-${hash}.${extension}`, site));
+    // an image repeated on the page is the same data URI, so it is saved once;
+    // HAXCMSFile keeps the saved names unique
+    if (!saved.has(src)) {
+      saved.set(src, await saveImage(Buffer.from(match[2], 'base64'), `image.${extension}`, site));
     }
-    if (saved.get(hash)) {
-      return `<media-image source="${saved.get(hash)}" alt="${alt}"></media-image>`;
+    if (saved.get(src)) {
+      return `<media-image source="${saved.get(src)}" alt="${alt}"></media-image>`;
     }
   }
   return `<place-holder type="image" text="${alt}"></place-holder>`;
