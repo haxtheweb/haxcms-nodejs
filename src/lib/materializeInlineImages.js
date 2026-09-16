@@ -12,13 +12,11 @@ const EXTENSION_BY_MIME = {
   'image/webp': 'webp',
 };
 const BASE64_DATA_URI = /^data:([^;,]+)[^,]*;base64,(.+)$/is;
-// an img tag, allowing ">" inside quoted attribute values
-const IMG_TAG = /<img(?=[\s/>])(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
 
 /**
- * Save inline base64 images (such as mammoth's docx output) into the site's
- * files/ and point each img at its saved file, since sanitizeHTMLForStorage
- * strips data: URIs. Images that cannot be saved become image placeholders.
+ * Save inline base64 images (such as mammoth's docx output) as site files and
+ * render them as media-image, since sanitizeHTMLForStorage strips data: URIs.
+ * Images that cannot be saved become image placeholders.
  */
 async function materializeInlineImages(html, site) {
   if (typeof html !== 'string') {
@@ -27,20 +25,39 @@ async function materializeInlineImages(html, site) {
   const saved = new Map();
   let result = '';
   let last = 0;
-  // only img tags are rewritten so the rest of the markup is kept byte for byte
-  for (const match of html.matchAll(IMG_TAG)) {
-    result += html.slice(last, match.index) + await materializeImage(match[0], site, saved);
-    last = match.index + match[0].length;
+  // only real img elements are replaced, by source position, so comments,
+  // attribute text, inert template markup and every other byte are untouched
+  for (const img of parse(html).querySelectorAll('img')) {
+    if (!img.range || isInertMarkup(img)) {
+      continue;
+    }
+    const replacement = await materializeImage(img, site, saved);
+    if (replacement === null) {
+      continue;
+    }
+    result += html.slice(last, img.range[0]) + replacement;
+    last = img.range[1];
   }
   return result + html.slice(last);
 }
 
-async function materializeImage(tag, site, saved) {
-  const img = parse(tag).querySelector('img');
+/** Markup inside a template is escaped as code by the sanitizer, so leave it alone. */
+function isInertMarkup(node) {
+  for (let parent = node.parentNode; parent; parent = parent.parentNode) {
+    if (parent.rawTagName && parent.rawTagName.toLowerCase() === 'template') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Replacement markup for one img, or null to leave it as it is. */
+async function materializeImage(img, site, saved) {
   const src = (img.getAttribute('src') || '').trim();
   if (!/^data:/i.test(src)) {
-    return tag;
+    return null;
   }
+  const alt = escapeHTMLAttribute(img.getAttribute('alt') || '');
   const match = BASE64_DATA_URI.exec(src);
   const extension = match && EXTENSION_BY_MIME[match[1].toLowerCase()];
   if (extension) {
@@ -51,20 +68,13 @@ async function materializeImage(tag, site, saved) {
       saved.set(hash, await saveImage(buffer, `image-${hash}.${extension}`, site));
     }
     if (saved.get(hash)) {
-      img.setAttribute('src', saved.get(hash));
-      if (!img.hasAttribute('alt')) {
-        img.setAttribute('alt', '');
-      }
-      img.setAttribute('loading', 'lazy');
-      img.setAttribute('decoding', 'async');
-      return img.toString();
+      return `<media-image source="${saved.get(hash)}" alt="${alt}"></media-image>`;
     }
   }
-  const text = escapeHTMLAttribute(img.getAttribute('alt') || '');
-  return `<place-holder type="image" text="${text}"></place-holder>`;
+  return `<place-holder type="image" text="${alt}"></place-holder>`;
 }
 
-/** Save through HAXCMSFile for its type, content and size checks; returns the files/ url or null. */
+/** Save through HAXCMSFile, which validates the file and records it in files.json. */
 async function saveImage(buffer, name, site) {
   // required here to avoid a HAXCMS -> HAXCMSFile -> HAXCMS require cycle
   const { HAXCMS } = require('./HAXCMS.js');

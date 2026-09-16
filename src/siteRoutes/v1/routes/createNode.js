@@ -3,6 +3,7 @@ const path = require('path');
 const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
 const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
 const { materializeInlineImages } = require('../../../lib/materializeInlineImages.js');
+const FileContentScanner = require('../../../lib/FileContentScanner.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 /**
  * @OA\Post(
@@ -160,6 +161,11 @@ async function createNode(req, res) {
             alternateContent,
             site.siteDirectory
             );
+            // #3043: imported files are referenced by uuid like any other save
+            const files = await FileContentScanner.rebuildPageFilesUuids(site, page, alternateContent);
+            if (files.length > 0) {
+              await site.manifest.save();
+            }
         }
       }
       let createdPage = site.loadNode(item.id);

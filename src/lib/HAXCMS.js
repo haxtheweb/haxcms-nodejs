@@ -1006,6 +1006,14 @@ class HAXCMSSite
             alternateContent,
             this.siteDirectory
           );
+          // #3043: imported files are referenced by uuid like any other save.
+          // required here as this module loads before FileContentScanner's own
+          // require chain resolves back to it
+          const FileContentScanner = require('./FileContentScanner.js');
+          const files = await FileContentScanner.rebuildPageFilesUuids(this, page, alternateContent);
+          if (files.length > 0) {
+            await this.manifest.save();
+          }
         }
         this.writePageAlternateFormats(page, alternateContent);
         this.updateAlternateFormats();
