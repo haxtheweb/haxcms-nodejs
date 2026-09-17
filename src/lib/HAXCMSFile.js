@@ -1102,4 +1102,5 @@ HAXCMSFile.validateUrlNotSSRF = validateUrlNotSSRF;
 HAXCMSFile.mimeMatchesAllowed = mimeMatchesAllowed;
 HAXCMSFile.detectMimeTypeFromContent = detectMimeTypeFromContent;
 HAXCMSFile.ALLOWED_MIME_BY_EXTENSION = ALLOWED_MIME_BY_EXTENSION;
+HAXCMSFile.IMAGE_EXTENSIONS = IMAGE_EXTENSIONS;
 module.exports = HAXCMSFile;

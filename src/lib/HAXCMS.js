@@ -112,6 +112,7 @@ const {
   escapeHTMLAttribute,
   escapeXMLValue,
 } = require('./sanitizeContent.js');
+const { materializeInlineImages } = require('./materializeInlineImages.js');
 const exec = util.promisify(child_process.exec);
 const turndownService = new TurndownService();
 turndownService.keep(function(node) {
@@ -1000,11 +1001,27 @@ class HAXCMSSite
         let alternateContent = '';
         if (template == 'html') {
           // now this should exist if it didn't a minute ago
-          alternateContent = sanitizeHTMLForStorage(html);
+          const { html: rewritten, uuids } = await materializeInlineImages(html, this);
+          alternateContent = sanitizeHTMLForStorage(rewritten);
           let bytes = page.writeLocation(
             alternateContent,
             this.siteDirectory
           );
+          // #3043: imported files are referenced by their FileEntity uuid
+          // (the same source saveNode uses), sourced directly from the
+          // Entity API by materializeInlineImages. Set page.metadata.files
+          // from those uuids rather than re-scanning the content: mammoth
+          // docx output carries images as data URIs (which the helper just
+          // saved), not pre-existing files/ refs, so the entity uuids are
+          // the complete set. Pre-existing files/ refs in imported HTML are
+          // reconciled by saveNode's content scan on the next edit.
+          if (!page.metadata) {
+            page.metadata = {};
+          }
+          page.metadata.files = uuids;
+          if (uuids.length > 0) {
+            await this.manifest.save();
+          }
         }
         this.writePageAlternateFormats(page, alternateContent);
         this.updateAlternateFormats();
