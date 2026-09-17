@@ -30,7 +30,12 @@ const EntityRegistry = require('../../src/lib/EntityRegistry.js')
 const FileStorage = require('../../src/lib/FileStorage.js')
 const FilesDataStore = require('../../src/lib/FilesDataStore.js')
 const HAXCMSFile = require('../../src/lib/HAXCMSFile.js')
-const { materializeInlineImages } = require('../../src/lib/materializeInlineImages.js')
+const {
+  materializeInlineImages,
+  fileNameBaseFromPageTitle,
+  MAX_INLINE_IMAGE_WIDTH,
+  MAX_INLINE_IMAGE_HEIGHT,
+} = require('../../src/lib/materializeInlineImages.js')
 const sharp = require('sharp')
 
 // a minimal valid 1x1 PNG, as mammoth would hand it over base64 encoded
@@ -121,9 +126,11 @@ describe('materializeInlineImages — #2945', () => {
     const { html: result, uuids } = await materializeInlineImages(
       '<p>Before</p><p><img alt="A red square" src="' + PNG_DATA_URI + '"></p>',
       site,
+      { pageTitle: 'Intro to HAX' },
     )
     const files = savedImages(siteDirectory)
     assert.equal(files.length, 1)
+    assert.equal(files[0], 'intro-to-hax.jpg', 'png imports convert to jpg named from page title')
     assert.equal(
       result,
       '<p>Before</p><p><media-image source="files/' +
@@ -131,10 +138,10 @@ describe('materializeInlineImages — #2945', () => {
         '" alt="A red square"></media-image></p>',
     )
     assert.equal(uuids.length, 1)
-    assert.deepEqual(
-      fs.readFileSync(path.join(siteDirectory, 'files', files[0])),
-      Buffer.from(PNG_BASE64, 'base64'),
-      'saved bytes match the inline image',
+    // optimized (compressed) bytes may differ from the raw inline payload
+    assert.ok(
+      fs.statSync(path.join(siteDirectory, 'files', files[0])).size > 0,
+      'saved image has bytes on disk',
     )
   })
 
@@ -148,7 +155,8 @@ describe('materializeInlineImages — #2945', () => {
     assert.notEqual(loaded.uuid, '')
     assert.ok(loaded.entity, 'files.json has a record for the saved image')
     assert.equal(loaded.entity.get('path'), 'files/' + files[0])
-    assert.equal(loaded.entity.getMimetype(), 'image/png')
+    assert.equal(loaded.entity.getMimetype(), 'image/jpeg')
+    assert.ok(/\.jpg$/i.test(files[0]), 'png data URI is stored as jpg')
     assert.ok(loaded.entity.isImage())
     // the uuid the helper returns is the FileEntity uuid (Entity API source of truth)
     assert.deepEqual(uuids, [loaded.uuid])
@@ -179,9 +187,9 @@ describe('materializeInlineImages — #2945', () => {
     // must be read back from files.json after the save, not assumed
     new FilesDataStore(site).upsertRecord({
       uuid: '11111111-1111-1111-1111-111111111111',
-      path: 'files/image_1.png',
-      name: 'image_1.png',
-      mimetype: 'image/png',
+      path: 'files/page_1.jpg',
+      name: 'page_1.jpg',
+      mimetype: 'image/jpeg',
       size: 1,
     })
     const { html, uuids } = await materializeInlineImages(
@@ -191,7 +199,7 @@ describe('materializeInlineImages — #2945', () => {
     const sources = html.match(/source="[^"]+"/g).map(function (attribute) {
       return attribute.slice('source="'.length, -1)
     })
-    assert.deepEqual(sources, ['files/image.png', 'files/image_1.png'])
+    assert.deepEqual(sources, ['files/page.jpg', 'files/page_1.jpg'])
     for (let i = 0; i < sources.length; i++) {
       const loaded = await loadFileEntity(site, sources[i])
       assert.equal(uuids[i], loaded.uuid, sources[i] + ' is referenced by the uuid files.json resolves')
@@ -525,5 +533,59 @@ describe('materializeInlineImages — #2945', () => {
     const n = await materializeInlineImages(null, site)
     assert.equal(n.html, null)
     assert.deepEqual(n.uuids, [])
+  })
+
+  test('fileNameBaseFromPageTitle cleans titles for filesystem use', () => {
+    assert.equal(fileNameBaseFromPageTitle('Intro to HAX'), 'intro-to-hax')
+    assert.equal(fileNameBaseFromPageTitle('  Hello, World!  '), 'hello-world')
+    assert.equal(fileNameBaseFromPageTitle(''), 'page')
+    assert.equal(fileNameBaseFromPageTitle(null), 'page')
+  })
+
+  test('oversized inline images are resized to the largest recommended preset', async () => {
+    const big = await sharp({
+      create: {
+        width: 2400,
+        height: 1800,
+        channels: 3,
+        background: { r: 10, g: 20, b: 30 },
+      },
+    })
+      .png()
+      .toBuffer()
+    const dataUri = 'data:image/png;base64,' + big.toString('base64')
+    await materializeInlineImages('<p><img src="' + dataUri + '"></p>', site, {
+      pageTitle: 'Wide Diagram',
+    })
+    const files = savedImages(siteDirectory)
+    assert.equal(files.length, 1)
+    assert.equal(files[0], 'wide-diagram.jpg', 'oversized png becomes sized jpg')
+    const meta = await sharp(fs.readFileSync(path.join(siteDirectory, 'files', files[0]))).metadata()
+    assert.equal(meta.format, 'jpeg')
+    assert.ok(meta.width <= MAX_INLINE_IMAGE_WIDTH, 'width capped at xl preset')
+    assert.ok(meta.height <= MAX_INLINE_IMAGE_HEIGHT, 'height capped at xl preset')
+  })
+
+  test('png and webp imports are converted to jpg', async () => {
+    const webp = await sharp({
+      create: { width: 30, height: 20, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .webp()
+      .toBuffer()
+    const webpUri = 'data:image/webp;base64,' + webp.toString('base64')
+    await materializeInlineImages(
+      '<p><img src="' + PNG_DATA_URI + '"></p><p><img src="' + webpUri + '"></p>',
+      site,
+      { pageTitle: 'Mixed Formats' },
+    )
+    const files = savedImages(siteDirectory).sort()
+    assert.equal(files.length, 2)
+    assert.ok(files.every(function (name) {
+      return /\.jpg$/i.test(name)
+    }), 'all non-jpg sources land as jpg: ' + files.join(','))
+    for (let i = 0; i < files.length; i++) {
+      const meta = await sharp(fs.readFileSync(path.join(siteDirectory, 'files', files[i]))).metadata()
+      assert.equal(meta.format, 'jpeg')
+    }
   })
 })

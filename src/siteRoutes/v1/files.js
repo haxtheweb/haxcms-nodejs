@@ -476,6 +476,56 @@ function getDuplicateFileInfo(fileInfo) {
   };
 }
 
+/**
+ * Pick a collision-safe .jpg output path for convert-jpg.
+ * Same-directory basename.jpg when free; otherwise basename_1.jpg, etc.
+ * Already-jpg sources re-encode in place.
+ */
+function getUniqueJpgOutputPaths(fileInfo) {
+  const sourceExtension = path.extname(fileInfo.normalizedPath).toLowerCase();
+  const sourceBasename = path.basename(
+    fileInfo.normalizedPath,
+    path.extname(fileInfo.normalizedPath),
+  );
+  const sourceDir = path.dirname(fileInfo.normalizedPath);
+  const absoluteDir = path.dirname(fileInfo.resolvedPath);
+  // jpeg/jpg source: in-place re-encode (same path the caller already owns)
+  if (sourceExtension === '.jpg' || sourceExtension === '.jpeg') {
+    return {
+      outputRelativePath: fileInfo.normalizedPath,
+      outputAbsolutePath: fileInfo.resolvedPath,
+    };
+  }
+  let counter = 0;
+  let outputFileName = sourceBasename + '.jpg';
+  let outputAbsolutePath = path.join(absoluteDir, outputFileName);
+  while (
+    fs.pathExistsSync(outputAbsolutePath) &&
+    path.resolve(outputAbsolutePath) !== path.resolve(fileInfo.resolvedPath) &&
+    counter < 1000
+  ) {
+    counter++;
+    outputFileName = sourceBasename + '_' + counter + '.jpg';
+    outputAbsolutePath = path.join(absoluteDir, outputFileName);
+  }
+  if (
+    fs.pathExistsSync(outputAbsolutePath) &&
+    path.resolve(outputAbsolutePath) !== path.resolve(fileInfo.resolvedPath)
+  ) {
+    throw createStatusError(
+      'Unable to generate a unique JPG output file name',
+      400,
+    );
+  }
+  const outputRelativePath = normalizePathForResponse(
+    path.join(sourceDir, outputFileName),
+  ).replace(/^\/+/, '');
+  return {
+    outputRelativePath: outputRelativePath,
+    outputAbsolutePath: outputAbsolutePath,
+  };
+}
+
 function getRenamedFileInfo(fileInfo, requestedName) {
   const sourceFileName = path.basename(fileInfo.normalizedPath);
   const sourceRawExtension = path.extname(sourceFileName);
@@ -1111,12 +1161,14 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     // #3043: write the converted JPG in the SAME directory as the source
     // file (files/<basename>.jpg), not under files/imgops/. The output
     // path is derived from the validated source path so it stays within
-    // the files/ directory. If the source is already a .jpg the output
-    // path equals the source — an in-place re-encode.
-    const sourceBasename = path.basename(fileInfo.normalizedPath, path.extname(fileInfo.normalizedPath));
-    const sourceDir = path.dirname(fileInfo.normalizedPath);
-    const outputRelativePath = sourceDir + '/' + sourceBasename + '.jpg';
-    const outputAbsolutePath = path.join(path.dirname(fileInfo.resolvedPath), sourceBasename + '.jpg');
+    // the files/ directory. If the source is already a .jpg/.jpeg the
+    // output path equals the source — an in-place re-encode. If another
+    // file already occupies <basename>.jpg (e.g. image.png -> image.jpg
+    // while image.jpg exists), pick a collision-safe name instead of
+    // overwriting that other file.
+    const jpgOutput = getUniqueJpgOutputPaths(fileInfo);
+    const outputRelativePath = jpgOutput.outputRelativePath;
+    const outputAbsolutePath = jpgOutput.outputAbsolutePath;
     // Security: verify the output path stays within the files root.
     if (!isPathInsideDirectory(fileInfo.filesRootPath, outputAbsolutePath)) {
       throw createStatusError('Invalid output file path', 403);

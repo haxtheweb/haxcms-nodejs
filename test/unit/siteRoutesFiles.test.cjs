@@ -164,6 +164,37 @@ describe('siteRoutesFiles — #3043', () => {
       // Verify NO imgops directory was created.
       assert.ok(!fs.pathExistsSync(path.join(filesDir, 'imgops')))
     })
+
+    test('convert-jpg does not overwrite an existing basename.jpg', async () => {
+      // Pre-existing JPG that must remain untouched when converting a PNG
+      // with the same basename (the old bug wrote straight over this file).
+      const existingJpg = path.join(filesDir, 'image.jpg')
+      await sharp({
+        create: { width: 20, height: 20, channels: 3, background: { r: 0, g: 255, b: 0 } },
+      })
+        .jpeg()
+        .toFile(existingJpg)
+      const existingBytes = fs.readFileSync(existingJpg)
+
+      const sourcePath = path.join(filesDir, 'image.png')
+      await makeTestPng(sourcePath, 40, 40)
+
+      const result = await performFileOperation(
+        site,
+        'files/image.png',
+        { operation: 'convert-jpg' },
+        90,
+      )
+
+      assert.equal(result.data.operation, 'convert-jpg')
+      assert.equal(result.data.file.path, 'files/image_1.jpg')
+      assert.ok(fs.pathExistsSync(path.join(filesDir, 'image_1.jpg')))
+      assert.deepEqual(
+        fs.readFileSync(existingJpg),
+        existingBytes,
+        'pre-existing image.jpg must not be overwritten',
+      )
+    })
   })
 
   describe('performFileOperation — files.json upsert after op (fix #6)', () => {

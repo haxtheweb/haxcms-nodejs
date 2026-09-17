@@ -156,6 +156,7 @@ async function createNode(req, res) {
             const { html: rewritten, uuids } = await materializeInlineImages(
               nodeParams['node']['contents'],
               site,
+              { pageTitle: item.title || (nodeParams['node'] && nodeParams['node']['title']) },
             );
             alternateContent = sanitizeHTMLForStorage(rewritten);
             let bytes = await page.writeLocation(

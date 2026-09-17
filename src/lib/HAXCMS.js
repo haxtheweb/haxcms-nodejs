@@ -1001,7 +1001,9 @@ class HAXCMSSite
         let alternateContent = '';
         if (template == 'html') {
           // now this should exist if it didn't a minute ago
-          const { html: rewritten, uuids } = await materializeInlineImages(html, this);
+          const { html: rewritten, uuids } = await materializeInlineImages(html, this, {
+            pageTitle: title,
+          });
           alternateContent = sanitizeHTMLForStorage(rewritten);
           let bytes = page.writeLocation(
             alternateContent,
