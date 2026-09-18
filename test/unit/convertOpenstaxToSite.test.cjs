@@ -138,7 +138,7 @@ describe('convertOpenstaxToSite — #2912', () => {
   let routes
   let requested
   let originalSafeFetch
-  let stagedDirectories = []
+  let stagedFiles = []
   let originalLimits
 
   beforeEach(() => {
@@ -159,25 +159,22 @@ describe('convertOpenstaxToSite — #2912', () => {
   afterEach(() => {
     safeFetchLib.safeFetch = originalSafeFetch
     Object.assign(LIMITS, originalLimits)
-    // every run stages into its own directory under the import staging root;
-    // drop whatever this test created so nothing is left on disk
-    for (let i = 0; i < stagedDirectories.length; i++) {
+    // staged files sit in the shared import root; drop only the ones this
+    // test created so nothing is left on disk
+    for (let i = 0; i < stagedFiles.length; i++) {
       try {
-        fs.removeSync(stagedDirectories[i])
+        fs.removeSync(stagedFiles[i])
       } catch (e) {}
     }
-    stagedDirectories = []
+    stagedFiles = []
   })
 
-  // record the staging directory of every file the importer reports
+  // record every staged file the importer reports, for cleanup
   function trackStaged(res) {
     const files = res && res.body && res.body.data && res.body.data.files ? res.body.data.files : {}
     const names = Object.keys(files)
     for (let i = 0; i < names.length; i++) {
-      const directory = path.dirname(files[names[i]])
-      if (stagedDirectories.indexOf(directory) === -1) {
-        stagedDirectories.push(directory)
-      }
+      stagedFiles.push(files[names[i]])
     }
   }
 
@@ -278,7 +275,7 @@ describe('convertOpenstaxToSite — #2912', () => {
     assert.ok(html.indexOf('<annotation encoding="TeX">') !== -1, 'the TeX annotation is carried along')
   })
 
-  test('stages images into files and points the img at the site path', async () => {
+  test('stages images into files and renders them as media-image', async () => {
     const res = await importBook()
     const files = res.body.data.files
     const names = Object.keys(files)
@@ -289,7 +286,11 @@ describe('convertOpenstaxToSite — #2912', () => {
       'staged where createSite accepts bulk imports',
     )
     const html = res.body.data.items[2].contents
-    assert.ok(html.indexOf('<img src="files/abc123def456.png" alt="A bar chart of returns">') !== -1, html.slice(0, 300))
+    assert.ok(
+      html.indexOf('<media-image source="files/abc123def456.png" alt="A bar chart of returns"></media-image>') !== -1,
+      'rendered as media-image, the markup the docx import produces: ' + html.slice(0, 300),
+    )
+    assert.equal(html.indexOf('<img'), -1, 'no raw img left for a staged image')
   })
 
   test('leaves an image alone when it cannot be staged', async () => {

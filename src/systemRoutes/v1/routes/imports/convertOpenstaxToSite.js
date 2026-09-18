@@ -4,6 +4,7 @@ const fs = require('fs-extra')
 const { parse } = require('node-html-parser')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
 const { HAXCMS } = require('../../../../lib/HAXCMS.js')
+const { escapeHTMLAttribute } = require('../../../../lib/sanitizeContent.js')
 // reached through the module object so the network boundary can be stubbed in tests
 const safeFetchLib = require('../../../../lib/safeFetch.js')
 
@@ -39,6 +40,7 @@ const KEEP_ATTRIBUTES = {
   th: ['colspan', 'rowspan', 'scope'],
   ol: ['start', 'type'],
   math: ['display'],
+  'media-image': ['source', 'alt'],
 }
 // dropped outright: presentation and script material with no content value
 const DROP_ELEMENTS = ['style', 'script', 'link', 'meta', 'noscript', 'head']
@@ -323,6 +325,8 @@ async function importBook(book) {
     imageCount: 0,
     imageBytes: 0,
     stagingDirectory: null,
+    // keeps this import's staged names apart from any other import's
+    importId: crypto.randomUUID(),
     startedAt: Date.now(),
     truncated: false,
   }
@@ -438,10 +442,11 @@ async function cleanPage(content, context) {
 }
 
 /**
- * Download each image into the bulk-import staging directory and point the
- * img at its site path. createSite only accepts staged local paths in
- * build.files (see haxtheweb/issues#3060), so remote URLs cannot be handed
- * over directly. Images that cannot be staged keep an absolute source URL.
+ * Download each image into the bulk-import staging directory and render it as
+ * media-image at its site path, the same markup the docx import produces.
+ * createSite only accepts staged local paths in build.files (see
+ * haxtheweb/issues#3060), ingests them as file entities, and then links each
+ * page to their uuids. Images that cannot be staged keep an absolute source.
  */
 async function stageImages(container, context) {
   const images = container.querySelectorAll('img')
@@ -460,7 +465,13 @@ async function stageImages(container, context) {
       context.imagesByResource[resource] = await downloadImage(absolute, resource, context)
     }
     const staged = context.imagesByResource[resource]
-    image.setAttribute('src', staged ? staged.sitePath : absolute)
+    if (staged) {
+      const alt = escapeHTMLAttribute(image.getAttribute('alt') || '')
+      image.replaceWith(`<media-image source="${staged.sitePath}" alt="${alt}"></media-image>`)
+    }
+    else {
+      image.setAttribute('src', absolute)
+    }
   }
 }
 
@@ -475,7 +486,7 @@ function resourcePath(source) {
 }
 
 /**
- * Fetch one image into <configDirectory>/tmp/imports/<import>/ and record it
+ * Fetch one image into <configDirectory>/tmp/imports and record it
  * in the files map. Returns null when it cannot be stored, so the caller can
  * fall back to the source URL.
  */
@@ -508,17 +519,14 @@ async function downloadImage(url, resource, context) {
     if (context.imageBytes + buffer.length > LIMITS.maxImageBytes) {
       return null
     }
+    // staged flat in the bulk-import root, like convertHaxcmsToSite, so the
+    // moves createSite makes on ingest leave nothing behind
     if (!context.stagingDirectory) {
-      context.stagingDirectory = path.join(
-        HAXCMS.configDirectory,
-        'tmp',
-        'imports',
-        `openstax-${crypto.randomUUID()}`,
-      )
+      context.stagingDirectory = path.join(HAXCMS.configDirectory, 'tmp', 'imports')
       fs.ensureDirSync(context.stagingDirectory)
     }
     const name = `${path.basename(resource)}.${extension}`
-    const stagedPath = path.join(context.stagingDirectory, name)
+    const stagedPath = path.join(context.stagingDirectory, `openstax-${context.importId}-${name}`)
     fs.writeFileSync(stagedPath, buffer)
     const sitePath = `files/${name}`
     context.files[sitePath] = stagedPath
