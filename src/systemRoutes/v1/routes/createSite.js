@@ -5,6 +5,9 @@ const HAXCMSFile = require('../../../lib/HAXCMSFile.js');
 const fs = require('fs-extra');
 const path = require('path');
 const { safeFetch } = require('../../../lib/safeFetch.js');
+const EntityRegistry = require('../../../lib/EntityRegistry.js');
+const FileStorage = require('../../../lib/FileStorage.js');
+const FileContentScanner = require('../../../lib/FileContentScanner.js');
 
 const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml)$/i;
 const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
@@ -894,6 +897,9 @@ async function createSite(req, res) {
           "bulk-import": true
         }, site);
       }
+      if (Object.keys(filesToDownload).length > 0) {
+        await linkImportedPageFiles(site);
+      }
     }
     // download user-customized theme and custom files (imported from another instance)
     const siteFiles = req.body['build'] && req.body['build']['siteFiles'] ? req.body['build']['siteFiles'] : null;
@@ -957,4 +963,41 @@ async function createSite(req, res) {
     res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
   }
 }
+/**
+ * #3043: point each page at the file entities its content references, once
+ * the imported files exist. createSite writes the pages before it ingests
+ * build.files, so page.metadata.files cannot be set as each page is written.
+ * Identity comes from files.json through the Entity API, as it does for the
+ * docx import and for page saves; the FileStorage is created after the ingest
+ * so it reads the records the ingest just wrote. Returns the pages linked.
+ */
+async function linkImportedPageFiles(site) {
+  const fileStorage = FileStorage.registerOn(new EntityRegistry(site));
+  let linked = 0;
+  for (const page of site.manifest.items) {
+    const content = await site.getPageContent(page);
+    const uuids = [];
+    for (const reference of FileContentScanner.extractFileReferences(content)) {
+      const uuid = await fileStorage.getDataStore().resolveUuidByPath(reference);
+      const entity = uuid ? fileStorage.load(uuid) : null;
+      if (entity && uuids.indexOf(entity.getUuid()) === -1) {
+        uuids.push(entity.getUuid());
+      }
+    }
+    if (uuids.length > 0) {
+      if (!page.metadata || typeof page.metadata !== 'object') {
+        page.metadata = {};
+      }
+      page.metadata.files = uuids;
+      linked++;
+    }
+  }
+  if (linked > 0) {
+    await site.manifest.save(false);
+  }
+  return linked;
+}
+
 module.exports = createSite;
+// exported for direct unit testing
+module.exports.linkImportedPageFiles = linkImportedPageFiles;
