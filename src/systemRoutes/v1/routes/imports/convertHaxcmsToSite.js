@@ -5,49 +5,8 @@ const SITE_FILES_TO_IMPORT = [
 ]
 const BOILERPLATE_CUSTOM_ES6 = '// custom comment script here'
 const { safeFetch } = require('../../../../lib/safeFetch.js')
-const { HAXCMS } = require('../../../../lib/HAXCMS.js')
-const fs = require('fs-extra')
-const path = require('path')
-
-// Directory under the HAXCMS config tree where bulk-import files are staged
-// before createSite's isValidBulkImportStagedPath validator accepts them.
-// createSite's build.files contract is "local staged paths only" (it rejects
-// URL schemes by design), so the converter downloads each referenced file
-// here and hands createSite the staged path instead of the remote URL.
-function getBulkImportStagingRoot() {
-  const root = path.join(HAXCMS.configDirectory, 'tmp', 'imports')
-  try {
-    fs.ensureDirSync(root)
-  } catch (e) {}
-  return root
-}
-
-// Fetch a remote file via safeFetch (SSRF-guarded, no redirects) and stage it
-// under the bulk-import root so createSite can move it into the site tree.
-// Returns the absolute staged path, or null on any fetch/write failure or
-// empty body (the file is simply skipped, matching how page fetch failures
-// are handled). idx keeps staged filenames unique across the import.
-async function stageRemoteFile(url, stagingRoot, idx, relPath) {
-  try {
-    const response = await safeFetch(url)
-    if (!response || !response.ok) {
-      return null
-    }
-    const buf = Buffer.from(await response.arrayBuffer())
-    if (!buf || buf.length === 0) {
-      return null
-    }
-    const ext = path.extname(relPath || '')
-    const stagedPath = path.join(
-      stagingRoot,
-      'haximp-' + Date.now() + '-' + idx + '-' + Math.floor(Math.random() * 1000000) + ext
-    )
-    fs.writeFileSync(stagedPath, buf)
-    return stagedPath
-  } catch (e) {
-    return null
-  }
-}
+// files are staged locally so createSite can ingest them as file entities
+const { getBulkImportStagingRoot, stageRemoteFile } = require('../../../../lib/stageRemoteFile.js')
 
 /**
  * POST /system/api/v1/site/import/:platform

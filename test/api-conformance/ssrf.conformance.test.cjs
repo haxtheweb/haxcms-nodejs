@@ -410,6 +410,138 @@ test('createSite siteFiles SSRF + extension guards', async (t) => {
   })
 })
 
+test('createSite build.files SSRF guards (#3060)', async (t) => {
+  // build.files may carry http(s) URLs, which createSite downloads through
+  // safeFetch. As with siteFiles, the runtime's own loopback origin serves
+  // real content, so without the SSRF guard an .html entry pointing at it
+  // would be saved into the site; with it the entry is skipped and the site
+  // is still created. Values that are neither http(s) URLs nor staged files
+  // keep failing the request, as they have since GHSA-q862-gcgq-5m6g.
+  async function createWithFiles(siteName, build) {
+    const result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/sites`,
+      headers: authHeaders(runtime.jwt),
+      data: JSON.stringify({ site: { name: siteName }, build: build }),
+    })
+    let siteDir = null
+    if (result.status === 200) {
+      const body = JSON.parse(result.bodyText)
+      const createdName =
+        body &&
+        body.data &&
+        body.data.metadata &&
+        body.data.metadata.site &&
+        body.data.metadata.site.name
+          ? body.data.metadata.site.name
+          : siteName
+      siteDir = path.join(runtime.runtimeRoot, SITE_DIRECTORY_NAME, createdName)
+    }
+    return { result: result, siteDir: siteDir }
+  }
+
+  await t.test('loopback download URL is skipped (file not written, site still created)', async () => {
+    const created = await createWithFiles(`files-loop-${runtime.testStartTimestamp}`, {
+      structure: 'website',
+      files: { 'files/loop.html': `${runtime.baseUrl}/` },
+    })
+    assert.equal(created.result.status, 200, `createSite failed: ${created.result.status}: ${created.result.bodyText}`)
+    assert.ok(fs.pathExistsSync(created.siteDir), 'expected the created site directory to exist')
+    assert.equal(
+      fs.pathExistsSync(path.join(created.siteDir, 'files', 'loop.html')),
+      false,
+      'loopback build.files download must NOT be written to the site directory (SSRF guard)',
+    )
+  })
+
+  await t.test('cloud metadata IP download URL is skipped (file not written)', async () => {
+    const created = await createWithFiles(`files-meta-${runtime.testStartTimestamp}`, {
+      structure: 'website',
+      files: { 'files/meta.txt': 'http://169.254.169.254/latest/meta-data/iam/security-credentials/' },
+    })
+    assert.equal(created.result.status, 200, `createSite failed: ${created.result.status}: ${created.result.bodyText}`)
+    assert.equal(
+      fs.pathExistsSync(path.join(created.siteDir, 'files', 'meta.txt')),
+      false,
+      'metadata-IP build.files download must NOT be written (SSRF guard rejects 169.254.* before fetch)',
+    )
+  })
+
+  await t.test('file URLs, unstaged paths and the advisory payload are still rejected', async () => {
+    const payloads = [
+      { 'files/passwd.txt': 'file:///etc/passwd' },
+      { 'files/passwd.txt': '/etc/passwd' },
+      { 'poc.txt': { tmp_name: 'http://169.254.169.254/latest/meta-data/iam/security-credentials/' } },
+    ]
+    for (let i = 0; i < payloads.length; i++) {
+      const created = await createWithFiles(`files-reject-${i}-${runtime.testStartTimestamp}`, {
+        structure: 'website',
+        files: payloads[i],
+      })
+      assert.equal(
+        created.result.status,
+        400,
+        `expected 400 for ${JSON.stringify(payloads[i])}: ${created.result.bodyText}`,
+      )
+    }
+  })
+
+  await t.test('disallowed extension is rejected before any fetch (CWE-434)', async () => {
+    const created = await createWithFiles(`files-ext-${runtime.testStartTimestamp}`, {
+      structure: 'website',
+      files: { 'files/x.php': `${runtime.baseUrl}/` },
+    })
+    assert.equal(created.result.status, 400, `expected 400: ${created.result.bodyText}`)
+  })
+
+  await t.test('a staged file beside a blocked URL is saved and linked to its page', async () => {
+    const stagingRoot = path.join(runtime.runtimeConfigRoot, 'tmp', 'imports')
+    fs.ensureDirSync(stagingRoot)
+    const staged = path.join(stagingRoot, `conformance-${runtime.testStartTimestamp}.png`)
+    fs.writeFileSync(
+      staged,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    )
+    const created = await createWithFiles(`files-mixed-${runtime.testStartTimestamp}`, {
+      structure: 'import',
+      type: 'import',
+      items: [
+        {
+          id: 'item-files',
+          title: 'Files',
+          slug: 'files-page',
+          indent: 0,
+          order: 0,
+          parent: null,
+          metadata: {},
+          contents: '<p><img src="files/staged.png" alt="staged"></p>',
+        },
+      ],
+      files: {
+        'files/staged.png': staged,
+        'files/meta.png': 'http://169.254.169.254/latest/meta-data/meta.png',
+      },
+    })
+    assert.equal(created.result.status, 200, `createSite failed: ${created.result.status}: ${created.result.bodyText}`)
+    assert.ok(fs.pathExistsSync(path.join(created.siteDir, 'files', 'staged.png')), 'the staged file is saved')
+    assert.equal(
+      fs.pathExistsSync(path.join(created.siteDir, 'files', 'meta.png')),
+      false,
+      'the blocked URL beside it is skipped',
+    )
+    const filesJson = fs.readJsonSync(path.join(created.siteDir, 'files', 'files.json'))
+    const record = filesJson.data.files.find((entry) => entry.path === 'files/staged.png')
+    assert.ok(record && record.uuid, 'files.json records the staged file')
+    const manifest = fs.readJsonSync(path.join(created.siteDir, 'site.json'))
+    const page = manifest.items.find((item) => item.id === 'item-files')
+    assert.ok(page, 'the imported page exists')
+    assert.deepEqual(page.metadata.files, [record.uuid], 'the page is linked to the file entity')
+  })
+})
+
 test('site/import converters reject private/loopback repoUrl', async (t) => {
   await t.test('import/html returns 400 for loopback repoUrl', async () => {
     // Without the SSRF guard, fetch(runtime.baseUrl) returns 200 (dashboard)
