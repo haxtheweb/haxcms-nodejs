@@ -5,6 +5,7 @@ const HAXCMSFile = require('../../../lib/HAXCMSFile.js');
 const fs = require('fs-extra');
 const path = require('path');
 const { safeFetch } = require('../../../lib/safeFetch.js');
+const { getBulkImportStagingRoot, stageRemoteFile } = require('../../../lib/stageRemoteFile.js');
 const EntityRegistry = require('../../../lib/EntityRegistry.js');
 const FileStorage = require('../../../lib/FileStorage.js');
 const FileContentScanner = require('../../../lib/FileContentScanner.js');
@@ -873,14 +874,9 @@ async function createSite(req, res) {
     await site.manifest.save(false);
     // walk through files if any came across and save each of them
     if (filesToDownload && typeof filesToDownload === 'object') {
+      let fileIndex = 0;
       for (var locationName in filesToDownload) {
-        let downloadLocation = filesToDownload[locationName];
-        const normalizedImportName = normalizeBulkImportName(locationName);
-        if (
-          !normalizedImportName ||
-          !SAFE_BULK_IMPORT_EXTENSION_REGEX.test(normalizedImportName) ||
-          !HAXCMSFile.isValidBulkImportStagedPath(downloadLocation)
-        ) {
+        if (!(await importBuildFile(site, locationName, filesToDownload[locationName], fileIndex++))) {
           return res.status(400).json({
             status: 400,
             data: {
@@ -888,14 +884,6 @@ async function createSite(req, res) {
             }
           });
         }
-        let file = new HAXCMSFile();
-        // check for a file upload; we block a few formats by design
-        await file.save({
-          "name": normalizedImportName,
-          "tmp_name": downloadLocation,
-          "path": downloadLocation,
-          "bulk-import": true
-        }, site);
       }
       if (Object.keys(filesToDownload).length > 0) {
         await linkImportedPageFiles(site);
@@ -964,6 +952,50 @@ async function createSite(req, res) {
   }
 }
 /**
+ * #3060: bring one build.files entry into the site. Importers hand over
+ * remote files as http(s) URLs, so a URL is fetched through safeFetch (the
+ * SSRF baseline siteFiles uses) into the bulk-import staging root. From there
+ * every entry takes the same path: the staged-path check, then a bulk-import
+ * HAXCMSFile.save that validates the content and records the file entity in
+ * files.json. A URL that cannot be fetched is skipped rather than failing the
+ * site. Returns false for an invalid entry, which createSite answers with 400.
+ */
+async function importBuildFile(site, locationName, downloadLocation, index) {
+  const normalizedImportName = normalizeBulkImportName(locationName);
+  if (!normalizedImportName || !SAFE_BULK_IMPORT_EXTENSION_REGEX.test(normalizedImportName)) {
+    return false;
+  }
+  let downloaded = null;
+  if (typeof downloadLocation === 'string' && /^https?:\/\//i.test(downloadLocation)) {
+    downloaded = await stageRemoteFile(downloadLocation, getBulkImportStagingRoot(), index, normalizedImportName);
+    if (!downloaded) {
+      return true;
+    }
+    downloadLocation = downloaded;
+  }
+  const valid = HAXCMSFile.isValidBulkImportStagedPath(downloadLocation);
+  if (valid) {
+    const upload = {
+      "name": normalizedImportName,
+      "tmp_name": downloadLocation,
+      "path": downloadLocation,
+      "bulk-import": true
+    };
+    if (downloaded) {
+      // a download carries its size so the site's maxUploadSizeMb applies (HAX-SEC-004)
+      upload.size = fs.statSync(downloaded).size;
+    }
+    // check for a file upload; we block a few formats by design
+    await new HAXCMSFile().save(upload, site);
+  }
+  // save moves an accepted file into the site; a download it rejected is dropped
+  if (downloaded) {
+    fs.removeSync(downloaded);
+  }
+  return valid;
+}
+
+/**
  * #3043: point each page at the file entities its content references, once
  * the imported files exist. createSite writes the pages before it ingests
  * build.files, so page.metadata.files cannot be set as each page is written.
@@ -1000,4 +1032,5 @@ async function linkImportedPageFiles(site) {
 
 module.exports = createSite;
 // exported for direct unit testing
+module.exports.importBuildFile = importBuildFile;
 module.exports.linkImportedPageFiles = linkImportedPageFiles;
