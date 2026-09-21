@@ -33,7 +33,7 @@ const sharp = require('sharp')
 const { scaleImageInPlace } = require('../../src/siteRoutes/v1/files.js')
 
 // xs preset from IMAGE_SCALE_PRESETS — a real downscale target.
-const TARGET_WIDTH = 200
+const TARGET_WIDTH = 150
 const TARGET_HEIGHT = 150
 
 async function makeImage(dir, fileName, format, width, height) {

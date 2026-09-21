@@ -1114,14 +1114,18 @@ systemStructureContext().then((site) => {
           req.url.includes('/files/') || 
           req.url.includes('/pages/') || 
           req.url.includes('/site.json') ||
-          req.url.includes('/lunrSearchIndex.json')
+          req.url.includes('/lunrSearchIndex.json') ||
+          req.url.includes('/service-worker.js') ||
+          req.url.includes('/offline.html') ||
+          req.url.includes('/browserconfig.xml') ||
+          req.url.includes('/push-manifest.json')
         )
       ) {
         if (!setWellKnownContentType(res, req.url)) {
           setStaticContentTypeWithCharset(res, req.url.split('?')[0]);
         }
         res.sendFile(
-          req.url.split('?')[0],
+          decodeStaticRequestPath(req.url.split('?')[0]),
           getStaticSendFileOptions(publicDir, req.url)
         );
       }
@@ -1324,14 +1328,18 @@ systemStructureContext().then((site) => {
           req.url.includes('/files/') || 
           req.url.includes('/pages/') || 
           req.url.includes('/site.json') ||
-          req.url.includes('/lunrSearchIndex.json')
+          req.url.includes('/lunrSearchIndex.json') ||
+          req.url.includes('/service-worker.js') ||
+          req.url.includes('/offline.html') ||
+          req.url.includes('/browserconfig.xml') ||
+          req.url.includes('/push-manifest.json')
         )
       ) {
         if (!setWellKnownContentType(res, req.url)) {
           setStaticContentTypeWithCharset(res, req.url.split('?')[0]);
         }
         res.sendFile(
-          req.url.split('?')[0],
+          decodeStaticRequestPath(req.url.split('?')[0]),
           getStaticSendFileOptions(
             process.cwd() + `/${HAXCMS.sitesDirectory}`,
             req.url
@@ -1410,7 +1418,7 @@ systemStructureContext().then((site) => {
     // published directory route if it exists
     app.use(`/${HAXCMS.publishedDirectory}/`,(req, res, next) => {
       setStaticContentTypeWithCharset(res, req.url);
-      res.sendFile(req.url,
+      res.sendFile(decodeStaticRequestPath(req.url.split('?')[0]),
       {
         root: process.cwd() + `/${HAXCMS.publishedDirectory}`
       });
@@ -2663,6 +2671,28 @@ function getSiteApiBasePath() {
 function getRequestPathWithoutQuery(url = '') {
   return String(url || '').split('?')[0];
 }
+// Security/correctness: req.url arrives percent-encoded (e.g. a space in a
+// filename is '%20'). res.sendFile() internally re-encodes whatever path
+// string it is given via encodeURI() before handing it to the `send`
+// module, which decodes exactly once downstream. Passing an already-encoded
+// path straight through therefore double-encodes it ('%20' -> '%2520'),
+// causing send to look up a literal '...%20...' filename that never exists
+// on disk and returning a false 404 for any file whose name required
+// percent-encoding (spaces, unicode, etc.) — express.static does not have
+// this issue because it decodes without a prior re-encode step. Decoding
+// once here (mirroring express.static's own behavior) restores the raw
+// filesystem-safe path so res.sendFile()'s internal re-encode round-trips
+// correctly. Malformed percent-encoding falls back to the raw path; `send`
+// still rejects '..' traversal and null bytes downstream regardless.
+function decodeStaticRequestPath(requestPath = '') {
+  const rawPath = String(requestPath || '');
+  try {
+    return decodeURIComponent(rawPath);
+  }
+  catch (e) {
+    return rawPath;
+  }
+}
 function isSiteApiRequestPath(url = '') {
   return /\/x\/api(?:\/|$)/.test(getRequestPathWithoutQuery(url));
 }
@@ -2921,6 +2951,26 @@ function resolvePageBySlug(site, slug = '') {
   return null;
 }
 
+// Root/home fallback (PHP parity): PHP's loadNodeByLocation() falls back to
+// $this->manifest->items[0] when no explicit path/slug match is found, so
+// the site's first manifest item is always resolved as the homepage. The
+// Node SSR path lacked this fallback, so requesting the bare site root
+// (empty slug) never resolved a page item server-side and shipped an empty
+// <haxcms-site-builder> — the client-side router then had to fetch and
+// inject the homepage content after load, producing a blank-content flash
+// on first paint.
+function resolveHomePageItem(site) {
+  if (
+    !site ||
+    !site.manifest ||
+    !Array.isArray(site.manifest.items) ||
+    site.manifest.items.length === 0
+  ) {
+    return null;
+  }
+  return site.manifest.items[0];
+}
+
 function buildCanonicalPagePath(routePrefix = '', slug = '') {
   const cleanPrefix = String(routePrefix || '').replace(/\/+$/, '');
   const cleanSlug = String(slug || '').replace(/^\/+/, '').replace(/\/+$/, '');
@@ -3036,16 +3086,21 @@ function setPageAlternateHeaders(res, site, item, canonicalPath = '') {
 async function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefix = '') {
   const explicitInfo = getExplicitVariantInfo(requestPath);
   const slug = normalizeSlugFromPath(explicitInfo.basePath);
-  if (slug === '') {
-    return {
-      served: false,
-      item: null,
-      canonicalPath: null,
-      notFound: false,
-    };
-  }
-  const item = resolvePageBySlug(site, slug);
+  const isHomeRequest = slug === '';
+  const item = isHomeRequest
+    ? resolveHomePageItem(site)
+    : resolvePageBySlug(site, slug);
   if (!item) {
+    // Empty site (no manifest items) — nothing to fall back to; preserve
+    // the previous no-op behavior for the root path itself.
+    if (isHomeRequest) {
+      return {
+        served: false,
+        item: null,
+        canonicalPath: null,
+        notFound: false,
+      };
+    }
     const missingCanonicalPath = buildCanonicalPagePath(routePrefix, slug);
     if (explicitInfo.format) {
       res.status(404);

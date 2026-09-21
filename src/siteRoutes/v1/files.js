@@ -38,11 +38,11 @@ const EntityRegistry = require('../../lib/EntityRegistry.js');
 const { convertPptxToDeck } = require('../../lib/pptxDeckHelper.js');
 
 const IMAGE_SCALE_PRESETS = {
-  xs: { width: 200, height: 150 },
-  sm: { width: 320, height: 240 },
-  md: { width: 400, height: 300 },
-  lg: { width: 800, height: 600 },
-  xl: { width: 1200, height: 900 },
+  xs: { width: 150, height: 150 },
+  sm: { width: 480, height: 480 },
+  md: { width: 800, height: 800 },
+  lg: { width: 1200, height: 1200 },
+  xl: { width: 1920, height: 1920 },
 };
 const DEFAULT_SCALE_PRESET = 'md';
 const DEFAULT_JPEG_QUALITY = 90;
