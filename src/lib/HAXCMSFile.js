@@ -824,17 +824,55 @@ class HAXCMSFile
         }
         catch (e) {}
       }
-      let newFilename = sanitizedIncomingName.replace(/[\/\\?%*:|"<>]/g, '-').replace(/\s+/g, '-');
+      // Bulk import: preserve the directory tree encoded in the incoming name
+      // (e.g. 'files/assets/x.png' or 'assets/x.png'), mirroring PHP HAXCMSFile
+      // save() dirname handling so Gitbook/Notion sub-folder image keys round-
+      // trip correctly instead of being flattened to 'files/assets-x.png'.
+      // Security (SEC-18): reject traversal/null-byte/absolute dirnames so a
+      // crafted upload name cannot write outside the site files dir. Non-bulk
+      // imports keep the legacy flatten-slashes sanitization below.
+      var importDirnamePart = '';
+      if (isBulkImport) {
+        var importNameRelative = String(incomingName).replace(/files\//g, '');
+        var importParsed = path.parse(importNameRelative);
+        var importDir = importParsed.dir;
+        var importDirNorm = String(importDir).replace(/\\/g, '/');
+        if (
+          String(importDir).indexOf('\0') !== -1 ||
+          importDirNorm.indexOf('..') !== -1 ||
+          (importDir !== '' && importDir !== '.' && importDirNorm.charAt(0) === '/')
+        ) {
+          return {
+            'status': 500,
+            'data': { 'message': 'Invalid bulk import path' },
+          };
+        }
+        if (importDir !== '' && importDir !== '.') {
+          importDirnamePart = importDirNorm + '/';
+          var nestedDir = path.join(pathPart, importDirnamePart);
+          if (!fs.existsSync(nestedDir)) {
+            fs.mkdirSync(nestedDir, { recursive: true });
+          }
+        }
+      }
+      // For bulk import the directory tree is preserved via importDirnamePart
+      // above; sanitize only the basename. For non-bulk imports, keep the
+      // legacy flatten-slashes sanitization of the full incoming name.
+      var sanitizeBaseName = isBulkImport ? path.basename(sanitizedIncomingName) : sanitizedIncomingName;
+      let newFilename = sanitizeBaseName.replace(/[\/\\?%*:|"<>]/g, '-').replace(/\s+/g, '-');
+      // The write directory for the sanitized basename: the nested bulk-import
+      // dir when present, otherwise the flat files/ (subfolderPart) dir.
+      var collisionDir = importDirnamePart ? path.join(pathPart, importDirnamePart) : pathPart;
       const { name, ext } = path.parse(newFilename);
       let counter = 1;
-      while (fs.existsSync(path.join(pathPart, newFilename))) {
+      while (fs.existsSync(path.join(collisionDir, newFilename))) {
         newFilename = `${name}_${counter}${ext}`;
-        counter++;
+        counter++
       }
       // relative path (from site root) used in the response file object and the
       // uuid/datastore records so callers learn the exact location, including
-      // any subfolder/collision suffix
-      var fileRelativePath = 'files/' + subfolderPart + newFilename;
+      // any subfolder / bulk-import nested dir / collision suffix
+      var fileRelativePath = 'files/' + subfolderPart + importDirnamePart + newFilename;
       let sourcePath = filedata;
       let remoteDownloadPath = null;
       if (isBulkImport && !isValidBulkImportStagedPath(filedata)) {
@@ -907,7 +945,7 @@ class HAXCMSFile
         };
       }
       const detectedMimeType = mimeValidation.detectedMime;
-      let fullpath = path.join(pathPart, newFilename);
+      let fullpath = path.join(collisionDir, newFilename);
       // TOCTOU defense: verify bulk import source is not a symlink right before move
       if (isBulkImport) {
         try {
