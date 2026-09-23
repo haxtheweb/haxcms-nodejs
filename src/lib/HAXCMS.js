@@ -118,6 +118,35 @@ const turndownService = new TurndownService();
 turndownService.keep(function(node) {
   return node && node.nodeName && String(node.nodeName).indexOf('-') !== -1;
 });
+// Twig PHP-constant function (ported from PHP HAXcms). The service-worker.js
+// boilerplate template uses {{ swhash|json_encode(constant('JSON_PRETTY_PRINT'))|raw }},
+// but Twig.js has no built-in `constant` function (PHP Twig does). Without this
+// registration, rebuildManagedFiles() throws while rendering service-worker.js
+// and the catch swallows the error, leaving the raw boilerplate (unrendered
+// {{ swhash... }} / {% if cdnRegex %}) on disk. Register a static allowlist
+// of the PHP JSON_* constants the templates reference; return null for anything
+// else so no env/global leaks (mirrors create CLI's ensureTwigConstantFunction).
+const Twig = require('twig');
+const TWIG_PHP_CONSTANTS = {
+  JSON_PRETTY_PRINT: 128,
+  JSON_HEX_TAG: 1,
+  JSON_HEX_AMP: 2,
+  JSON_HEX_APOS: 4,
+  JSON_HEX_QUOT: 8,
+  JSON_FORCE_OBJECT: 16,
+  JSON_NUMERIC_CHECK: 32,
+  JSON_UNESCAPED_SLASHES: 64,
+  JSON_UNESCAPED_UNICODE: 256,
+};
+Twig.extendFunction('constant', function constantLookup(name) {
+  if (typeof name !== 'string') {
+    return null;
+  }
+  if (Object.prototype.hasOwnProperty.call(TWIG_PHP_CONSTANTS, name)) {
+    return TWIG_PHP_CONSTANTS[name];
+  }
+  return null;
+});
 // a site object
 class HAXCMSSite
 {
@@ -523,6 +552,24 @@ class HAXCMSSite
       return basePath + this.manifest.metadata.site.name + '/';
     }
     /**
+     * Compute the PWA scope / start_url path for this site.
+     * When a vanity domain is set (manifest.metadata.site.domain non-empty)
+     * the site is served from the domain root, so the PWA scope is '/'.
+     * Otherwise fall back to the internal multisite basePath + site.name.
+     */
+    getPWAScopePath() {
+      if (
+        this.manifest &&
+        this.manifest.metadata &&
+        this.manifest.metadata.site &&
+        this.manifest.metadata.site.domain &&
+        String(this.manifest.metadata.site.domain).trim() !== ''
+      ) {
+        return '/';
+      }
+      return this.getDefaultSiteBasePath();
+    }
+    /**
      * Detect a legacy (@lrnwebcomponents) bootstrap in index.html and rebuild
      * managed files once to upgrade it. Self-extinguishing: the rebuild copies
      * in the modern (@haxtheweb) boilerplate so the tell is gone next load.
@@ -599,7 +646,7 @@ class HAXCMSSite
           'hexCode': HAXCMS.HAXCMS_FALLBACK_HEX,
           'version': await HAXCMS.getHAXCMSVersion(),
           'basePath' :
-              this.basePath + this.manifest.metadata.site.name + '/',
+              this.getPWAScopePath(),
           'domain': domain,
           'title': this.manifest.title,
           'short': this.manifest.metadata.site.name,
@@ -611,7 +658,7 @@ class HAXCMSSite
           'licenseLink': licenseLink,
           'licenseName': licenseName,
           'securityTxtExpires': new Date(Date.now() + (1000 * 60 * 60 * 24 * 180)).toISOString(),
-          'serviceWorkerScript': this.getServiceWorkerScript(this.basePath + this.manifest.metadata.site.name + '/'),
+          'serviceWorkerScript': this.getServiceWorkerScript(this.getPWAScopePath()),
           'bodyAttrs': this.getSitePageAttributes(),
           'metadata': await this.getSiteMetadata(),
           'logo512x512': await this.getLogoSize('512','512'),
@@ -1474,7 +1521,7 @@ class HAXCMSSite
      * @return string HTML blob for hte <base> tag
      */
     getBaseTag() {
-      return '<base href="' + this.basePath + this.name + '/" />';
+      return '<base href="' + this.getPWAScopePath() + '" />';
     }
     /**
      * Return a standard service worker that takes into account
@@ -1490,7 +1537,7 @@ class HAXCMSSite
       }
       // support dynamic calculation
       if (basePath == null) {
-        basePath = this.basePath + this.name + '/';
+        basePath = this.getPWAScopePath();
       }
       return `
       <script>
