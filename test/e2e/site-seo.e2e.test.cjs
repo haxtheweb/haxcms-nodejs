@@ -344,6 +344,18 @@ test(
     )
     t.diagnostic('[e2e] author name set: ' + JSON.stringify(authorResult))
 
+    // 7b. Set a vanity domain (exercises the PWA scope path). When domain is
+    // set, rebuildManagedFiles() must regenerate manifest.json with scope /
+    // start_url at the domain root '/'. This validates the full
+    // saveSeoSettings -> rebuildManagedFiles -> manifest.json pipeline.
+    const testDomain = 'https://e2e-vanity.hax.test'
+    const domainResult = await setDialogField(
+      dialog,
+      selectors.siteSettings.seoDomainInput,
+      testDomain,
+    )
+    t.diagnostic('[e2e] domain field set: ' + JSON.stringify(domainResult))
+
     // 8. Visual baseline: SEO panel before save.
     const seoBuf = await captureScreenshot(page, 'site-seo-panel')
     const seoDiff = await safeCompareBaseline('site-seo-panel', seoBuf, null, t)
@@ -397,6 +409,37 @@ test(
         'site.json metadata.author.name should match the new author name',
       )
     }
+
+    // 10b. Disk cross-check: read the regenerated manifest.json and verify
+    // that scope / start_url are '/' now that a vanity domain is set.
+    // saveSeoSettings calls rebuildManagedFiles() which re-Twig-renders
+    // manifest.json; its {{ basePath }} template var is bound to
+    // getPWAScopePath(), which returns '/' when domain is non-empty.
+    const manifestJsonPath = path.join(
+      runtime.runtimeRoot,
+      SITES_DIR,
+      EXPECTED_SITE_NAME,
+      'manifest.json',
+    )
+    t.diagnostic('[e2e] reading manifest.json: ' + manifestJsonPath)
+    assert.ok(fs.pathExistsSync(manifestJsonPath), 'manifest.json exists on disk')
+    const manifestJson = JSON.parse(fs.readFileSync(manifestJsonPath, 'utf8'))
+    t.diagnostic(
+      '[e2e] manifest.json scope=' +
+        manifestJson.scope +
+        ' start_url=' +
+        manifestJson.start_url,
+    )
+    assert.equal(
+      manifestJson.scope,
+      '/',
+      'manifest.json scope should be "/" when a vanity domain is set',
+    )
+    assert.equal(
+      manifestJson.start_url,
+      '/',
+      'manifest.json start_url should be "/" when a vanity domain is set',
+    )
 
     // 11. A11y: axe scoped to the SEO dialog host.
     let a11y = null
