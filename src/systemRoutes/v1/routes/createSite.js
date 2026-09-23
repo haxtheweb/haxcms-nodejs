@@ -872,18 +872,20 @@ async function createSite(req, res) {
     site.manifest.description = schema.description;
     // save the outline into the new site
     await site.manifest.save(false);
-    // walk through files if any came across and save each of them
+    // walk through files if any came across and save each of them. build.files
+    // is best-effort: a single bad/undownloadable entry must not fail the whole
+    // site, so skipped entries are collected into schema.warnings (returned as
+    // data.warnings) and the site is still created. The SSRF/extension/path
+    // guards inside importBuildFile still refuse to fetch or write anything
+    // unsafe; they just no longer abort the request.
     if (filesToDownload && typeof filesToDownload === 'object') {
       let fileIndex = 0;
+      const fileWarnings = [];
       for (var locationName in filesToDownload) {
-        if (!(await importBuildFile(site, locationName, filesToDownload[locationName], fileIndex++))) {
-          return res.status(400).json({
-            status: 400,
-            data: {
-              message: 'Invalid file import payload in build.files',
-            }
-          });
-        }
+        await importBuildFile(site, locationName, filesToDownload[locationName], fileIndex++, fileWarnings);
+      }
+      if (fileWarnings.length > 0) {
+        schema.warnings = fileWarnings;
       }
       if (Object.keys(filesToDownload).length > 0) {
         await linkImportedPageFiles(site);
@@ -957,42 +959,78 @@ async function createSite(req, res) {
  * SSRF baseline siteFiles uses) into the bulk-import staging root. From there
  * every entry takes the same path: the staged-path check, then a bulk-import
  * HAXCMSFile.save that validates the content and records the file entity in
- * files.json. A URL that cannot be fetched is skipped rather than failing the
- * site. Returns false for an invalid entry, which createSite answers with 400.
+ * files.json. Ingestion is best-effort: any entry that is unsafe or cannot be
+ * fetched/saved is skipped rather than failing the site.
+ *
+ * Returns false for an invalid entry (unsafe name, disallowed extension, or a
+ * source that is neither an http(s) URL nor a valid staged path) and true
+ * otherwise (including a URL that could not be fetched or a file HAXCMSFile.save
+ * rejected internally, where no entity is created). This boolean contract is
+ * exercised directly by the unit suite, so it must not change shape.
+ *
+ * When an optional `warnings` array is passed, every skip is recorded as
+ * {file, reason} so createSite can surface data.warnings on its 200 response
+ * instead of aborting with 400. The collector is intentionally optional so the
+ * boolean-only call path used by tests behaves exactly as before.
  */
-async function importBuildFile(site, locationName, downloadLocation, index) {
+async function importBuildFile(site, locationName, downloadLocation, index, warnings) {
   const normalizedImportName = normalizeBulkImportName(locationName);
-  if (!normalizedImportName || !SAFE_BULK_IMPORT_EXTENSION_REGEX.test(normalizedImportName)) {
+  if (!normalizedImportName) {
+    if (warnings) {
+      warnings.push({ file: locationName, reason: 'Invalid file name in build.files' });
+    }
+    return false;
+  }
+  if (!SAFE_BULK_IMPORT_EXTENSION_REGEX.test(normalizedImportName)) {
+    if (warnings) {
+      warnings.push({ file: locationName, reason: 'Disallowed file extension in build.files' });
+    }
     return false;
   }
   let downloaded = null;
   if (typeof downloadLocation === 'string' && /^https?:\/\//i.test(downloadLocation)) {
     downloaded = await stageRemoteFile(downloadLocation, getBulkImportStagingRoot(), index, normalizedImportName);
     if (!downloaded) {
+      if (warnings) {
+        warnings.push({ file: locationName, reason: 'Remote file could not be downloaded' });
+      }
       return true;
     }
     downloadLocation = downloaded;
   }
   const valid = HAXCMSFile.isValidBulkImportStagedPath(downloadLocation);
-  if (valid) {
-    const upload = {
-      "name": normalizedImportName,
-      "tmp_name": downloadLocation,
-      "path": downloadLocation,
-      "bulk-import": true
-    };
-    if (downloaded) {
-      // a download carries its size so the site's maxUploadSizeMb applies (HAX-SEC-004)
-      upload.size = fs.statSync(downloaded).size;
+  if (!valid) {
+    if (warnings) {
+      warnings.push({ file: locationName, reason: 'Invalid bulk import source path in build.files' });
     }
-    // check for a file upload; we block a few formats by design
-    await new HAXCMSFile().save(upload, site);
+    return false;
+  }
+  const upload = {
+    "name": normalizedImportName,
+    "tmp_name": downloadLocation,
+    "path": downloadLocation,
+    "bulk-import": true
+  };
+  if (downloaded) {
+    // a download carries its size so the site's maxUploadSizeMb applies (HAX-SEC-004)
+    upload.size = fs.statSync(downloaded).size;
+  }
+  // check for a file upload; we block a few formats by design. save() can still
+  // reject the content (MIME/extension mismatch, over the size limit, symlink
+  // TOCTOU, etc.) after the staged-path check passed; surface that reason too
+  // so the caller knows why no entity was created.
+  const saveResult = await new HAXCMSFile().save(upload, site);
+  if (warnings && saveResult && saveResult.status !== 200) {
+    const reason = (saveResult.data && typeof saveResult.data.message === 'string' && saveResult.data.message)
+      ? saveResult.data.message
+      : 'File rejected during build.files import';
+    warnings.push({ file: locationName, reason: reason });
   }
   // save moves an accepted file into the site; a download it rejected is dropped
   if (downloaded) {
     fs.removeSync(downloaded);
   }
-  return valid;
+  return true;
 }
 
 /**

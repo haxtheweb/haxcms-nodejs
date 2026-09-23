@@ -467,7 +467,7 @@ test('createSite build.files SSRF guards (#3060)', async (t) => {
     )
   })
 
-  await t.test('file URLs, unstaged paths and the advisory payload are still rejected', async () => {
+  await t.test('file URLs, unstaged paths and the advisory payload are skipped best-effort (not written)', async () => {
     const payloads = [
       { 'files/passwd.txt': 'file:///etc/passwd' },
       { 'files/passwd.txt': '/etc/passwd' },
@@ -480,18 +480,40 @@ test('createSite build.files SSRF guards (#3060)', async (t) => {
       })
       assert.equal(
         created.result.status,
-        400,
-        `expected 400 for ${JSON.stringify(payloads[i])}: ${created.result.bodyText}`,
+        200,
+        `expected 200 (best-effort) for ${JSON.stringify(payloads[i])}: ${created.result.bodyText}`,
       )
+      assert.ok(created.siteDir, 'expected the created site directory to exist')
+      const writtenKey = Object.keys(payloads[i])[0]
+      const writtenPath = writtenKey.indexOf('files/') === 0 ? writtenKey : 'files/' + writtenKey
+      assert.equal(
+        fs.pathExistsSync(path.join(created.siteDir, writtenPath)),
+        false,
+        `unsafe build.files entry ${writtenKey} must NOT be written`,
+      )
+      const body = JSON.parse(created.result.bodyText)
+      const warnings = body && body.data && Array.isArray(body.data.warnings) ? body.data.warnings : null
+      assert.ok(Array.isArray(warnings) && warnings.length > 0, `expected data.warnings for ${JSON.stringify(payloads[i])}`)
+      assert.equal(warnings[0].file, writtenKey, 'warning lists the skipped entry key')
     }
   })
 
-  await t.test('disallowed extension is rejected before any fetch (CWE-434)', async () => {
+  await t.test('disallowed extension is skipped before any fetch (CWE-434, best-effort)', async () => {
     const created = await createWithFiles(`files-ext-${runtime.testStartTimestamp}`, {
       structure: 'website',
       files: { 'files/x.php': `${runtime.baseUrl}/` },
     })
-    assert.equal(created.result.status, 400, `expected 400: ${created.result.bodyText}`)
+    assert.equal(created.result.status, 200, `expected 200 (best-effort): ${created.result.bodyText}`)
+    assert.ok(created.siteDir, 'expected the created site directory to exist')
+    assert.equal(
+      fs.pathExistsSync(path.join(created.siteDir, 'files', 'x.php')),
+      false,
+      'a .php build.files entry must NOT be written (CWE-434 extension allow-list)',
+    )
+    const body = JSON.parse(created.result.bodyText)
+    const warnings = body && body.data && Array.isArray(body.data.warnings) ? body.data.warnings : null
+    assert.ok(Array.isArray(warnings) && warnings.length > 0, 'expected data.warnings for the disallowed extension')
+    assert.equal(warnings[0].file, 'files/x.php')
   })
 
   await t.test('a staged file beside a blocked URL is saved and linked to its page', async () => {

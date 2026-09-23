@@ -271,4 +271,81 @@ describe('createSite importBuildFile — #3060', () => {
     await linkImportedPageFiles(site)
     assert.deepEqual(page.metadata.files, [entityAt('files/chart.png').getUuid()])
   })
+
+  // --- best-effort warnings collector (#3060) ---
+  // importBuildFile keeps its boolean return contract (above) but, when passed
+  // an optional warnings array, records every skipped entry as {file, reason}
+  // so createSite can return 200 with data.warnings instead of aborting 400.
+  function warningFor(warnings, file) {
+    for (let i = 0; i < warnings.length; i++) {
+      if (warnings[i].file === file) {
+        return warnings[i]
+      }
+    }
+    return null
+  }
+
+  test('an unsafe name records a warning and still returns false', async () => {
+    stubNetwork({ 'https://example.org/x.png': { body: PNG } })
+    const warnings = []
+    assert.equal(await importBuildFile(site, 'files/../escape.png', 'https://example.org/x.png', 0, warnings), false)
+    assert.equal(fetched.length, 0, 'nothing was fetched')
+    const w = warningFor(warnings, 'files/../escape.png')
+    assert.ok(w, 'a warning was recorded for the unsafe name')
+    assert.equal(typeof w.reason, 'string')
+    assert.ok(w.reason.length > 0)
+  })
+
+  test('a disallowed extension records a warning and still returns false', async () => {
+    stubNetwork({ 'https://example.org/x.png': { body: PNG } })
+    const warnings = []
+    assert.equal(await importBuildFile(site, 'files/shell.php', 'https://example.org/x.png', 0, warnings), false)
+    assert.equal(fetched.length, 0, 'nothing was fetched')
+    const w = warningFor(warnings, 'files/shell.php')
+    assert.ok(w, 'a warning was recorded for the disallowed extension')
+    assert.ok(w.reason.length > 0)
+  })
+
+  test('a non-http unsafe source records a warning and still returns false', async () => {
+    stubNetwork({})
+    const warnings = []
+    assert.equal(await importBuildFile(site, 'files/x.png', 'file:///etc/passwd', 0, warnings), false)
+    assert.equal(fetched.length, 0, 'nothing was fetched')
+    const w = warningFor(warnings, 'files/x.png')
+    assert.ok(w, 'a warning was recorded for the invalid source path')
+    assert.ok(w.reason.length > 0)
+  })
+
+  test('a URL that cannot be fetched records a warning and still returns true', async () => {
+    // missing.png is unmapped, so it answers 404
+    stubNetwork({
+      'https://example.org/empty.png': { body: Buffer.alloc(0) },
+      'https://example.org/down.png': new Error('socket hang up'),
+    })
+    const warnings = []
+    const sources = ['missing', 'empty', 'down']
+    for (let i = 0; i < sources.length; i++) {
+      const name = `files/${sources[i]}.png`
+      assert.equal(await importBuildFile(site, name, `https://example.org/${sources[i]}.png`, i, warnings), true, name)
+      assert.ok(warningFor(warnings, name), `a warning was recorded for the unfetchable ${name}`)
+    }
+    assert.equal(warnings.length, 3)
+  })
+
+  test('a download rejected by save (content mismatch) records a warning and returns true', async () => {
+    stubNetwork({ 'https://example.org/fake.png': { body: Buffer.from('<html><body>not an image</body></html>') } })
+    const warnings = []
+    assert.equal(await importBuildFile(site, 'files/fake.png', 'https://example.org/fake.png', 0, warnings), true)
+    assert.equal(entityAt('files/fake.png'), null)
+    const w = warningFor(warnings, 'files/fake.png')
+    assert.ok(w, 'a warning was recorded for the content-mismatch rejection')
+    assert.ok(w.reason.length > 0, 'the save rejection reason is surfaced')
+  })
+
+  test('omitting the warnings collector behaves exactly as before', async () => {
+    stubNetwork({ 'https://example.org/missing.png': new Error('socket hang up') })
+    // no fifth argument: no collector, no throws, same boolean result
+    assert.equal(await importBuildFile(site, 'files/missing.png', 'https://example.org/missing.png', 0), true)
+    assert.equal(await importBuildFile(site, 'files/shell.php', 'https://example.org/missing.png', 1), false)
+  })
 })

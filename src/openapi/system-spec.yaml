@@ -2960,7 +2960,7 @@ components:
             files:
               type: object
               additionalProperties: true
-              description: Map of site file paths (files/...) to their source, either an http(s) URL fetched server-side through the SSRF guard or a file staged under <configDirectory>/tmp/imports. A URL that cannot be fetched is skipped.
+              description: "Map of site file paths (files/...) to their source, either an http(s) URL fetched server-side through the SSRF guard or a file staged under <configDirectory>/tmp/imports. Ingestion is best-effort: an entry that is unsafe, has a disallowed extension, cannot be fetched, or is rejected by the content/size validation is skipped and recorded in data.warnings rather than failing the request. A URL that cannot be fetched is skipped."
             skeletonMachineName:
               type: string
               description: Machine name of a trusted skeleton to build from (structure=from-skeleton).
@@ -3109,7 +3109,9 @@ components:
       type: object
       description: >
         Created site schema record returned by createSite. A JSONOutlineSchemaItem
-        with id, title, location, slug, and metadata.
+        with id, title, location, slug, and metadata. When build.files entries
+        are skipped during best-effort ingestion, a `warnings` array of
+        {file, reason} objects is included detailing each skipped entry.
       properties:
         id:
           type: string
@@ -3122,6 +3124,14 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        warnings:
+          type: array
+          description: >
+            Present only when one or more build.files entries were skipped
+            during best-effort ingestion. Each entry is {file, reason}.
+          items:
+            type: object
+            additionalProperties: true
       additionalProperties: true
     SkeletonRecord:
       type: object
