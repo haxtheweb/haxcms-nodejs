@@ -6,6 +6,13 @@ const { safeFetch } = require('../../../../lib/safeFetch.js')
 
 const mdClass = new MarkdownIt()
 
+// Escape regex metacharacters in a literal string so it can be safely
+// embedded in a RegExp. Filenames in a gitbook repo can contain ., (), @, -, etc.,
+// so . and () (and the rest) must be escaped before building the rewrite regex.
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /**
  * POST /system/api/v1/actions/convert-gitbook-to-site
  * Convert a Gitbook repository (or SUMMARY.md link) into a HAXcms site schema.
@@ -40,6 +47,55 @@ async function convertGitbookToSite(req, res) {
 
   try {
     const sourceLink = body.repoUrl
+    let url = sourceLink.trim()
+    let pieces = url.replace('https://github.com/', '').split('/')
+    const owner = pieces[0]
+    const repo = pieces[1]
+    let basePath = `https://api.github.com/repos/${owner}/${repo}`
+    // GitHub API requires a User-Agent header; without it every call 403s
+    // and the .then((d) => d.ok ? d.json() : {}) swallows the 403 into {},
+    // so default_branch becomes undefined -> 'main' fallback -> the tree fetch
+    // also 403s -> zero files in the downloads map (images silently
+    // dropped). PHP parity: haxcms-php convertGitbookToSite.php already sends
+    // 'User-Agent: HAXcms-Import/1.0'. Mirrors that here.
+    const githubApiHeaders = {
+      'User-Agent': 'HAXcms-Import/1.0',
+      'Accept': 'application/vnd.github.v3+json',
+    }
+    var branch = await safeFetch(`${basePath}`, { headers: githubApiHeaders })
+      .then((d) => d.ok ? d.json() : {})
+      .then((d) => d.default_branch || 'main')
+    var filepathBase = ''
+    var githubData = await safeFetch(`${basePath}/git/trees/${branch}?recursive=1`, { headers: githubApiHeaders })
+      .then((d) => d.ok ? d.json() : {})
+      .then((d) => d.tree || [])
+
+    var downloads = {}
+    var fileMap = {}
+
+
+    // establish file map and base path for all files PRIOR to getting contents
+    for (const ghFile of githubData) {
+      if (ghFile.path.indexOf('.md') === -1) {
+        // ignore folders
+        if (ghFile.path.indexOf('.') !== -1) {
+          downloads[encodeURI(`files/${ghFile.path}`)] = encodeURI(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${ghFile.path}`)
+          // fileMap value is the repo-relative path as it appears in page content
+          // (e.g. "assets/image.png"). Only strip a filepathBase PREFIX when one
+          // was actually resolved; filepathBase is '' here, so the old
+          // .replace(`${filepathBase}/`, '') became .replace('/', '') which
+          // stripped the FIRST slash and corrupted "assets/image.png" ->
+          // "assetsimage.png", so the content rewrite never matched.
+          const strippedPath = filepathBase !== '' ? ghFile.path.replace(`${filepathBase}/`, '') : ghFile.path
+          fileMap[encodeURI(`files/${ghFile.path}`)] = encodeURI(strippedPath)
+        }
+      }
+    }
+
+    // Build the SUMMARY.md fetch URL from the resolved branch (not hardcoded
+    // 'master') so repos whose default branch is 'main' still resolve. The
+    // tree fetch above already used ${branch}; the SUMMARY.md fetch must use
+    // the same ref or it 404s on a 'main'-default repo.
     let tmp = new URL(sourceLink)
     // ensure we go from github to raw git response for the md
     if (tmp.href.indexOf('github.com') !== -1) {
@@ -49,33 +105,10 @@ async function convertGitbookToSite(req, res) {
     if (tmp.href.indexOf('/blob/') !== -1) {
       tmp.href = tmp.href.replace('/blob/', '/')
     }
-    // if we lack summary, add it in
+    // if we lack summary, add it in (using the resolved branch)
     if (tmp.href.indexOf('SUMMARY.md') === -1) {
-      tmp.href += '/master/SUMMARY.md'
+      tmp.href += `/${branch}/SUMMARY.md`
     }
-    let url = sourceLink.trim()
-    let pieces = url.replace('https://github.com/', '').split('/')
-    const owner = pieces[0]
-    const repo = pieces[1]
-    let basePath = `https://api.github.com/repos/${owner}/${repo}`
-    var branch = await safeFetch(`${basePath}`).then((d) => d.ok ? d.json() : {}).then((d) => d.default_branch || 'main')
-    var filepathBase = ''
-    var githubData = await safeFetch(`${basePath}/git/trees/${branch}?recursive=1`).then((d) => d.ok ? d.json() : {}).then((d) => d.tree || [])
-
-    var downloads = {}
-    var fileMap = {}
-
-    // establish file map and base path for all files PRIOR to getting contents
-    for (const ghFile of githubData) {
-      if (ghFile.path.indexOf('.md') === -1) {
-        // ignore folders
-        if (ghFile.path.indexOf('.') !== -1) {
-          downloads[encodeURI(`files/${ghFile.path}`)] = encodeURI(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${ghFile.path}`)
-          fileMap[encodeURI(`files/${ghFile.path}`)] = encodeURI(ghFile.path.replace(`${filepathBase}/`, ''))
-        }
-      }
-    }
-
     let md = await safeFetch(tmp.href.trim()).then((d) => d.ok ? d.text() : '')
     let name = tmp.pathname.split('/')[1] || 'New site'
     const site = new JSONOutlineSchema()
@@ -126,9 +159,18 @@ async function listToJOS(site, md, sourceLink, name, downloads, fileMap) {
         item.location = `content/${a.getAttribute('href')}`
         let mdContent = await safeFetch(sourceLink.replace('SUMMARY.md', a.getAttribute('href'))).then((d) => d.ok ? d.text() : '')
         item.contents = mdClass.render(mdContent)
-        // replace all file references
+        // Rewrite all file references. Gitbook markdown renders image srcs as
+        // absolute paths (e.g. "/assets/x.png"), so both the bare relative
+        // form ("assets/x.png") and the leading-slash form ("/assets/x.png")
+        // must be rewritten to the files/-prefixed key ("files/assets/x.png") so
+        // the on-disk file location matches the page reference. Do it in ONE
+        // regex pass per file with a negative lookbehind for files/ so the bare
+        // form (a substring of the leading-slash form) can't double-rewrite
+        // /assets/x.png -> files/assets/x.png -> files/files/assets/x.png.
         for (const file of Object.keys(fileMap)) {
-          item.contents = item.contents.replaceAll(fileMap[file], file)
+          const stripped = fileMap[file]
+          const re = new RegExp('(?<!files/)/?' + escapeRegExp(stripped), 'g')
+          item.contents = item.contents.replace(re, file)
         }
         site.items.push(item)
       }
@@ -162,9 +204,11 @@ async function recurseToJOS(site, parent, top, depth, sourceLink, downloads, fil
         item.location = `content/${a.getAttribute('href')}`
         let mdContent = await safeFetch(sourceLink.replace('SUMMARY.md', a.getAttribute('href'))).then((d) => d.ok ? d.text() : '')
         item.contents = mdClass.render(mdContent)
-        // replace all file references
+        // rewrite all file references (single regex pass per file, see above)
         for (const file of Object.keys(fileMap)) {
-          item.contents = item.contents.replaceAll(fileMap[file], file)
+          const stripped = fileMap[file]
+          const re = new RegExp('(?<!files/)/?' + escapeRegExp(stripped), 'g')
+          item.contents = item.contents.replace(re, file)
         }
         site.items.push(item)
       }
