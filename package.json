@@ -75,6 +75,8 @@
     "locutus": "^3.0.34",
     "mammoth": "^1.12.0",
     "markdown-it": "^14.1.1",
+    "markdown-it-container": "^4.0.0",
+    "markdown-it-footnote": "^4.0.0",
     "mime": "3.0.0",
     "minimist": "1.2.8",
     "multer": "^2.2.0",
