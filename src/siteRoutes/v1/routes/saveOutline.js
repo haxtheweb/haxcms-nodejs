@@ -46,7 +46,8 @@ const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
       }
       let safeLocationMap = {};
       let items = [...req.body['items']];
-      let itemMap = {};
+      // client id -> server id; no prototype, so any client id is a plain key
+      let itemMap = Object.create(null);
       let pageAlternateContentMap = {};
       var page, bytes, cleanTitle;
       // items from the POST

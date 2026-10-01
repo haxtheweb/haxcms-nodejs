@@ -85,6 +85,7 @@ test('outline items keep their descriptions and new ids are reported', async (t)
       items: [
         { id: 'item-a', title: 'A', description: 'New <b>text</b>', parent: null, indent: 0, order: 0, metadata: {} },
         { id: 'client-1', title: 'B', description: 'Child', parent: 'item-a', indent: 1, order: 0, metadata: {}, new: true },
+        { id: '__proto__', title: 'C', parent: 'client-1', indent: 2, order: 0, metadata: {}, new: true },
       ],
     },
   }
@@ -98,4 +99,9 @@ test('outline items keep their descriptions and new ids are reported', async (t)
   assert.ok(created, 'new item is saved under the mapped id')
   assert.equal(created.description, 'Child')
   assert.equal(created.parent, 'item-a')
+  // reserved names are mapped like any other client id
+  assert.ok(Object.prototype.hasOwnProperty.call(idMap, '__proto__'))
+  const reserved = items.find((i) => i.id === idMap['__proto__'])
+  assert.ok(reserved, 'item with a reserved client id is saved under the mapped id')
+  assert.equal(reserved.parent, created.id)
 })
