@@ -4338,8 +4338,13 @@ class HAXCMSClass {
       const regexp = /(<page-break([\s\S]*?)>([\s\S]*?)<\/page-break>)([\s\S]*?)(?=<page-break)/g;
       const matches = [...body.matchAll(regexp)];
       for (var i in matches) {
-        // replace & to avoid XML parsing issues
-        let content = "<div " + matches[i][2].replace('published ', 'published="published" ').replace('locked ', 'locked="locked" ') + "></div>";
+        // expand bare boolean attributes (published, locked) wherever they
+        // sit in the tag, but never inside a quoted value such as a title,
+        // and never when a value follows (published = "" stays as written)
+        let attrText = matches[i][2].replace(/("[^"]*")|(\s)(published|locked)(?!\s*=)(?=\s|\/|$)/g, (match, quoted, space, name) => {
+          return quoted ? quoted : space + name + '="' + name + '"';
+        });
+        let content = "<div " + attrText + "></div>";
         let attrs = this.parse_attributes(content);
         pageData[i] = {
             "content": matches[i][4],
