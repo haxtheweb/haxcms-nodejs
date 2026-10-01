@@ -4339,8 +4339,9 @@ class HAXCMSClass {
       const matches = [...body.matchAll(regexp)];
       for (var i in matches) {
         // expand bare boolean attributes (published, locked) wherever they
-        // sit in the tag, but never inside a quoted value such as a title
-        let attrText = matches[i][2].replace(/("[^"]*")|(\s)(published|locked)(?=\s|\/|$)/g, (match, quoted, space, name) => {
+        // sit in the tag, but never inside a quoted value such as a title,
+        // and never when a value follows (published = "" stays as written)
+        let attrText = matches[i][2].replace(/("[^"]*")|(\s)(published|locked)(?!\s*=)(?=\s|\/|$)/g, (match, quoted, space, name) => {
           return quoted ? quoted : space + name + '="' + name + '"';
         });
         let content = "<div " + attrText + "></div>";

@@ -40,6 +40,12 @@ test('explicit values are unchanged', () => {
   assert.deepEqual(attrs, { title: 'A', published: 'published', locked: 'locked' })
 })
 
+test('whitespace around = keeps an explicit value', () => {
+  const attrs = attrsOf('<page-break title="A" published = "" locked = "locked"></page-break><p>x</p>')
+  assert.equal(attrs.published, '')
+  assert.equal(attrs.locked, 'locked')
+})
+
 test('content after the page-break is returned as the page body', () => {
   const pages = HAXCMS.pageBreakParser('<page-break title="A"></page-break><p>Hello</p>')
   assert.equal(pages[0].content, '<p>Hello</p>')
