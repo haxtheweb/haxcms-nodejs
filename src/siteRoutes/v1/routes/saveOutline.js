@@ -6,6 +6,7 @@ const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
 const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 const FileContentScanner = require('../../../lib/FileContentScanner.js');
+const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
 /**
    * @OA\Post(
    *    path="/saveOutline",
@@ -61,6 +62,11 @@ const FileContentScanner = require('../../../lib/FileContentScanner.js');
         // set a title if we have one
         if (item.title != '' && item.title) {
           page.title = item.title;
+        }
+        // description belongs to the JSON Outline Schema item; same handling
+        // as the setDescription node operation
+        if (typeof item.description === 'string') {
+          page.description = item.description === '' ? '' : strip_tags(item.description);
         }
         cleanTitle = HAXCMS.cleanTitle(page.title);
         if (item.parent == null) {
@@ -318,7 +324,9 @@ const FileContentScanner = require('../../../lib/FileContentScanner.js');
       // update alt formats like rss as we did massive changes
       await site.updateAlternateFormats();
       await site.gitCommit('Outline updated in bulk');
-      res.json({ status: 200, data: { items: site.manifest.items } });
+      // new items get server ids; idMap (client id -> server id) lets
+      // clients update their own references to the pages they created
+      res.json({ status: 200, data: { items: site.manifest.items, idMap: itemMap } });
     } else {
       res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
     }
