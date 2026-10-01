@@ -50,5 +50,6 @@ test('a body without a <page-break> is refused with 400 and nothing is written',
   const res = stubRes()
   await saveNode(req, res)
   assert.equal(res.statusCode, 400)
+  assert.match(res.body.data.message, /<page-break>/)
   assert.equal(writes, 0)
 })

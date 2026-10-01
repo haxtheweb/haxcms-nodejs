@@ -78,13 +78,12 @@ const FileContentScanner = require('../../../lib/FileContentScanner.js');
           let bytes = 0;
           // see if we have multiple pages / this page has been told to split into multiple
           let pageData = HAXCMS.pageBreakParser(body);
-          // content is only written after a <page-break> (it carries the
-          // page's attributes); without one nothing would be saved, so say so
-          // instead of answering 200
+          // only content after a <page-break> is written; without one nothing
+          // would be saved, so say so instead of answering 200
           if (pageData.length === 0) {
             return res.status(400).json({
               status: 400,
-              data: { message: 'body must start with a <page-break> element carrying the page attributes' },
+              data: { message: 'body must contain a <page-break> element; only content after it is saved' },
             });
           }
           for (var i in pageData) {
