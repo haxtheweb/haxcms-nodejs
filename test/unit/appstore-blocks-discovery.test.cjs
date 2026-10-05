@@ -237,6 +237,18 @@ describe('generateAppStore', () => {
   })
 
   test('a valid request with no api keys returns brokered defaults', async (t) => {
+    const originalOperatingContext = HAXCMS.operatingContext
+    const originalDeploymentProfile = HAXCMS.config.deploymentProfile
+    HAXCMS.operatingContext = 'single'
+    HAXCMS.config.deploymentProfile = 'single-site'
+    t.after(() => {
+      HAXCMS.operatingContext = originalOperatingContext
+      if (originalDeploymentProfile === undefined) {
+        delete HAXCMS.config.deploymentProfile
+      } else {
+        HAXCMS.config.deploymentProfile = originalDeploymentProfile
+      }
+    })
     useTempConfigDirectory(t)
     withAppStoreConfig(t, undefined)
     effectiveApiKeysFixture = {}

@@ -573,6 +573,25 @@ describe('createSite latent branches — skeleton resolution', () => {
 
 describe('createSite latent branches — git publishing', () => {
   test('KNOWN BUG: configured staticBranch/branch never materialize in the repo', async (t) => {
+    const gitIdentity = {
+      GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME,
+      GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL,
+      GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME,
+      GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL,
+    }
+    process.env.GIT_AUTHOR_NAME = 'HAXCMS Test'
+    process.env.GIT_AUTHOR_EMAIL = 'haxcms-test@invalid.example'
+    process.env.GIT_COMMITTER_NAME = 'HAXCMS Test'
+    process.env.GIT_COMMITTER_EMAIL = 'haxcms-test@invalid.example'
+    t.after(() => {
+      for (const variable in gitIdentity) {
+        if (gitIdentity[variable] === undefined) {
+          delete process.env[variable]
+        } else {
+          process.env[variable] = gitIdentity[variable]
+        }
+      }
+    })
     useTempConfigDirectory(t)
     const originalGit = HAXCMS.config.site.git
     HAXCMS.config.site.git = {
