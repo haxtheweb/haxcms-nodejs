@@ -854,7 +854,16 @@ async function createSite(req, res) {
     // this would allow them to fork off to different locations down stream
     schema.metadata.site.git = {};
     if (HAXCMS.config.site.git.vendor) {
-        schema.metadata.site.git = HAXCMS.config.site.git;
+        // shallow clone: schema.metadata.site.git is later deleted (below, once
+        // the response schema no longer needs it) so that it isn't exposed in
+        // the API response. site.manifest.metadata.site.git is mirrored from
+        // this same object a few lines down (the `for (var key in
+        // schema.metadata)` loop) and is still needed afterward to decide
+        // whether to create the configured git branches. Without the clone,
+        // both mirrors pointed at the SAME object, so deleting schema's copy
+        // also wiped site.manifest's copy and the branch-creation checks below
+        // always saw `undefined`, silently skipping git.createBranch().
+        schema.metadata.site.git = { ...HAXCMS.config.site.git };
         delete schema.metadata.site.git.keySet;
         delete schema.metadata.site.git.email;
         delete schema.metadata.site.git.user;
@@ -916,7 +925,14 @@ async function createSite(req, res) {
         } catch (e) {}
       }
     }
-    // main site schema doesn't care about publishing settings
+    // main site schema doesn't care about publishing settings. NOTE:
+    // site.manifest.metadata.site is the SAME object as schema.metadata.site
+    // (aliased a few lines up by the `for (var key in schema.metadata)` mirror
+    // loop), so this delete also strips .git off site.manifest.metadata.site.
+    // Capture the branch names we still need for git.createBranch() below
+    // BEFORE deleting, instead of re-reading them from the now-stale object.
+    const configuredStaticBranch = schema.metadata.site.git && schema.metadata.site.git.staticBranch;
+    const configuredBranch = schema.metadata.site.git && schema.metadata.site.git.branch;
     delete schema.metadata.site.git;
 
     try {
@@ -929,15 +945,11 @@ async function createSite(req, res) {
       await git.add();
       await git.commit('A new journey begins: ' + site.manifest.title + ' (' + site.manifest.id + ')');
       // make a branch but dont use it
-      if (site.manifest.metadata.site.git && site.manifest.metadata.site.git.staticBranch) {
-        await git.createBranch(
-          site.manifest.metadata.site.git.staticBranch
-        );
+      if (configuredStaticBranch) {
+        await git.createBranch(configuredStaticBranch);
       }
-      if (site.manifest.metadata.site.git && site.manifest.metadata.site.git.branch) {
-        await git.createBranch(
-          site.manifest.metadata.site.git.branch
-        );
+      if (configuredBranch) {
+        await git.createBranch(configuredBranch);
       }
     }
     catch(e) {}
