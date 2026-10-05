@@ -24,13 +24,19 @@
 //   - cloneJsonValue falls back to the ORIGINAL reference for JSON-hostile
 //     values (BigInt), so the site schema can end up sharing the theme
 //     registry object.
-//   - KNOWN BUG: configured git staticBranch/branch are NEVER created. The
-//     publishing git settings mirror into the new site's manifest, but
-//     git-interface's createBranch wraps the branch name in literal single
-//     quotes (its splitRegex tokenizes "'checkout", "-b", "'probe-branch'"),
-//     so `git checkout -b "'probe-branch'"` exits non-zero, the throw is
-//     swallowed by the surrounding catch, and the site is still created 200
-//     with only the default branch. Asserted as current behavior.
+//   - FIXED BUG (was): configured git staticBranch/branch were never created.
+//     schema.metadata.site.git was assigned HAXCMS.config.site.git BY
+//     REFERENCE (no clone), and `for (var key in schema.metadata) { ... }`
+//     mirrored schema.metadata.site itself by reference into
+//     site.manifest.metadata.site. So `delete schema.metadata.site.git`
+//     (done so the public response schema doesn't leak git.user/email/
+//     keySet) ALSO deleted site.manifest.metadata.site.git before the
+//     git.createBranch() checks ran, so both calls were skipped every time.
+//     git-interface's createBranch itself works fine — the branch names
+//     were simply gone by the time anything tried to read them. Fixed by
+//     cloning HAXCMS.config.site.git before stripping secrets, and by
+//     capturing the configured branch/staticBranch into local variables
+//     before the delete.
 //
 // Residue in createSite.js that stays uncovered (dead/defensive code):
 //   - normalizeSiteFilePath non-string branch (26-27): for-in keys are strings
@@ -572,7 +578,7 @@ describe('createSite latent branches — skeleton resolution', () => {
 })
 
 describe('createSite latent branches — git publishing', () => {
-  test('KNOWN BUG: configured staticBranch/branch never materialize in the repo', async (t) => {
+  test('configured staticBranch/branch are created in the repo, and secrets are not leaked', async (t) => {
     useTempConfigDirectory(t)
     const originalGit = HAXCMS.config.site.git
     HAXCMS.config.site.git = {
@@ -589,19 +595,59 @@ describe('createSite latent branches — git publishing', () => {
     const res = stubRes()
     await createSiteRoute(makeReq({ site: { name: 'Latent Git Branches' } }), res)
     assert.equal(res.sent.status, 200)
-    // the publishing settings DID mirror into the site manifest
+    // the public response schema never carries git publishing settings
+    // (secrets especially must never leak to the API response)
+    assert.equal(res.sent.data.metadata.site.git, undefined)
+    // the publishing settings mirrored into the site manifest, with the
+    // secret keySet/email/user fields stripped
     const manifest = readSiteJson('latent-git-branches')
     assert.equal(manifest.metadata.site.git.staticBranch, 'latent-static-branch')
     assert.equal(manifest.metadata.site.git.branch, 'latent-site-branch')
-    // Characterization: git-interface's createBranch wraps the branch name in
-    // literal single quotes ('checkout -b 'name'' tokenizes into quoted
-    // tokens), so both `git checkout -b` calls exit non-zero inside the
-    // swallowed catch and the repo keeps only the default branch. If this
-    // fails after a git-interface fix or a createSite workaround, update it
-    // to assert the branches exist.
+    assert.equal(manifest.metadata.site.git.keySet, undefined)
+    assert.equal(manifest.metadata.site.git.email, undefined)
+    assert.equal(manifest.metadata.site.git.user, undefined)
+    // both configured branches now actually exist in the repo
     const branches = await listBranches('latent-git-branches')
     assert.ok(branches.indexOf('master') !== -1 || branches.indexOf('main') !== -1)
-    assert.equal(branches.indexOf('latent-static-branch'), -1)
-    assert.equal(branches.indexOf('latent-site-branch'), -1)
+    assert.ok(branches.indexOf('latent-static-branch') !== -1)
+    assert.ok(branches.indexOf('latent-site-branch') !== -1)
+    // the global HAXCMS.config.site.git singleton (including its secrets)
+    // must not be mutated by createSite's own response-sanitization
+    assert.equal(HAXCMS.config.site.git.keySet, 'secret-key')
+    assert.equal(HAXCMS.config.site.git.email, 'secret@example.com')
+    assert.equal(HAXCMS.config.site.git.user, 'secret-user')
+  })
+
+  test('only a configured branch (no staticBranch) creates just that one branch', async (t) => {
+    useTempConfigDirectory(t)
+    const originalGit = HAXCMS.config.site.git
+    HAXCMS.config.site.git = {
+      vendor: 'github',
+      branch: 'only-branch-configured',
+    }
+    t.after(() => {
+      HAXCMS.config.site.git = originalGit
+    })
+    const res = stubRes()
+    await createSiteRoute(makeReq({ site: { name: 'Latent Single Git Branch' } }), res)
+    assert.equal(res.sent.status, 200)
+    const branches = await listBranches('latent-single-git-branch')
+    assert.ok(branches.indexOf('only-branch-configured') !== -1)
+  })
+
+  test('no vendor configured leaves the manifest git settings empty and skips branch creation', async (t) => {
+    useTempConfigDirectory(t)
+    const originalGit = HAXCMS.config.site.git
+    HAXCMS.config.site.git = {}
+    t.after(() => {
+      HAXCMS.config.site.git = originalGit
+    })
+    const res = stubRes()
+    await createSiteRoute(makeReq({ site: { name: 'Latent No Git Vendor' } }), res)
+    assert.equal(res.sent.status, 200)
+    const manifest = readSiteJson('latent-no-git-vendor')
+    assert.deepEqual(manifest.metadata.site.git, {})
+    const branches = await listBranches('latent-no-git-vendor')
+    assert.equal(branches.length, 1)
   })
 })
