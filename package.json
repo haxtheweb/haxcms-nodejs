@@ -21,7 +21,7 @@
     "test:unit": "node --test test/unit/**/*.test.cjs",
     "test:api-conformance": "node --test test/api-conformance/**/*.test.cjs",
     "test": "node --test test/unit/**/*.test.cjs test/api-conformance/**/*.test.cjs",
-    "test:coverage": "c8 --include='src/lib/**' --include='src/siteRoutes/**' --include='src/systemRoutes/**' --exclude='src/public/**' --exclude='src/lib/vendor/**' --exclude='test/**' --exclude='dist/**' --reporter=text --reporter=lcov --report-dir=coverage node --test test/unit/**/*.test.cjs test/api-conformance/**/*.test.cjs",
+    "test:coverage": "c8 --all --include='src/lib/**' --include='src/siteRoutes/**' --include='src/systemRoutes/**' --exclude='src/public/**' --exclude='src/lib/vendor/**' --exclude='test/**' --exclude='dist/**' --reporter=text --reporter=lcov --report-dir=coverage node --test test/unit/**/*.test.cjs test/api-conformance/**/*.test.cjs",
     "test:e2e": "node --test test/e2e/*.e2e.test.cjs",
     "test:e2e:update": "HAXCMS_E2E_UPDATE_SCREENSHOTS=1 node --test test/e2e/*.e2e.test.cjs",
     "release": "npm run build && commit-and-tag-version && git push --follow-tags origin main && npm publish",
