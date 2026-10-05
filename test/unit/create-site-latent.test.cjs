@@ -57,7 +57,7 @@
 // Constraints honored: CommonJS (.cjs), require(), globalThis (not window), NO
 // optional chaining (explicit && guards), node:test + node:assert/strict.
 
-const { test, describe } = require('node:test')
+const { test, describe, before, after } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('fs-extra')
 const os = require('os')
@@ -578,6 +578,28 @@ describe('createSite latent branches — skeleton resolution', () => {
 })
 
 describe('createSite latent branches — git publishing', () => {
+  const gitIdentity = {
+    GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME,
+    GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL,
+    GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME,
+    GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL,
+  }
+  before(() => {
+    process.env.GIT_AUTHOR_NAME = 'HAXCMS Test'
+    process.env.GIT_AUTHOR_EMAIL = 'haxcms-test@invalid.example'
+    process.env.GIT_COMMITTER_NAME = 'HAXCMS Test'
+    process.env.GIT_COMMITTER_EMAIL = 'haxcms-test@invalid.example'
+  })
+  after(() => {
+    for (const variable in gitIdentity) {
+      if (gitIdentity[variable] === undefined) {
+        delete process.env[variable]
+      } else {
+        process.env[variable] = gitIdentity[variable]
+      }
+    }
+  })
+
   test('configured staticBranch/branch are created in the repo, and secrets are not leaked', async (t) => {
     useTempConfigDirectory(t)
     const originalGit = HAXCMS.config.site.git
