@@ -36,8 +36,14 @@ const assert = require('node:assert/strict')
 // the real CLI boot sees (isCLI() gates constructor side effects).
 process.env.haxcms_middleware = 'node-cli'
 
-// load the babel hook before any src/ module is required
-require('@babel/register')
+// load the babel hook before any src/ module is required — scoped to ONLY
+// src/cli.js. babel-register compiles everything it hooks, and cli.js pulls
+// lib/allRoutes.js (the whole route registry) plus lib/HAXCMS.js through it,
+// so an unscoped hook re-compiles those shared modules in this one process
+// and their sourcemapped coverage then corrupts the merged lcov across the
+// other test processes (doubled function counts, undercounted lines).
+// Only cli.js needs the hook — everything else loads as normal CJS.
+require('@babel/register')({ only: [/[/\\]src[/\\]cli\.js$/] })
 
 const { SystemRoutesMap, SiteRoutesMap } = require('../../src/lib/allRoutes.js')
 
