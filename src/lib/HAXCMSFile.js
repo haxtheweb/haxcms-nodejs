@@ -9,7 +9,7 @@ const FilesDataStore = require('./FilesDataStore.js');
 const sharp = require('sharp');
 const dns = require('dns');
 
-const ALLOWED_UPLOAD_EXTENSION_PATTERN = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml)$/i;
+const ALLOWED_UPLOAD_EXTENSION_PATTERN = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf)$/i;
 const ALLOWED_MIME_BY_EXTENSION = {
   'jpg': ['image/jpeg'],
   'jpeg': ['image/jpeg'],
@@ -34,6 +34,13 @@ const ALLOWED_MIME_BY_EXTENSION = {
   'html': ['text/html', 'application/xhtml+xml'],
   'md': ['text/markdown', 'text/plain'],
   'xml': ['application/xml', 'text/xml'],
+  // calendars and contact cards are plain text, so the content
+  // sniffer reports text/plain for them; libmagic on the PHP side
+  // reports the registered types, and both backends accept the same
+  // set. text/html is deliberately absent: a file carrying markup is
+  // detected as text/html and rejected rather than stored and served
+  'ics': ['text/calendar', 'text/x-vcalendar', 'text/plain'],
+  'vcf': ['text/vcard', 'text/x-vcard', 'text/directory', 'text/plain'],
   'css': ['text/css'],
   'js': ['text/javascript', 'application/javascript', 'application/x-javascript', 'text/ecmascript'],
   'svg': ['image/svg+xml'],
