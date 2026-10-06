@@ -10,7 +10,7 @@ const EntityRegistry = require('../../../lib/EntityRegistry.js');
 const FileStorage = require('../../../lib/FileStorage.js');
 const FileContentScanner = require('../../../lib/FileContentScanner.js');
 
-const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml)$/i;
+const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf)$/i;
 const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
 const DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE = '--simple-colors-default-theme-light-blue-7';
 // Extensions permitted for build.siteFiles downloads (theme/ and custom/
