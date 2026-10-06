@@ -37,6 +37,7 @@ const IFRAME_ALLOWED_ATTRIBUTES = new Set([
   'loading',
   'allow',
   'allowfullscreen',
+  'credentialless',
   'referrerpolicy',
   'sandbox',
 ])
@@ -352,6 +353,7 @@ function sanitizeHTMLForStorage(html) {
       'loading',
       'allow',
       'allowfullscreen',
+      'credentialless',
       'referrerpolicy',
       'sandbox',
     ],

@@ -244,6 +244,56 @@ describe('sanitizeHTMLForStorage — referrerpolicy normalization', () => {
   })
 })
 
+describe('sanitizeHTMLForStorage — credentialless iframe support', () => {
+  // issue #3112: embed elements emit `credentialless` +
+  // `referrerpolicy="strict-origin-when-cross-origin"` so third-party
+  // embeds load on cross-origin isolated (COEP) pages; the sanitizer must
+  // not strip either attribute from stored iframe markup
+  test('bare credentialless attribute survives sanitization', () => {
+    assert.equal(
+      sanitizeHTMLForStorage(
+        '<iframe src="https://www.youtube.com/embed/x" credentialless></iframe>',
+      ),
+      '<iframe src="https://www.youtube.com/embed/x" credentialless="" loading="lazy" referrerpolicy="no-referrer" sandbox="' +
+        DEFAULT_SANDBOX +
+        '"></iframe>',
+    )
+  })
+
+  test('credentialless with an explicit empty value survives sanitization', () => {
+    assert.equal(
+      sanitizeHTMLForStorage(
+        '<iframe src="https://www.youtube.com/embed/x" credentialless=""></iframe>',
+      ),
+      '<iframe src="https://www.youtube.com/embed/x" credentialless="" loading="lazy" referrerpolicy="no-referrer" sandbox="' +
+        DEFAULT_SANDBOX +
+        '"></iframe>',
+    )
+  })
+
+  test('credentialless is kept alongside an explicit referrerpolicy', () => {
+    assert.equal(
+      sanitizeHTMLForStorage(
+        '<iframe src="https://www.youtube.com/embed/x" credentialless referrerpolicy="strict-origin-when-cross-origin"></iframe>',
+      ),
+      '<iframe src="https://www.youtube.com/embed/x" credentialless="" referrerpolicy="strict-origin-when-cross-origin" loading="lazy" sandbox="' +
+        DEFAULT_SANDBOX +
+        '"></iframe>',
+    )
+  })
+
+  test('strict-origin-when-cross-origin referrerpolicy is preserved verbatim', () => {
+    assert.equal(
+      sanitizeHTMLForStorage(
+        '<iframe src="https://www.youtube.com/embed/x" referrerpolicy="strict-origin-when-cross-origin"></iframe>',
+      ),
+      '<iframe src="https://www.youtube.com/embed/x" referrerpolicy="strict-origin-when-cross-origin" loading="lazy" sandbox="' +
+        DEFAULT_SANDBOX +
+        '"></iframe>',
+    )
+  })
+})
+
 describe('sanitizeHTMLForStorage — template text inside host elements', () => {
   test('template markup inside code-sample is escaped to inert text', () => {
     assert.equal(
