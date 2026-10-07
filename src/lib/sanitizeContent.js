@@ -353,9 +353,15 @@ function sanitizeHTMLForStorage(html) {
       'loading',
       'allow',
       'allowfullscreen',
-      'credentialless',
       'referrerpolicy',
       'sandbox',
+      // #3112: embed elements emit credentialless for COEP pages; kept in
+      // IFRAME_ALLOWED_ATTRIBUTES above but DOMPurify strips it first unless
+      // allowlisted here as well
+      'credentialless',
+      // legacy question-element serialization on standard <input> elements;
+      // data-correct is the target form and survives by default (#3113)
+      'correct',
     ],
     ALLOW_UNKNOWN_PROTOCOLS: false,
     CUSTOM_ELEMENT_HANDLING: {

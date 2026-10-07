@@ -332,6 +332,37 @@ describe('sanitizeHTMLForStorage — template text inside host elements', () => 
   })
 })
 
+describe('sanitizeHTMLForStorage — question element answer attributes', () => {
+  // #3113: QuestionElement serializes the right answer onto light-DOM
+  // <input> elements. Legacy content uses the bare `correct` attribute
+  // (allowlisted via ADD_ATTR); new content uses `data-correct`, which
+  // DOMPurify keeps by default.
+  test('legacy bare correct attribute on an input is preserved', () => {
+    assert.equal(
+      sanitizeHTMLForStorage('<input type="checkbox" value="North" correct>'),
+      '<input type="checkbox" value="North" correct="">',
+    )
+  })
+
+  test('data-correct answer attribute on an input is preserved', () => {
+    assert.equal(
+      sanitizeHTMLForStorage(
+        '<input type="checkbox" value="North" data-correct="true" data-selected="feedback">',
+      ),
+      '<input type="checkbox" value="North" data-correct="true" data-selected="feedback">',
+    )
+  })
+
+  test('answer attributes are preserved while event handlers are still stripped', () => {
+    assert.equal(
+      sanitizeHTMLForStorage(
+        '<input type="checkbox" value="North" correct data-correct="true" data-selected="feedback" onclick="steal()">',
+      ),
+      '<input type="checkbox" value="North" correct="" data-correct="true" data-selected="feedback">',
+    )
+  })
+})
+
 describe('sanitizeHTMLForStorage — input handling', () => {
   test('non-string input returns empty string', () => {
     assert.equal(sanitizeHTMLForStorage(null), '')
