@@ -74,7 +74,7 @@ const KNOWN_PLATFORMS = [
   'notion',
   'wordpress',
   'elmsln',
-  'drupal-book',
+  'drupal',
   'plone',
 ]
 

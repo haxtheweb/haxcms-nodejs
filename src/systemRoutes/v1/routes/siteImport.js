@@ -5,7 +5,7 @@ const { convertGitbookToSite } = require('./imports/convertGitbookToSite.js')
 const { convertNotionToSite } = require('./imports/convertNotionToSite.js')
 const { convertWordpressToSite } = require('./imports/convertWordpressToSite.js')
 const { convertElmslnToSite } = require('./imports/convertElmslnToSite.js')
-const { convertDrupalBookToSite } = require('./imports/convertDrupalBookToSite.js')
+const { convertDrupalToSite } = require('./imports/convertDrupalToSite.js')
 const { convertPloneToSite } = require('./imports/convertPloneToSite.js')
 const { convertOpenstaxToSite } = require('./imports/convertOpenstaxToSite.js')
 const { convertVitepressToSite } = require('./imports/convertVitepressToSite.js')
@@ -15,7 +15,7 @@ const { convertVitepressToSite } = require('./imports/convertVitepressToSite.js'
  * Dispatcher that routes platform import requests to the correct converter.
  *
  * Supported platforms: haxcms, html, pressbooks, gitbook, notion, wordpress,
- * elmsln, drupal-book, plone, openstax, vitepress.
+ * elmsln, drupal, plone, openstax, vitepress.
  * Returns { status: 200, data: { items: [...], filename: string, ... } }.
  */
 async function siteImport(req, res) {
@@ -39,8 +39,8 @@ async function siteImport(req, res) {
       return convertWordpressToSite(req, res)
     case 'elmsln':
       return convertElmslnToSite(req, res)
-    case 'drupal-book':
-      return convertDrupalBookToSite(req, res)
+    case 'drupal':
+      return convertDrupalToSite(req, res)
     case 'plone':
       return convertPloneToSite(req, res)
     case 'openstax':
