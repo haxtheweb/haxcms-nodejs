@@ -729,6 +729,52 @@ test('getSiteMetadata honors theme hex codes and cdn preconnect', async () => {
   assert.ok(cdnMeta.indexOf('<link rel="preconnect" crossorigin href="https://cdn.example" />') !== -1)
 })
 
+test('getSiteMetadata emits verbatim hints for custom themes and registry-prefixed hints for registry themes', async () => {
+  const site = await HAXCMS.loadSite('unit-website')
+  const originalThemePath = site.manifest.metadata.theme.path
+  // registry theme keeps the base + build/es6/node_modules/ prefix on both hints
+  site.manifest.metadata.theme.path = '@haxtheweb/clean-two/clean-two.js'
+  const registryMeta = await site.getSiteMetadata(null, 'https://unit.example')
+  assert.ok(
+    registryMeta.indexOf(
+      '<link rel="modulepreload" href="./build/es6/node_modules/@haxtheweb/clean-two/clean-two.js"',
+    ) !== -1,
+  )
+  assert.ok(
+    registryMeta.indexOf(
+      '<link rel="preload" href="./build/es6/node_modules/@haxtheweb/clean-two/clean-two.js"',
+    ) !== -1,
+  )
+  // custom theme: site-relative path is emitted verbatim, never mangled
+  site.manifest.metadata.theme.path = './custom/build/custom.es6.js'
+  const customMeta = await site.getSiteMetadata(null, 'https://unit.example')
+  assert.ok(
+    customMeta.indexOf('<link rel="modulepreload" href="./custom/build/custom.es6.js"') !== -1,
+  )
+  assert.ok(
+    customMeta.indexOf('<link rel="preload" href="./custom/build/custom.es6.js"') !== -1,
+  )
+  assert.equal(customMeta.indexOf('build/es6/node_modules/./custom'), -1)
+  assert.equal(customMeta.indexOf('build/es6/node_modules/custom/'), -1)
+  // the shell helper only admits registry-relative theme paths
+  assert.equal(
+    HAXCMS.buildShellModulepreloadPaths(
+      site,
+      './',
+      './custom/build/custom.es6.js',
+    ).indexOf('./custom/build/custom.es6.js'),
+    -1,
+  )
+  assert.ok(
+    HAXCMS.buildShellModulepreloadPaths(
+      site,
+      './',
+      '@haxtheweb/clean-two/clean-two.js',
+    ).indexOf('@haxtheweb/clean-two/clean-two.js') !== -1,
+  )
+  site.manifest.metadata.theme.path = originalThemePath
+})
+
 test('getSiteMetadata uses the site domain for canonical and og urls', async () => {
   const site = await HAXCMS.loadSite('unit-training')
   site.manifest.metadata.site.domain = 'https://unit-training.example'

@@ -2240,9 +2240,21 @@ class HAXCMSSite
       }
       let themePreload = '';
       if (themePath) {
-        // theme modulepreload is already in the shell set above; keep only
-        // the preload-as-script hint so the theme fetch is prioritized early.
-        themePreload = '  <link rel="preload" href="' + base + 'build/es6/node_modules/' + themePath + '" as="script" crossorigin="anonymous" />';
+        if (themePath.charAt(0) === '@') {
+          // registry theme: modulepreload is already in the shell set above;
+          // keep only the preload-as-script hint so the theme fetch is
+          // prioritized early.
+          themePreload = '  <link rel="preload" href="' + base + 'build/es6/node_modules/' + themePath + '" as="script" crossorigin="anonymous" />';
+        }
+        else {
+          // custom theme: site-relative path (e.g. ./custom/build/custom.es6.js)
+          // loaded directly by build-haxcms.js. Emit the hrefs verbatim so they
+          // match the real module request instead of 404ing behind the registry
+          // prefix. Escaped like every other URL emitted in this block.
+          const safeCustomThemePath = escapeHtml(themePath);
+          themePreload = '  <link rel="modulepreload" href="' + safeCustomThemePath + '" crossorigin="anonymous" />\n' +
+            '  <link rel="preload" href="' + safeCustomThemePath + '" as="script" crossorigin="anonymous" />';
+        }
       }
       let metadata = `<meta charset="utf-8" />
   ${preconnect}
@@ -4579,7 +4591,13 @@ class HAXCMSClass {
     ];
     if (themePath) {
       themePath = String(themePath);
-      if (!shellEntries.includes(themePath)) {
+      // only registry-relative theme paths (e.g. "@haxtheweb/...") belong in
+      // this list; custom theme paths (./custom/build/custom.es6.js) are
+      // site-relative and must never gain the build/es6/node_modules/ prefix
+      if (
+        themePath.charAt(0) === '@' &&
+        !shellEntries.includes(themePath)
+      ) {
         shellEntries.push(themePath);
       }
     }
