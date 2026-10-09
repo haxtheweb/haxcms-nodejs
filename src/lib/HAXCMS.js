@@ -456,7 +456,15 @@ class HAXCMSSite
         // initalize git repo
         await git.init();
         await git.add();
-        await git.commit('A new journey begins: ' + this.manifest.title + ' (' + this.manifest.id + ')');
+        // haxtheweb/issues#3116: fresh containers / CI often have no git identity,
+        // which made this commit fail with a stack trace and no initial commit
+        const restoreGitIdentity = await this.gitFallbackIdentity(directory + '/' + tmpname);
+        try {
+          await git.commit('A new journey begins: ' + this.manifest.title + ' (' + this.manifest.id + ')');
+        }
+        finally {
+          restoreGitIdentity();
+        }
         if (
             !(this.manifest.metadata.site && this.manifest.metadata.site.git && this.manifest.metadata.site.git.url) &&
             (gitDetails != null && gitDetails.url)
@@ -465,7 +473,8 @@ class HAXCMSSite
         }
       }
       catch(e){
-        console.warn(e);
+        // one line instead of a stack trace; site creation itself succeeded
+        console.warn('HAXcms: initial git commit skipped: ' + String((e && e.message) || e).split('\n')[0]);
       }
       return this;
     }
@@ -496,6 +505,54 @@ class HAXCMSSite
       } catch (e) {
         return null;
       }
+    }
+    /**
+     * When no git identity is configured (config or env), supply a placeholder
+     * identity through GIT_AUTHOR_* / GIT_COMMITTER_* env vars for the next git
+     * call only. Never writes git config. Returns a function that restores the
+     * previous environment.
+     */
+    async gitFallbackIdentity(dir) {
+      const gitConfigValue = async (key) => {
+        try {
+          const { stdout } = await exec('git config ' + key, { cwd: dir });
+          return stdout.trim();
+        }
+        catch (e) {
+          return '';
+        }
+      };
+      const hasEmail = (process.env.GIT_AUTHOR_EMAIL && process.env.GIT_COMMITTER_EMAIL) || process.env.EMAIL || await gitConfigValue('user.email');
+      const hasName = (process.env.GIT_AUTHOR_NAME && process.env.GIT_COMMITTER_NAME) || await gitConfigValue('user.name');
+      let fallback = {};
+      if (!hasName) {
+        fallback.GIT_AUTHOR_NAME = 'HAXcms';
+        fallback.GIT_COMMITTER_NAME = 'HAXcms';
+      }
+      if (!hasEmail) {
+        fallback.GIT_AUTHOR_EMAIL = 'haxcms@localhost';
+        fallback.GIT_COMMITTER_EMAIL = 'haxcms@localhost';
+      }
+      const keys = Object.keys(fallback);
+      if (keys.length === 0) {
+        return () => {};
+      }
+      let previous = {};
+      keys.forEach((key) => {
+        previous[key] = process.env[key];
+        process.env[key] = fallback[key];
+      });
+      console.warn('HAXcms: no git identity configured; committing as "HAXcms <haxcms@localhost>". Set git config user.name and user.email to use your own.');
+      return () => {
+        keys.forEach((key) => {
+          if (previous[key] === undefined) {
+            delete process.env[key];
+          }
+          else {
+            process.env[key] = previous[key];
+          }
+        });
+      };
     }
     /**
      * Return an array of files we care about rebuilding on managed file operations
@@ -1176,6 +1233,10 @@ class HAXCMSSite
       lines.push('## Core resources');
       lines.push('- [site.json](' + this.getLLMSResourceURL(domain, 'site.json') + '): Canonical site manifest and navigation tree in JSON Outline Schema format.');
       lines.push('- [llms.txt](' + this.getLLMSResourceURL(domain, 'llms.txt') + '): LLM-oriented guide to this site and its machine-readable resources.');
+      // haxtheweb/issues#3116: point agents at AGENTS.md (older sites may not have one)
+      if (this.siteDirectory && fs.existsSync(path.join(this.siteDirectory, 'AGENTS.md'))) {
+        lines.push('- [AGENTS.md](' + this.getLLMSResourceURL(domain, 'AGENTS.md') + '): Instructions for AI agents working on this site\'s files.');
+      }
       lines.push('');
       lines.push('## Pages');
       let items = [];

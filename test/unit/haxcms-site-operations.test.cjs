@@ -642,6 +642,70 @@ test('llms.txt helpers normalize titles, links, and URLs', async () => {
   assert.ok(fallbackText.indexOf('No page markdown files are currently available') !== -1)
 })
 
+// haxtheweb/issues#3116
+test('llms.txt links AGENTS.md only when the site has one', async () => {
+  const site = await HAXCMS.loadSite('unit-import')
+  const agentsPath = path.join(site.siteDirectory, 'AGENTS.md')
+  const hadAgents = fs.existsSync(agentsPath)
+  const original = hadAgents ? fs.readFileSync(agentsPath) : null
+  try {
+    fs.writeFileSync(agentsPath, '# AGENTS.md\n')
+    assert.ok(site.getLLMSTxt('https://unit.example').indexOf('[AGENTS.md](https://unit.example/AGENTS.md)') !== -1)
+    fs.removeSync(agentsPath)
+    assert.equal(site.getLLMSTxt('https://unit.example').indexOf('AGENTS.md'), -1)
+  } finally {
+    if (hadAgents) {
+      fs.writeFileSync(agentsPath, original)
+    }
+  }
+})
+
+// haxtheweb/issues#3116
+test('gitFallbackIdentity supplies and then restores a placeholder identity', async () => {
+  const keys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'EMAIL', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM']
+  const saved = {}
+  keys.forEach((key) => { saved[key] = process.env[key] })
+  const repo = fs.mkdtempSync(path.join(tempRoot, 'noident-'))
+  const originalWarn = console.warn
+  const warnings = []
+  console.warn = (msg) => { warnings.push(String(msg)) }
+  try {
+    keys.forEach((key) => { delete process.env[key] })
+    process.env.GIT_CONFIG_NOSYSTEM = '1'
+    process.env.GIT_CONFIG_GLOBAL = path.join(repo, 'empty-gitconfig')
+    await execFile('git', ['init', '-q'], { cwd: repo })
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'a')
+    await execFile('git', ['add', 'a.txt'], { cwd: repo })
+    const restore = await new HAXCMSSite().gitFallbackIdentity(repo)
+    assert.equal(process.env.GIT_AUTHOR_EMAIL, 'haxcms@localhost')
+    await execFile('git', ['commit', '-q', '-m', 'first'], { cwd: repo })
+    restore()
+    assert.equal(process.env.GIT_AUTHOR_EMAIL, undefined)
+    const log = await execFile('git', ['log', '--format=%an <%ae>'], { cwd: repo })
+    assert.equal(log.stdout.trim(), 'HAXcms <haxcms@localhost>')
+    assert.equal(warnings.length, 1)
+    // a configured identity is left alone
+    warnings.length = 0
+    process.env.GIT_AUTHOR_NAME = 'Someone'
+    process.env.GIT_COMMITTER_NAME = 'Someone'
+    process.env.GIT_AUTHOR_EMAIL = 'someone@local.invalid'
+    process.env.GIT_COMMITTER_EMAIL = 'someone@local.invalid'
+    const noop = await new HAXCMSSite().gitFallbackIdentity(repo)
+    noop()
+    assert.equal(process.env.GIT_AUTHOR_EMAIL, 'someone@local.invalid')
+    assert.equal(warnings.length, 0)
+  } finally {
+    console.warn = originalWarn
+    keys.forEach((key) => {
+      if (saved[key] === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = saved[key]
+      }
+    })
+  }
+})
+
 test('lunrSearchIndex and cleanSearchData build the search corpus', async () => {
   const site = await HAXCMS.loadSite('unit-import')
   const index = await site.lunrSearchIndex(site.manifest.items)
