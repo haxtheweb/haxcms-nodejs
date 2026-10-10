@@ -2,6 +2,58 @@ const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
 const { HAXCMS } = require('../../lib/HAXCMS.js');
+const {
+  getApiBasePath,
+  isAnonymousSiteApiRequest,
+} = require('../v1/siteRouteUtils.js');
+
+const OPENAPI_METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'];
+
+// haxtheweb/issues#3104: reduce the spec to the operations an anonymous
+// caller can use (effective security is an empty list). Paths left with no
+// operations are dropped. Mirrors PHP SiteRouteUtils::filterOpenApiToPublicOperations.
+function filterOpenApiToPublicOperations(openapi) {
+  if (!openapi || typeof openapi !== 'object' || !openapi.paths || typeof openapi.paths !== 'object') {
+    return openapi;
+  }
+  const globalSecurity = Array.isArray(openapi.security) ? openapi.security : [];
+  const publicPaths = {};
+  for (const pathKey of Object.keys(openapi.paths)) {
+    const pathItem = openapi.paths[pathKey];
+    if (!pathItem || typeof pathItem !== 'object') {
+      continue;
+    }
+    const kept = {};
+    let hasOperation = false;
+    for (const key of Object.keys(pathItem)) {
+      const value = pathItem[key];
+      if (OPENAPI_METHODS.indexOf(String(key).toLowerCase()) !== -1) {
+        const security = value && Array.isArray(value.security) ? value.security : globalSecurity;
+        if (security.length === 0) {
+          kept[key] = value;
+          hasOperation = true;
+        }
+      }
+      else {
+        // path-level parameters, summary, servers, etc.
+        kept[key] = value;
+      }
+    }
+    if (hasOperation) {
+      publicPaths[pathKey] = kept;
+    }
+  }
+  openapi.paths = publicPaths;
+  if (!openapi.info || typeof openapi.info !== 'object') {
+    openapi.info = {};
+  }
+  const note = 'This is the public profile: only operations that work without logging in. Request ?profile=full for every operation.';
+  openapi.info.description = typeof openapi.info.description === 'string' && openapi.info.description !== ''
+    ? openapi.info.description + '\n\n' + note
+    : note;
+  openapi['x-haxcms-profile'] = 'public';
+  return openapi;
+}
 
 const SITE_OPENAPI_SPEC_PATH = path.join(__dirname, '../../openapi/site-spec.yaml');
 
@@ -90,7 +142,15 @@ function detectRequestedFormat(req) {
   return 'json';
 }
 
-function getServerBaseUrl() {
+// haxtheweb/issues#3104: every path in the spec starts with /x/api, so the
+// server URL is the base of the site this request came through (e.g.
+// https://host/_sites/<name>/), not the HAXcms install base.
+function getServerBaseUrl(req) {
+  const apiBasePath = req ? getApiBasePath(req) : '';
+  const sitePrefix = apiBasePath.replace(/\/x\/api$/, '');
+  if (req && sitePrefix !== apiBasePath) {
+    return `${HAXCMS.protocol}://${HAXCMS.domain}${sitePrefix.replace(/\/+$/, '')}/`;
+  }
   let basePath = HAXCMS.basePath || '/';
   if (basePath.charAt(0) !== '/') {
     basePath = '/' + basePath;
@@ -135,10 +195,21 @@ async function siteOpenapi(req, res) {
   openapi.info.version = await HAXCMS.getHAXCMSVersion();
   openapi.servers = [
     {
-      url: getServerBaseUrl(),
+      url: getServerBaseUrl(req),
       description: 'HAXcms site base URL',
     },
   ];
+
+  // haxtheweb/issues#3104: anonymous callers (agents, crawlers) get the
+  // public profile so they don't plan around endpoints that answer 401.
+  // ?profile=full or a logged-in caller gets the whole spec; this is
+  // documentation, not a security boundary.
+  const requestedProfile = req && req.query && typeof req.query.profile === 'string'
+    ? req.query.profile.trim().toLowerCase()
+    : '';
+  if (requestedProfile !== 'full' && isAnonymousSiteApiRequest(req)) {
+    openapi = filterOpenApiToPublicOperations(openapi);
+  }
 
   if (format === 'yaml') {
     res.setHeader('Content-Type', 'application/yaml; charset=utf-8');
@@ -150,3 +221,5 @@ async function siteOpenapi(req, res) {
 }
 
 module.exports = siteOpenapi;
+module.exports.filterOpenApiToPublicOperations = filterOpenApiToPublicOperations;
+module.exports.getServerBaseUrl = getServerBaseUrl;
