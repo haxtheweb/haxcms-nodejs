@@ -12,6 +12,9 @@ const {
   isAnonymousSiteApiRequest,
   isItemVisibleToAnonymous,
 } = require('./siteRouteUtils.js')
+const fs = require('fs')
+const path = require('path')
+const crypto = require('crypto')
 const { HAXCMS } = require('../../lib/HAXCMS.js')
 const { convertHtmlToDocxBuffer, htmlToPdfBuffer } = require('../../lib/convertUtils.js')
 const EPUB = require('epub-gen-memory')
@@ -20,7 +23,7 @@ const TurndownService = require('turndown')
 
 const turndownService = new TurndownService()
 
-const SITE_EXPORT_FORMATS = ['zip', 'markdown', 'pdf', 'docx', 'epub', 'html', 'skeleton']
+const SITE_EXPORT_FORMATS = ['zip', 'markdown', 'md', 'pdf', 'docx', 'epub', 'html', 'skeleton']
 const ITEM_EXPORT_FORMATS = ['pdf', 'docx', 'html', 'md', 'json', 'yaml', 'xml', 'epub']
 const EXPORT_MEDIA_TYPES = {
   pdf: 'application/pdf',
@@ -221,6 +224,133 @@ function filterItemsVisibleToAnonymous(items = []) {
   return (Array.isArray(items) ? items : []).filter(
     (item) => item && isItemVisibleToAnonymous(item),
   )
+}
+
+// Ordered items for a whole-site export, optionally limited to the branch
+// under ancestor. Mirrors PHP ExportConverters::getSiteExportItems.
+function getSiteExportItems(site, ancestor) {
+  const orderedItems = getOrderedItems(site)
+  if (!ancestor || !site || !site.manifest || typeof site.manifest.findBranch !== 'function') {
+    return orderedItems
+  }
+  try {
+    const branch = site.manifest.findBranch(ancestor)
+    if (Array.isArray(branch)) {
+      const branchIds = new Set()
+      for (let i = 0; i < branch.length; i++) {
+        if (branch[i] && branch[i].id) {
+          branchIds.add(branch[i].id)
+        }
+      }
+      return orderedItems.filter((item) => item && item.id && branchIds.has(item.id))
+    }
+  }
+  catch (e) {}
+  return orderedItems
+}
+
+// Percent-encode each slug segment (mirrors PHP SiteRouteUtils::encodeSlugPath).
+function encodeSlugPath(slug = '') {
+  return String(slug)
+    .split('/')
+    .map((part) => part.trim())
+    .filter((part) => part !== '')
+    .map((part) => encodeURIComponent(part))
+    .join('/')
+}
+
+// Absolute page URL prefix when the site has a domain, otherwise the site
+// base path; always ends with a slash.
+function getSiteExportPageUrlBase(site) {
+  const domain =
+    site && site.manifest && site.manifest.metadata && site.manifest.metadata.site
+      ? site.manifest.metadata.site.domain
+      : ''
+  if (typeof domain === 'string' && /^https?:\/\//i.test(domain)) {
+    return domain.replace(/\/+$/, '') + '/'
+  }
+  return String(getSiteBasePath(site) || '/').replace(/\/+$/, '') + '/'
+}
+
+// Markdown body for one page: the save-time sidecar (pages/<id>/index.md,
+// written by writePageAlternateFormats) when present, otherwise a
+// conversion of the page HTML.
+async function getItemMarkdownBody(site, item) {
+  if (item && typeof item.location === 'string' && item.location !== '' && site && site.siteDirectory) {
+    const markdownLocation = /\.html?$/i.test(item.location)
+      ? item.location.replace(/\.html?$/i, '.md')
+      : item.location + '.md'
+    if (markdownLocation.indexOf('..') === -1) {
+      try {
+        return fs.readFileSync(path.join(String(site.siteDirectory), markdownLocation), 'utf8')
+      }
+      catch (e) {}
+    }
+  }
+  const html = await getItemContent(site, item)
+  try {
+    return turndownService.turndown(String(html || ''))
+  }
+  catch (e) {
+    return String(html || '')
+  }
+}
+
+// Whole site as one markdown document, in outline order: site title and
+// description, then each page as a "## Title" section with its canonical
+// URL. visibleOnly drops unpublished and hidden pages (always on for
+// anonymous callers and llms-full.txt). Mirrors PHP
+// ExportConverters::buildSiteExportMarkdown.
+async function buildSiteExportMarkdown(site, ancestor, visibleOnly = false) {
+  let itemsToExport = getSiteExportItems(site, ancestor)
+  if (visibleOnly) {
+    itemsToExport = filterItemsVisibleToAnonymous(itemsToExport)
+  }
+  const parts = [`# ${buildSiteExportDocumentTitle(site)}`]
+  const description = site && site.manifest && site.manifest.description
+    ? String(site.manifest.description).replace(/\s+/g, ' ').trim()
+    : ''
+  if (description !== '') {
+    parts.push('')
+    parts.push(`> ${description}`)
+  }
+  const pageUrlBase = getSiteExportPageUrlBase(site)
+  for (let i = 0; i < itemsToExport.length; i++) {
+    const item = itemsToExport[i]
+    if (!item) {
+      continue
+    }
+    parts.push('')
+    parts.push(`## ${buildItemExportDocumentTitle(item)}`)
+    parts.push('')
+    if (item.slug) {
+      parts.push(`Source: ${pageUrlBase}${encodeSlugPath(String(item.slug))}`)
+      parts.push('')
+    }
+    parts.push(String(await getItemMarkdownBody(site, item)).trim())
+  }
+  return parts.join('\n').trim() + '\n'
+}
+
+// Send a text export inline with validators so agents and proxies can
+// revalidate cheaply. isPublic marks anonymous-view responses as shareable;
+// responses that may include unpublished pages are private.
+function sendCacheableText(req, res, body, mediaType, isPublic = true) {
+  const buffer = Buffer.from(String(body || ''))
+  const etag = '"' + crypto.createHash('sha1').update(buffer).digest('hex') + '"'
+  res.setHeader('Content-Type', mediaType)
+  res.setHeader('ETag', etag)
+  res.setHeader('Cache-Control', isPublic ? 'public, max-age=300' : 'private, no-cache')
+  res.setHeader('Vary', 'Authorization')
+  const ifNoneMatch =
+    req && req.headers && req.headers['if-none-match']
+      ? String(req.headers['if-none-match']).trim()
+      : ''
+  if (ifNoneMatch !== '' && (ifNoneMatch === etag || ifNoneMatch === 'W/' + etag)) {
+    return res.status(304).send()
+  }
+  res.setHeader('Content-Length', buffer.length)
+  return res.status(200).send(buffer)
 }
 
 async function buildSiteExportHtmlContent(site, ancestor, visibleOnly = false) {
@@ -739,7 +869,7 @@ function buildSiteExportDetails(site, apiBasePath = '/x/api', format = '') {
     markdown: {
       rel: 'download',
       mediaType: 'text/markdown',
-      href: `${apiBasePath}/v1/content?mode=concat&format=md`,
+      href: `${apiBasePath}/v1/site/export/md`,
     },
     zip: {
       rel: 'download',
@@ -870,6 +1000,24 @@ async function siteExport(req, res) {
       getExportMediaType(format),
       `${getSiteExportFileBaseName(site)}.${format}`,
     )
+  }
+  if (format === 'md') {
+    // Whole site as one markdown document for agents (also served as
+    // llms-full.txt). Pages are concatenated from their save-time markdown
+    // sidecars, so this stays cheap on large sites.
+    let markdown = ''
+    try {
+      markdown = await buildSiteExportMarkdown(site, ancestor, isAnonymousRequest)
+    }
+    catch (e) {
+      return res.status(500).json({
+        status: 500,
+        data: {
+          message: `Unable to build site export markdown: ${e.message}`,
+        },
+      })
+    }
+    return sendCacheableText(req, res, markdown, 'text/markdown; charset=utf-8', isAnonymousRequest)
   }
   if (format === 'html') {
     try {
@@ -1140,6 +1288,8 @@ async function siteExportMutation(req, res) {
 }
 
 module.exports = {
+  buildSiteExportMarkdown,
+  sendCacheableText,
   siteExport,
   siteExportMutation,
   itemExport,
