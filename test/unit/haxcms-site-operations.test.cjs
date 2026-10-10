@@ -783,6 +783,34 @@ test('getSiteMetadata resolves author data from manifest metadata and string aut
   assert.ok(objectAuthorMeta.indexOf('@object-author') !== -1)
 })
 
+// haxtheweb/issues#3104
+test('getSiteMetadata uses a license link, omits author email, and skips empty social images', async () => {
+  const site = await HAXCMS.loadSite('unit-website')
+  site.manifest.license = 'by-sa'
+  site.manifest.metadata.author = { name: 'Pat Author', email: 'pat@example.edu' }
+  site.manifest.metadata.theme.variables = {}
+  site.manifest.metadata.site.logo = ''
+  const meta = await site.getSiteMetadata({ id: 'p1', slug: 'about', title: 'About', metadata: {} }, 'https://unit.example')
+  assert.ok(meta.indexOf('<link rel="license" href="https://creativecommons.org/licenses/by-sa/4.0/"') !== -1)
+  assert.equal(meta.indexOf('cc:license'), -1)
+  assert.equal(meta.indexOf('pat@example.edu'), -1)
+  assert.ok(meta.indexOf('property="og:site_name"') !== -1)
+  assert.equal(meta.indexOf('property="og:image"'), -1)
+  assert.equal(meta.indexOf('property="twitter:image"'), -1)
+  const jsonLd = JSON.parse(meta.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1])
+  const byType = {}
+  jsonLd['@graph'].forEach((node) => { byType[node['@type']] = node })
+  assert.equal(byType.WebSite.license, 'https://creativecommons.org/licenses/by-sa/4.0/')
+  assert.equal(byType.WebPage.license, 'https://creativecommons.org/licenses/by-sa/4.0/')
+  assert.equal(byType.Person.name, 'Pat Author')
+  assert.equal(byType.Person.email, undefined)
+  // a theme banner becomes an absolute og:image against the site domain
+  site.manifest.metadata.site.domain = 'https://unit-website.example'
+  site.manifest.metadata.theme.variables = { image: 'files/banner.jpg' }
+  const withImage = await site.getSiteMetadata({ id: 'p1', slug: 'about', title: 'About', metadata: {} }, 'https://unit.example')
+  assert.ok(withImage.indexOf('property="og:image" content="https://unit-website.example/files/banner.jpg"') !== -1)
+})
+
 test('getSiteMetadata honors theme hex codes and cdn preconnect', async () => {
   const site = await HAXCMS.loadSite('unit-website')
   site.manifest.metadata.theme.variables = { hexCode: '#123456' }
@@ -885,6 +913,13 @@ test('getSocialShareImage resolves legacy file shapes and the theme banner', asy
   site.manifest.metadata.theme.variables = { image: 'files/theme-banner.png' }
   // a bare object (not null) skips the broken loadNodeByLocation path
   assert.equal(site.getSocialShareImage({}), 'files/theme-banner.png')
+  // a page's own image wins over the theme banner (haxtheweb/issues#3104)
+  page.metadata.files = [{ type: 'image/png', fullUrl: 'files/legacy-image.png' }]
+  assert.equal(site.getSocialShareImage(page), 'files/legacy-image.png')
+  // no page image and no banner: the site logo, never the generic icon
+  site.manifest.metadata.theme.variables = {}
+  site.manifest.metadata.site.logo = ''
+  assert.equal(await site.getSocialShareImageWithFallback({}), '')
 })
 
 test('getLogoSize falls back to the default icon and resizes a configured logo', async () => {
