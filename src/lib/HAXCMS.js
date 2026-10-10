@@ -1562,12 +1562,30 @@ class HAXCMSSite
             }
           }
         }
-        // look for the theme banner
-        if (this.manifest.metadata.theme && this.manifest.metadata.theme.variables && this.manifest.metadata.theme.variables.image) {
+        // a page's own image wins; otherwise the theme banner
+        if (!fileName && this.manifest.metadata.theme && this.manifest.metadata.theme.variables && this.manifest.metadata.theme.variables.image) {
           fileName = this.manifest.metadata.theme.variables.image;
         }
       }
-      return fileName;
+      return fileName || '';
+    }
+    /**
+     * Social share image with the site logo as the last fallback (never the
+     * generic HAX icon). Async because logo sizes are generated on demand.
+     * Mirrors the fallback order in PHP HAXCMSSite::getSocialShareImage.
+     */
+    async getSocialShareImageWithFallback(page = null) {
+      const image = this.getSocialShareImage(page);
+      if (image) {
+        return image;
+      }
+      const logo = this.manifest && this.manifest.metadata && this.manifest.metadata.site
+        ? this.manifest.metadata.site.logo
+        : '';
+      if (logo && logo !== 'null') {
+        return (await this.getLogoSize('512', '512')) || '';
+      }
+      return '';
     }
     /**
      * Return attributes for the site
@@ -2025,7 +2043,13 @@ class HAXCMSSite
       const safeDescription = escapeHtml(description);
       const safeManifestTitle = escapeHtml(this.manifest.title);
       const safeDomain = escapeHtml(sanitizeUrl(canonicalUrl || domain));
-      const safeSocialShareImage = escapeHtml(sanitizeUrl(this.getSocialShareImage(page)));
+      // social cards need an absolute image URL; relative paths resolve
+      // against the site domain when one is set
+      let socialImageUrl = sanitizeUrl(await this.getSocialShareImageWithFallback(page));
+      if (socialImageUrl && !/^https?:\/\//i.test(socialImageUrl) && /^https?:\/\//i.test(String(canonicalBase || ''))) {
+        socialImageUrl = String(canonicalBase).replace(/\/+$/, '') + '/' + socialImageUrl.replace(/^\/+/, '');
+      }
+      const safeSocialShareImage = escapeHtml(socialImageUrl);
       const safeHexCode = escapeHtml(hexCode);
       const joinUrl = (baseValue = '', segmentValue = '') => {
         const normalizedBase = String(baseValue || '');
@@ -2074,7 +2098,7 @@ class HAXCMSSite
         return sanitizedValue;
       };
       let socialShareImageForStructuredData = toAbsoluteStructuredDataUrl(
-        this.getSocialShareImage(page),
+        await this.getSocialShareImageWithFallback(page),
       );
       let siteLogoForStructuredData = toAbsoluteStructuredDataUrl(
         await this.getLogoSize('512', '512'),
@@ -2127,16 +2151,8 @@ class HAXCMSSite
       ) {
         authorName = String(this.manifest.author.name).trim();
       }
-      let authorEmail = '';
-      if (manifestAuthor && manifestAuthor.email) {
-        authorEmail = String(manifestAuthor.email).trim();
-      } else if (
-        this.manifest &&
-        this.manifest.author &&
-        this.manifest.author.email
-      ) {
-        authorEmail = String(this.manifest.author.email).trim();
-      }
+      // author email is deliberately not published in structured data;
+      // it only feeds address harvesters
       let authorSocialLink = '';
       if (manifestAuthor && manifestAuthor.socialLink) {
         authorSocialLink = sanitizeUrl(String(manifestAuthor.socialLink).trim());
@@ -2358,17 +2374,17 @@ ${themePreload}${contentPreload}
   <meta name="msapplication-tap-highlight" content="no">
         
   <meta name=\"description\" content=\"${safeDescription}\" />
-  <meta name=\"og:sitename\" property=\"og:sitename\" content=\"${safeManifestTitle}\" />
+  <meta name=\"og:site_name\" property=\"og:site_name\" content=\"${safeManifestTitle}\" />
   <meta name=\"og:title\" property=\"og:title\" content=\"${safeTitle}\" />
   <meta name="og:type" property="og:type" content="article" />
   <meta name=\"og:url\" property=\"og:url\" content=\"${safeDomain}\" />
   <meta name=\"og:description\" property=\"og:description\" content=\"${safeDescription}\" />
-  <meta name=\"og:image\" property=\"og:image\" content=\"${safeSocialShareImage}\" />
-  <meta name="twitter:card" property="twitter:card" content="summary_large_image" />
+${safeSocialShareImage ? `  <meta name="og:image" property="og:image" content="${safeSocialShareImage}" />
+` : ''}  <meta name="twitter:card" property="twitter:card" content="summary_large_image" />
   <meta name=\"twitter:site\" property=\"twitter:site\" content=\"${safeDomain}\" />
   <meta name=\"twitter:title\" property=\"twitter:title\" content=\"${safeTitle}\" />
   <meta name=\"twitter:description\" property=\"twitter:description\" content=\"${safeDescription}\" />
-  <meta name=\\\"twitter:image\\\" property=\\\"twitter:image\\\" content=\\\"${safeSocialShareImage}\\\" />`;  
+${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" content="${safeSocialShareImage}" />` : ''}`;  
       metadata = metadata.replace(new RegExp('\\\\+"', 'g'), '"');
       let structuredDataBaseUrl = siteUrlForStructuredData || pageUrlForStructuredData;
       let siteStructuredDataId = String(siteUrlForStructuredData).replace(/\/$/, '') + '#website';
@@ -2376,12 +2392,16 @@ ${themePreload}${contentPreload}
       let breadcrumbStructuredDataId = String(pageUrlForStructuredData).replace(/\/$/, '') + '#breadcrumb';
       let authorStructuredDataId = String(structuredDataBaseUrl).replace(/\/$/, '') + '#author';
       let publisherStructuredDataId = String(structuredDataBaseUrl).replace(/\/$/, '') + '#publisher';
+      let licenseUrlForStructuredData = '';
+      const licenseLookup = this.getLicenseData('all');
+      if (typeof this.manifest.license === 'string' && licenseLookup[this.manifest.license] && licenseLookup[this.manifest.license].link) {
+        licenseUrlForStructuredData = sanitizeUrl(licenseLookup[this.manifest.license].link);
+      }
       let jsonLdGraph = [];
       let authorNode = null;
       let publisherNode = null;
       if (
         authorName != '' ||
-        authorEmail != '' ||
         authorSocialLink != '' ||
         authorImageForStructuredData != ''
       ) {
@@ -2391,9 +2411,6 @@ ${themePreload}${contentPreload}
         };
         if (authorName != '') {
           authorNode.name = authorName;
-        }
-        if (authorEmail != '') {
-          authorNode.email = authorEmail;
         }
         if (authorSocialLink != '') {
           authorNode.sameAs = [authorSocialLink];
@@ -2464,6 +2481,9 @@ ${themePreload}${contentPreload}
             '@id': authorNode['@id'],
           };
         }
+        if (licenseUrlForStructuredData != '') {
+          webSiteNode.license = licenseUrlForStructuredData;
+        }
         if (siteLogoForStructuredData != '') {
           webSiteNode.image = {
             '@type': 'ImageObject',
@@ -2521,6 +2541,9 @@ ${themePreload}${contentPreload}
             '@id': breadcrumbStructuredDataId,
           };
         }
+        if (licenseUrlForStructuredData != '') {
+          webPageNode.license = licenseUrlForStructuredData;
+        }
         if (page && page.id) {
           webPageNode.identifier = String(page.id);
         }
@@ -2537,7 +2560,8 @@ ${themePreload}${contentPreload}
       // mix in license metadata if we have it
       let licenseData = this.getLicenseData('all');
       if ((this.manifest.license) && (licenseData[this.manifest.license])) {
-          metadata += "\n" + '  <meta rel="cc:license" href="' + escapeHtml(sanitizeUrl(licenseData[this.manifest.license]['link'])) + '" content="License: ' + escapeHtml(licenseData[this.manifest.license]['name']) + '"/>' + "\n";
+          // rel="license" belongs on <link>, not <meta>
+          metadata += "\n" + '  <link rel="license" href="' + escapeHtml(sanitizeUrl(licenseData[this.manifest.license]['link'])) + '" title="' + escapeHtml(licenseData[this.manifest.license]['name']) + '" />' + "\n";
       }
       // add in X link if they provided one
       if ((this.manifest.metadata.author.socialLink) && (this.manifest.metadata.author.socialLink.indexOf('https://twitter.com/') === 0 || this.manifest.metadata.author.socialLink.indexOf('https://x.com/') === 0)) {
