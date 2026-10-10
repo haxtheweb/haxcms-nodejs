@@ -32,6 +32,21 @@ const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskil
   ForceType text/plain
 </FilesMatch>
 `;
+// Minimal HTML entity decoding for llms.txt summaries (mirrors PHP
+// html_entity_decode for the entities authored content commonly contains).
+function decodeLLMSEntities(text = '') {
+  const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
+  return String(text).replace(/&(#x[0-9a-f]+|#\d+|[a-z0-9]+);/gi, (match, entity) => {
+    const key = entity.toLowerCase();
+    if (key.startsWith('#x')) {
+      return String.fromCodePoint(parseInt(key.slice(2), 16));
+    }
+    if (key.startsWith('#')) {
+      return String.fromCodePoint(parseInt(key.slice(1), 10));
+    }
+    return Object.prototype.hasOwnProperty.call(named, key) ? named[key] : match;
+  });
+}
 const SITE_FILE_NAME = 'site.json';
 // Security (H1 rotation): grace window in seconds during which the immediately
 // previous refresh-token jti is still accepted, so concurrent multi-tab
@@ -1244,9 +1259,15 @@ class HAXCMSSite
         items = this.manifest.orderTree(this.manifest.items);
       }
       let hasPages = false;
+      const regionItemIds = this.getThemeRegionItemIds();
       for (let key in items) {
         let item = items[key];
         if (!item || !item.location) {
+          continue;
+        }
+        // agents only see what an anonymous visitor can open: skip unpublished
+        // and hidden pages, plus theme-region content (header/footer blocks)
+        if (!this.isItemListedForAgents(item, regionItemIds)) {
           continue;
         }
         let markdownLocation = this.getPageAlternateLocation(item.location, 'md');
@@ -1254,7 +1275,7 @@ class HAXCMSSite
           continue;
         }
         let itemTitle = this.getLLMSSafeLinkText(item.title || item.slug || item.id || 'Untitled page');
-        let itemDescription = this.getLLMSSafeText(item.description);
+        let itemDescription = this.getLLMSPageSummary(item, this.getLLMSSafeText(item.description), markdownLocation);
         let line = '- [' + itemTitle + '](' + this.getLLMSResourceURL(domain, markdownLocation) + ')';
         if (itemDescription != '') {
           line += ': ' + itemDescription;
@@ -1273,6 +1294,141 @@ class HAXCMSSite
       lines.push('- [Sitemap](' + this.getLLMSResourceURL(domain, 'sitemap.xml') + '): URL-level discovery map for the published site.');
       lines.push('- [Agent skills](' + this.getLLMSResourceURL(domain, '.well-known/agent-skills/index.json') + '): Agent Skills discovery index (agentskills.io v0.2.0) listing skills that teach an agent how to read, author, audit, and remix this site.');
       return lines.join('\n') + '\n';
+    }
+    /**
+     * Item ids placed in theme regions (manifest.metadata.theme.regions), e.g.
+     * header and footer content. These render inside every page rather than
+     * as pages of their own, so they are left out of llms.txt.
+     * Mirrors PHP HAXCMSSite::getThemeRegionItemIds.
+     */
+    getThemeRegionItemIds() {
+      const ids = new Set();
+      const regions = this.manifest && this.manifest.metadata && this.manifest.metadata.theme
+        ? this.manifest.metadata.theme.regions
+        : null;
+      if (!regions || typeof regions !== 'object') {
+        return ids;
+      }
+      for (const key of Object.keys(regions)) {
+        const regionItems = regions[key];
+        if (typeof regionItems === 'string' && regionItems !== '') {
+          ids.add(regionItems);
+        }
+        else if (regionItems && typeof regionItems === 'object') {
+          for (const regionItemId of Object.values(regionItems)) {
+            if (typeof regionItemId === 'string' && regionItemId !== '') {
+              ids.add(regionItemId);
+            }
+          }
+        }
+      }
+      return ids;
+    }
+    /**
+     * Whether a page belongs in llms.txt: visible to anonymous visitors (same
+     * rule as the site API: published and not hidden from the menu) and not
+     * theme-region content. Mirrors PHP HAXCMSSite::isItemListedForAgents.
+     */
+    isItemListedForAgents(item, regionItemIds = new Set()) {
+      // lazy require: siteRouteUtils requires this module
+      const { isItemVisibleToAnonymous } = require('../siteRoutes/v1/siteRouteUtils.js');
+      if (!isItemVisibleToAnonymous(item)) {
+        return false;
+      }
+      if (item && item.id && regionItemIds.has(String(item.id))) {
+        return false;
+      }
+      return true;
+    }
+    /**
+     * One-line page summary for llms.txt. Stored descriptions are often the
+     * first N characters of the page cut mid-word; when the description does
+     * not end a sentence, rebuild it from the page's first full sentence(s).
+     * Mirrors PHP HAXCMSSite::getLLMSPageSummary.
+     */
+    getLLMSPageSummary(item, description = '', markdownLocation = '') {
+      description = String(description || '').trim();
+      if (description !== '' && /[.!?…]["'”’)\]]?$/u.test(description)) {
+        return description;
+      }
+      let source = '';
+      if (markdownLocation && markdownLocation.indexOf('..') === -1 && this.siteDirectory) {
+        try {
+          source = this.getLLMSPlainTextFromMarkdown(
+            fs.readFileSync(path.join(this.siteDirectory, markdownLocation.replace(/^\/+/, '')), 'utf8')
+          );
+        }
+        catch (e) {}
+      }
+      if (source === '' && item && item.location && item.location.indexOf('..') === -1 && this.siteDirectory) {
+        try {
+          const html = fs.readFileSync(path.join(this.siteDirectory, item.location), 'utf8');
+          source = this.getLLMSSafeText(decodeLLMSEntities(String(html).replace(/<[^>]+>/g, ' ')));
+        }
+        catch (e) {}
+      }
+      const summary = this.getLLMSLeadingSentences(source);
+      if (summary !== '') {
+        return summary;
+      }
+      return this.getLLMSWordBoundaryTrim(description, 240);
+    }
+    /**
+     * Strip markdown syntax down to readable text for summaries.
+     */
+    getLLMSPlainTextFromMarkdown(markdown = '') {
+      let text = String(markdown || '');
+      text = text.replace(/```[\s\S]*?```/g, ' ');
+      text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ');
+      text = text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+      text = text.replace(/<[^>]+>/g, ' ');
+      // headings label sections rather than summarize them
+      text = text.replace(/^\s{0,3}#{1,6}\s.*$/gm, ' ');
+      text = text.replace(/^\s{0,3}(>|[-*+]|\d+\.)\s+/gm, '');
+      text = text.replace(/\*\*|__|`/g, '');
+      return this.getLLMSSafeText(decodeLLMSEntities(text));
+    }
+    /**
+     * First full sentence(s) of a text, at least ~60 and at most 240
+     * characters; long first sentences are cut at a word boundary.
+     */
+    getLLMSLeadingSentences(text = '', max = 240) {
+      text = String(text || '').trim();
+      if (text === '') {
+        return '';
+      }
+      const sentences = text.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(\[])/u);
+      let summary = '';
+      for (const sentence of sentences) {
+        const candidate = (summary === '' ? sentence : summary + ' ' + sentence).trim();
+        if ([...candidate].length > max) {
+          break;
+        }
+        summary = candidate;
+        if ([...summary].length >= 60) {
+          break;
+        }
+      }
+      if (summary === '') {
+        return this.getLLMSWordBoundaryTrim(text, max);
+      }
+      return summary;
+    }
+    /**
+     * Trim to max characters on a word boundary, adding an ellipsis when cut.
+     */
+    getLLMSWordBoundaryTrim(text = '', max = 240) {
+      text = String(text || '').trim();
+      const chars = [...text];
+      if (text === '' || chars.length <= max) {
+        return text;
+      }
+      let cut = chars.slice(0, max).join('');
+      const space = cut.lastIndexOf(' ');
+      if (space !== -1 && space > max / 2) {
+        cut = cut.substring(0, space);
+      }
+      return cut.replace(/[ ,;:-]+$/, '') + '…';
     }
     /**
      * Build a normalized llms.txt link URL from domain/base and a relative resource path.
