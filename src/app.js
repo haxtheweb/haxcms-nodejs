@@ -3083,7 +3083,34 @@ function setPageAlternateHeaders(res, site, item, canonicalPath = '') {
     appendVaryHeader(res, 'Accept');
   }
 }
+// llms-full.txt: the whole site as one markdown document, always the
+// anonymous view (unpublished and hidden pages excluded). Same content as
+// GET x/api/v1/site/export/md for an anonymous caller. Private sites answer
+// 404 so they are never advertised to agents. Mirrors PHP
+// HAXCMSSite::respondWithLlmsFull.
+async function tryServeLlmsFull(req, res, site) {
+  const isPrivate =
+    site && site.manifest && site.manifest.metadata && site.manifest.metadata.site &&
+    site.manifest.metadata.site.settings && site.manifest.metadata.site.settings.private;
+  if (isPrivate) {
+    res.status(404).type('text/plain; charset=utf-8').send('Not found');
+    return;
+  }
+  const { buildSiteExportMarkdown, sendCacheableText } = require('./siteRoutes/v1/exports.js');
+  const markdown = await buildSiteExportMarkdown(site, '', true);
+  sendCacheableText(req, res, markdown, 'text/markdown; charset=utf-8', true);
+}
+
 async function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefix = '') {
+  if (String(requestPath || '').replace(/^\/+|\/+$/g, '') === 'llms-full.txt') {
+    await tryServeLlmsFull(req, res, site);
+    return {
+      served: true,
+      item: null,
+      canonicalPath: null,
+      notFound: false,
+    };
+  }
   const explicitInfo = getExplicitVariantInfo(requestPath);
   const slug = normalizeSlugFromPath(explicitInfo.basePath);
   const isHomeRequest = slug === '';

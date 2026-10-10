@@ -212,7 +212,7 @@ describe('exports routes — siteExport', () => {
     assert.equal(resMd.body.data.export.mediaType, 'text/markdown')
     assert.equal(
       resMd.body.data.export.href,
-      '/x/api/v1/content?mode=concat&format=md',
+      '/x/api/v1/site/export/md',
     )
     assert.equal(resMd.body.data.links.self, '/x/api/v1/site/export/markdown')
     // GET format=html answers the html DOWNLOAD, so the descriptor shape is
@@ -330,6 +330,51 @@ describe('exports routes — siteExport', () => {
       assert.equal(res.statusCode, 401, format)
       assert.equal(res.sent, null, format)
     }
+  })
+
+  test('an md export is the whole site as markdown in outline order', async (t) => {
+    const site = makeFakeSite()
+    site.manifest.items[1].metadata = { published: false }
+    mockSite(t, site)
+    const anon = stubRes()
+    await siteExport(
+      makeReq({
+        headers: { referer: 'http://cms.example.com/_sites/demo/' },
+        params: { format: 'md' },
+        haxcmsSiteApiAuth: null,
+      }),
+      anon,
+    )
+    assert.equal(anon.statusCode, 200)
+    assert.equal(anon.headers['Content-Type'], 'text/markdown; charset=utf-8')
+    assert.equal(anon.headers['Cache-Control'], 'public, max-age=300')
+    assert.ok(/^"[0-9a-f]{40}"$/.test(anon.headers.ETag))
+    const md = anon.sent.toString()
+    assert.ok(md.indexOf('# Demo Site\n\n> A demo site\n') === 0)
+    assert.ok(md.indexOf('## First Page') !== -1)
+    assert.ok(md.indexOf('Source: /') !== -1)
+    assert.ok(md.indexOf('**bold**') !== -1)
+    // unpublished page is only in the logged-in view
+    assert.equal(md.indexOf('Second page content'), -1)
+    const authed = stubRes()
+    await siteExport(makeReq({ params: { format: 'md' } }), authed)
+    assert.ok(authed.sent.toString().indexOf('Second page content') !== -1)
+    assert.equal(authed.headers['Cache-Control'], 'private, no-cache')
+  })
+
+  test('an md export honours If-None-Match with 304', async (t) => {
+    mockSite(t, makeFakeSite())
+    const first = stubRes()
+    await siteExport(makeReq({ params: { format: 'md' } }), first)
+    const second = stubRes()
+    await siteExport(
+      makeReq({
+        params: { format: 'md' },
+        headers: { host: 'cms.example.com', 'if-none-match': first.headers.ETag },
+      }),
+      second,
+    )
+    assert.equal(second.statusCode, 304)
   })
 
   test('an html export with an ancestor filter only includes that branch', async (t) => {
