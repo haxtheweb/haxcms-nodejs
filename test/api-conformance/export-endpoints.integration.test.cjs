@@ -21,6 +21,18 @@ const execFile = util.promisify(childProcess.execFile)
 
 const ITEM_EXPORT_FORMATS = ['pdf', 'docx', 'html', 'md', 'json', 'yaml', 'xml', 'epub']
 const SITE_EXPORT_FORMATS = ['pdf', 'docx', 'html', 'epub']
+// Rendered binaries are generated per request, so anonymous callers get 401
+// and the harness authenticates with its bearer for these formats.
+const AUTH_ONLY_ITEM_FORMATS = ['pdf', 'docx']
+const AUTH_ONLY_SITE_FORMATS = ['pdf', 'docx', 'epub']
+
+function exportRequestHeaders(format, authOnlyFormats) {
+  const headers = { accept: '*/*' }
+  if (authOnlyFormats.indexOf(format) !== -1) {
+    headers.authorization = `Bearer ${runtime.jwt}`
+  }
+  return headers
+}
 
 const EXPECTED_MEDIA_TYPES = {
   pdf: 'application/pdf',
@@ -275,7 +287,7 @@ test('item export endpoints produce real file downloads across all 8 formats', a
       const result = await sendHttpRequest({
         method: 'GET',
         url: `${itemBase}/${format}`,
-        headers: { accept: '*/*' },
+        headers: exportRequestHeaders(format, AUTH_ONLY_ITEM_FORMATS),
         responseType: 'arraybuffer',
       })
       assert.equal(result.status, 200, `item export ${format} expected 200, got ${result.status}: ${result.bodyText}`)
@@ -353,7 +365,7 @@ test('site export endpoints produce real file downloads for pdf/docx/html/epub',
       const result = await sendHttpRequest({
         method: 'GET',
         url: `${siteBase}/${format}`,
-        headers: { accept: '*/*' },
+        headers: exportRequestHeaders(format, AUTH_ONLY_SITE_FORMATS),
         responseType: 'arraybuffer',
       })
       assert.equal(result.status, 200, `site export ${format} expected 200, got ${result.status}`)
@@ -384,6 +396,20 @@ test('site export endpoints produce real file downloads for pdf/docx/html/epub',
           `site export ${format} missing attachment disposition with .${format} extension`,
         )
       }
+    })
+  }
+})
+
+test('anonymous binary exports answer 401', async (t) => {
+  const sitePrefix = `${runtime.baseUrl}/${SITE_DIRECTORY_NAME}/${runtime.createdSiteName}/${runtime.siteApiBasePath}/v1`
+  const urls = AUTH_ONLY_SITE_FORMATS.map((format) => `${sitePrefix}/site/export/${format}`).concat(
+    AUTH_ONLY_ITEM_FORMATS.map((format) => `${sitePrefix}/items/${encodeURIComponent(runtime.firstItemLookup)}/export/${format}`),
+  )
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i]
+    await t.test(`anonymous ${url.split('/v1/')[1]} answers 401`, async () => {
+      const result = await sendHttpRequest({ method: 'GET', url: url, headers: { accept: '*/*' } })
+      assert.equal(result.status, 401, `expected 401 for anonymous ${url}, got ${result.status}`)
     })
   }
 })
