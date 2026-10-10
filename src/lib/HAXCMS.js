@@ -1233,6 +1233,8 @@ class HAXCMSSite
       lines.push('## Core resources');
       lines.push('- [site.json](' + this.getLLMSResourceURL(domain, 'site.json') + '): Canonical site manifest and navigation tree in JSON Outline Schema format.');
       lines.push('- [llms.txt](' + this.getLLMSResourceURL(domain, 'llms.txt') + '): LLM-oriented guide to this site and its machine-readable resources.');
+      lines.push('- [llms-full.txt](' + this.getLLMSResourceURL(domain, 'llms-full.txt') + '): The whole site as one markdown document, in outline order.');
+      lines.push('- [Whole site as HTML](' + this.getLLMSResourceURL(domain, 'x/api/v1/site/export/html') + '): Every page in one HTML document.');
       // haxtheweb/issues#3116: point agents at AGENTS.md (older sites may not have one)
       if (this.siteDirectory && fs.existsSync(path.join(this.siteDirectory, 'AGENTS.md'))) {
         lines.push('- [AGENTS.md](' + this.getLLMSResourceURL(domain, 'AGENTS.md') + '): Instructions for AI agents working on this site\'s files.');
@@ -2331,6 +2333,7 @@ ${themePreload}${contentPreload}
   <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
   <link rel="llms" href="llms.txt" title="LLM Content Map" />
   <link rel="alternate" type="text/markdown" href="llms.txt" title="Markdown Summary" />
+  <link rel="alternate" type="text/markdown" href="llms-full.txt" title="Full Site as Markdown" />
   <link rel="https://agentskills.io/rels/skills-index" type="application/json" href=".well-known/agent-skills/index.json" title="Agent Skills Discovery Index" />
   <meta name="generator" content="HAXcms">
   ${canonical}${prevResource}${nextResource}
