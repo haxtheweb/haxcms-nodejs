@@ -2,10 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
 const { HAXCMS } = require('../../lib/HAXCMS.js');
-const {
-  getApiBasePath,
-  isAnonymousSiteApiRequest,
-} = require('../v1/siteRouteUtils.js');
+const { getApiBasePath } = require('../v1/siteRouteUtils.js');
 
 const OPENAPI_METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'];
 
@@ -47,7 +44,7 @@ function filterOpenApiToPublicOperations(openapi) {
   if (!openapi.info || typeof openapi.info !== 'object') {
     openapi.info = {};
   }
-  const note = 'This is the public profile: only operations that work without logging in. Request ?profile=full for every operation.';
+  const note = 'This is the public profile: only operations that work without logging in. Omit ?profile=public for every operation.';
   openapi.info.description = typeof openapi.info.description === 'string' && openapi.info.description !== ''
     ? openapi.info.description + '\n\n' + note
     : note;
@@ -200,14 +197,15 @@ async function siteOpenapi(req, res) {
     },
   ];
 
-  // haxtheweb/issues#3104: anonymous callers (agents, crawlers) get the
-  // public profile so they don't plan around endpoints that answer 401.
-  // ?profile=full or a logged-in caller gets the whole spec; this is
-  // documentation, not a security boundary.
+  // haxtheweb/issues#3104: ?profile=public returns only the operations that
+  // work without logging in, so agents don't plan around endpoints that
+  // answer 401. It is opt-in: the editor bootstraps its operation registry
+  // from this spec using cookies only (no bearer), so it looks anonymous
+  // here and must always get the full spec by default.
   const requestedProfile = req && req.query && typeof req.query.profile === 'string'
     ? req.query.profile.trim().toLowerCase()
     : '';
-  if (requestedProfile !== 'full' && isAnonymousSiteApiRequest(req)) {
+  if (requestedProfile === 'public') {
     openapi = filterOpenApiToPublicOperations(openapi);
   }
 

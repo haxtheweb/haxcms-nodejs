@@ -1,7 +1,8 @@
 'use strict'
 
-// GET x/api/openapi (haxtheweb/issues#3104): anonymous callers get the
-// public profile (only operations that need no login), the server URL is the
+// GET x/api/openapi (haxtheweb/issues#3104): ?profile=public returns only
+// operations that need no login (the default stays complete because the
+// editor reads it), the server URL is the
 // base of the site the request came through, and the spec carries examples
 // for agents. Mirrors PHP SiteRoutesOpenApiProfileTest.
 //
@@ -72,8 +73,8 @@ function operationIds(spec) {
 }
 
 describe('site OpenAPI agent profile', () => {
-  test('anonymous callers get only public operations', async (t) => {
-    const spec = await fetchSpec(t)
+  test('?profile=public has only public operations', async (t) => {
+    const spec = await fetchSpec(t, { query: { profile: 'public' } })
     const ids = operationIds(spec)
     assert.ok(ids.indexOf('searchContent') !== -1)
     assert.ok(ids.indexOf('getItemByIdOrSlug') !== -1)
@@ -81,7 +82,7 @@ describe('site OpenAPI agent profile', () => {
     assert.equal(ids.indexOf('updateItem'), -1)
     assert.equal(ids.indexOf('listFiles'), -1)
     assert.equal(spec['x-haxcms-profile'], 'public')
-    assert.ok(spec.info.description.indexOf('?profile=full') !== -1)
+    assert.ok(spec.info.description.indexOf('?profile=public') !== -1)
     Object.keys(spec.paths).forEach((pathKey) => {
       const pathItem = spec.paths[pathKey]
       Object.keys(pathItem).forEach((key) => {
@@ -93,16 +94,21 @@ describe('site OpenAPI agent profile', () => {
     })
   })
 
-  test('?profile=full and logged-in callers get every operation', async (t) => {
-    const full = operationIds(await fetchSpec(t, { query: { profile: 'full' } }))
+  // The editor bootstraps its operation registry from this spec with
+  // cookies only, so to the API it looks anonymous. Without ?profile it
+  // must always get every operation or editing breaks.
+  test('the default spec is complete for anonymous and logged-in callers', async (t) => {
+    const anonSpec = await fetchSpec(t)
+    const anon = operationIds(anonSpec)
     const authed = operationIds(
       await fetchSpec(t, { haxcmsSiteApiAuth: { authenticated: true, userName: 'tester' } }),
     )
-    const anon = operationIds(await fetchSpec(t))
-    assert.ok(full.indexOf('createItem') !== -1)
-    assert.ok(authed.indexOf('createItem') !== -1)
-    assert.equal(full.length, authed.length)
-    assert.ok(full.length > anon.length)
+    const publicOnly = operationIds(await fetchSpec(t, { query: { profile: 'public' } }))
+    assert.ok(anon.indexOf('createItem') !== -1)
+    assert.ok(anon.indexOf('updateItem') !== -1)
+    assert.equal(anon.length, authed.length)
+    assert.equal(anonSpec['x-haxcms-profile'], undefined)
+    assert.ok(anon.length > publicOnly.length)
   })
 
   test('the server URL is the base of the requesting site', async (t) => {
