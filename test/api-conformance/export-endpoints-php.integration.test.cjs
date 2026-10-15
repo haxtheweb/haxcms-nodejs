@@ -51,6 +51,24 @@ const HTTPS_AGENT = (() => {
 
 const ITEM_EXPORT_FORMATS = ['pdf', 'docx', 'html', 'md', 'json', 'yaml', 'xml', 'epub']
 const SITE_EXPORT_FORMATS = ['pdf', 'docx', 'html', 'epub']
+// Rendered binaries require a logged-in user. Provide HAXCMS_PHP_TEST_JWT to
+// exercise the authenticated download path; without it these formats are
+// asserted to answer 401 for the anonymous harness instead.
+const AUTH_ONLY_ITEM_FORMATS = ['pdf', 'docx']
+const AUTH_ONLY_SITE_FORMATS = ['pdf', 'docx', 'epub']
+const PHP_TEST_JWT = process.env.HAXCMS_PHP_TEST_JWT || ''
+
+function exportRequestHeaders(format, authOnlyFormats) {
+  const headers = { accept: '*/*' }
+  if (authOnlyFormats.indexOf(format) !== -1 && PHP_TEST_JWT !== '') {
+    headers.authorization = `Bearer ${PHP_TEST_JWT}`
+  }
+  return headers
+}
+
+function expectsAnonymousRejection(format, authOnlyFormats) {
+  return authOnlyFormats.indexOf(format) !== -1 && PHP_TEST_JWT === ''
+}
 
 const EXPECTED_MEDIA_TYPES = {
   pdf: 'application/pdf',
@@ -169,9 +187,13 @@ test('PHP item export endpoints produce real file downloads across all 8 formats
       const result = await sendHttpRequest({
         method: 'GET',
         url: `${itemBase}/${format}`,
-        headers: { accept: '*/*' },
+        headers: exportRequestHeaders(format, AUTH_ONLY_ITEM_FORMATS),
         responseType: 'arraybuffer',
       })
+      if (expectsAnonymousRejection(format, AUTH_ONLY_ITEM_FORMATS)) {
+        assert.equal(result.status, 401, `anonymous item export ${format} expected 401, got ${result.status}`)
+        return
+      }
       assert.equal(result.status, 200, `item export ${format} expected 200, got ${result.status}`)
       const contentType = String(result.headers['content-type'] || '').toLowerCase()
       const expected = EXPECTED_MEDIA_TYPES[format]
@@ -253,9 +275,13 @@ test('PHP site export endpoints produce real file downloads for pdf/docx/html/ep
       const result = await sendHttpRequest({
         method: 'GET',
         url: `${siteExportBase}/${format}`,
-        headers: { accept: '*/*' },
+        headers: exportRequestHeaders(format, AUTH_ONLY_SITE_FORMATS),
         responseType: 'arraybuffer',
       })
+      if (expectsAnonymousRejection(format, AUTH_ONLY_SITE_FORMATS)) {
+        assert.equal(result.status, 401, `anonymous site export ${format} expected 401, got ${result.status}`)
+        return
+      }
       assert.equal(result.status, 200, `site export ${format} expected 200, got ${result.status}`)
       const contentType = String(result.headers['content-type'] || '').toLowerCase()
       const expected = EXPECTED_MEDIA_TYPES[format]

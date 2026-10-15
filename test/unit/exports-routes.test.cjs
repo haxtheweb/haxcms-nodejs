@@ -279,6 +279,59 @@ describe('exports routes — siteExport', () => {
     assert.ok(html.indexOf('<h2>Second Page</h2>') !== -1)
   })
 
+  test('an anonymous html export excludes unpublished and hidden pages', async (t) => {
+    const site = makeFakeSite()
+    site.manifest.items[0].metadata = { published: false }
+    site.manifest.items[1].metadata = { hideInMenu: true }
+    site.manifest.items.push({
+      id: 'item-3',
+      title: 'Third Page',
+      slug: 'third-page',
+      parent: null,
+      indent: 0,
+      order: 2,
+      location: 'pages/item-3/index.html',
+      metadata: {},
+    })
+    site.getPageContent = async (page) => ({
+      'item-1': '<p>secret-draft</p>',
+      'item-2': '<p>secret-hidden</p>',
+      'item-3': '<p>visible-third</p>',
+    })[page.id] || ''
+    mockSite(t, site)
+    const res = stubRes()
+    await siteExport(
+      makeReq({
+        headers: { referer: 'http://cms.example.com/_sites/demo/' },
+        params: { format: 'html' },
+        haxcmsSiteApiAuth: null,
+      }),
+      res,
+    )
+    assert.equal(res.statusCode, 200)
+    const html = res.sent.toString()
+    assert.ok(html.indexOf('visible-third') !== -1)
+    assert.equal(html.indexOf('secret-draft'), -1)
+    assert.equal(html.indexOf('secret-hidden'), -1)
+  })
+
+  test('anonymous pdf, docx and epub site exports answer 401', async (t) => {
+    mockSite(t, makeFakeSite())
+    for (const format of ['pdf', 'docx', 'epub']) {
+      const res = stubRes()
+      await siteExport(
+        makeReq({
+          headers: { referer: 'http://cms.example.com/_sites/demo/' },
+          params: { format: format },
+          haxcmsSiteApiAuth: null,
+        }),
+        res,
+      )
+      assert.equal(res.statusCode, 401, format)
+      assert.equal(res.sent, null, format)
+    }
+  })
+
   test('an html export with an ancestor filter only includes that branch', async (t) => {
     mockSite(t, makeFakeSite())
     const res = stubRes()
@@ -446,16 +499,34 @@ describe('exports routes — itemExport', () => {
     assert.equal(res.statusCode, 404)
     assert.equal(res.body.data.message, 'Item not found for idOrSlug "first-page"')
     // the same request for a published item still succeeds anonymously
+    // (text formats only; rendered pdf/docx require a logged-in user)
     const resVisible = stubRes()
     await itemExport(
       makeReq({
         headers: { referer: 'http://cms.example.com/_sites/demo/first-page' },
-        params: { idOrSlug: 'item-2', format: 'pdf' },
+        params: { idOrSlug: 'item-2', format: 'html' },
         haxcmsSiteApiAuth: null,
       }),
       resVisible,
     )
     assert.equal(resVisible.statusCode, 200)
+  })
+
+  test('anonymous pdf and docx item exports answer 401', async (t) => {
+    mockSite(t, makeFakeSite())
+    for (const format of ['pdf', 'docx']) {
+      const res = stubRes()
+      await itemExport(
+        makeReq({
+          headers: { referer: 'http://cms.example.com/_sites/demo/second-page' },
+          params: { idOrSlug: 'item-2', format: format },
+          haxcmsSiteApiAuth: null,
+        }),
+        res,
+      )
+      assert.equal(res.statusCode, 401, format)
+      assert.equal(res.sent, null, format)
+    }
   })
 
   test('an unsupported format answers 400', async (t) => {

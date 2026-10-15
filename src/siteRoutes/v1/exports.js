@@ -213,7 +213,17 @@ function sendDownloadResponse(res, buffer, mediaType, filename) {
   return res.send(safeBuffer)
 }
 
-async function buildSiteExportHtmlContent(site, ancestor) {
+// Drop items an anonymous visitor must not see (unpublished or hidden from the
+// menu). Applied to whole-site exports served to anonymous callers so they can
+// never reveal pages the per-item routes 404 on. Mirrors PHP
+// ExportConverters::filterItemsVisibleToAnonymous.
+function filterItemsVisibleToAnonymous(items = []) {
+  return (Array.isArray(items) ? items : []).filter(
+    (item) => item && isItemVisibleToAnonymous(item),
+  )
+}
+
+async function buildSiteExportHtmlContent(site, ancestor, visibleOnly = false) {
   const orderedItems = getOrderedItems(site)
   const sections = []
   const siteTitle = buildSiteExportDocumentTitle(site)
@@ -236,6 +246,10 @@ async function buildSiteExportHtmlContent(site, ancestor) {
     catch (e) {}
   }
 
+  if (visibleOnly) {
+    itemsToExport = filterItemsVisibleToAnonymous(itemsToExport)
+  }
+
   for (let i = 0; i < itemsToExport.length; i++) {
     const item = itemsToExport[i]
     if (!item) {
@@ -249,7 +263,7 @@ async function buildSiteExportHtmlContent(site, ancestor) {
   return sections.join('\n')
 }
 
-async function buildSiteExportHtml(site, ancestor, magic) {
+async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
   const orderedItems = getOrderedItems(site)
   const siteTitle = buildSiteExportDocumentTitle(site)
 
@@ -270,8 +284,12 @@ async function buildSiteExportHtml(site, ancestor, magic) {
     catch (e) {}
   }
 
+  if (visibleOnly) {
+    itemsToExport = filterItemsVisibleToAnonymous(itemsToExport)
+  }
+
   if (magic) {
-    const content = await buildSiteExportHtmlContent(site, ancestor)
+    const content = await buildSiteExportHtmlContent(site, ancestor, visibleOnly)
     const sections = []
     sections.push('<!DOCTYPE html>')
     sections.push('<html lang="en">')
@@ -790,7 +808,19 @@ async function siteExport(req, res) {
   }
   const ancestor = getQueryValue(req, 'filter.ancestor', '')
   const magic = getQueryValue(req, 'magic', '')
+  const isAnonymousRequest = isAnonymousSiteApiRequest(req)
   if (format === 'pdf' || format === 'docx' || format === 'epub') {
+    // Binary whole-site exports render the entire site on every request
+    // (500+ page sites are common), so they are reserved for logged-in users.
+    // Anonymous agents get the cheap html / markdown exports instead.
+    if (isAnonymousRequest) {
+      return res.status(401).json({
+        status: 401,
+        data: {
+          message: `Authentication required for ${format} site exports`,
+        },
+      })
+    }
     let outputBuffer = null
     try {
       if (format === 'epub') {
@@ -843,7 +873,8 @@ async function siteExport(req, res) {
   }
   if (format === 'html') {
     try {
-      const html = await buildSiteExportHtml(site, ancestor, magic)
+      // anonymous callers only ever see pages they could open directly
+      const html = await buildSiteExportHtml(site, ancestor, magic, isAnonymousRequest)
       // E4: send html export as a file download with Content-Disposition
       // (mirrors PHP sendFileDownload / other binary export formats)
       return sendDownloadResponse(
@@ -931,6 +962,15 @@ async function itemExport(req, res) {
   const fileBaseName = getItemExportFileBaseName(item)
 
   if (format === 'pdf' || format === 'docx') {
+    // rendered binaries are generated per request; logged-in users only
+    if (isAnonymousSiteApiRequest(req)) {
+      return res.status(401).json({
+        status: 401,
+        data: {
+          message: `Authentication required for ${format} exports`,
+        },
+      })
+    }
     let html = ''
     try {
       html = await buildItemExportHtml(site, item)
