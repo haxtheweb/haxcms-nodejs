@@ -10,7 +10,7 @@ const RELEASE_CACHE_TTL_MS = 5 * 60 * 1000;
 const RELEASES_PAGE_URL = 'https://github.com/haxtheweb/haxcms-nodejs/releases';
 const RELEASES_LATEST_URL =
   'https://github.com/haxtheweb/haxcms-nodejs/releases/latest';
-const DISCORD_SUPPORT_URL = 'https://discord.gg/qGBZMBnHc';
+const DISCORD_SUPPORT_URL = 'https://discord.gg/aCGxmRHEJP';
 const UPLOAD_LIMIT_HELP_URL =
   'https://expressjs.com/en/resources/middleware/body-parser.html';
 const HAXTHEWEB_URL = 'https://haxtheweb.org';
