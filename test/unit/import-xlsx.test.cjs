@@ -212,7 +212,7 @@ test('a valid workbook converts rows into ordered items with parent resolution',
   assert.equal(items[0].title, 'Home')
   assert.equal(items[0].slug, 'home')
   assert.equal(items[0].order, 0)
-  assert.equal(items[0].parent, '')
+  assert.equal(items[0].parent, null)
   assert.equal(items[0].contents, '<p>Welcome home</p>')
 
   // about resolves its parent slug to the home item's generated id
@@ -225,6 +225,6 @@ test('a valid workbook converts rows into ordered items with parent resolution',
 
   // an unknown parent slug leaves the item at the root
   assert.equal(items[2].title, 'Orphan')
-  assert.equal(items[2].parent, '')
+  assert.equal(items[2].parent, null)
   assert.equal(items[2].indent, 0)
 })

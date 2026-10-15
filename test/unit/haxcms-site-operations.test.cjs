@@ -370,7 +370,8 @@ test('addPage creates pages with parent, template, order, indent, and metadata',
   assert.equal(child.indent, rootPage.indent + 1)
   assert.equal(child.order, 0)
   assert.equal(child.slug, 'child-page')
-  assert.equal(child.metadata.tags, 'child')
+  // save() normalizes tags to the canonical array form
+  assert.deepEqual(child.metadata.tags, ['child'])
   assert.ok(fs.statSync(path.join(site.siteDirectory, 'pages', child.id, 'index.html')).isFile())
   const stringParentChild = await site.addPage(
     rootPage.id,
