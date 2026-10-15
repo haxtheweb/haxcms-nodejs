@@ -345,6 +345,69 @@ test('getRuntimeCredentialOverride falls back to the standalone username/passwor
   }
 })
 
+test('getRuntimeCredentialOverride falls back to process.env when no globalThis override is set', () => {
+  const savedCreds = globalThis.HAXCMS_RUNTIME_CREDENTIALS
+  const savedUser = globalThis.HAXCMS_RUNTIME_USERNAME
+  const savedPass = globalThis.HAXCMS_RUNTIME_PASSWORD
+  const savedEnvUser = process.env.HAXCMS_RUNTIME_USERNAME
+  const savedEnvPass = process.env.HAXCMS_RUNTIME_PASSWORD
+  try {
+    delete globalThis.HAXCMS_RUNTIME_CREDENTIALS
+    delete globalThis.HAXCMS_RUNTIME_USERNAME
+    delete globalThis.HAXCMS_RUNTIME_PASSWORD
+    process.env.HAXCMS_RUNTIME_USERNAME = 'env-user'
+    process.env.HAXCMS_RUNTIME_PASSWORD = 'env-pass'
+    assert.deepEqual(HAXCMS.getRuntimeCredentialOverride(), {
+      name: 'env-user',
+      password: 'env-pass',
+    })
+    // globalThis values still win over process.env when both are present
+    globalThis.HAXCMS_RUNTIME_USERNAME = 'global-user'
+    globalThis.HAXCMS_RUNTIME_PASSWORD = 'global-pass'
+    assert.deepEqual(HAXCMS.getRuntimeCredentialOverride(), {
+      name: 'global-user',
+      password: 'global-pass',
+    })
+    delete globalThis.HAXCMS_RUNTIME_USERNAME
+    delete globalThis.HAXCMS_RUNTIME_PASSWORD
+    delete process.env.HAXCMS_RUNTIME_USERNAME
+    delete process.env.HAXCMS_RUNTIME_PASSWORD
+    assert.equal(HAXCMS.getRuntimeCredentialOverride(), null)
+  }
+  finally {
+    if (savedCreds === undefined) {
+      delete globalThis.HAXCMS_RUNTIME_CREDENTIALS
+    }
+    else {
+      globalThis.HAXCMS_RUNTIME_CREDENTIALS = savedCreds
+    }
+    if (savedUser === undefined) {
+      delete globalThis.HAXCMS_RUNTIME_USERNAME
+    }
+    else {
+      globalThis.HAXCMS_RUNTIME_USERNAME = savedUser
+    }
+    if (savedPass === undefined) {
+      delete globalThis.HAXCMS_RUNTIME_PASSWORD
+    }
+    else {
+      globalThis.HAXCMS_RUNTIME_PASSWORD = savedPass
+    }
+    if (savedEnvUser === undefined) {
+      delete process.env.HAXCMS_RUNTIME_USERNAME
+    }
+    else {
+      process.env.HAXCMS_RUNTIME_USERNAME = savedEnvUser
+    }
+    if (savedEnvPass === undefined) {
+      delete process.env.HAXCMS_RUNTIME_PASSWORD
+    }
+    else {
+      process.env.HAXCMS_RUNTIME_PASSWORD = savedEnvPass
+    }
+  }
+})
+
 test('applyRuntimeCredentialOverride swaps the user in memory and clears the disk flag', () => {
   const savedCreds = globalThis.HAXCMS_RUNTIME_CREDENTIALS
   try {

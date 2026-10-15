@@ -54,6 +54,12 @@ Runtime credential overrides are also supported in-process via globals:
 - `globalThis.HAXCMS_RUNTIME_USERNAME`
 - `globalThis.HAXCMS_RUNTIME_PASSWORD`
 
+When no `globalThis` override is set, the same `HAXCMS_RUNTIME_USERNAME` /
+`HAXCMS_RUNTIME_PASSWORD` values are also read from `process.env`, so they can
+be supplied as plain environment variables (e.g. Replit Secrets, Docker/host
+env vars) instead of JS globals. `globalThis` values always take precedence
+over the environment when both are present.
+
 ### Current coverage snapshot
 Current automated test coverage in this repository is the API conformance suite:
 - Suite file: `test/api-conformance/site-spec.conformance.test.cjs`

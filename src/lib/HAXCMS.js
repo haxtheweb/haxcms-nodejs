@@ -3231,6 +3231,27 @@ class HAXCMSClass {
     ) {
       runtimePassword = globalThis.HAXCMS_RUNTIME_PASSWORD;
     }
+    // Fall back to process.env equivalents (e.g. Replit Secrets, which are
+    // injected as environment variables rather than JS globals). Same names,
+    // lowest precedence: explicit globalThis values set above always win.
+    if (
+      runtimeUserName === '' &&
+      typeof process !== 'undefined' &&
+      process.env &&
+      typeof process.env.HAXCMS_RUNTIME_USERNAME === 'string' &&
+      process.env.HAXCMS_RUNTIME_USERNAME.trim() !== ''
+    ) {
+      runtimeUserName = process.env.HAXCMS_RUNTIME_USERNAME.trim();
+    }
+    if (
+      runtimePassword === '' &&
+      typeof process !== 'undefined' &&
+      process.env &&
+      typeof process.env.HAXCMS_RUNTIME_PASSWORD === 'string' &&
+      process.env.HAXCMS_RUNTIME_PASSWORD.trim() !== ''
+    ) {
+      runtimePassword = process.env.HAXCMS_RUNTIME_PASSWORD;
+    }
     if (runtimeUserName === '' || runtimePassword === '') {
       return null;
     }
