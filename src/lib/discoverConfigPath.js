@@ -58,7 +58,10 @@ else {
             // just for platform consistency, this makes no sense at face value
             fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/config.php'), path.join(homeConfig, 'config.php'));
             fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/.htaccess'), path.join(homeConfig, '.htaccess'));
-            fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/user-files-htaccess'), path.join(homeConfig, 'user/files/.htaccess'));
+            // the boilerplate ships this as a dotfile; the old name without the dot
+            // threw ENOENT, which fell through to the 'epic fail' branch below and
+            // put credentials inside the installed package (lost on every update)
+            fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/.user-files-htaccess'), path.join(homeConfig, 'user/files/.htaccess'));
             // now we can declare that we have a path
             discoverConfigPath = path.join(baseConfigPath, '.haxcmsconfig');    
         }
