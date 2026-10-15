@@ -642,6 +642,56 @@ test('llms.txt helpers normalize titles, links, and URLs', async () => {
   assert.ok(fallbackText.indexOf('No page markdown files are currently available') !== -1)
 })
 
+// haxtheweb/issues#3104: llms.txt lists only visible pages with real summaries
+function makeLlmsSite() {
+  const dir = fs.mkdtempSync(path.join(tempRoot, 'llms-'))
+  const site = new HAXCMSSite()
+  site.siteDirectory = dir
+  site.manifest = new JSONOutlineSchema()
+  site.manifest.title = 'Llms Site'
+  site.manifest.metadata = {}
+  const mk = (id, title, description) => {
+    fs.mkdirpSync(path.join(dir, 'pages', id))
+    fs.writeFileSync(path.join(dir, 'pages', id, 'index.html'), `<p>Content for ${title}</p>`)
+    return { id, title, slug: id, location: `pages/${id}/index.html`, description, order: 0, parent: null, indent: 0, metadata: {} }
+  }
+  site.manifest.items = [mk('home', 'Home Page', 'Welcome home'), mk('about', 'About Us', 'About this site'), mk('contact', 'Contact', 'Get in touch')]
+  site.manifest.items[1].order = 1
+  site.manifest.items[2].order = 2
+  return site
+}
+
+test('llms.txt skips unpublished, hidden and theme-region pages', () => {
+  const site = makeLlmsSite()
+  site.manifest.items[0].metadata.published = false
+  site.manifest.items[1].metadata.hideInMenu = true
+  site.manifest.metadata.theme = { regions: { footerPrimary: ['contact'] } }
+  const txt = site.getLLMSTxt('')
+  assert.equal(txt.indexOf('- [Home Page]'), -1)
+  assert.equal(txt.indexOf('- [About Us]'), -1)
+  assert.equal(txt.indexOf('- [Contact]'), -1)
+  assert.ok(txt.indexOf('No page markdown files are currently available') !== -1)
+})
+
+test('llms.txt summaries keep full sentences and rebuild cut-off descriptions', () => {
+  const site = makeLlmsSite()
+  site.manifest.items[0].description = 'All about home.'
+  site.manifest.items[1].description = 'Web content authoring solutions are a mix of trade offs, training and fragmented experiences for people putting their voi'
+  fs.writeFileSync(
+    path.join(site.siteDirectory, 'pages', 'about', 'index.md'),
+    '## Why\n\nWeb content authoring solutions are a mix of **trade offs** and [fragmented](https://example.com) experiences. HAX changes the game. A third sentence.\n'
+  )
+  const txt = site.getLLMSTxt('')
+  assert.ok(txt.indexOf('- [Home Page](/pages/home/index.md): All about home.') !== -1)
+  assert.ok(txt.indexOf('- [About Us](/pages/about/index.md): Web content authoring solutions are a mix of trade offs and fragmented experiences.') !== -1)
+  assert.equal(txt.indexOf('their voi'), -1)
+  // no sidecar and no sentence ending: summary comes from the page HTML
+  assert.ok(txt.indexOf('- [Contact](/pages/contact/index.md): Content for Contact') !== -1)
+  const trimmed = site.getLLMSWordBoundaryTrim('word '.repeat(80), 40)
+  assert.ok([...trimmed].length <= 41)
+  assert.ok(trimmed.endsWith('word…'))
+})
+
 // haxtheweb/issues#3116
 test('llms.txt links AGENTS.md only when the site has one', async () => {
   const site = await HAXCMS.loadSite('unit-import')
