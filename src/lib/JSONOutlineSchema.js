@@ -314,6 +314,9 @@ class JSONOutlineSchema
         if (reorder) {
             this.items = await this.orderTree(this.items);
         }
+        // write canonical value types (see normalizeItemValues)
+        this.items = this.items.map((item) => JSONOutlineSchema.normalizeItemValues(item));
+        this.metadata = JSONOutlineSchema.normalizeSiteMetadata(this.metadata);
         let schema = (this);
         let file = schema['file'];
         // delete so it doesn't show up in the site.json file
@@ -325,6 +328,73 @@ class JSONOutlineSchema
           this.file = file;
           return await fs.writeFileSync(file, output);
         }
+    }
+    /**
+     * Canonical value types for site.json, per haxtheweb/json-outline-schema:
+     * top-level parent is null, indent / order / timestamps are integers,
+     * published / hideInMenu / locked are booleans, tags and relatedItems are
+     * arrays. Older sites stored "1" / "" flags, numeric strings and
+     * comma-separated tags; readers keep accepting those, every save writes
+     * the canonical form. Meaning is preserved: published is only false for
+     * an explicit false / 0 / "0" / "false" / "no" / "off" (the front end
+     * treats anything but `false` as published), hideInMenu / locked are
+     * only true for an explicit true / 1 / "1" / "true" / "yes" / "on".
+     * Mirrors JSONOutlineSchema::normalizeItemValues in haxcms-php.
+     */
+    static normalizeItemValues(item)
+    {
+        if (!item || typeof item !== 'object') {
+            return item;
+        }
+        if (item.parent === '' || item.parent === false) {
+            item.parent = null;
+        }
+        ['indent', 'order'].forEach((key) => {
+            if (key in item) {
+                item[key] = normalizeInteger(item[key]);
+            }
+        });
+        const metadata = item.metadata;
+        if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+            if ('published' in metadata) {
+                metadata.published = !isFalseLike(metadata.published);
+            }
+            ['hideInMenu', 'locked'].forEach((flag) => {
+                if (flag in metadata) {
+                    metadata[flag] = isTrueLike(metadata[flag]);
+                }
+            });
+            ['created', 'updated'].forEach((stamp) => {
+                if (stamp in metadata) {
+                    metadata[stamp] = normalizeInteger(metadata[stamp]);
+                }
+            });
+            ['tags', 'relatedItems'].forEach((listKey) => {
+                if (listKey in metadata && metadata[listKey] !== null && metadata[listKey] !== undefined) {
+                    metadata[listKey] = normalizeList(metadata[listKey]);
+                }
+            });
+        }
+        return item;
+    }
+    /**
+     * Canonical site-level metadata: metadata.site.tags as an array and
+     * metadata.site.created / updated as integers.
+     */
+    static normalizeSiteMetadata(metadata)
+    {
+        if (!metadata || typeof metadata !== 'object' || !metadata.site || typeof metadata.site !== 'object') {
+            return metadata;
+        }
+        if (metadata.site.tags !== undefined && metadata.site.tags !== null) {
+            metadata.site.tags = normalizeList(metadata.site.tags);
+        }
+        ['created', 'updated'].forEach((stamp) => {
+            if (stamp in metadata.site) {
+                metadata.site[stamp] = normalizeInteger(metadata.site[stamp]);
+            }
+        });
+        return metadata;
     }
     /**
      * Organize the items based on tree order. This makes front end navigation line up correctly
@@ -377,5 +447,37 @@ class JSONOutlineSchema
             }
         }
     }
+}
+function normalizeInteger(value) {
+    if (typeof value === 'string' && /^-?[0-9]+$/.test(value.trim())) {
+        return parseInt(value.trim(), 10);
+    }
+    return value;
+}
+function isFalseLike(value) {
+    if (value === false || value === 0) {
+        return true;
+    }
+    return typeof value === 'string' && ['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase());
+}
+function isTrueLike(value) {
+    if (value === true || value === 1) {
+        return true;
+    }
+    return typeof value === 'string' && ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+// comma-separated string or array -> array of trimmed, non-empty, unique strings
+function normalizeList(value) {
+    const parts = Array.isArray(value) ? value : (typeof value === 'object' ? Object.values(value) : String(value).split(','));
+    const list = [];
+    parts.forEach((part) => {
+        if (['string', 'number', 'boolean'].includes(typeof part)) {
+            const trimmed = String(part).trim();
+            if (trimmed !== '' && !list.includes(trimmed)) {
+                list.push(trimmed);
+            }
+        }
+    });
+    return list;
 }
 module.exports = JSONOutlineSchema;

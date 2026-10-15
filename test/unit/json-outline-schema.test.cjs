@@ -42,8 +42,7 @@ test('JSONOutlineSchemaItem constructor sets every required field with the corre
   assert.strictEqual(typeof item.slug, 'string')
   assert.strictEqual(item.order, 0)
   assert.strictEqual(typeof item.order, 'number')
-  assert.strictEqual(item.parent, '')
-  assert.strictEqual(typeof item.parent, 'string')
+  assert.strictEqual(item.parent, null)
   assert.strictEqual(item.title, 'New item')
   assert.strictEqual(typeof item.title, 'string')
   assert.strictEqual(item.description, '')
@@ -94,7 +93,7 @@ test('newItem returns a JSONOutlineSchemaItem with the default fields', () => {
   assert.strictEqual(item.title, 'New item')
   assert.strictEqual(item.indent, 0)
   assert.strictEqual(item.order, 0)
-  assert.strictEqual(item.parent, '')
+  assert.strictEqual(item.parent, null)
 })
 
 test('validateItem copies only schema-known keys and returns a JSONOutlineSchemaItem', () => {
@@ -273,4 +272,78 @@ test('removeItem returns the removed item and removes it from the outline', () =
   assert.strictEqual(removed.id, 'c1')
   assert.strictEqual(schema.items.length, 3)
   assert.strictEqual(schema.getItemById('c1'), false)
+})
+
+test('normalizeItemValues writes canonical types (mirrors haxcms-php)', () => {
+  const item = mkItem({
+    parent: '',
+    indent: '2',
+    order: '3',
+    metadata: {
+      published: '1',
+      hideInMenu: '',
+      locked: '0',
+      created: '1422799200',
+      updated: 1422799201,
+      tags: 'intro, welcome,,intro',
+      relatedItems: 'item-b',
+      icon: 'icons:book',
+    },
+  })
+  const out = JSONOutlineSchema.normalizeItemValues(item)
+  assert.strictEqual(out.parent, null)
+  assert.strictEqual(out.indent, 2)
+  assert.strictEqual(out.order, 3)
+  assert.strictEqual(out.metadata.published, true)
+  assert.strictEqual(out.metadata.hideInMenu, false)
+  assert.strictEqual(out.metadata.locked, false)
+  assert.strictEqual(out.metadata.created, 1422799200)
+  assert.strictEqual(out.metadata.updated, 1422799201)
+  assert.deepStrictEqual(out.metadata.tags, ['intro', 'welcome'])
+  assert.deepStrictEqual(out.metadata.relatedItems, ['item-b'])
+  assert.strictEqual(out.metadata.icon, 'icons:book')
+})
+
+test('normalizeItemValues preserves flag meaning', () => {
+  // [value, published, hideInMenu]
+  const cases = [
+    ['', true, false],
+    ['0', false, false],
+    ['false', false, false],
+    [0, false, false],
+    [1, true, true],
+    ['true', true, true],
+    [null, true, false],
+    [false, false, false],
+    [true, true, true],
+  ]
+  for (const [value, published, hideInMenu] of cases) {
+    const out = JSONOutlineSchema.normalizeItemValues(mkItem({ metadata: { published: value, hideInMenu: value } }))
+    assert.strictEqual(out.metadata.published, published, `published for ${JSON.stringify(value)}`)
+    assert.strictEqual(out.metadata.hideInMenu, hideInMenu, `hideInMenu for ${JSON.stringify(value)}`)
+  }
+  const untouched = JSONOutlineSchema.normalizeItemValues(mkItem({ metadata: {} }))
+  assert.ok(!('published' in untouched.metadata), 'absent flags stay absent')
+})
+
+test('save writes canonical types to disk', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jos-canon-'))
+  const file = path.join(dir, 'site.json')
+  try {
+    const schema = new JSONOutlineSchema()
+    schema.metadata = { site: { tags: 'a, b', created: '1422799200' } }
+    schema.addItem({ id: 'p1', title: 'P1', parent: '', order: '0', indent: '0', slug: 'p1', location: 'pages/p1/index.html', description: '', metadata: { published: '1', tags: 'x' } })
+    schema.file = file
+    await schema.save()
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+    assert.strictEqual(raw.items[0].parent, null)
+    assert.strictEqual(raw.items[0].order, 0)
+    assert.strictEqual(raw.items[0].indent, 0)
+    assert.strictEqual(raw.items[0].metadata.published, true)
+    assert.deepStrictEqual(raw.items[0].metadata.tags, ['x'])
+    assert.deepStrictEqual(raw.metadata.site.tags, ['a', 'b'])
+    assert.strictEqual(raw.metadata.site.created, 1422799200)
+  } finally {
+    fs.removeSync(dir)
+  }
 })
