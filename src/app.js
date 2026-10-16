@@ -1698,6 +1698,26 @@ systemStructureContext().then((site) => {
       res.status(413).json({ status: 413, message: 'File too large or too many files' });
       return;
     }
+    // Security (review 2026-10): body-parser errors carry the raw request body
+    // on err.body (up to the 10 MB limit). Logging the whole error dumped
+    // client payloads (passwords, tokens, page content) into server logs and
+    // answered a client mistake with 500. Answer 400/413 and log only the type.
+    if (err && typeof err.type === 'string' && (err.type === 'entity.parse.failed' || err.type === 'entity.too.large')) {
+      const isTooLarge = err.type === 'entity.too.large';
+      const status = isTooLarge ? 413 : 400;
+      console.warn('HAXcms: rejected request body (' + err.type + '): ' + String(err.message || '').split('\n')[0].substring(0, 200));
+      res.status(status).json({
+        status: status,
+        message: isTooLarge ? 'Request body too large' : 'Malformed request body',
+      });
+      return;
+    }
+    if (err && Object.prototype.hasOwnProperty.call(err, 'body')) {
+      // any other error that carries a request body: never log the body
+      console.error('HAXcms: request error (' + (err.type || err.name || 'error') + '): ' + String(err.message || '').split('\n')[0].substring(0, 200));
+      res.status(500).send('Server error');
+      return;
+    }
     console.error(err);
     res.status(500).send('Server error');
   });

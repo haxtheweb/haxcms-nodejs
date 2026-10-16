@@ -611,14 +611,49 @@ test('a registered route with the wrong method answers 405 with Allow', async ()
   assert.ok(body.data.methods.indexOf('GET') !== -1)
 })
 
-test('malformed JSON bodies reach the error middleware as a 500', async () => {
-  const result = await request('POST', runtime.baseUrl + '/system/api/v1/session/login', {
-    headers: {
-      accept: 'application/json',
-      'content-type': 'application/json',
-    },
-    data: '{ this is not valid json',
-  })
-  assert.equal(result.status, 500)
-  assert.equal(result.bodyText, 'Server error')
+// Security (review 2026-10): a malformed body is a client error (400) and the
+// raw body that body-parser attaches as err.body must never reach the logs.
+test('malformed JSON bodies answer 400 without logging the body', async () => {
+  const secret = 'SUPER-SECRET-PASSWORD-' + Date.now()
+  const logged = []
+  const originalError = console.error
+  const originalWarn = console.warn
+  console.error = function () { logged.push(Array.prototype.map.call(arguments, (a) => (a && a.stack ? a.stack + JSON.stringify(a) : String(a))).join(' ')) }
+  console.warn = console.error
+  let result
+  try {
+    result = await request('POST', runtime.baseUrl + '/system/api/v1/session/login', {
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      data: '{ "password": "' + secret + '", this is not valid json',
+    })
+  }
+  finally {
+    console.error = originalError
+    console.warn = originalWarn
+  }
+  assert.equal(result.status, 400)
+  assert.deepEqual(JSON.parse(result.bodyText), { status: 400, message: 'Malformed request body' })
+  assert.ok(logged.join('\n').indexOf(secret) === -1, 'request body must not be logged')
+  assert.ok(logged.join('\n').indexOf('entity.parse.failed') !== -1, 'the error type is logged')
+})
+
+test('oversized JSON bodies answer 413', async () => {
+  const originalWarn = console.warn
+  console.warn = function () {}
+  let result
+  try {
+    result = await request('POST', runtime.baseUrl + '/system/api/v1/session/login', {
+      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      data: '{"a":"' + 'x'.repeat(11 * 1024 * 1024) + '"}',
+      maxBodyLength: Infinity,
+    })
+  }
+  finally {
+    console.warn = originalWarn
+  }
+  assert.equal(result.status, 413)
+  assert.equal(JSON.parse(result.bodyText).status, 413)
 })
