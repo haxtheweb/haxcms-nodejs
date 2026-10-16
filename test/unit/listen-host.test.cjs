@@ -17,6 +17,7 @@ const {
   isLoopbackHost,
   getBypassExposureWarning,
   getBrowserHost,
+  shouldEmbedBypassJwt,
 } = require(path.join(__dirname, '..', '..', 'src', 'lib', 'listenHost.js'))
 
 test('default (auth on, no HAXCMS_HOST) keeps binding all interfaces', () => {
@@ -74,12 +75,49 @@ test('bypass on a non-loopback bind produces a loud warning', () => {
   assert.ok(all && all.indexOf('all interfaces') !== -1)
 })
 
-test('getBrowserHost keeps localhost for wildcard/loopback binds', () => {
+test('getBrowserHost: localhost for wildcard binds, exact address otherwise', () => {
   assert.equal(getBrowserHost(undefined), 'localhost')
-  assert.equal(getBrowserHost('127.0.0.1'), 'localhost')
   assert.equal(getBrowserHost('0.0.0.0'), 'localhost')
   assert.equal(getBrowserHost('::'), 'localhost')
-  assert.equal(getBrowserHost('::1'), 'localhost')
+  assert.equal(getBrowserHost('[::]'), 'localhost')
+  assert.equal(getBrowserHost('localhost'), 'localhost')
+  // loopback bind: open exactly what we listen on (localhost may be ::1)
+  assert.equal(getBrowserHost('127.0.0.1'), '127.0.0.1')
+  assert.equal(getBrowserHost('::1'), '[::1]')
+  assert.equal(getBrowserHost('[::1]'), '[::1]')
   assert.equal(getBrowserHost('10.0.0.5'), '10.0.0.5')
   assert.equal(getBrowserHost('fd00::5'), '[fd00::5]')
+})
+
+// Security (SEC-DEPLOY / PHP SEC-03 parity): superuser JWT embedding gate
+function fakeReq(remoteAddress, headers) {
+  return { socket: { remoteAddress }, headers: headers || {}, ip: remoteAddress }
+}
+
+test('shouldEmbedBypassJwt: only with the bypass on and never in production', () => {
+  assert.equal(shouldEmbedBypassJwt(fakeReq('127.0.0.1'), { env: {}, jwtChecksDisabled: false }), false)
+  assert.equal(shouldEmbedBypassJwt(fakeReq('127.0.0.1'), { env: {}, jwtChecksDisabled: true, isProduction: true }), false)
+  assert.equal(
+    shouldEmbedBypassJwt(fakeReq('10.0.0.9'), { env: { HAXCMS_HOST: '0.0.0.0' }, jwtChecksDisabled: true, isProduction: true }),
+    false,
+  )
+  assert.equal(shouldEmbedBypassJwt(fakeReq('127.0.0.1'), { env: {}, jwtChecksDisabled: true }), true)
+})
+
+test('shouldEmbedBypassJwt: loopback clients only unless HAXCMS_HOST is non-loopback', () => {
+  const on = { env: {}, jwtChecksDisabled: true }
+  for (const addr of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+    assert.equal(shouldEmbedBypassJwt(fakeReq(addr), on), true, addr)
+  }
+  for (const addr of ['10.0.0.9', '192.168.1.4', '::ffff:10.0.0.9', 'fe80::1', '', undefined]) {
+    assert.equal(shouldEmbedBypassJwt(fakeReq(addr), on), false, String(addr))
+  }
+  assert.equal(shouldEmbedBypassJwt(null, on), false)
+  // spoofed proxy headers / req.ip do not count — only the socket peer
+  const spoof = { socket: { remoteAddress: '10.0.0.9' }, ip: '127.0.0.1', headers: { 'x-forwarded-for': '127.0.0.1' } }
+  assert.equal(shouldEmbedBypassJwt(spoof, on), false)
+  // explicit loopback HAXCMS_HOST keeps the loopback-client requirement
+  assert.equal(shouldEmbedBypassJwt(fakeReq('10.0.0.9'), { env: { HAXCMS_HOST: '127.0.0.1' }, jwtChecksDisabled: true }), false)
+  // operator deliberately exposed the bypass beyond loopback
+  assert.equal(shouldEmbedBypassJwt(fakeReq('10.0.0.9'), { env: { HAXCMS_HOST: '0.0.0.0' }, jwtChecksDisabled: true }), true)
 })

@@ -66,15 +66,19 @@ function getBypassExposureWarning(host, jwtChecksDisabled) {
   ].join('\n');
 }
 
-// Host to use in the printed / auto-opened URL. Wildcard and loopback binds
-// keep the familiar `localhost`; a specific interface address is shown as-is
-// (IPv6 bracketed) since `localhost` would not reach it.
+// Host to use in the printed / auto-opened URL. Wildcard binds keep the
+// familiar `localhost`. An IPv4 loopback bind uses that exact address:
+// `localhost` may resolve to ::1 first, which nothing is listening on. Any
+// other specific interface address is shown as-is (IPv6 bracketed).
 function getBrowserHost(host) {
   if (typeof host !== 'string' || host.trim() === '') {
     return 'localhost';
   }
-  const value = host.trim();
-  if (value === '0.0.0.0' || value === '::' || value === '[::]' || isLoopbackHost(value)) {
+  let value = host.trim();
+  if (value.charAt(0) === '[' && value.charAt(value.length - 1) === ']') {
+    value = value.substring(1, value.length - 1);
+  }
+  if (value === '0.0.0.0' || value === '::' || value.toLowerCase() === 'localhost') {
     return 'localhost';
   }
   if (value.indexOf(':') !== -1 && value.charAt(0) !== '[') {
@@ -83,8 +87,30 @@ function getBrowserHost(host) {
   return value;
 }
 
+// Security (SEC-DEPLOY, PHP SEC-03 parity): may connection-settings embed the
+// superuser JWT that the no-login bypass hands to the editor? Only when the
+// bypass is active, never in production, and only for a loopback client —
+// unless the operator explicitly exposed the bypass with a non-loopback
+// HAXCMS_HOST (which already printed the exposure warning at startup).
+// The peer address comes from the socket, NOT req.ip / X-Forwarded-For, so a
+// remote client cannot spoof loopback through proxy headers.
+function shouldEmbedBypassJwt(req, options) {
+  const opts = options || {};
+  if (!opts.jwtChecksDisabled || opts.isProduction) {
+    return false;
+  }
+  const explicitHost = selectListenHost({ env: opts.env || process.env, jwtChecksDisabled: false });
+  if (typeof explicitHost === 'string' && !isLoopbackHost(explicitHost)) {
+    return true;
+  }
+  const socket = req && (req.socket || req.connection);
+  const remoteAddress = socket && typeof socket.remoteAddress === 'string' ? socket.remoteAddress : '';
+  return isLoopbackHost(remoteAddress) && remoteAddress.toLowerCase() !== 'localhost';
+}
+
 module.exports = {
   LOOPBACK_HOST,
+  shouldEmbedBypassJwt,
   getBrowserHost,
   selectListenHost,
   isLoopbackHost,
