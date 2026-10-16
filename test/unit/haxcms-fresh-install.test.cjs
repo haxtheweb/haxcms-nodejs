@@ -101,3 +101,49 @@ test('a fresh install seeds the admin user and the secret files', () => {
   )
   assert.ok(bannerLines.some((line) => line.indexOf('username: admin') !== -1))
 })
+
+// Security (SEC-DEPLOY): the plaintext seeded password goes to a 0600 file in
+// the config dir; under the (non-TTY) test runner it must not reach stderr.
+test('the seeded password is written to a 0600 file and not to non-TTY stderr', () => {
+  assert.equal(loadError, null)
+  const passwordFile = path.join(configRoot, '.initial-admin-password')
+  assert.ok(fs.statSync(passwordFile).isFile(), 'password file created')
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(passwordFile).mode & 0o777, 0o600)
+  }
+  const body = fs.readFileSync(passwordFile, 'utf8')
+  const match = body.match(/^password: ([0-9a-f]+)$/m)
+  assert.ok(match, 'file carries the plaintext password')
+  assert.ok(body.indexOf('username: admin') !== -1)
+  // the file's password really is the seeded one (verifies against the hash)
+  assert.equal(HAXCMS.verifyStoredPassword(HAXCMS.user.password, match[1]), true)
+  // stderr only carried the path, never the password
+  assert.equal(process.stderr.isTTY ? true : false, false, 'test runner stderr is not a TTY')
+  const joined = bannerLines.join('\n')
+  assert.equal(joined.indexOf(match[1]), -1, 'plaintext password not logged')
+  assert.ok(!bannerLines.some((line) => /^password: /.test(line)))
+  assert.ok(bannerLines.some((line) => line.indexOf(passwordFile) !== -1), 'file path logged')
+})
+
+test('announceSeededCredentials echoes the password only on a TTY', () => {
+  assert.equal(loadError, null)
+  const ttyLines = []
+  const ttyFile = HAXCMS.announceSeededCredentials('admin', 'tty-secret-123', {
+    isTTY: true,
+    log: (line) => ttyLines.push(String(line)),
+  })
+  assert.equal(ttyFile, path.join(configRoot, '.initial-admin-password'))
+  assert.ok(ttyLines.some((line) => line === 'password: tty-secret-123'))
+  const pipedLines = []
+  HAXCMS.announceSeededCredentials('admin', 'piped-secret-456', {
+    isTTY: false,
+    log: (line) => pipedLines.push(String(line)),
+  })
+  assert.equal(pipedLines.join('\n').indexOf('piped-secret-456'), -1)
+  assert.ok(pipedLines.some((line) => line.indexOf(ttyFile) !== -1))
+  // the file always holds the latest password and stays 0600
+  assert.ok(fs.readFileSync(ttyFile, 'utf8').indexOf('password: piped-secret-456') !== -1)
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(ttyFile).mode & 0o777, 0o600)
+  }
+})

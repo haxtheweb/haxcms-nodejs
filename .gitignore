@@ -16,6 +16,7 @@ src/boilerplate/systemsetup/.pk
 src/boilerplate/systemsetup/.rpk
 src/boilerplate/systemsetup/.user
 src/boilerplate/systemsetup/SALT.txt
+src/boilerplate/systemsetup/.initial-admin-password
 package-lock.json
 
 # Logs

@@ -36,8 +36,14 @@ else {
     // didn't find anything, so we have to create something on the fly
     if (fs.pathExistsSync(baseConfigPath)) {
         try {
-            fs.mkdirSync(path.join(baseConfigPath, '.haxcmsconfig'));
             const homeConfig = path.join(baseConfigPath, '.haxcmsconfig');
+            // Security (SEC-DEPLOY): an EMPTY pre-created directory (a Docker
+            // VOLUME / bind mount for persisting config + secrets) is
+            // initialised in place; anything else still requires creating it
+            // fresh so an unrelated non-empty folder is never adopted.
+            if (!(fs.pathExistsSync(homeConfig) && fs.readdirSync(homeConfig).length === 0)) {
+                fs.mkdirSync(homeConfig);
+            }
             // touch empty file for there to be a config folder definition
             fs.createFileSync(path.join(homeConfig, '.isHAXcmsConfig'));
             fs.mkdirSync(path.join(homeConfig, 'tmp'));
