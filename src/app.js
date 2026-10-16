@@ -1172,13 +1172,10 @@ systemStructureContext().then((site) => {
             pageMiss,
             path.join(publicDir, 'index.html')
           );
-          // injects a websocket for livereload support when developing custom components
-          indexFile = injectLinkedDevDedupingFix(indexFile);
-          indexFile = injectLinkedDevImportMap(indexFile);
-          indexFile = injectDevReloadScript(indexFile, currentPort);
-          // Security (M2): stamp inline scripts with the per-request CSP nonce
-          // (last so it covers all injected inline scripts too).
-          indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
+          // Security (review 2026-10): dev injections (livereload etc.) and the
+          // CSP nonce are applied to the server shell inside
+          // renderDynamicSiteIndexResponse, BEFORE page content is inserted, so
+          // scripts in page content never receive the nonce.
           setNoStoreResponseHeaders(res);
           res.send(indexFile);
         }
@@ -1394,12 +1391,8 @@ systemStructureContext().then((site) => {
               pageMiss,
               path.join(siteContext.siteDirectory, 'index.html')
             );
-            indexFile = injectLinkedDevDedupingFix(indexFile);
-            indexFile = injectLinkedDevImportMap(indexFile);
-            indexFile = injectDevReloadScript(indexFile, currentPort);
-            // Security (M2): stamp inline scripts with the per-request CSP nonce
-            // (last so it covers all injected inline scripts too).
-            indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
+            // Security (review 2026-10): dev injections + CSP nonce happen on the
+            // shell inside renderDynamicSiteIndexResponse, before page content.
             setNoStoreResponseHeaders(res);
             res.send(indexFile);
             return;
@@ -3305,9 +3298,13 @@ function replaceSiteBuilderContent(indexFile = '', pageContent = '') {
   if (!builderPattern.test(indexFile)) {
     return indexFile;
   }
+  // function replacer so page content is inserted literally ("$&", "$'"
+  // in content are not expanded as replacement patterns)
   return String(indexFile || '').replace(
     builderPattern,
-    '<haxcms-site-builder$1>' + String(pageContent || '') + '</haxcms-site-builder>'
+    function (match, attrs) {
+      return '<haxcms-site-builder' + attrs + '>' + String(pageContent || '') + '</haxcms-site-builder>';
+    }
   );
 }
 
@@ -3363,6 +3360,15 @@ async function renderDynamicSiteIndexResponse(req, site, item, canonicalPath = '
   else if (pageMiss) {
     pageContent = getPageMissShellMarkup();
   }
+  // Security (review 2026-10): finish the server-owned shell first (dev
+  // injections, then the per-request CSP nonce stamped on its inline scripts)
+  // and only then insert the page content. injectNonce used to run after the
+  // content was inserted and stamped the nonce onto every inline <script> in
+  // the page body too, turning any stored script into an authorized one.
+  indexFile = injectLinkedDevDedupingFix(indexFile);
+  indexFile = injectLinkedDevImportMap(indexFile);
+  indexFile = injectDevReloadScript(indexFile, currentPort);
+  indexFile = injectNonce(indexFile, req && req.haxcmsCspNonce);
   indexFile = replaceSiteBuilderContent(indexFile, pageContent);
   return indexFile;
 }

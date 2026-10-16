@@ -89,7 +89,9 @@ fs.writeFileSync(
 )
 fs.writeFileSync(
   path.join(runtimeRoot, 'pages', 'about', 'index.html'),
-  '<p>About page body</p>',
+  // Security (review 2026-10): written straight to disk (bypassing the save
+  // sanitizer) so the nonce-ordering test can prove page scripts stay unsigned
+  '<p>About page body</p><script>alert(1)</script><script type="module">alert(2)</script>',
 )
 fs.writeFileSync(path.join(runtimeRoot, 'files', 'asset.txt'), 'asset body')
 fs.writeFileSync(path.join(runtimeRoot, 'theme', 'style.css'), 'body {}')
@@ -251,6 +253,25 @@ test('site pages render by slug with prev/next metadata', async () => {
   assert.equal(result.status, 200)
   assert.ok(result.bodyText.indexOf('About page body') !== -1)
   assert.ok(result.bodyText.indexOf('<haxcms-site-builder') !== -1)
+})
+
+test('page content scripts never receive the CSP nonce; shell scripts do', async () => {
+  const baseUrl = await baseUrlPromise
+  const result = await request('GET', baseUrl + '/about', {
+    headers: { accept: 'text/html' },
+  })
+  assert.equal(result.status, 200)
+  const body = result.bodyText
+  const nonceMatch = /<meta name="csp-nonce" content="([^"]+)">/.exec(body)
+  assert.ok(nonceMatch, 'per-request nonce meta is present')
+  const nonce = nonceMatch[1]
+  // the server-owned shell script is still authorized
+  assert.ok(body.indexOf('<script nonce="' + nonce + '">window.app = {}</script>') !== -1)
+  // scripts inside the page content are inserted after nonce stamping
+  assert.ok(body.indexOf('<script>alert(1)</script>') !== -1)
+  assert.ok(body.indexOf('<script type="module">alert(2)</script>') !== -1)
+  const builder = body.slice(body.indexOf('<haxcms-site-builder'), body.indexOf('</haxcms-site-builder>'))
+  assert.equal(builder.indexOf(nonce), -1, 'no nonce inside page content')
 })
 
 test('page variants serve sidecars from the site directory', async () => {
