@@ -37,8 +37,13 @@ const ALLOWED_MIME_BY_EXTENSION = {
   // calendars and contact cards are plain text, so the content
   // sniffer reports text/plain for them; libmagic on the PHP side
   // reports the registered types, and both backends accept the same
-  // set. text/html is deliberately absent: a file carrying markup is
-  // detected as text/html and rejected rather than stored and served
+  // set. text/html is deliberately absent from THESE two entries: an
+  // .ics/.vcf carrying markup is detected as text/html and rejected.
+  // Security (review 2026-10): .html uploads themselves ARE allowed
+  // (see 'html' above, a product decision); they are made safe at serve
+  // time instead, by forcing Content-Disposition: attachment + nosniff
+  // for markup types under files/ (app.js FORCE_DOWNLOAD_UPLOAD_EXTENSION_PATTERN,
+  // PHP files/.htaccess FilesMatch).
   'ics': ['text/calendar', 'text/x-vcalendar', 'text/plain'],
   'vcf': ['text/vcard', 'text/x-vcard', 'text/directory', 'text/plain'],
   'css': ['text/css'],

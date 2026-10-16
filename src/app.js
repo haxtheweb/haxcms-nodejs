@@ -173,6 +173,11 @@ const {
 } = require('./lib/allRoutes.js');
 // app settings
 const multer = require('multer');
+const {
+  getUploadTempDirectory,
+  registerUploadTempCleanup,
+  createStaleUploadSweeper,
+} = require('./lib/uploadTempLifecycle.js');
 const { crossOriginOpenerPolicy } = require('helmet');
 // Security (HAX-SEC-004): hard cap on upload size (1 GB per file, max 10
 // files) prevents unbounded DoS uploads. The site's configured
@@ -181,13 +186,45 @@ const { crossOriginOpenerPolicy } = require('helmet');
 // net; the reverse proxy should also cap client_max_body_size.
 const MAX_UPLOAD_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
 const MAX_UPLOAD_FILE_COUNT = 10;
+// Security (review 2026-10): system conversion/import/configuration routes
+// only ever read the upload into memory for a one-shot transform, so they get
+// a much smaller per-file cap than the site file-upload route (which keeps
+// the 1 GB hard cap; the configured maxUploadSizeMb is enforced on top of it
+// in HAXCMSFile.save()).
+const MAX_SYSTEM_ACTION_UPLOAD_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+// Security (review 2026-10): multer writes into a dedicated directory
+// (<config>/tmp/uploads) so the per-request cleanup and the stale sweeper can
+// never touch other tmp consumers (e.g. tmp/imports bulk-import staging).
+// Every consumer reads req.files[i].path / req.file.path, never the dir.
+const UPLOAD_TEMP_DIRECTORY = getUploadTempDirectory(HAXCMS.configDirectory);
+const sweepStaleUploadsIfDue = createStaleUploadSweeper(HAXCMS.configDirectory);
 const upload = multer({
-  dest: path.join(HAXCMS.configDirectory, 'tmp/'),
+  dest: UPLOAD_TEMP_DIRECTORY,
   limits: {
     fileSize: MAX_UPLOAD_FILE_SIZE_BYTES,
     files: MAX_UPLOAD_FILE_COUNT,
   },
 })
+const systemActionUpload = multer({
+  dest: UPLOAD_TEMP_DIRECTORY,
+  limits: {
+    fileSize: MAX_SYSTEM_ACTION_UPLOAD_FILE_SIZE_BYTES,
+    files: MAX_UPLOAD_FILE_COUNT,
+  },
+})
+// Security (review 2026-10): wrap a multer parser so the request's temp files
+// are always removed once the response finishes/closes (no handler unlinked
+// them before), and opportunistically sweep stale temp files (>1h) left by
+// crashes or aborted requests.
+function withUploadTempLifecycle(multerParser) {
+  return function uploadParserWithLifecycle(req, res, next) {
+    registerUploadTempCleanup(req, res, UPLOAD_TEMP_DIRECTORY);
+    try {
+      sweepStaleUploadsIfDue();
+    } catch (e) {}
+    return multerParser(req, res, next);
+  };
+}
 const jsonRequestParser = express.json({
   type: ['application/json', 'application/*+json'],
   limit: '10mb'
@@ -210,13 +247,14 @@ function formBodyParser(req, res, next) {
     urlencodedParser(req, res, next);
   });
 }
-const uploadAnyParser = upload.any();
+const uploadAnyParser = withUploadTempLifecycle(upload.any());
+const systemActionUploadAnyParser = withUploadTempLifecycle(systemActionUpload.any());
 function parseSchemaFileOperationBody(req, res, next) {
   const contentType = req && req.headers && typeof req.headers['content-type'] === 'string'
     ? req.headers['content-type'].toLowerCase()
     : '';
   if (contentType.indexOf('multipart/form-data') === 0) {
-    return uploadAnyParser(req, res, next);
+    return systemActionUploadAnyParser(req, res, next);
   }
   return formBodyParser(req, res, next);
 }
@@ -899,9 +937,19 @@ app.use((req, res, next) => {
 });
 
 // Security: Force download of HTML files in sites' files directories to prevent XSS
+// Security (review 2026-10): decide on the DECODED path (the same
+// decodeStaticRequestPath the static handlers pass to res.sendFile), so
+// /files/x%2ehtml can no longer skip the header and render inline, and cover
+// every inline-capable markup type (shared list with the PHP .htaccess and
+// nginx configs). nosniff is set explicitly for user uploads as well
+// (helmet also sets it globally) so a mislabeled file is never sniffed.
 app.use((req, res, next) => {
-  if (req.url.includes('/files/') && /\.html?$/i.test(req.url.split('?')[0])) {
-    res.setHeader('Content-Disposition', 'attachment');
+  const decodedRequestPath = decodeStaticRequestPath(getRequestPathWithoutQuery(req.url));
+  if (isUserUploadsRequestPath(decodedRequestPath)) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (FORCE_DOWNLOAD_UPLOAD_EXTENSION_PATTERN.test(decodedRequestPath)) {
+      res.setHeader('Content-Disposition', 'attachment');
+    }
   }
   next();
 });
@@ -1450,113 +1498,63 @@ systemStructureContext().then((site) => {
     for (let systemRoute in systemRouteRegistry[systemMethod]) {
       const systemRoutePath = `${systemApiV1BasePath}${systemRoute}`;
       const systemRouteParser = getSystemV1RouteParser(systemMethod, systemRoute);
+      const resolveSystemRouteOp = (req) => req.route.path.replace(systemApiV1BasePath, '');
+      const resolveSiteScopedSystemRouteOp = (req) => req.route.path.replace(
+        `/${HAXCMS.sitesDirectory}/*${systemApiV1BasePath}`,
+        '',
+      );
       const systemRouteHandler = async (req, res, next) => {
-        const op = req.route.path.replace(systemApiV1BasePath, '');
+        const op = resolveSystemRouteOp(req);
         const rMethod = req.method.toLowerCase();
-        if (!validateSystemV1RouteAccess(req, op)) {
-          return res.status(403).json({
-            status: 403,
-            data: { message: 'system admin route requires system dashboard access' },
-          });
+        const identity = authenticateSystemV1RouteRequest(req, res, op, systemV1OpenRouteRegistry);
+        if (!identity.authenticated) {
+          return;
         }
-        let isAuthenticated = systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res);
-        let basicAuth = null;
-        if (!isAuthenticated) {
-          basicAuth = authenticateBasicAuthorizationRequest(req);
-          if (basicAuth.blocked) {
-            return res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
-              status: 429,
-              data: { message: 'Too many failed login attempts. Please try again later.' },
-            });
-          }
-          isAuthenticated = basicAuth.authenticated;
+        const basicAuth = identity.basicAuth;
+        if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
+          return;
         }
-        if (isAuthenticated) {
-          if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
-            return;
-          }
-          // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
-          // system routes (e.g. provider-search) so the router returns a
-          // consistent 403 envelope instead of the handler doing the check.
-          if (!await enforceSystemApiSiteTokenPolicy(req, res, op, rMethod, basicAuth)) {
-            return;
-          }
-          return systemRouteRegistry[rMethod][op](req, res, next);
+        // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
+        // system routes (e.g. provider-search) so the router returns a
+        // consistent 403 envelope instead of the handler doing the check.
+        if (!await enforceSystemApiSiteTokenPolicy(req, res, op, rMethod, basicAuth)) {
+          return;
         }
-        // D1b status-code parity (matches site API + PHP SystemApiSecurity):
-        // 401 for no creds or failed basic (fresh credential rejection);
-        // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
-        // Message strings mirror PHP SystemApiSecurity so outputs are identical.
-        if (getBearerJwtFromRequest(req) !== '') {
-          return res.status(403).json({
-            status: 403,
-            data: { message: 'Invalid bearer token' },
-          });
-        }
-        return res.status(401).json({
-          status: 401,
-          data: { message: 'Authentication required' },
-        });
+        return systemRouteRegistry[rMethod][op](req, res, next);
       };
       const siteScopedSystemRouteHandler = async (req, res, next) => {
-        const op = req.route.path.replace(
-          `/${HAXCMS.sitesDirectory}/*${systemApiV1BasePath}`,
-          '',
-        );
+        const op = resolveSiteScopedSystemRouteOp(req);
         const rMethod = req.method.toLowerCase();
-        if (!validateSystemV1RouteAccess(req, op)) {
-          return res.status(403).json({
-            status: 403,
-            data: { message: 'system admin route requires system dashboard access' },
-          });
+        const identity = authenticateSystemV1RouteRequest(req, res, op, systemV1OpenRouteRegistry);
+        if (!identity.authenticated) {
+          return;
         }
-        let isAuthenticated = systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res);
-        let basicAuth = null;
-        if (!isAuthenticated) {
-          basicAuth = authenticateBasicAuthorizationRequest(req);
-          if (basicAuth.blocked) {
-            return res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
-              status: 429,
-              data: { message: 'Too many failed login attempts. Please try again later.' },
-            });
-          }
-          isAuthenticated = basicAuth.authenticated;
+        const basicAuth = identity.basicAuth;
+        if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
+          return;
         }
-        if (isAuthenticated) {
-          if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
-            return;
-          }
-          // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
-          // system routes (e.g. provider-search) so the router returns a
-          // consistent 403 envelope instead of the handler doing the check.
-          if (!await enforceSystemApiSiteTokenPolicy(req, res, op, rMethod, basicAuth)) {
-            return;
-          }
-          return systemRouteRegistry[rMethod][op](req, res, next);
+        // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
+        // system routes (e.g. provider-search) so the router returns a
+        // consistent 403 envelope instead of the handler doing the check.
+        if (!await enforceSystemApiSiteTokenPolicy(req, res, op, rMethod, basicAuth)) {
+          return;
         }
-        // D1b status-code parity (matches site API + PHP SystemApiSecurity):
-        // 401 for no creds or failed basic (fresh credential rejection);
-        // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
-        // Message strings mirror PHP SystemApiSecurity so outputs are identical.
-        if (getBearerJwtFromRequest(req) !== '') {
-          return res.status(403).json({
-            status: 403,
-            data: { message: 'Invalid bearer token' },
-          });
-        }
-        return res.status(401).json({
-          status: 401,
-          data: { message: 'Authentication required' },
-        });
+        return systemRouteRegistry[rMethod][op](req, res, next);
       };
       if (systemRouteParser) {
+        // Security (review 2026-10): authenticate BEFORE the body parser so an
+        // anonymous multipart body is rejected without multer ever writing it
+        // to disk (previously multer ran first and the 401 came after the
+        // upload was stored). Same decision + envelopes as the handler.
         app[systemMethod](
           systemRoutePath,
+          createSystemV1PreParseAuth(resolveSystemRouteOp, systemV1OpenRouteRegistry),
           systemRouteParser,
           systemRouteHandler,
         );
         app[systemMethod](
           `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
+          createSystemV1PreParseAuth(resolveSiteScopedSystemRouteOp, systemV1OpenRouteRegistry),
           systemRouteParser,
           siteScopedSystemRouteHandler,
         );
@@ -1581,26 +1579,24 @@ systemStructureContext().then((site) => {
         try {
           const access = await validateSiteApiRouteAccess(req, siteRoute, siteMethod);
           if (!access.allowed) {
-            if (access.retryAfterSeconds && access.retryAfterSeconds > 0) {
-              res.set('Retry-After', String(access.retryAfterSeconds));
-            }
-            return res.status(access.status).json({
-              status: access.status,
-              data: { message: access.message },
-            });
+            return sendSiteApiAccessDenied(res, access);
           }
           siteRouteRegistry[siteMethod][siteRoute](req, res, next);
         } catch (e) {
-          return res.status(500).json({
-            status: 500,
-            data: { message: 'Unable to evaluate site API access policy' },
-            });
+          return sendSiteApiAccessPolicyError(res);
         }
       };
       if (siteRouteParser) {
-        app[siteMethod](siteRoutePath, siteRouteParser, siteRouteHandler);
+        // Security (review 2026-10): run the identity (bearer/basic) part of
+        // validateSiteApiRouteAccess BEFORE the body parser so anonymous
+        // multipart bodies (POST v1/files) are rejected without being written
+        // to disk. The site-token part still runs in the handler because the
+        // site name may only be resolvable from the parsed body.
+        const siteRoutePreParseAuth = createSiteApiPreParseAuth(siteRoute, siteMethod);
+        app[siteMethod](siteRoutePath, siteRoutePreParseAuth, siteRouteParser, siteRouteHandler);
         app[siteMethod](
           `/${HAXCMS.sitesDirectory}/*${siteRoutePath}`,
+          siteRoutePreParseAuth,
           siteRouteParser,
           siteRouteHandler,
         );
@@ -1836,6 +1832,107 @@ function shouldDisableResponseCache(req) {
 }
 
 
+// Security (review 2026-10): the system API authentication decision, shared
+// by the pre-parse middleware (createSystemV1PreParseAuth) and the route
+// handlers so the logic is not duplicated. Only request headers are consulted
+// (bearer JWT / basic credentials), so it is safe to run before the body is
+// parsed. Returns { authenticated: true, basicAuth } or sends the same
+// 403/429/401/403 envelopes the handlers always returned and returns
+// { authenticated: false }. A success is memoized on the request so the
+// handler does not re-run (and re-hash) basic auth after the pre-parse pass.
+function authenticateSystemV1RouteRequest(req, res, op, openRoutes = SystemV1OpenRoutes) {
+  if (
+    req.haxcmsSystemRouteIdentity &&
+    req.haxcmsSystemRouteIdentity.op === op
+  ) {
+    return req.haxcmsSystemRouteIdentity.result;
+  }
+  if (!validateSystemV1RouteAccess(req, op)) {
+    res.status(403).json({
+      status: 403,
+      data: { message: 'system admin route requires system dashboard access' },
+    });
+    return { authenticated: false };
+  }
+  let isAuthenticated = openRoutes.includes(op) || HAXCMS.validateJWT(req, res);
+  let basicAuth = null;
+  if (!isAuthenticated) {
+    basicAuth = authenticateBasicAuthorizationRequest(req);
+    if (basicAuth.blocked) {
+      res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
+        status: 429,
+        data: { message: 'Too many failed login attempts. Please try again later.' },
+      });
+      return { authenticated: false };
+    }
+    isAuthenticated = basicAuth.authenticated;
+  }
+  if (isAuthenticated) {
+    const result = { authenticated: true, basicAuth: basicAuth };
+    req.haxcmsSystemRouteIdentity = { op: op, result: result };
+    return result;
+  }
+  // D1b status-code parity (matches site API + PHP SystemApiSecurity):
+  // 401 for no creds or failed basic (fresh credential rejection);
+  // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
+  // Message strings mirror PHP SystemApiSecurity so outputs are identical.
+  if (getBearerJwtFromRequest(req) !== '') {
+    res.status(403).json({
+      status: 403,
+      data: { message: 'Invalid bearer token' },
+    });
+    return { authenticated: false };
+  }
+  res.status(401).json({
+    status: 401,
+    data: { message: 'Authentication required' },
+  });
+  return { authenticated: false };
+}
+// Security (review 2026-10): route-level middleware registered ahead of the
+// body parser (multer / json / urlencoded) for system API routes.
+function createSystemV1PreParseAuth(resolveOp, openRoutes = SystemV1OpenRoutes) {
+  return function systemV1PreParseAuth(req, res, next) {
+    const identity = authenticateSystemV1RouteRequest(req, res, resolveOp(req), openRoutes);
+    if (!identity.authenticated) {
+      return;
+    }
+    next();
+  };
+}
+function sendSiteApiAccessDenied(res, access) {
+  if (access.retryAfterSeconds && access.retryAfterSeconds > 0) {
+    res.set('Retry-After', String(access.retryAfterSeconds));
+  }
+  return res.status(access.status).json({
+    status: access.status,
+    data: { message: access.message },
+  });
+}
+function sendSiteApiAccessPolicyError(res) {
+  return res.status(500).json({
+    status: 500,
+    data: { message: 'Unable to evaluate site API access policy' },
+  });
+}
+// Security (review 2026-10): route-level middleware registered ahead of the
+// body parser for site API routes. Enforces only the identity part of
+// validateSiteApiRouteAccess (header-based); a denial uses the same envelope
+// the handler would send. Site/user token checks stay in the handler.
+function createSiteApiPreParseAuth(route = '', method = 'get') {
+  return function siteApiPreParseAuth(req, res, next) {
+    try {
+      const policy = getSiteApiRouteAuthPolicy(route, method);
+      const identity = evaluateSiteApiRequestIdentity(req, policy);
+      if (identity.decision && !identity.decision.allowed) {
+        return sendSiteApiAccessDenied(res, identity.decision);
+      }
+    } catch (e) {
+      return sendSiteApiAccessPolicyError(res);
+    }
+    next();
+  };
+}
 function validateSystemV1RouteAccess(req, op = '') {
   if (SystemV1AdminRoutes.indexOf(op) === -1) {
     return true;
@@ -2475,8 +2572,28 @@ function validateHaxiamManagedUserIdentityForRequest() {
     };
   }
 }
-async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
-  const policy = getSiteApiRouteAuthPolicy(route, method);
+// Security (review 2026-10): identity (bearer JWT / basic auth) part of the
+// site API access decision, split out of validateSiteApiRouteAccess so the
+// pre-parse middleware can run exactly the same check before any request
+// body is read. Header-only. Returns { decision, authContext } where
+// decision is a final {allowed,status,message} result (CLI bypass, public
+// policy, or a denial) or null when the policy-specific token checks must
+// still run. Memoized per request+policy so basic auth is evaluated once.
+function evaluateSiteApiRequestIdentity(req, policy) {
+  if (
+    req &&
+    req.haxcmsSiteApiIdentity &&
+    req.haxcmsSiteApiIdentity.policy === policy
+  ) {
+    return req.haxcmsSiteApiIdentity.result;
+  }
+  const result = computeSiteApiRequestIdentity(req, policy);
+  if (req && typeof req === 'object') {
+    req.haxcmsSiteApiIdentity = { policy: policy, result: result };
+  }
+  return result;
+}
+function computeSiteApiRequestIdentity(req, policy) {
   const authContext = {
     policy,
     authenticated: false,
@@ -2486,11 +2603,13 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
   if (HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
     authContext.authenticated = true;
     authContext.securityLevel = policy === 'public' ? 'authenticated' : policy;
-    setSiteApiAuthContext(req, authContext);
     return {
-      allowed: true,
-      status: 200,
-      message: '',
+      authContext,
+      decision: {
+        allowed: true,
+        status: 200,
+        message: '',
+      },
     };
   }
   const bearerJwt = getBearerJwtFromRequest(req);
@@ -2518,35 +2637,37 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
     authContext.securityLevel = 'authenticated';
   }
   if (policy === 'public') {
-    setSiteApiAuthContext(req, authContext);
     return {
-      allowed: true,
-      status: 200,
-      message: '',
+      authContext,
+      decision: {
+        allowed: true,
+        status: 200,
+        message: '',
+      },
     };
   }
   if (basicAuth.blocked && !authContext.authenticated) {
-    return {
+    return denySiteApiIdentity(authContext, {
       allowed: false,
       status: 429,
       message: 'Too many failed login attempts. Please try again later.',
       retryAfterSeconds: basicAuth.retryAfterSeconds,
-    };
+    });
   }
   if (!hasBearerJwt && !basicAuth.attempted) {
-    return {
+    return denySiteApiIdentity(authContext, {
       allowed: false,
       status: 401,
       message: 'Authorization bearer token or basic credentials are required for this endpoint',
-    };
+    });
   }
   if (!authContext.authenticated) {
     if (basicAuth.attempted) {
-      return {
+      return denySiteApiIdentity(authContext, {
         allowed: false,
         status: 401,
         message: 'Invalid basic authorization credentials',
-      };
+      });
     }
     if (hasBearerJwt || invalidBearerJwt) {
       // bearer was present but invalid/expired. Return 403 (not 401) so the
@@ -2554,24 +2675,45 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
       // API's 403-on-failed-validateJWT; 401 is reserved for the
       // "no credentials present" case above so the client can distinguish a
       // genuine logged-out state from an expired-but-refreshable token.
-      return {
+      return denySiteApiIdentity(authContext, {
         allowed: false,
         status: 403,
         message: 'Invalid bearer token',
-      };
+      });
     }
-    return {
+    return denySiteApiIdentity(authContext, {
       allowed: false,
       status: 401,
       message: 'Unable to authenticate request',
-    };
+    });
   }
   if (authContext.userName === '') {
-    return {
+    return denySiteApiIdentity(authContext, {
       allowed: false,
       status: 403,
       message: 'Unable to resolve authenticated user context',
-    };
+    });
+  }
+  return {
+    authContext,
+    decision: null,
+  };
+}
+function denySiteApiIdentity(authContext, decision) {
+  return {
+    authContext,
+    decision,
+  };
+}
+async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
+  const policy = getSiteApiRouteAuthPolicy(route, method);
+  const identity = evaluateSiteApiRequestIdentity(req, policy);
+  const authContext = Object.assign({}, identity.authContext);
+  if (identity.decision) {
+    if (identity.decision.allowed) {
+      setSiteApiAuthContext(req, authContext);
+    }
+    return identity.decision;
   }
   if (policy === 'authenticated') {
     authContext.securityLevel = 'authenticated';
@@ -2684,6 +2826,14 @@ function getRequestPathWithoutQuery(url = '') {
 // filesystem-safe path so res.sendFile()'s internal re-encode round-trips
 // correctly. Malformed percent-encoding falls back to the raw path; `send`
 // still rejects '..' traversal and null bytes downstream regardless.
+// Security (review 2026-10): inline-capable markup types that must never be
+// rendered from a site's files/ directory. Keep identical to the PHP
+// system/boilerplate/site/files/.htaccess FilesMatch, the root .htaccess and
+// the nginx configs.
+const FORCE_DOWNLOAD_UPLOAD_EXTENSION_PATTERN = /\.(html?|xht(ml)?|xml|svg)$/i;
+function isUserUploadsRequestPath(decodedRequestPath = '') {
+  return String(decodedRequestPath || '').indexOf('/files/') !== -1;
+}
 function decodeStaticRequestPath(requestPath = '') {
   const rawPath = String(requestPath || '');
   try {
@@ -2737,7 +2887,17 @@ const STATIC_CHARSET_EXTENSIONS = /\.(txt|md|json|ya?ml|xml)$/i;
 // Used at call sites that res.sendFile() afterward: send respects a
 // pre-set Content-Type (it does not override), so this header wins.
 function setStaticContentTypeWithCharset(res, requestPath = '', fallback = 'text/html') {
-  const cleanPath = getRequestPathWithoutQuery(requestPath);
+  let cleanPath = getRequestPathWithoutQuery(requestPath);
+  // Security (review 2026-10): for user uploads, resolve the type from the
+  // decoded path (what sendFile actually serves) and never fall back to
+  // text/html for an unresolvable type, so an encoded or extensionless
+  // upload can't be rendered as a page.
+  if (isUserUploadsRequestPath(decodeStaticRequestPath(cleanPath))) {
+    cleanPath = decodeStaticRequestPath(cleanPath);
+    if (fallback !== null) {
+      fallback = 'application/octet-stream';
+    }
+  }
   const mimeType = mime.getType(cleanPath);
   if (!mimeType) {
     if (fallback !== null) {
