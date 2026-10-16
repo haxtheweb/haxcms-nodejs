@@ -198,3 +198,37 @@ test('createServer prefers custom certs over the local generation flow', { skip:
   assert.equal(sslServer.getServerProtocol(), 'https')
   await closeServer(server)
 })
+
+// Security (review 2026-10): no shell. Every command must go through
+// execFileSync with the paths as discrete argv elements.
+test('cert tooling runs via execFileSync argv arrays, never a shell string', () => {
+  const childProcess = require('child_process')
+  const originalExecSync = childProcess.execSync
+  const originalExecFileSync = childProcess.execFileSync
+  const calls = []
+  childProcess.execSync = function () {
+    throw new Error('execSync (shell) must not be used')
+  }
+  // record only: nothing is executed, so `mkcert -install` cannot touch trust stores
+  childProcess.execFileSync = function (file, args) {
+    calls.push([file, args])
+    return ''
+  }
+  try {
+    assert.equal(sslServer.isMkcertAvailable(), true)
+    assert.equal(sslServer.generateMkcertCerts(), true)
+    assert.equal(sslServer.generateOpensslCerts(), true)
+  }
+  finally {
+    childProcess.execSync = originalExecSync
+    childProcess.execFileSync = originalExecFileSync
+  }
+  assert.deepEqual(calls.map((c) => c[0]), ['mkcert', 'mkcert', 'mkcert', 'openssl'])
+  assert.deepEqual(calls[0][1], ['--version'])
+  assert.deepEqual(calls[1][1], ['-install'])
+  assert.deepEqual(calls[2][1], ['-key-file', keyPath, '-cert-file', certPath, 'localhost', '127.0.0.1', '::1'])
+  const opensslArgs = calls[3][1]
+  assert.equal(opensslArgs[opensslArgs.indexOf('-keyout') + 1], keyPath)
+  assert.equal(opensslArgs[opensslArgs.indexOf('-out') + 1], certPath)
+  assert.equal(opensslArgs[opensslArgs.indexOf('-config') + 1], path.join(sslDir, 'openssl-san.cnf'))
+})

@@ -7,6 +7,12 @@ const SSL_DIR = path.join(discoverConfigPath, 'ssl');
 const KEY_PATH = path.join(SSL_DIR, 'localhost.key');
 const CERT_PATH = path.join(SSL_DIR, 'localhost.crt');
 
+// Security (review 2026-10): every external command below runs through
+// execFileSync with an argv array (no shell). They previously used execSync
+// with shell strings that interpolated SSL_DIR-derived paths in double
+// quotes, so a config directory containing `"`, `$()` or backticks was
+// interpreted by /bin/sh.
+
 function hasCustomSslCerts() {
   const keyPath = process.env.HAXCMS_SSL_KEY;
   const certPath = process.env.HAXCMS_SSL_CERT;
@@ -30,7 +36,7 @@ function getCustomSslCerts() {
 
 function isMkcertAvailable() {
   try {
-    child_process.execSync('mkcert --version', { stdio: 'ignore' });
+    child_process.execFileSync('mkcert', ['--version'], { stdio: 'ignore' });
     return true;
   } catch (e) {
     return false;
@@ -54,13 +60,14 @@ function generateMkcertCerts() {
   }
   try {
     // Ensure the local CA is installed in system/browser trust stores
-    child_process.execSync('mkcert -install', { stdio: 'ignore' });
+    child_process.execFileSync('mkcert', ['-install'], { stdio: 'ignore' });
   } catch (e) {
     // -install may already be done or may fail silently; continue to cert generation
   }
   try {
-    child_process.execSync(
-      `mkcert -key-file "${KEY_PATH}" -cert-file "${CERT_PATH}" localhost 127.0.0.1 ::1`,
+    child_process.execFileSync(
+      'mkcert',
+      ['-key-file', KEY_PATH, '-cert-file', CERT_PATH, 'localhost', '127.0.0.1', '::1'],
       { stdio: 'ignore', cwd: SSL_DIR }
     );
     console.log(`Generated locally-trusted SSL certificates via mkcert in ${SSL_DIR}`);
@@ -106,8 +113,9 @@ IP.2 = ::1
 `;
   fs.writeFileSync(configPath, sanConfig.trim());
   try {
-    child_process.execSync(
-      `openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "${KEY_PATH}" -out "${CERT_PATH}" -config "${configPath}"`,
+    child_process.execFileSync(
+      'openssl',
+      ['req', '-x509', '-nodes', '-days', '365', '-newkey', 'rsa:2048', '-keyout', KEY_PATH, '-out', CERT_PATH, '-config', configPath],
       { stdio: 'ignore' }
     );
     console.log(`Generated self-signed SSL certificates in ${SSL_DIR}`);
