@@ -159,6 +159,38 @@ describe('magicLinks store', () => {
     }
   })
 
+  test('HAXiam deployments are off by default, and tenant config cannot turn them on', () => {
+    for (const config of [{ iam: true }, { deploymentProfile: 'haxiam-managed' }]) {
+      const h = fakeHaxcms({ config: Object.assign({ security: { magicLink: { enabled: true } } }, config) })
+      assert.equal(magicLinks.isHaxiamDeployment(h), true)
+      assert.equal(magicLinks.isMagicLinkEnabled(h), false, JSON.stringify(config))
+      assert.throws(() => magicLinks.issueMagicLink(h), { code: 'MAGIC_LINK_DISABLED' })
+    }
+  })
+
+  test('HAXCMS_MAGIC_LINK_ENABLED turns HAXiam on; DISABLED still wins over it', () => {
+    const h = fakeHaxcms({ config: { iam: true } })
+    process.env.HAXCMS_MAGIC_LINK_ENABLED = '1'
+    try {
+      assert.equal(magicLinks.isMagicLinkEnabled(h), true)
+      const { token } = magicLinks.issueMagicLink(h)
+      assert.equal(magicLinks.consumeMagicLink(h, token).ok, true)
+      process.env.HAXCMS_MAGIC_LINK_DISABLED = '1'
+      assert.equal(magicLinks.isMagicLinkEnabled(h), false)
+    }
+    finally {
+      delete process.env.HAXCMS_MAGIC_LINK_ENABLED
+      delete process.env.HAXCMS_MAGIC_LINK_DISABLED
+    }
+  })
+
+  test('single-site and self-hosted multisite stay on by default', () => {
+    for (const profile of [undefined, 'single-site', 'self-hosted-multi-site']) {
+      const h = fakeHaxcms({ config: profile ? { deploymentProfile: profile } : {} })
+      assert.equal(magicLinks.isMagicLinkEnabled(h), true, String(profile))
+    }
+  })
+
   test('ttl is clamped to 60s..24h', () => {
     const h = fakeHaxcms()
     assert.equal(magicLinks.issueMagicLink(h, { ttlSeconds: 1 }).ttlSeconds, 60)
