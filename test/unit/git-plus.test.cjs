@@ -111,3 +111,44 @@ describe('GitPlus.gitExec() cliVersion guard', () => {
     }
   })
 })
+
+// Security (review 2026-10): GitPlus.commit passes -m as its own argv
+// element instead of letting git-interface re-tokenize a quoted string.
+describe('GitPlus.commit argv handling', () => {
+  const childProcess = require('node:child_process')
+  function git(dir, args) {
+    return childProcess.execFileSync('git', args, { cwd: dir, encoding: 'utf8' })
+  }
+  test('a message with quotes and option-like text is stored verbatim and injects no args', async () => {
+    const dir = tmpGitRepoDir()
+    try {
+      git(dir, ['init', '-q'])
+      git(dir, ['config', 'user.name', 'Unit'])
+      git(dir, ['config', 'user.email', 'unit@local.invalid'])
+      fs.writeFileSync(path.join(dir, 'a.txt'), 'a')
+      git(dir, ['add', '.'])
+      const instance = new GitPlus({ dir: dir, cliVersion: 'git version test' })
+      const message = "title' --author='Evil <evil@example.com>' --allow-empty -- x"
+      await instance.commit(message)
+      assert.equal(git(dir, ['log', '-1', '--pretty=%B']).trim(), message)
+      assert.equal(git(dir, ['log', '-1', '--pretty=%an']).trim(), 'Unit')
+    }
+    finally {
+      fs.removeSync(dir)
+    }
+  })
+  test('commit rejects when git fails and is a no-op without a git cli', async () => {
+    const dir = tmpGitRepoDir()
+    try {
+      git(dir, ['init', '-q'])
+      const instance = new GitPlus({ dir: dir, cliVersion: 'git version test' })
+      await assert.rejects(instance.commit('nothing to commit'))
+      const noCli = new GitPlus({ dir: dir, cliVersion: 'x' })
+      noCli.cliVersion = null
+      assert.equal(noCli.commit('m'), undefined)
+    }
+    finally {
+      fs.removeSync(dir)
+    }
+  })
+})

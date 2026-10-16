@@ -309,8 +309,9 @@ test('gitCommit commits site changes and reports success', async () => {
   const result = await site.gitCommit('Unit commit: add marker')
   assert.equal(result, true)
   const log = await runGitCommand('unit-site', ['log', '-1', '--pretty=%s'])
-  // git-interface quotes the -m message, so the stored subject keeps quotes
-  assert.ok(log.indexOf('Unit commit: add marker') !== -1)
+  // Security (review 2026-10): -m is now its own argv element, so the subject
+  // is stored exactly (git-interface used to wrap it in literal quotes)
+  assert.equal(log, 'Unit commit: add marker')
 })
 
 test('gitCommit sanitizes hostile commit messages', async () => {
@@ -319,9 +320,7 @@ test('gitCommit sanitizes hostile commit messages', async () => {
   const result = await site.gitCommit("bad'quote\"quote\\back")
   assert.equal(result, true)
   const log = await runGitCommand('unit-site', ['log', '-1', '--pretty=%s'])
-  // quotes remain in the stored subject because git-interface quotes -m,
-  // so only the sanitized body itself is asserted here
-  assert.ok(log.indexOf('badquotequoteback') !== -1)
+  assert.equal(log, 'badquotequoteback')
   assert.ok(log.indexOf("'quote") === -1)
   assert.ok(log.indexOf('\\back') === -1)
 })
@@ -339,11 +338,44 @@ test('gitCommit attempts a branch checkout and push when autoPush is configured'
   delete site.manifest.metadata.site.git
 })
 
+test('gitCommit autoPush refuses a branch name starting with "-"', async () => {
+  const GitPlus = require('../../src/lib/GitPlus.js')
+  const site = await HAXCMS.loadSite('unit-site')
+  const originalCheckout = GitPlus.prototype.checkout
+  const checkedOut = []
+  GitPlus.prototype.checkout = async function (branch) {
+    checkedOut.push(branch)
+    return ''
+  }
+  try {
+    for (const branch of ['-f', '--orphan=x', '-', 'ok-branch']) {
+      site.manifest.metadata.site.git = { autoPush: true, branch: branch }
+      fs.writeFileSync(path.join(site.siteDirectory, 'unit-commit-marker.txt'), 'm-' + branch)
+      assert.equal(await site.gitCommit('branch guard ' + checkedOut.length), true)
+    }
+  }
+  finally {
+    GitPlus.prototype.checkout = originalCheckout
+    delete site.manifest.metadata.site.git
+  }
+  assert.deepEqual(checkedOut, ['ok-branch'])
+})
+
+test('sanitizeGitCommitMessage strips quotes, backslashes and control chars', async () => {
+  const site = await HAXCMS.loadSite('unit-site')
+  assert.equal(
+    site.sanitizeGitCommitMessage("A new journey begins: x' --author='Evil <e@x>\n\"y", 'fallback'),
+    'A new journey begins: x --author=Evil <e@x>y',
+  )
+  assert.equal(site.sanitizeGitCommitMessage("'\"\\", 'fallback'), 'fallback')
+})
+
 test('gitRevert, gitPush, gitSetRemote, and gitTest resolve without throwing', async () => {
   const site = await HAXCMS.loadSite('unit-site')
   assert.equal(await site.gitRevert(1), true)
   assert.equal(await site.gitPush(), true)
-  assert.equal(await site.gitSetRemote({ url: 'git@github.com:unit-org/none.git' }), true)
+  // Security (review 2026-10): gitSetRemote was dead code; it now fails explicitly
+  assert.equal(await site.gitSetRemote({ url: 'git@github.com:unit-org/none.git' }), false)
   const version = await site.gitTest()
   assert.ok(String(version).indexOf('git version') !== -1)
 })

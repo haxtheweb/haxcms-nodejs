@@ -475,7 +475,10 @@ class HAXCMSSite
         // which made this commit fail with a stack trace and no initial commit
         const restoreGitIdentity = await this.gitFallbackIdentity(directory + '/' + tmpname);
         try {
-          await git.commit('A new journey begins: ' + this.manifest.title + ' (' + this.manifest.id + ')');
+          // Security (review 2026-10): the site title is user input; route it
+          // through the same sanitizer as gitCommit() (GitPlus.commit also
+          // passes -m as its own argv element now).
+          await git.commit(this.sanitizeGitCommitMessage('A new journey begins: ' + this.manifest.title + ' (' + this.manifest.id + ')', 'A new journey begins'));
         }
         finally {
           restoreGitIdentity();
@@ -952,6 +955,18 @@ class HAXCMSSite
         }
     }
     /**
+     * Security (HAX-SEC-006): conservative allowlist for git commit messages
+     * (strip control chars, quotes and backslashes; cap at 200 chars). Shared
+     * by gitCommit() and the initial commit in createSite.
+     */
+    sanitizeGitCommitMessage(msg, fallback = 'Committed changes') {
+      var safeMsg = String(msg || fallback).replace(/[\x00-\x1f\x7f'"\\]/g, '').substring(0, 200);
+      if (safeMsg === '') {
+        safeMsg = fallback;
+      }
+      return safeMsg;
+    }
+    /**
      * Basic wrapper to commit current changes to version control of the site
      */
     async gitCommit(msg = 'Committed changes')
@@ -964,10 +979,7 @@ class HAXCMSSite
           // quoted token and inject git arguments. This is defense-in-depth;
           // callers should also avoid passing user input (files.js uses the
           // server-generated sanitized filename, not upload.originalname).
-          var safeMsg = String(msg || 'Committed changes').replace(/[\x00-\x1f\x7f'"\\]/g, '').substring(0, 200);
-          if (safeMsg === '') {
-            safeMsg = 'Committed changes';
-          }
+          var safeMsg = this.sanitizeGitCommitMessage(msg, 'Committed changes');
           // commit, true flag will attempt to make this a git repo if it currently isn't
           const git = new GitPlus({
             dir: this.siteDirectory,
@@ -981,7 +993,9 @@ class HAXCMSSite
             // pattern before checkout to prevent git argument injection via a
             // configured branch name containing shell/arg metacharacters.
             var branch = String(this.manifest.metadata.site.git.branch);
-            if (/^[a-zA-Z0-9._\-/]+$/.test(branch)) {
+            // Security (review 2026-10): also forbid a leading '-' so a branch
+            // like "--orphan=x" / "-f" cannot be read as a git option.
+            if (/^[a-zA-Z0-9][a-zA-Z0-9._\-/]*$/.test(branch)) {
               await git.checkout(branch);
               await git.push();
             }
@@ -1030,15 +1044,14 @@ class HAXCMSSite
      */
     async gitSetRemote(gitDetails)
     {
-      try {
-        const git = new GitPlus({
-          dir: this.siteDirectory,
-          cliVersion: await this.gitTest()
-        });
-        await repo.setRemote("origin", gitDetails.url);
-      }
-      catch(e){}
-      return true;
+      // Security (review 2026-10): this method has always been dead code: it
+      // called an undefined `repo` and the ReferenceError was swallowed, so no
+      // remote was ever set. Rather than "fixing" it into code that hands a
+      // user-supplied URL to git (git-interface string-splits arguments, and a
+      // URL like "--upload-pack=..." or "ext::" is an injection vector), fail
+      // explicitly so callers and operators can see remote setup did not run.
+      console.warn('HAXcms: gitSetRemote is not supported; git remote was not configured for ' + (this.siteDirectory || 'site'));
+      return false;
     }
     /**
      * Add a page to the site's file system and reflect it in the outine schema.

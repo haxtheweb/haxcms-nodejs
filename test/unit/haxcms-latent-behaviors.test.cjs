@@ -338,7 +338,7 @@ test('createSite uses the github.io domain when git details carry a user', async
   })
   assert.ok(site)
   assert.equal(site.manifest.metadata.site.domain, 'https://latent-user.github.io/latent-user-site')
-  // gitSetRemote is a silent no-op in this harness (repo is never defined),
+  // gitSetRemote is unsupported and returns false with a warning,
   // so the site still builds fine
   assert.ok(fs.statSync(path.join(sitesRoot, 'latent-user-site')).isDirectory())
 })
