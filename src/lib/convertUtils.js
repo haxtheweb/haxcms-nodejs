@@ -1,93 +1,19 @@
 const { parse } = require('node-html-parser');
 const HTMLtoDOCX = require('html-to-docx');
-
-/**
- * Run async work over a list with bounded concurrency, so validating a large
- * number of remote images (e.g. an entire site export) doesn't open hundreds
- * of simultaneous connections.
- */
-async function mapWithConcurrency(items, limit, fn) {
-  const results = new Array(items.length);
-  let cursor = 0;
-  async function worker() {
-    while (cursor < items.length) {
-      const current = cursor;
-      cursor += 1;
-      results[current] = await fn(items[current], current);
-    }
-  }
-  const workerCount = Math.max(1, Math.min(limit, items.length));
-  const workers = [];
-  for (let i = 0; i < workerCount; i++) {
-    workers.push(worker());
-  }
-  await Promise.all(workers);
-  return results;
-}
-
-/**
- * Check whether a remote URL actually resolves to image bytes. Authored
- * content can reference URLs that 200-redirect into an unrelated HTML page
- * (e.g. an auth/login flow) rather than 404ing, which would otherwise reach
- * html-to-docx's image embedder and throw an opaque "unsupported file type:
- * undefined" error that aborts the entire export.
- */
-async function isRemoteImageUrl(url, timeoutMs = 8000) {
-  try {
-    const axios = require('axios');
-    const response = await axios.get(url, {
-      timeout: timeoutMs,
-      maxRedirects: 5,
-      responseType: 'arraybuffer',
-      validateStatus: () => true,
-    });
-    if (response.status < 200 || response.status >= 300) {
-      return false;
-    }
-    const contentType = String(
-      (response.headers && response.headers['content-type']) || '',
-    ).toLowerCase();
-    return contentType.indexOf('image/') === 0;
-  } catch (e) {
-    return false;
-  }
-}
-
-/**
- * Remove <img> tags whose remote src does not resolve to actual image bytes,
- * so a single broken/redirected image reference cannot abort the whole DOCX
- * conversion. Local/data-URI images are left untouched.
- */
-async function stripUnreachableRemoteImages(html) {
-  if (!html) {
-    return html;
-  }
-  let doc;
-  try {
-    doc = parse(html);
-  } catch (e) {
-    return html;
-  }
-  const images = doc.querySelectorAll('img').filter((img) =>
-    /^https?:\/\//i.test(img.getAttribute('src') || ''),
-  );
-  if (images.length === 0) {
-    return html;
-  }
-  await mapWithConcurrency(images, 8, async (img) => {
-    const valid = await isRemoteImageUrl(img.getAttribute('src'));
-    if (!valid) {
-      img.remove();
-    }
-  });
-  return doc.toString();
-}
+const {
+  resolveExportImages,
+  installPdfRequestFilter,
+} = require('./exportImageResolver.js');
 
 /**
  * Convert HTML string to a DOCX Buffer.
  * Shared between the system route handler and site export.
+ *
+ * imageOptions is passed to resolveExportImages (siteDir / siteBasePath /
+ * selfBaseUrl for site exports; omitted for the system convert route, where
+ * only remote http(s) images are fetched and relative ones are dropped).
  */
-async function convertHtmlToDocxBuffer(html) {
+async function convertHtmlToDocxBuffer(html, imageOptions) {
   let sanitized = String(html || '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -100,11 +26,17 @@ async function convertHtmlToDocxBuffer(html) {
     sanitized = '<p>No content available</p>';
   }
 
+  // Security (SEC-SSRF): html-to-docx downloads every http(s) <img src> with
+  // its own unguarded client (no SSRF check, redirects followed, no size
+  // cap). Resolve every image first (local site file / safeFetch with a byte
+  // cap / dropped) and hand html-to-docx only data: URIs. This also keeps the
+  // old behaviour of dropping images that do not resolve to real image bytes
+  // so one broken reference cannot abort the whole conversion. Fail closed:
+  // if the pass itself throws, strip all images rather than pass them on.
   try {
-    sanitized = await stripUnreachableRemoteImages(sanitized);
+    sanitized = await resolveExportImages(sanitized, Object.assign({}, imageOptions || {}, { output: 'data-uri' }));
   } catch (e) {
-    // Non-fatal: fall through with the original HTML if the validation pass
-    // itself fails for any reason.
+    sanitized = sanitized.replace(/<img\b[^>]*>/gi, '');
   }
 
   const options = {
@@ -430,7 +362,7 @@ function findChromeExecutable() {
  * Convert HTML string to a PDF Buffer using puppeteer-core.
  * Requires Chrome/Chromium to be installed on the host.
  */
-async function htmlToPdfBuffer(html, base = '/') {
+async function htmlToPdfBuffer(html, base = '/', imageOptions) {
   const puppeteer = require('puppeteer-core');
   const executablePath = findChromeExecutable();
   if (!executablePath) {
@@ -447,6 +379,19 @@ async function htmlToPdfBuffer(html, base = '/') {
     .trim();
   if (!sanitized) {
     sanitized = '<p>No content available</p>';
+  }
+  // Security (SEC-SSRF): inline every image before Chrome sees the document
+  // (local site files / safeFetch with a byte cap / dropped). Without site
+  // context (system convert route) relative srcs resolve against an absolute
+  // http(s) base and go through safeFetch too.
+  const resolvedImageOptions = imageOptions
+    ? Object.assign({}, imageOptions)
+    : { remoteBaseUrl: /^https?:\/\//i.test(String(base || '')) ? String(base) : null };
+  resolvedImageOptions.output = 'data-uri';
+  try {
+    sanitized = await resolveExportImages(sanitized, resolvedImageOptions);
+  } catch (e) {
+    sanitized = sanitized.replace(/<img\b[^>]*>/gi, '');
   }
   let browser = null;
   try {
@@ -465,6 +410,10 @@ async function htmlToPdfBuffer(html, base = '/') {
       args: launchArgs,
     });
     const page = await browser.newPage();
+    // Security (SEC-SSRF): belt and braces — images are already inlined, so
+    // abort every request that is not data:/about: (CSS url(), <link>,
+    // <object>, fonts, anything the inlining pass did not cover).
+    await installPdfRequestFilter(page);
     if (base && base !== '/') {
       // Security (L4): full HTML-attribute escape as defense-in-depth even
       // though the route validates base as a URL. Escaping &, ", <, > ensures
@@ -476,8 +425,7 @@ async function htmlToPdfBuffer(html, base = '/') {
         sanitized = `<head>${baseTag}</head>${sanitized}`;
       }
     }
-    // Wait for network to be idle (images/fonts loaded) before printing,
-    // otherwise relative images resolved via <base> may not have rendered yet.
+    // Wait for network to be idle (inlined images decoded) before printing.
     await page.setContent(sanitized, { waitUntil: 'networkidle0', timeout: 30000 });
     const pdfBuffer = await page.pdf({
       format: 'A4',

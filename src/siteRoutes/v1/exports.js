@@ -17,6 +17,11 @@ const path = require('path')
 const crypto = require('crypto')
 const { HAXCMS } = require('../../lib/HAXCMS.js')
 const { convertHtmlToDocxBuffer, htmlToPdfBuffer } = require('../../lib/convertUtils.js')
+const {
+  resolveExportImages,
+  resolveExportImageToFileUrl,
+} = require('../../lib/exportImageResolver.js')
+const os = require('os')
 const EPUB = require('epub-gen-memory')
 const { parse } = require('node-html-parser')
 const TurndownService = require('turndown')
@@ -164,11 +169,23 @@ function buildAbsoluteSiteBaseUrl(req, site) {
   return protocol + '://' + host + siteBasePath
 }
 
-async function convertHtmlToDownloadBuffer(format = 'pdf', html = '', base = '/') {
+// Security (SEC-SSRF): image-resolution context for a site export. Images are
+// resolved against the site directory (and the site's own absolute URL, which
+// the PDF path absolutises srcs against) instead of being fetched over the
+// network by the export libraries. Mirrors PHP resolvePdfImageSources.
+function buildExportImageOptions(site, selfBaseUrl) {
+  return {
+    siteDir: site && site.siteDirectory ? String(site.siteDirectory) : null,
+    siteBasePath: getSiteBasePath(site),
+    selfBaseUrl: selfBaseUrl && /^https?:\/\//i.test(selfBaseUrl) ? selfBaseUrl : null,
+  }
+}
+
+async function convertHtmlToDownloadBuffer(format = 'pdf', html = '', base = '/', imageOptions) {
   const normalizedFormat = normalizeFormatValue(format)
   if (normalizedFormat === 'docx') {
     try {
-      const docxBuffer = await convertHtmlToDocxBuffer(html)
+      const docxBuffer = await convertHtmlToDocxBuffer(html, imageOptions)
       if (!docxBuffer || docxBuffer.length < 1) {
         const emptyError = new Error('Export conversion returned empty output')
         emptyError.status = 502
@@ -186,7 +203,7 @@ async function convertHtmlToDownloadBuffer(format = 'pdf', html = '', base = '/'
   }
   if (normalizedFormat === 'pdf') {
     try {
-      const pdfBuffer = await htmlToPdfBuffer(html, base)
+      const pdfBuffer = await htmlToPdfBuffer(html, base, imageOptions)
       if (!pdfBuffer || pdfBuffer.length < 1) {
         const emptyError = new Error('Export conversion returned empty output')
         emptyError.status = 502
@@ -653,6 +670,47 @@ function normalizeHtmlForDocumentExport(html, basePath, items, mode = 'epub') {
   return wrapper ? wrapper.innerHTML : htmlString
 }
 
+// Security (SEC-SSRF): epub-gen-memory downloads every <img src> (and the
+// cover) with an unguarded node-fetch and also reads file:// URLs. Resolve
+// images ourselves first (site file / safeFetch with a byte cap / dropped)
+// and hand the generator only file:// URLs to copies in a private temp dir
+// that is removed after the build.
+function createEpubImageTempDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'haxcms-epub-'))
+}
+
+function removeEpubImageTempDir(dir) {
+  if (!dir) {
+    return
+  }
+  try {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+  catch (e) {}
+}
+
+async function resolveEpubImages(html, site, tempDir) {
+  try {
+    return await resolveExportImages(
+      html,
+      Object.assign(buildExportImageOptions(site, null), { output: 'file', tempDir: tempDir }),
+    )
+  }
+  catch (e) {
+    return String(html || '').replace(/<img\b[^>]*>/gi, '')
+  }
+}
+
+async function resolveEpubCover(cover, site, tempDir) {
+  if (!cover) {
+    return ''
+  }
+  return await resolveExportImageToFileUrl(
+    cover,
+    Object.assign(buildExportImageOptions(site, null), { tempDir: tempDir }),
+  )
+}
+
 function processHtmlForEpub(html, basePath, items) {
   return normalizeHtmlForDocumentExport(html, basePath, items, 'epub')
 }
@@ -722,94 +780,108 @@ async function buildSiteExportEpubBuffer(site, basePath = '/', ancestor) {
       ? String(site.manifest.metadata.site.logo)
       : ''
 
-  const content = []
-  for (let i = 0; i < itemsToExport.length; i++) {
-    const item = itemsToExport[i]
-    if (!item) {
-      continue
+  const imageTempDir = createEpubImageTempDir()
+  try {
+    const content = []
+    for (let i = 0; i < itemsToExport.length; i++) {
+      const item = itemsToExport[i]
+      if (!item) {
+        continue
+      }
+      const itemTitle = buildItemExportDocumentTitle(item)
+      let itemContent = await getItemContent(site, item)
+      if (itemContent) {
+        itemContent = processHtmlForEpub(itemContent, basePath, itemsToExport)
+        itemContent = await resolveEpubImages(itemContent, site, imageTempDir)
+      }
+      content.push({
+        title: itemTitle,
+        content: String(itemContent || ''),
+        filename: (item.slug ? item.slug.replace(/\//g, '-') : item.id) + '.xhtml',
+      })
     }
-    const itemTitle = buildItemExportDocumentTitle(item)
-    let itemContent = await getItemContent(site, item)
-    if (itemContent) {
-      itemContent = processHtmlForEpub(itemContent, basePath, itemsToExport)
+
+    const options = {
+      title: siteTitle,
+      author: author,
+      publisher: 'HAX The Web',
+      description: description,
+      cover: await resolveEpubCover(cover, site, imageTempDir),
+      tocTitle: 'Table of Contents',
+      css: EPUB_EXPORT_CSS,
+      date: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.updated ? new Date(site.manifest.metadata.site.updated * 1000).toISOString() : new Date().toISOString(),
+      lang: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.lang ? String(site.manifest.metadata.site.lang) : 'en',
+      fetchTimeout: 3000,
+      ignoreFailedDownloads: true,
     }
-    content.push({
-      title: itemTitle,
-      content: String(itemContent || ''),
-      filename: (item.slug ? item.slug.replace(/\//g, '-') : item.id) + '.xhtml',
-    })
-  }
 
-  const options = {
-    title: siteTitle,
-    author: author,
-    publisher: 'HAX The Web',
-    description: description,
-    cover: cover ? `${basePath}${cover}` : '',
-    tocTitle: 'Table of Contents',
-    css: EPUB_EXPORT_CSS,
-    date: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.updated ? new Date(site.manifest.metadata.site.updated * 1000).toISOString() : new Date().toISOString(),
-    lang: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.lang ? String(site.manifest.metadata.site.lang) : 'en',
-    fetchTimeout: 3000,
-    ignoreFailedDownloads: true,
+    const epubGenerator = EPUB.default && EPUB.default.default ? EPUB.default.default : (EPUB.default || EPUB)
+    return await epubGenerator(options, content)
   }
-
-  const epubGenerator = EPUB.default && EPUB.default.default ? EPUB.default.default : (EPUB.default || EPUB)
-  return await epubGenerator(options, content)
+  finally {
+    removeEpubImageTempDir(imageTempDir)
+  }
 }
 
 async function buildItemExportEpubBuffer(site, item, basePath = '/') {
-  const itemTitle = buildItemExportDocumentTitle(item)
-  let itemContent = await getItemContent(site, item)
-  if (itemContent) {
-    itemContent = processHtmlForEpub(itemContent, basePath, getOrderedItems(site))
-  }
+  const imageTempDir = createEpubImageTempDir()
+  try {
+    const itemTitle = buildItemExportDocumentTitle(item)
+    let itemContent = await getItemContent(site, item)
+    if (itemContent) {
+      itemContent = processHtmlForEpub(itemContent, basePath, getOrderedItems(site))
+      itemContent = await resolveEpubImages(itemContent, site, imageTempDir)
+    }
 
-  const author =
-    site &&
-    site.manifest &&
-    site.manifest.metadata &&
-    site.manifest.metadata.author &&
-    site.manifest.metadata.author.name
-      ? String(site.manifest.metadata.author.name)
-      : 'HAX The Web'
-  const description =
-    site && site.manifest && site.manifest.description
-      ? String(site.manifest.description)
-      : ''
-  const cover =
-    site &&
-    site.manifest &&
-    site.manifest.metadata &&
-    site.manifest.metadata.site &&
-    site.manifest.metadata.site.logo
-      ? String(site.manifest.metadata.site.logo)
-      : ''
+    const author =
+      site &&
+      site.manifest &&
+      site.manifest.metadata &&
+      site.manifest.metadata.author &&
+      site.manifest.metadata.author.name
+        ? String(site.manifest.metadata.author.name)
+        : 'HAX The Web'
+    const description =
+      site && site.manifest && site.manifest.description
+        ? String(site.manifest.description)
+        : ''
+    const cover =
+      site &&
+      site.manifest &&
+      site.manifest.metadata &&
+      site.manifest.metadata.site &&
+      site.manifest.metadata.site.logo
+        ? String(site.manifest.metadata.site.logo)
+        : ''
 
-  const content = [
-    {
+    const content = [
+      {
+        title: itemTitle,
+        content: String(itemContent || ''),
+        filename: (item.slug ? item.slug.replace(/\//g, '-') : item.id) + '.xhtml',
+      },
+    ]
+
+    const options = {
       title: itemTitle,
-      content: String(itemContent || ''),
-      filename: (item.slug ? item.slug.replace(/\//g, '-') : item.id) + '.xhtml',
-    },
-  ]
+      author: author,
+      publisher: 'HAX The Web',
+      description: description,
+      cover: await resolveEpubCover(cover, site, imageTempDir),
+      tocTitle: 'Table of Contents',
+      css: EPUB_EXPORT_CSS,
+      date: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.updated ? new Date(site.manifest.metadata.site.updated * 1000).toISOString() : new Date().toISOString(),
+      lang: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.lang ? String(site.manifest.metadata.site.lang) : 'en',
+      fetchTimeout: 3000,
+      ignoreFailedDownloads: true,
+    }
 
-  const options = {
-    title: itemTitle,
-    author: author,
-    publisher: 'HAX The Web',
-    description: description,
-    cover: cover ? `${basePath}${cover}` : '',
-    tocTitle: 'Table of Contents',
-    css: EPUB_EXPORT_CSS,
-    date: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.updated ? new Date(site.manifest.metadata.site.updated * 1000).toISOString() : new Date().toISOString(),
-    lang: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.lang ? String(site.manifest.metadata.site.lang) : 'en',
-    fetchTimeout: 3000,
-    ignoreFailedDownloads: true,
+    const epubGenerator = EPUB.default && EPUB.default.default ? EPUB.default.default : (EPUB.default || EPUB)
+    return await epubGenerator(options, content)
   }
-
-  const epubGenerator = EPUB.default && EPUB.default.default ? EPUB.default.default : (EPUB.default || EPUB)
-  return await epubGenerator(options, content)
+  finally {
+    removeEpubImageTempDir(imageTempDir)
+  }
 }
 
 async function buildItemExportHtml(site, item) {
@@ -973,7 +1045,7 @@ async function siteExport(req, res) {
             html = normalizeHtmlForDocumentExport(html, getSiteBasePath(site), getOrderedItems(site), 'docx')
           }
           catch (e) {}
-          outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site))
+          outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site), buildExportImageOptions(site, null))
         } else {
           // format === 'pdf': normalize so media-image/simple-img become <img>,
           // and pass an absolute base URL so relative image srcs resolve in Puppeteer.
@@ -982,7 +1054,7 @@ async function siteExport(req, res) {
             html = normalizeHtmlForDocumentExport(html, pdfBase, getOrderedItems(site), 'pdf')
           }
           catch (e) {}
-          outputBuffer = await convertHtmlToDownloadBuffer(format, html, pdfBase)
+          outputBuffer = await convertHtmlToDownloadBuffer(format, html, pdfBase, buildExportImageOptions(site, pdfBase))
         }
       }
     }
@@ -1142,7 +1214,12 @@ async function itemExport(req, res) {
     catch (e) {}
     let outputBuffer = null
     try {
-      outputBuffer = await convertHtmlToDownloadBuffer(format, html, exportBase)
+      outputBuffer = await convertHtmlToDownloadBuffer(
+        format,
+        html,
+        exportBase,
+        buildExportImageOptions(site, format === 'pdf' ? exportBase : null),
+      )
     }
     catch (e) {
       return res.status(e && e.status ? e.status : 502).json({
