@@ -52,6 +52,24 @@ function isolateStore(t) {
   return storePath
 }
 
+// set / clear the HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS env override
+// for one test (null = unset, so the config default FALSE applies)
+function withRequireSessionFlag(t, value) {
+  const saved = process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS
+  if (value === null) {
+    delete process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS
+  } else {
+    process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS = value
+  }
+  t.after(() => {
+    if (saved === undefined) {
+      delete process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS
+    } else {
+      process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS = saved
+    }
+  })
+}
+
 function readStore(storePath) {
   return JSON.parse(fs.readFileSync(storePath, 'utf8'))
 }
@@ -439,8 +457,9 @@ describe('connection-settings', () => {
     })
   }
 
-  test('anonymous callers get the payload with siteToken/userToken omitted', async (t) => {
+  test('anonymous callers get the payload with siteToken/userToken omitted (flag on)', async (t) => {
     isolateStore(t)
+    withRequireSessionFlag(t, '1')
     const res = fakeRes()
     await connectionSettings({ headers: {}, cookies: {} }, res)
     const settings = parse(res)
@@ -478,8 +497,9 @@ describe('connection-settings', () => {
     assert.equal(parse(res).userToken, HAXCMS.getRequestToken(ACTIVE_USER))
   })
 
-  test('a revoked refresh cookie or a bad bearer gets no tokens', async (t) => {
+  test('a revoked refresh cookie or a bad bearer gets no tokens (flag on)', async (t) => {
     isolateStore(t)
+    withRequireSessionFlag(t, 'true')
     const login = realLogin(t)
     logoutRoute({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, fakeRes())
     const res = fakeRes()
@@ -492,18 +512,63 @@ describe('connection-settings', () => {
     assert.equal(settings.siteToken, undefined)
   })
 
-  test('JWT-check bypass (local dev, non-production) keeps the tokens', async (t) => {
+  test('flag off (default): anonymous same-origin callers still get the tokens', async (t) => {
     isolateStore(t)
-    const saved = HAXCMS.HAXCMS_DISABLE_JWT_CHECKS
-    HAXCMS.HAXCMS_DISABLE_JWT_CHECKS = true
-    t.after(() => {
-      HAXCMS.HAXCMS_DISABLE_JWT_CHECKS = saved
-    })
-    t.mock.method(HAXCMS, 'getJWT', () => 'dev-jwt')
+    withRequireSessionFlag(t, null)
     const res = fakeRes()
-    await connectionSettings({ headers: {}, cookies: {} }, res)
-    assert.ok(parse(res).userToken)
+    await connectionSettings({ headers: { 'sec-fetch-site': 'same-origin' }, cookies: {} }, res)
+    const settings = parse(res)
+    assert.equal(settings.userToken, HAXCMS.getRequestToken(ACTIVE_USER))
+    assert.equal(settings.getUserDataHeaders['X-HAXCMS-User-Token'], settings.userToken)
+    assert.equal(settings.appStore.headers['X-HAXCMS-Site-Token'], settings.siteToken)
   })
+
+  test('Sec-Fetch-Site cross-site omits the tokens even for an authenticated caller', async (t) => {
+    isolateStore(t)
+    withRequireSessionFlag(t, null)
+    const res = fakeRes()
+    await connectionSettings({
+      headers: { 'sec-fetch-site': 'cross-site', authorization: 'Bearer ' + HAXCMS.getJWT(ACTIVE_USER) },
+      cookies: {},
+    }, res)
+    const settings = parse(res)
+    assert.equal(settings.userToken, undefined)
+    assert.equal(settings.siteToken, undefined)
+    assert.equal(JSON.stringify(settings.getUserDataHeaders), '{}')
+    assert.equal(JSON.stringify(settings.appStore.headers), '{}')
+  })
+
+  // full decision matrix: Sec-Fetch-Site x flag x authenticated
+  const fetchSites = ['cross-site', 'same-site', 'same-origin', 'none', null]
+  for (const fetchSite of fetchSites) {
+    for (const flag of [true, false]) {
+      for (const authed of [true, false]) {
+        const blockedBySite = fetchSite === 'cross-site' || fetchSite === 'same-site'
+        const expected = !blockedBySite && (authed || !flag)
+        test('decision: Sec-Fetch-Site=' + (fetchSite || 'absent') + ' flag=' + (flag ? 'on' : 'off') +
+          ' ' + (authed ? 'authenticated' : 'anonymous') + ' -> ' + (expected ? 'include' : 'omit'), async (t) => {
+          isolateStore(t)
+          withRequireSessionFlag(t, flag ? 'yes' : '0')
+          const headers = {}
+          if (fetchSite) {
+            headers['sec-fetch-site'] = fetchSite
+          }
+          if (authed) {
+            headers.authorization = 'Bearer ' + HAXCMS.getJWT(ACTIVE_USER)
+          }
+          const decision = HAXCMS.shouldIncludeRequestTokens({ headers: headers, cookies: {} })
+          assert.equal(decision.include, expected)
+          const res = fakeRes()
+          await connectionSettings({ headers: headers, cookies: {} }, res)
+          const settings = parse(res)
+          assert.equal(Object.prototype.hasOwnProperty.call(settings, 'userToken'), expected)
+          assert.equal(Object.prototype.hasOwnProperty.call(settings, 'siteToken'), expected)
+          assert.equal(Object.keys(settings.getUserDataHeaders).length === 1, expected)
+          assert.equal(Object.keys(settings.appStore.headers).length === 1, expected)
+        })
+      }
+    }
+  }
 
   test('an anonymous Referer never mutates HAXCMS.protocol / domain / request_url', async (t) => {
     isolateStore(t)
@@ -922,5 +987,51 @@ describe('request tokens on successful session responses', () => {
     assert.equal(res.body.authenticated, false)
     assert.equal(res.body.userToken, undefined)
     assert.equal(res.body.siteToken, undefined)
+  })
+})
+
+describe('requireSessionForRequestTokens flag resolution', () => {
+  function withConfigValue(t, value) {
+    const saved = HAXCMS.config.security ? HAXCMS.config.security.requireSessionForRequestTokens : undefined
+    if (!HAXCMS.config.security) {
+      HAXCMS.config.security = {}
+    }
+    if (value === undefined) {
+      delete HAXCMS.config.security.requireSessionForRequestTokens
+    } else {
+      HAXCMS.config.security.requireSessionForRequestTokens = value
+    }
+    t.after(() => {
+      if (saved === undefined) {
+        delete HAXCMS.config.security.requireSessionForRequestTokens
+      } else {
+        HAXCMS.config.security.requireSessionForRequestTokens = saved
+      }
+    })
+  }
+
+  test('defaults to false', (t) => {
+    withRequireSessionFlag(t, null)
+    withConfigValue(t, undefined)
+    assert.equal(HAXCMS.getRequireSessionForRequestTokens(), false)
+  })
+
+  test('config.json value true turns it on', (t) => {
+    withRequireSessionFlag(t, null)
+    withConfigValue(t, true)
+    assert.equal(HAXCMS.getRequireSessionForRequestTokens(), true)
+  })
+
+  test('env override wins over config (truthy 1/true/yes, anything else false)', (t) => {
+    withConfigValue(t, true)
+    withRequireSessionFlag(t, '0')
+    assert.equal(HAXCMS.getRequireSessionForRequestTokens(), false)
+    process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS = 'no'
+    assert.equal(HAXCMS.getRequireSessionForRequestTokens(), false)
+    withConfigValue(t, false)
+    for (const v of ['1', 'true', 'TRUE', 'yes', ' Yes ']) {
+      process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS = v
+      assert.equal(HAXCMS.getRequireSessionForRequestTokens(), true, v)
+    }
   })
 })

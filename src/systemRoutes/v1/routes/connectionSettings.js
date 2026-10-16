@@ -200,20 +200,20 @@ async function connectionSettings(req, res) {
       multisiteUrlName = siteparts[0];
     }
   }
-  // Security (SEC-SESSION): only callers holding a valid Bearer JWT or a
-  // refresh cookie that passes the refresh-session store check receive the
-  // siteToken / userToken request tokens. Anonymous callers still get the
-  // rest of the payload (the editor boots from it before login) with those
-  // keys OMITTED. JWT-check bypass mode (local dev, non-production) keeps the
-  // tokens, mirroring validateJWT's bypass.
-  const authenticatedUser = HAXCMS.getRequestAuthenticatedUserName(req);
-  const devBypass = !!(HAXCMS.HAXCMS_DISABLE_JWT_CHECKS && !HAXCMS.isProductionRuntime());
-  const includeRequestTokens = authenticatedUser !== '' || devBypass;
+  // Security (SEC-SESSION): decide whether siteToken / userToken (and the
+  // token header entries) are included -- see HAXCMS.shouldIncludeRequestTokens
+  // for the ordered rules (Sec-Fetch-Site cross-site/same-site -> omit;
+  // authenticated -> include; security.requireSessionForRequestTokens ->
+  // omit; else include). Anonymous callers still get the rest of the payload
+  // (the editor boots from it before login).
+  const tokenDecision = HAXCMS.shouldIncludeRequestTokens(req);
+  const authenticatedUser = tokenDecision.authenticatedUser;
+  const includeRequestTokens = tokenDecision.include;
   // Remember the deployment's public origin for build-time / app-store URLs
   // (HAXCMS.getDomain / getURI / siteConnectionJSON), but only from an
   // authenticated, same-origin editor load and only from the trusted
   // protocol/host resolvers -- never from Referer-supplied values.
-  if (includeRequestTokens && sameOriginReferer && trustedHost !== '') {
+  if (authenticatedUser !== '' && sameOriginReferer && trustedHost !== '') {
     HAXCMS.protocol = trustedProtocol;
     HAXCMS.domain = trustedHost;
     HAXCMS.request_url = new url.URL(

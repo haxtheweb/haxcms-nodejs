@@ -5751,6 +5751,61 @@ class HAXCMSClass {
       return this.getJWT(user);
     }
     /**
+     * Security (SEC-SESSION): config.security.requireSessionForRequestTokens,
+     * overridable by env HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS (truthy:
+     * 1/true/yes; any other non-empty value means false). Default FALSE until
+     * the front-end consumes the tokens returned by login/refresh/
+     * connection-test (see shouldIncludeRequestTokens).
+     */
+    getRequireSessionForRequestTokens() {
+      const truthy = (value) => ['1', 'true', 'yes'].indexOf(String(value).trim().toLowerCase()) !== -1;
+      const envValue = process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS;
+      if (typeof envValue === 'string' && envValue.trim() !== '') {
+        return truthy(envValue);
+      }
+      if (this.config && this.config.security) {
+        const configured = this.config.security.requireSessionForRequestTokens;
+        if (configured === true) {
+          return true;
+        }
+        if (typeof configured === 'string') {
+          return truthy(configured);
+        }
+      }
+      return false;
+    }
+    /**
+     * Security (SEC-SESSION): should connection-settings include siteToken /
+     * userToken (and the token header entries)? Evaluated in this order
+     * (parity contract with PHP):
+     *   1. Sec-Fetch-Site present and 'cross-site' or 'same-site' -> omit,
+     *      whatever the flag says (blocks cross-site script inclusion of the
+     *      JS payload).
+     *   2. caller authenticated (valid bearer, or a refresh cookie that passes
+     *      the session store check) -> include.
+     *   3. requireSessionForRequestTokens is true -> omit.
+     *   4. otherwise -> include (pre-existing behaviour; the shipped front-end
+     *      loads connection-settings once, before login, and its request layer
+     *      drops ALL auth headers when a required token is missing).
+     * Returns { include, authenticatedUser, reason }.
+     */
+    shouldIncludeRequestTokens(req) {
+      const fetchSite = req && req.headers && typeof req.headers['sec-fetch-site'] === 'string'
+        ? req.headers['sec-fetch-site'].trim().toLowerCase()
+        : '';
+      const authenticatedUser = this.getRequestAuthenticatedUserName(req);
+      if (fetchSite === 'cross-site' || fetchSite === 'same-site') {
+        return { include: false, authenticatedUser: authenticatedUser, reason: 'sec-fetch-site' };
+      }
+      if (authenticatedUser !== '') {
+        return { include: true, authenticatedUser: authenticatedUser, reason: 'authenticated' };
+      }
+      if (this.getRequireSessionForRequestTokens()) {
+        return { include: false, authenticatedUser: '', reason: 'session-required' };
+      }
+      return { include: true, authenticatedUser: '', reason: 'anonymous-allowed' };
+    }
+    /**
      * Security (SEC-SESSION): resolve the site context of a session request so
      * an authenticated session response can carry a fresh siteToken. Order:
      *   1. request body: site.name, then siteName
