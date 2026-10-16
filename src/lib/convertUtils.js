@@ -126,6 +126,68 @@ async function convertHtmlToDocxBuffer(html) {
 }
 
 /**
+ * Security (review 2026-10): linear replacement for the lazy-span regexes
+ * stripMSWord used, e.g. /<!--(\s|.)*?-->/gim. Each of those rescans to the
+ * end of the string for every opener that has no closer after it, so a few
+ * hundred KB of "<!--" took tens of seconds (180 KB -> 10.7 s+). This scans
+ * once: find the opener, then each closer in turn (nearest match, the same
+ * span a lazy quantifier picks). If a closer is missing, no later opener can
+ * match either, so scanning stops. When `crossLines` is false the span may
+ * not contain a line terminator (regex `.` semantics); hitting one fails this
+ * opener and every opener before that terminator, so scanning resumes after it.
+ *
+ * @param {string} input
+ * @param {RegExp} opener global regex for the literal start of the span
+ * @param {string[]} closers literal strings matched in order after the opener
+ * @param {object} [options] { replacement = '', ignoreCase = false, crossLines = true }
+ */
+function stripLazySpans(input, opener, closers, options) {
+  const opts = options || {};
+  const replacement = typeof opts.replacement === 'string' ? opts.replacement : '';
+  const crossLines = opts.crossLines !== false;
+  const flags = 'g' + (opts.ignoreCase ? 'i' : '');
+  const escapeRe = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const closerRes = closers.map((closer) => new RegExp(
+    escapeRe(closer) + (crossLines ? '' : '|[\\r\\n\\u2028\\u2029]'),
+    flags,
+  ));
+  const startRe = new RegExp(opener.source, flags);
+  let out = '';
+  let last = 0;
+  let match;
+  while ((match = startRe.exec(input)) !== null) {
+    let pos = match.index + match[0].length;
+    let failedAt = -1;
+    let missing = false;
+    for (let i = 0; i < closerRes.length; i++) {
+      const re = closerRes[i];
+      re.lastIndex = pos;
+      const found = re.exec(input);
+      if (!found) {
+        missing = true;
+        break;
+      }
+      if (!crossLines && /^[\r\n\u2028\u2029]$/.test(found[0])) {
+        failedAt = found.index;
+        break;
+      }
+      pos = found.index + found[0].length;
+    }
+    if (missing) {
+      break;
+    }
+    if (failedAt !== -1) {
+      startRe.lastIndex = failedAt + 1;
+      continue;
+    }
+    out += input.slice(last, match.index) + replacement;
+    last = pos;
+    startRe.lastIndex = pos;
+  }
+  return out + input.slice(last);
+}
+
+/**
  * Strip Microsoft Word generated HTML artifacts.
  * Based on the open-apis htmlScrubbers.js utility.
  */
@@ -147,39 +209,43 @@ function stripMSWord(input) {
     .split('\n')
     .join(' ')
     .replace(/( class=\")?Mso[a-zA-Z]+(\")?/g, '');
-  output = output.replace(/<!--(\s|.)*?-->/gim, '');
-  output = output.replace(/<!\?(\s|.)*?>/gim, '');
-  output = output.replace(
-    /<(\/)*(meta|link|title|html|head|body|font|br|\\\\?xml:|xml|st1:|o:|w:|m:|v:)(\s|.)*?>/gim,
-    '',
+  // Security (review 2026-10): the lazy-span regexes below were quadratic on
+  // unterminated openers; stripLazySpans is a linear equivalent.
+  output = stripLazySpans(output, /<!--/, ['-->']);
+  output = stripLazySpans(output, /<!\?/, ['>']);
+  output = stripLazySpans(
+    output,
+    /<(\/)*(meta|link|title|html|head|body|font|br|\\\\?xml:|xml|st1:|o:|w:|m:|v:)/,
+    ['>'],
+    { ignoreCase: true },
   );
   output = output.replace(/<span[^>]*>([\s\S]*?)<\/span>/gim, '$1');
   const badTags = ['style', 'script', 'applet', 'embed', 'noframes', 'noscript'];
   for (let i in badTags) {
-    let tagStripper = new RegExp(
-      '<' + badTags[i] + '(s|.)*?' + badTags[i] + '(.*?)>',
-      'gim',
-    );
-    output = output.replace(tagStripper, '');
+    // was /<tag(s|.)*?tag(.*?)>/gim: neither span crosses a line terminator
+    output = stripLazySpans(output, new RegExp('<' + badTags[i]), [badTags[i], '>'], {
+      ignoreCase: true,
+      crossLines: false,
+    });
   }
-  output = output.replace(/ style='(\s|.)*?'/gim, '');
-  output = output.replace(/ style=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ face=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ align=.*? /g, '');
-  output = output.replace(/ start='.*?'/g, '');
-  output = output.replace(/line-height:.*?\"/g, '"');
-  output = output.replace(/line-height:.*?;/g, '');
+  output = stripLazySpans(output, / style='/, ["'"], { ignoreCase: true });
+  output = stripLazySpans(output, / style="/, ['"'], { ignoreCase: true });
+  output = stripLazySpans(output, / face="/, ['"'], { ignoreCase: true });
+  output = stripLazySpans(output, / align=/, [' '], { crossLines: false });
+  output = stripLazySpans(output, / start='/, ["'"], { crossLines: false });
+  output = stripLazySpans(output, /line-height:/, ['"'], { crossLines: false, replacement: '"' });
+  output = stripLazySpans(output, /line-height:/, [';'], { crossLines: false });
   output = output.replace(/font-weight:normal;/g, '');
   output = output.replace(/text-decoration:none;/g, '');
-  output = output.replace(/margin-.*?:.*?\"/g, '"');
-  output = output.replace(/margin-.*?:.*?;/g, '');
+  output = stripLazySpans(output, /margin-/, [':', '"'], { crossLines: false, replacement: '"' });
+  output = stripLazySpans(output, /margin-/, [':', ';'], { crossLines: false });
   output = output.replace(/ style=\"\"/g, '');
-  output = output.replace(/ id=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ dir=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ role=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ contenteditable=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ data-(\s|.)*?\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ class=\"(\s|.)*?\"/gim, '');
+  output = stripLazySpans(output, / id="/, ['"'], { ignoreCase: true });
+  output = stripLazySpans(output, / dir="/, ['"'], { ignoreCase: true });
+  output = stripLazySpans(output, / role="/, ['"'], { ignoreCase: true });
+  output = stripLazySpans(output, / contenteditable="/, ['"'], { ignoreCase: true });
+  output = stripLazySpans(output, / data-/, ['"', '"'], { ignoreCase: true });
+  output = stripLazySpans(output, / class="/, ['"'], { ignoreCase: true });
   output = output.replace(/<pstyle/gm, '<p style');
   output = output.replace(/<a name=\"_GoBack\"><\/a>/gm, '');
   output = output.replace(/&nbsp;/gm, ' ');
@@ -196,12 +262,13 @@ function stripMSWord(input) {
   output = output.replace(/<\/p><\/b>/gm, '</p>');
   output = output.replace(/<b>/gm, '<strong>');
   output = output.replace(/<\/b>/gm, '</strong>');
-  output = output.replace(/<p style=\".*?\">/gm, '<p>');
-  output = output.replace(/<ul style=\".*?\">/gm, '<ul>');
-  output = output.replace(/<ol style=\".*?\">/gm, '<ol>');
-  output = output.replace(/<li style=\".*?\">/gm, '<li>');
-  output = output.replace(/<td style=\".*?\">/gm, '<td>');
-  output = output.replace(/<tr style=\".*?\">/gm, '<tr>');
+  const styledTags = ['p', 'ul', 'ol', 'li', 'td', 'tr'];
+  for (let k = 0; k < styledTags.length; k++) {
+    output = stripLazySpans(output, new RegExp('<' + styledTags[k] + ' style="'), ['">'], {
+      crossLines: false,
+      replacement: '<' + styledTags[k] + '>',
+    });
+  }
   output = output.replace(/<li><p>/gm, '<li>');
   output = output.replace(/<\/p><\/li>/gm, '</li>');
   output = output.replace(/<b><ul>/gm, '<ul>');
@@ -216,11 +283,11 @@ function stripMSWord(input) {
   output = output.replace(/<p><br\/><\/p>/gm, '');
   output = output.replace(/<p><br><\/p>/gm, '');
   output = output.replace(/<\/p>(\s*)<p>/gm, '</p><p>');
-  output = output.replace(/ data-hax-ray=\"(\s|.)*?\"/gim, '');
+  output = stripLazySpans(output, / data-hax-ray="/, ['"'], { ignoreCase: true });
   output = output.replace(/ class=\"\"/gim, '');
   output = output.replace(/ class=\"hax-active\"/gim, '');
-  output = output.replace(/ contenteditable=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ t=\"(\s|.)*?\"/gim, '');
+  output = stripLazySpans(output, / contenteditable="/, ['"'], { ignoreCase: true });
+  output = stripLazySpans(output, / t="/, ['"'], { ignoreCase: true });
   for (let j in badTags) {
     let emptyTagRemove = new RegExp(
       '<' + badTags[j] + '></' + badTags[j] + '>',

@@ -402,3 +402,33 @@ describe('stripMSWord', () => {
     )
   })
 })
+
+// Security (review 2026-10): stripMSWord's lazy-span regexes were quadratic
+// on unterminated openers (180 KB of "<!--" took ~10-40 s). The linear
+// rewrite must finish well inside a time budget and keep the same output.
+describe('stripMSWord linear-time hardening', () => {
+  const payloads = {
+    comment: '<!--'.repeat(45000),
+    processingInstruction: '<!?'.repeat(60000),
+    metaTag: '<meta '.repeat(30000),
+    styleAttr: ' style="'.repeat(22000),
+    scriptTag: '<script'.repeat(25000),
+    dataAttr: ' data-'.repeat(30000),
+    marginStyle: 'margin-'.repeat(25000),
+  }
+  for (const name of Object.keys(payloads)) {
+    test(`pathological ${name} input finishes under 1.5 s`, () => {
+      const started = Date.now()
+      stripMSWord(payloads[name])
+      assert.ok(Date.now() - started < 1500, `${name} took ${Date.now() - started} ms`)
+    })
+  }
+  test('still strips comments, processing instructions, Word tags and attributes', () => {
+    assert.equal(
+      stripMSWord('<p class="MsoNormal" style="x" id="a">Hi<!-- c\n -->there<o:p></o:p><!?pi></p><script>bad()</script>'),
+      '<p>Hithere</p>',
+    )
+    assert.equal(stripMSWord('<td style="a:b">x</td>'), '<td>x</td>')
+    assert.equal(stripMSWord('unterminated <!-- comment'), 'unterminated <!-- comment')
+  })
+})
