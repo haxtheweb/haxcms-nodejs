@@ -12,41 +12,11 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
 // Security (EXPRESS-CSRF-001 / M1): the refresh endpoint authenticates via a
 // SameSite=Lax cookie and performs a state-changing token rotation. SameSite=Lax
 // still sends the cookie on cross-site top-level GET navigations, so verify the
-// Origin (falling back to Referer) matches the request's trusted host/protocol
-// before honoring the cookie. If no Origin/Referer header is present (non-browser
-// clients or same-origin omit), allow — SameSite=Lax + no credentialed CORS
-// remains the primary control. Returns true for same-origin / no-header, false
-// for a present-but-mismatched origin.
+// request is same-origin before honoring the cookie. The check itself lives on
+// HAXCMS.isSameOriginRequest (review 2026-10) so session/connection-test uses
+// the identical rule (Sec-Fetch-Site first, then Origin/Referer).
 function isSameOriginRequest(req) {
-  var originHeader = '';
-  if (req && req.headers && typeof req.headers.origin === 'string') {
-    originHeader = req.headers.origin.trim();
-  }
-  if (originHeader === '' && req && req.headers && typeof req.headers.referer === 'string') {
-    originHeader = req.headers.referer.trim();
-  }
-  if (originHeader === '') {
-    return true;
-  }
-  var parsed;
-  try {
-    parsed = new URL(originHeader);
-  } catch (e) {
-    return false;
-  }
-  if (!parsed || !parsed.host) {
-    return false;
-  }
-  var expectedProtocol = HAXCMS.resolveTrustedProtocol(req);
-  var expectedHost = HAXCMS.resolveTrustedHost(req);
-  var originProtocol = parsed.protocol.replace(':', '');
-  if (originProtocol !== expectedProtocol) {
-    return false;
-  }
-  if (parsed.host !== expectedHost) {
-    return false;
-  }
-  return true;
+  return HAXCMS.isSameOriginRequest(req);
 }
 function refreshAccessToken(req, res) {
   // Security (EXPRESS-CSRF-001 / M1): reject cross-site cookie-bearing requests
@@ -74,8 +44,11 @@ function refreshAccessToken(req, res) {
       return;
     }
     // rotation rejected (possible replay/theft) -> revoke family and clear
-    if (validRefresh && validRefresh.user) {
-      HAXCMS.revokeRefreshSession(validRefresh.user);
+    // Security (review 2026-10): rotateRefreshSession already tombstoned the
+    // presented family; only that family is revoked (not the user's other
+    // device sessions).
+    if (validRefresh && validRefresh.user && validRefresh.family) {
+      HAXCMS.revokeRefreshSession(validRefresh.user, validRefresh.family);
     }
     HAXCMS.setRefreshTokenCookie(res, '', 1);
     return res.status(401).json({ status: 401, data: { message: 'Refresh token validation failed' } });

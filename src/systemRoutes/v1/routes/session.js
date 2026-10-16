@@ -23,12 +23,15 @@ function getAuthenticatedUserName(jwt = '') {
   return ''
 }
 
-function validateIAMAuthorizationIfNeeded() {
+function validateIAMAuthorizationIfNeeded(req, jwt) {
   if (typeof HAXCMS.validateIAMRouteAuthorization !== 'function') {
     return { allowed: true }
   }
   try {
-    return HAXCMS.validateIAMRouteAuthorization(true)
+    // Security (review 2026-10): validateIAMRouteAuthorization now exists
+    // (was undefined -> silent allow); it needs the request to resolve the
+    // tenant and principal.
+    return HAXCMS.validateIAMRouteAuthorization(true, req, jwt)
   }
   catch (e) {
     return {
@@ -58,7 +61,7 @@ function sessionRoute(req, res) {
     })
   }
 
-  const iamAuthorization = validateIAMAuthorizationIfNeeded()
+  const iamAuthorization = validateIAMAuthorizationIfNeeded(req, requestedJWT)
   if (
     iamAuthorization &&
     typeof iamAuthorization === 'object' &&

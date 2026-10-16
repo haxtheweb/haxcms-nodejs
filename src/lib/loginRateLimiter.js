@@ -19,20 +19,67 @@
 const failedLoginTracker = {};
 const MAX_TRACKED_KEYS = 10000;
 
-// Security (HAX-SEC-003): remove entries whose block has expired AND whose
-// window has elapsed. Called lazily on new-entry creation so the map cannot
-// grow without bound. Never drops an entry that is still actively blocking.
+// Last activity timestamp for an entry (falls back to firstAttempt for entries
+// created before lastAttempt was tracked).
+function getLastActivity(entry) {
+  if (entry && typeof entry.lastAttempt === 'number') {
+    return entry.lastAttempt;
+  }
+  return entry ? entry.firstAttempt : 0;
+}
+
+// Security (HAX-SEC-003, review 2026-10): an entry is expired once it is not
+// blocking AND it has been idle longer than the attempt window (mirrors the PHP
+// cache TTL of window + block + 60s, measured from the last write). Never
+// drops an entry that is still actively blocking.
+function isExpiredEntry(entry, now, settings) {
+  if (!entry) {
+    return true;
+  }
+  if (entry.blockedUntil && entry.blockedUntil > now) {
+    return false;
+  }
+  return (now - getLastActivity(entry)) > settings.windowMs;
+}
+
 function pruneExpiredEntries(now, settings) {
   var keys = Object.keys(failedLoginTracker);
   for (var i = 0; i < keys.length; i++) {
-    var key = keys[i];
-    var entry = failedLoginTracker[key];
-    if (!entry) {
+    if (isExpiredEntry(failedLoginTracker[keys[i]], now, settings)) {
+      delete failedLoginTracker[keys[i]];
+    }
+  }
+}
+
+// Security (review 2026-10): make room for a new key. Previously the entry with
+// the lowest firstAttempt was evicted regardless of blockedUntil (and blocking
+// resets firstAttempt), so 10000 junk usernames from one IP evicted a blocked
+// ip::admin entry and unblocked it. Now: expired entries are pruned first; if
+// still at capacity the least-recently-active NON-blocked entry is evicted. A
+// blocked entry is never evicted — if every tracked entry is blocked the map is
+// allowed to exceed the cap (blocked entries self-expire after blockMs), which
+// mirrors PHP login.php where blocked cache entries are never evicted early.
+function makeRoomForNewEntry(now, settings) {
+  pruneExpiredEntries(now, settings);
+  var trackedKeys = Object.keys(failedLoginTracker);
+  if (trackedKeys.length < MAX_TRACKED_KEYS) {
+    return;
+  }
+  var evictKey = null;
+  var evictTime = Infinity;
+  for (var i = 0; i < trackedKeys.length; i++) {
+    var entry = failedLoginTracker[trackedKeys[i]];
+    if (entry && entry.blockedUntil && entry.blockedUntil > now) {
       continue;
     }
-    if (entry.blockedUntil <= now && (now - entry.firstAttempt) > settings.windowMs) {
-      delete failedLoginTracker[key];
+    var lastActivity = getLastActivity(entry);
+    if (lastActivity < evictTime) {
+      evictKey = trackedKeys[i];
+      evictTime = lastActivity;
     }
+  }
+  if (evictKey !== null) {
+    delete failedLoginTracker[evictKey];
   }
 }
 
@@ -59,25 +106,13 @@ function getAttemptKey(req, username) {
 function getTrackerEntry(key, now, settings) {
   let entry = failedLoginTracker[key];
   if (!entry) {
-    // Security (HAX-SEC-003): prune expired entries and enforce a hard cap on
+    // Security (HAX-SEC-003): prune expired entries and enforce a cap on
     // total tracked keys to bound memory. An attacker rotating usernames/IPs
     // could otherwise grow failedLoginTracker without limit (DoS).
-    pruneExpiredEntries(now, settings);
-    var trackedKeys = Object.keys(failedLoginTracker);
-    if (trackedKeys.length >= MAX_TRACKED_KEYS) {
-      // evict the oldest entry (lowest firstAttempt) to make room
-      var oldestKey = trackedKeys[0];
-      var oldestTime = failedLoginTracker[trackedKeys[0]].firstAttempt;
-      for (var i = 1; i < trackedKeys.length; i++) {
-        if (failedLoginTracker[trackedKeys[i]].firstAttempt < oldestTime) {
-          oldestKey = trackedKeys[i];
-          oldestTime = failedLoginTracker[trackedKeys[i]].firstAttempt;
-        }
-      }
-      delete failedLoginTracker[oldestKey];
-    }
+    makeRoomForNewEntry(now, settings);
     entry = {
       firstAttempt: now,
+      lastAttempt: now,
       failedAttempts: 0,
       blockedUntil: 0,
     };
@@ -105,6 +140,7 @@ function isBlocked(entry, now) {
 }
 
 function registerFailedAttempt(entry, now, settings) {
+  entry.lastAttempt = now;
   entry.failedAttempts += 1;
   if (entry.failedAttempts >= settings.maxAttempts) {
     entry.blockedUntil = now + settings.blockMs;
@@ -114,6 +150,7 @@ function registerFailedAttempt(entry, now, settings) {
 }
 
 module.exports = {
+  MAX_TRACKED_KEYS,
   getClientIP,
   getAttemptKey,
   getTrackerEntry,

@@ -218,7 +218,10 @@ function rewriteConnectionToBroker(connection, provider, req) {
     connection.operations.browse &&
     typeof connection.operations.browse === 'object'
   ) ? connection.operations.browse : {};
-  const normalizedDomain = String(HAXCMS.domain || '').replace(/\/+$/, '');
+  // Security (review 2026-10): per-request trusted host/protocol instead of
+  // the process-global HAXCMS.domain / HAXCMS.protocol singleton.
+  const requestHost = HAXCMS.resolveTrustedHost(req) || HAXCMS.domain;
+  const normalizedDomain = String(requestHost || '').replace(/\/+$/, '');
   const normalizedBasePath = String(HAXCMS.basePath || '')
     .replace(/^\/+/, '')
     .replace(/\/+$/, '');
@@ -227,7 +230,7 @@ function rewriteConnectionToBroker(connection, provider, req) {
     : normalizedDomain;
   return {
     ...connection,
-    protocol: HAXCMS.protocol,
+    protocol: HAXCMS.resolveTrustedProtocol(req),
     url: rewrittenUrl,
     headers: rewrittenHeaders,
     data: mergedData,
@@ -317,6 +320,7 @@ async function generateAppStore(req, res) {
     let tmp = HAXCMS.siteConnectionJSON(
       siteToken,
       siteName,
+      req,
     );
     appStore.push(tmp);
     let staxList,autoloaderList;

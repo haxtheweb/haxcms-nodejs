@@ -27,6 +27,13 @@ function getValidatedJWTFromRequest(req, res) {
 }
 
 function getValidatedJWTFromRefresh(req, res) {
+  // Security (review 2026-10): this path rotates the refresh cookie, so apply
+  // the same same-origin check as session/refresh before honoring the cookie
+  // (a cross-site page could otherwise drive a rotation with the victim's
+  // SameSite=Lax cookie).
+  if (!HAXCMS.isSameOriginRequest(req)) {
+    return null;
+  }
   const validRefresh = HAXCMS.validateRefreshToken(false, req, res);
   if (!validRefresh || !validRefresh.user) {
     return null;
@@ -38,14 +45,19 @@ function getValidatedJWTFromRefresh(req, res) {
   // Security (H1 rotation): reject a revoked/stolen refresh family before
   // minting an access token. validateRefreshSession accepts legacy tokens
   // (no family/jti) so deploys don't log users out during upgrade.
-  if (!HAXCMS.validateRefreshSession(validRefresh.user, validRefresh.family, validRefresh.jti)) {
-    HAXCMS.revokeRefreshSession(validRefresh.user);
+  // Security (review 2026-10): revoked (tombstoned) families and
+  // family-bearing tokens with no store entry are rejected here too.
+  if (!HAXCMS.validateRefreshSession(validRefresh.user, validRefresh.family, validRefresh.jti, validRefresh.iat)) {
+    if (validRefresh.family) {
+      HAXCMS.revokeRefreshSession(validRefresh.user, validRefresh.family);
+    }
     HAXCMS.setRefreshTokenCookie(res, '', 1);
     return null;
   }
-  // rotate the refresh cookie on recovery so a stolen cookie is bounded
-  const rotated = HAXCMS.rotateRefreshTokenAndCookie(res, validRefresh);
-  return rotated || HAXCMS.getJWT(validRefresh.user);
+  // rotate the refresh cookie on recovery so a stolen cookie is bounded.
+  // Security (review 2026-10): a rejected rotation is a failure, never a
+  // fallback to a fresh access token.
+  return HAXCMS.rotateRefreshTokenAndCookie(res, validRefresh);
 }
 
 function resolveAuthenticatedUser(req, jwt) {
@@ -66,12 +78,12 @@ function resolveAuthenticatedUser(req, jwt) {
   return '';
 }
 
-function validateIAMAuthorizationIfNeeded() {
+function validateIAMAuthorizationIfNeeded(req, jwt) {
   if (typeof HAXCMS.validateIAMRouteAuthorization !== 'function') {
     return { allowed: true };
   }
   try {
-    return HAXCMS.validateIAMRouteAuthorization(true);
+    return HAXCMS.validateIAMRouteAuthorization(true, req, jwt);
   }
   catch (e) {
     return {
@@ -120,8 +132,11 @@ function connectionTest(req, res) {
   if (!jwt) {
     // Security (HAX-SEC / PHP [M3] parity): clear via the centralized helper so
     // the Secure/SameSite/HttpOnly flags match how the cookie was set (required
-    // for the browser to actually delete it).
-    HAXCMS.setRefreshTokenCookie(res, '', 1);
+    // for the browser to actually delete it). Security (review 2026-10): never
+    // let a cross-site request clear the cookie (logout CSRF).
+    if (HAXCMS.isSameOriginRequest(req)) {
+      HAXCMS.setRefreshTokenCookie(res, '', 1);
+    }
     // Anonymous probe (no Bearer and no valid refresh cookie): answer 200 with
     // authenticated:false so the logged-out majority doesn't see a 401 in the
     // console / network panel. Reserve 401 for when a credential was actually
@@ -142,7 +157,7 @@ function connectionTest(req, res) {
     });
   }
 
-  const iamAuthorization = validateIAMAuthorizationIfNeeded();
+  const iamAuthorization = validateIAMAuthorizationIfNeeded(req, jwt);
   if (
     iamAuthorization &&
     typeof iamAuthorization === 'object' &&

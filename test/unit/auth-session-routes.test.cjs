@@ -382,15 +382,18 @@ describe('refreshAccessToken', () => {
 
   test('a replayed refresh token (rotation rejected) revokes the family and answers 401', (t) => {
     const revoked = []
+    const signed = HAXCMS.getRefreshToken(ACTIVE_USER, true)
+    const family = HAXCMS.decodeRefreshToken(signed).family
     t.mock.method(HAXCMS, 'rotateRefreshTokenAndCookie', () => null)
-    t.mock.method(HAXCMS, 'revokeRefreshSession', (user) => {
-      revoked.push(user)
+    t.mock.method(HAXCMS, 'revokeRefreshSession', (user, fam) => {
+      revoked.push([user, fam])
     })
     const res = authRes()
-    refreshAccessToken(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
+    refreshAccessToken(refreshReq(signed), res)
     assert.equal(res.statusCode, 401)
     assert.equal(res.body.data.message, 'Refresh token validation failed')
-    assert.deepEqual(revoked, [ACTIVE_USER])
+    // Security (review 2026-10): only the presented family is revoked
+    assert.deepEqual(revoked, [[ACTIVE_USER, family]])
     assertCookieCleared(res)
   })
 
@@ -472,22 +475,24 @@ describe('connectionTest', () => {
 
   test('a revoked refresh family is rejected, revoked, and cleared', (t) => {
     const revoked = []
+    const signed = HAXCMS.getRefreshToken(ACTIVE_USER, true)
+    const family = HAXCMS.decodeRefreshToken(signed).family
     t.mock.method(HAXCMS, 'validateRefreshSession', () => false)
-    t.mock.method(HAXCMS, 'revokeRefreshSession', (user) => {
-      revoked.push(user)
+    t.mock.method(HAXCMS, 'revokeRefreshSession', (user, fam) => {
+      revoked.push([user, fam])
     })
     // a supplied-but-stale bearer plus a revoked refresh family answers 401
     // invalid_session, revokes the family again, and clears the cookie
     const res = authRes()
     connectionTest(
       bearerReq(mintExpiredAccessToken(ACTIVE_USER), {
-        haxcms_refresh_token: HAXCMS.getRefreshToken(ACTIVE_USER, false),
+        haxcms_refresh_token: signed,
       }),
       res,
     )
     assert.equal(res.statusCode, 401)
     assert.equal(res.body.reason, 'invalid_session')
-    assert.deepEqual(revoked, [ACTIVE_USER])
+    assert.deepEqual(revoked, [[ACTIVE_USER, family]])
     // recovery-failure clear + the final no-session clear: both are clears
     assertCookieCleared(res, 2)
   })
@@ -500,15 +505,18 @@ describe('connectionTest', () => {
     assertCookieCleared(res)
   })
 
-  test('rotation returning null falls back to a freshly minted access token', (t) => {
+  test('rotation returning null fails closed instead of minting a fallback access token', (t) => {
+    // Security (review 2026-10): a rejected rotation (replay / revoked family)
+    // must not be papered over with a fresh access JWT.
     t.mock.method(HAXCMS, 'rotateRefreshTokenAndCookie', () => null)
     t.mock.method(HAXCMS, 'getJWT', (user) => 'fallback-access-jwt')
     const res = authRes()
     connectionTest(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
-    assert.equal(res.statusCode, null)
-    assert.equal(res.body.authenticated, true)
-    assert.equal(res.body.refreshed, true)
-    assert.equal(res.body.jwt, 'fallback-access-jwt')
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body.authenticated, false)
+    assert.equal(res.body.reason, 'no_session')
+    assert.equal(res.body.jwt, undefined)
+    assertCookieCleared(res)
   })
 
   test('user resolution falls back to the refresh cookie when the JWT has no user', (t) => {

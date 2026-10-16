@@ -143,10 +143,14 @@ function detectRequestedFormat(req) {
 // server URL is the base of the site this request came through (e.g.
 // https://host/_sites/<name>/), not the HAXcms install base.
 function getServerBaseUrl(req) {
+  // Security (review 2026-10): per-request trusted protocol/host (no longer
+  // the process-global HAXCMS.protocol / HAXCMS.domain singleton).
+  const protocol = req ? HAXCMS.resolveTrustedProtocol(req) : HAXCMS.protocol;
+  const host = (req ? HAXCMS.resolveTrustedHost(req) : '') || HAXCMS.domain;
   const apiBasePath = req ? getApiBasePath(req) : '';
   const sitePrefix = apiBasePath.replace(/\/x\/api$/, '');
   if (req && sitePrefix !== apiBasePath) {
-    return `${HAXCMS.protocol}://${HAXCMS.domain}${sitePrefix.replace(/\/+$/, '')}/`;
+    return `${protocol}://${host}${sitePrefix.replace(/\/+$/, '')}/`;
   }
   let basePath = HAXCMS.basePath || '/';
   if (basePath.charAt(0) !== '/') {
@@ -155,7 +159,7 @@ function getServerBaseUrl(req) {
   if (basePath.charAt(basePath.length - 1) !== '/') {
     basePath += '/';
   }
-  return `${HAXCMS.protocol}://${HAXCMS.domain}${basePath}`;
+  return `${protocol}://${host}${basePath}`;
 }
 
 async function siteOpenapi(req, res) {

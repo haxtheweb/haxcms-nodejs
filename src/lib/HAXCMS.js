@@ -52,6 +52,13 @@ const SITE_FILE_NAME = 'site.json';
 // previous refresh-token jti is still accepted, so concurrent multi-tab
 // refreshes don't mutually invalidate. Mirrors PHP HAXCMS_REFRESH_GRACE_SECONDS.
 const HAXCMS_REFRESH_GRACE_SECONDS = 30;
+// Security (review 2026-10): maximum refresh-token lifetime (matches the 24h exp
+// set by getRefreshToken / rotateRefreshTokenAndCookie). Revoked-family
+// tombstones are kept this long (+ clock tolerance) so a revoked token can
+// never be replayed before it naturally expires. Mirrors PHP
+// HAXCMS_REFRESH_TOKEN_LIFETIME_SECONDS.
+const HAXCMS_REFRESH_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
+const HAXCMS_REFRESH_TOMBSTONE_SECONDS = HAXCMS_REFRESH_TOKEN_LIFETIME_SECONDS + 60;
 // Safeguard config.json loading (haxtheweb/issues#2967): the config.json
 // read/boot path must NEVER write, copy, or overwrite anything on disk. A
 // missing file, an empty file, and a corrupt/unparseable file are all just
@@ -3466,7 +3473,20 @@ class HAXCMSClass {
       this.config.security
     ) {
       if (typeof this.config.security.trustProxy !== 'undefined') {
-        return this.config.security.trustProxy;
+        var trustProxy = this.config.security.trustProxy;
+        // Security (review 2026-10): `trustProxy: true` makes Express trust
+        // EVERY hop, so any client can spoof X-Forwarded-For (rate-limit key)
+        // and X-Forwarded-Proto/Host (generated URLs, origin checks). Reject it
+        // and require an explicit hop count, IP, or CIDR list instead.
+        if (trustProxy === true || (typeof trustProxy === 'string' && trustProxy.trim().toLowerCase() === 'true')) {
+          if (!this.__warnedTrustProxyTrue) {
+            this.__warnedTrustProxyTrue = true;
+            console.warn('HAXcms: config.security.trustProxy=true is not allowed (it trusts every proxy hop); ignoring it. Set a hop count (e.g. 1), an IP, or a CIDR list instead.');
+          }
+        }
+        else {
+          return trustProxy;
+        }
       }
       // PHP parity (M2): honor config.security.trustedProxies (array of proxy
       // IPs). When set, Express trusts forwarded headers only from those peers,
@@ -3542,6 +3562,58 @@ class HAXCMSClass {
       }
     }
     return host;
+  }
+  // Security (EXPRESS-CSRF-001 / M1, review 2026-10): shared same-origin check
+  // for cookie-authenticated, state-changing session endpoints (session/refresh
+  // and the refresh-cookie recovery in session/connection-test). Order:
+  //  1. Sec-Fetch-Site (sent by every modern browser, cannot be suppressed by
+  //     the attacker page): 'cross-site' is rejected; 'same-origin' / 'none'
+  //     (user-typed / bookmark) are allowed; 'same-site' falls through to the
+  //     Origin/Referer host comparison.
+  //  2. Origin, falling back to Referer, must match the trusted host/protocol.
+  //  3. Only when Sec-Fetch-Site, Origin and Referer are ALL absent (a
+  //     non-browser client) is the request allowed. Previously a cross-site page
+  //     with Referrer-Policy: no-referrer (no Origin on GET) bypassed the check.
+  // Mirrors PHP HAXCMS::isSameOriginRequest.
+  isSameOriginRequest(req) {
+    var headers = (req && req.headers) ? req.headers : {};
+    var fetchSite = typeof headers['sec-fetch-site'] === 'string'
+      ? headers['sec-fetch-site'].trim().toLowerCase()
+      : '';
+    if (fetchSite === 'cross-site') {
+      return false;
+    }
+    if (fetchSite === 'same-origin' || fetchSite === 'none') {
+      return true;
+    }
+    var originHeader = '';
+    if (typeof headers.origin === 'string') {
+      originHeader = headers.origin.trim();
+    }
+    if (originHeader === '' && typeof headers.referer === 'string') {
+      originHeader = headers.referer.trim();
+    }
+    if (originHeader === '') {
+      // a browser that sent Sec-Fetch-Site but no Origin/Referer is not
+      // provably same-origin; only header-less non-browser clients pass
+      return fetchSite === '';
+    }
+    var parsed;
+    try {
+      parsed = new URL(originHeader);
+    } catch (e) {
+      return false;
+    }
+    if (!parsed || !parsed.host) {
+      return false;
+    }
+    if (parsed.protocol.replace(':', '') !== this.resolveTrustedProtocol(req)) {
+      return false;
+    }
+    if (parsed.host !== this.resolveTrustedHost(req)) {
+      return false;
+    }
+    return true;
   }
   // True only when explicitly running in production (NODE_ENV=production). Used
   // to enable hardened defaults (e.g. Secure cookies) without impacting local
@@ -4126,6 +4198,199 @@ class HAXCMSClass {
         return this.superUser.name;
       }
     }
+    /**
+     * Security (review 2026-10): resolve the authenticated principal for THIS
+     * request (never the configured fallback user). A valid Bearer access JWT
+     * (or an explicit jwt argument) and/or a valid refresh cookie whose family
+     * passes the refresh-session store check; if both are present they must
+     * agree. Returns the machine name, or null when unauthenticated. Mirrors
+     * PHP HAXCMS::getAuthenticatedUserName.
+     */
+    getAuthenticatedUserName(req = null, jwt = null) {
+      const raw = this.getAuthenticatedRawUserName(req, jwt);
+      return raw ? this.generateMachineName(raw) : null;
+    }
+    /**
+     * Same as getAuthenticatedUserName but returns the user name exactly as
+     * carried in the token (request tokens are bound to the raw name, matching
+     * how the system/site API routers validate X-HAXCMS-User/Site-Token).
+     */
+    getAuthenticatedRawUserName(req = null, jwt = null) {
+      let jwtUser = null;
+      let token = typeof jwt === 'string' ? jwt.trim() : '';
+      if (
+        token === '' &&
+        req &&
+        req.headers &&
+        typeof req.headers.authorization === 'string' &&
+        req.headers.authorization.trim().toLowerCase().indexOf('bearer ') === 0
+      ) {
+        token = req.headers.authorization.trim().substring(7).trim();
+      }
+      if (token !== '') {
+        const decoded = this.decodeJWT(token);
+        if (
+          decoded &&
+          decoded.id &&
+          decoded.id == this.getRequestToken('user') &&
+          decoded.user &&
+          this.validateUser(decoded.user)
+        ) {
+          jwtUser = String(decoded.user);
+        }
+      }
+      let refreshUser = null;
+      if (req && req.cookies && req.cookies.haxcms_refresh_token) {
+        const refresh = this.decodeRefreshToken(req.cookies.haxcms_refresh_token);
+        const now = Math.floor(Date.now() / 1000);
+        if (
+          refresh &&
+          refresh.user &&
+          refresh.iat && refresh.iat <= now &&
+          refresh.exp && now < refresh.exp &&
+          this.validateUser(refresh.user) &&
+          this.validateRefreshSession(refresh.user, refresh.family, refresh.jti, refresh.iat)
+        ) {
+          refreshUser = String(refresh.user);
+        }
+      }
+      // If both mechanisms are present they must agree.
+      if (jwtUser && refreshUser && this.generateMachineName(jwtUser) !== this.generateMachineName(refreshUser)) {
+        return null;
+      }
+      return jwtUser || refreshUser || null;
+    }
+    /**
+     * Resolve IAM path username from the request path (/<username>/system/...).
+     * Mirrors PHP HAXCMS::getRequestPathUserName.
+     */
+    getRequestPathUserName(req = null) {
+      if (!req) {
+        return null;
+      }
+      let requestPath = String(req.originalUrl || req.url || '').split('?')[0];
+      if (requestPath === '') {
+        return null;
+      }
+      const basePath = String(this.basePath || '').trim();
+      if (basePath !== '' && basePath !== '/') {
+        const normalizedBase = '/' + basePath.replace(/^\/+|\/+$/g, '');
+        if (requestPath.indexOf(normalizedBase) === 0) {
+          requestPath = requestPath.substring(normalizedBase.length);
+        }
+      }
+      const segments = requestPath.replace(/^\/+|\/+$/g, '').split('/');
+      if (!segments.length || !segments[0]) {
+        return null;
+      }
+      // non-IAM routes (system API, site context, site API) carry no tenant
+      // user segment
+      if (['system', 'x', this.sitesDirectory].indexOf(segments[0]) !== -1) {
+        return null;
+      }
+      return this.generateMachineName(decodeURIComponent(segments[0]));
+    }
+    /**
+     * Resolve the active IAM tenant username (HAXCMS_ROOT /users/<name>/ or the
+     * request path). Mirrors PHP HAXCMS::getIAMTenantUserName.
+     */
+    getIAMTenantUserName(req = null) {
+      if (!(this.config && this.config.iam)) {
+        return null;
+      }
+      const root = String(this.HAXCMS_ROOT || '').replace(/\\/g, '/');
+      const match = root.match(/\/users\/([^\/]+)/);
+      if (match && match[1]) {
+        return this.generateMachineName(match[1]);
+      }
+      return this.getRequestPathUserName(req);
+    }
+    /**
+     * Security (review 2026-10): IAM route authorization binding the
+     * authenticated principal to the resolved tenant. Previously referenced by
+     * app.js / session.js / connectionTest.js behind typeof guards but never
+     * defined, so it silently allowed everything. No-op (allow) when
+     * config.iam is not set, so self-hosted behaviour is unchanged. Mirrors
+     * PHP HAXCMS::validateIAMRouteAuthorization.
+     * authenticatedUser lets a caller that authenticated by other means (e.g.
+     * Basic Auth) supply the principal explicitly.
+     */
+    validateIAMRouteAuthorization(requireAuthenticatedUser = true, req = null, jwt = null, authenticatedUser = null) {
+      const allow = { allowed: true, status: 200, message: '' };
+      const deny = { allowed: false, status: 403, message: 'Access denied' };
+      if (!(this.config && this.config.iam)) {
+        return allow;
+      }
+      const tenantUser = this.getIAMTenantUserName(req);
+      const pathUser = this.getRequestPathUserName(req);
+      if (tenantUser && pathUser && tenantUser !== pathUser) {
+        return deny;
+      }
+      let principal = this.getAuthenticatedUserName(req, jwt);
+      if (!principal && typeof authenticatedUser === 'string' && authenticatedUser !== '') {
+        principal = this.generateMachineName(authenticatedUser);
+      }
+      if (requireAuthenticatedUser && !principal) {
+        return deny;
+      }
+      if (tenantUser && (!principal || principal !== tenantUser)) {
+        return deny;
+      }
+      return allow;
+    }
+    /**
+     * Security (F2/IDOR-001, review 2026-10): object-level authorization on a
+     * named site. Self-hosted (config.iam unset): no-op allow so existing
+     * behaviour (handlers' own 404s etc.) is unchanged. HAXiam: the site must
+     * exist and live in (or be symlinked into) the authenticated user's sites
+     * directory. Mirrors PHP HAXCMS::userCanAccessSite.
+     */
+    async userCanAccessSite(siteName, req = null, authenticatedUser = null) {
+      if (!(this.config && this.config.iam)) {
+        return true;
+      }
+      if (typeof siteName !== 'string' || siteName.trim() === '') {
+        return false;
+      }
+      let site = null;
+      try {
+        site = await this.loadSite(siteName);
+      }
+      catch (e) {
+        site = null;
+      }
+      if (!site || !site.manifest || !site.manifest.metadata || !site.manifest.metadata.site || !site.manifest.metadata.site.name) {
+        return false;
+      }
+      let activeUser = this.getAuthenticatedUserName(req);
+      if (!activeUser && typeof authenticatedUser === 'string' && authenticatedUser !== '') {
+        activeUser = this.generateMachineName(authenticatedUser);
+      }
+      if (!activeUser) {
+        return false;
+      }
+      const siteMachineName = site.manifest.metadata.site.name;
+      const root = String(this.HAXCMS_ROOT || '').replace(/\\/g, '/').replace(/\/+$/, '');
+      const escapedUser = activeUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp('/users/' + escapedUser + '(/|$)').test(root)) {
+        return true;
+      }
+      const candidates = [
+        '/var/www/sites/' + activeUser + '/sites/' + siteMachineName,
+      ];
+      if (/\/users\/[^\/]+/.test(root)) {
+        const userRoot = root.replace(/\/users\/[^\/]+/, '/users/' + activeUser);
+        candidates.push(userRoot + '/' + this.sitesDirectory + '/' + siteMachineName);
+      }
+      for (let i = 0; i < candidates.length; i++) {
+        try {
+          fs.lstatSync(candidates[i]);
+          return true;
+        }
+        catch (e) {}
+      }
+      return false;
+    }
     getRequestToken(value = '')
     {
         return this.hmacBase64(value, this.privateKey + this.salt);
@@ -4635,8 +4900,15 @@ class HAXCMSClass {
     /**
      * Generate a valid HAX App store specification schema for connecting to this site via JSON.
      */
-    siteConnectionJSON(siteToken = '', siteName = '')
+    siteConnectionJSON(siteToken = '', siteName = '', req = null)
     {
+        // Security (review 2026-10): protocol/host are resolved per request via
+        // the trust-proxy-aware helpers instead of reading the process-global
+        // HAXCMS.protocol / HAXCMS.domain (which connection-settings used to
+        // overwrite from the Referer). Falls back to the configured defaults
+        // when no request is supplied (CLI).
+        const connectionProtocol = req ? this.resolveTrustedProtocol(req) : this.protocol;
+        const connectionDomain = req ? (this.resolveTrustedHost(req) || this.domain) : this.domain;
         const isMultisite = (
           this.operatingContext === 'multisite' ||
           (
@@ -4663,8 +4935,8 @@ class HAXCMSClass {
         "tags": ["media", "hax"]
       },
       "connection": {
-        "protocol": this.protocol,
-        "url": this.domain + this.basePath,
+        "protocol": connectionProtocol,
+        "url": connectionDomain + this.basePath,
         "headers": {
           "X-HAXCMS-Site-Token": siteToken
         },
@@ -4751,6 +5023,14 @@ class HAXCMSClass {
    * Return the active domain if it exists
    */
    getDomain() {
+    // Security (review 2026-10): HAXCMS.domain is no longer overwritten from
+    // request Referers, so prefer the operator-configured canonical host
+    // (config.security.allowedHosts[0]) for generated files (RSS / sitemap /
+    // manifest) and fall back to the configured default.
+    var allowedHosts = this.getAllowedHosts();
+    if (allowedHosts.length > 0) {
+      return allowedHosts[0];
+    }
     return this.domain;
   }
   /**
@@ -5139,8 +5419,9 @@ class HAXCMSClass {
     }
     /**
      * Security (H1 rotation): refresh-session store. A file-backed JSON under
-     * the protected _config/settings directory maps user -> { family, currentJtiHash,
-     * previousJtiHash, previousValidUntil, exp }. Only SHA-256 hashes of jti are
+     * the protected _config/settings directory maps family -> { user,
+     * currentJtiHash, previousJtiHash, previousValidUntil, exp } plus revoked
+     * family tombstones (see _normalizeRefreshSessionStore). Only SHA-256 hashes of jti are
      * stored, never raw token ids. This lets refresh rotate the token (a stolen
      * old copy dies on the legitimate user's next refresh) and lets logout
      * revoke the whole family server-side. Mirrors PHP refresh-session helpers.
@@ -5154,44 +5435,130 @@ class HAXCMSClass {
     _hashJti(jti) {
       return crypto.createHash('sha256').update(String(jti || '')).digest('hex');
     }
+    // Security (review 2026-10): the store is keyed by refresh FAMILY (one per
+    // login session) rather than by user, so several devices can be logged in
+    // at once without a family mismatch on one device overwriting the other.
+    // Shape: { families: { <family>: { user, currentJtiHash, previousJtiHash,
+    // previousValidUntil, exp } }, revoked: { <family>: <expiresAt> },
+    // legacyRevokedBefore: { <user>: { at, expiresAt } } }. Revocation writes a
+    // tombstone instead of deleting, so a revoked / replayed family can never
+    // be re-seeded. The pre-2026-10 user-keyed shape is migrated on read.
+    // Mirrors PHP HAXCMS loadRefreshSessions/saveRefreshSessions.
+    _emptyRefreshSessionStore() {
+      return { families: {}, revoked: {}, legacyRevokedBefore: {} };
+    }
+    _normalizeRefreshSessionStore(parsed) {
+      const store = this._emptyRefreshSessionStore();
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return store;
+      }
+      const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+      if (isObj(parsed.families) || isObj(parsed.revoked) || isObj(parsed.legacyRevokedBefore)) {
+        if (isObj(parsed.families)) {
+          store.families = parsed.families;
+        }
+        if (isObj(parsed.revoked)) {
+          store.revoked = parsed.revoked;
+        }
+        if (isObj(parsed.legacyRevokedBefore)) {
+          store.legacyRevokedBefore = parsed.legacyRevokedBefore;
+        }
+        return store;
+      }
+      // legacy user-keyed shape: { <user>: { family, currentJtiHash, ... } }
+      const keys = Object.keys(parsed);
+      for (let i = 0; i < keys.length; i++) {
+        const entry = parsed[keys[i]];
+        if (isObj(entry) && typeof entry.family === 'string' && entry.family !== '') {
+          store.families[entry.family] = {
+            user: keys[i],
+            currentJtiHash: entry.currentJtiHash || null,
+            previousJtiHash: entry.previousJtiHash || null,
+            previousValidUntil: Number(entry.previousValidUntil) || 0,
+            exp: Math.floor(Number(entry.exp) || 0),
+          };
+        }
+      }
+      return store;
+    }
     _loadRefreshSessions() {
       const storePath = this.getRefreshSessionsPath();
       try {
         if (!fs.existsSync(storePath)) {
-          return {};
+          return this._emptyRefreshSessionStore();
         }
         const raw = fs.readFileSync(storePath, { encoding: 'utf8', flag: 'r' });
-        const parsed = JSON.parse(raw);
-        return (parsed && typeof parsed === 'object') ? parsed : {};
+        return this._normalizeRefreshSessionStore(JSON.parse(raw));
       }
       catch (e) {
-        return {};
+        return this._emptyRefreshSessionStore();
       }
     }
-    _saveRefreshSessions(sessions) {
+    _saveRefreshSessions(store) {
       const storePath = this.getRefreshSessionsPath();
       try {
         const dir = path.dirname(storePath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
         }
-        // prune expired entries before writing
+        // prune expired sessions and expired tombstones before writing
         const now = Math.floor(Date.now() / 1000);
-        const cleaned = {};
-        const keys = Object.keys(sessions);
-        for (let i = 0; i < keys.length; i++) {
-          const k = keys[i];
-          const entry = sessions[k];
+        const normalized = this._normalizeRefreshSessionStore(store);
+        const cleaned = this._emptyRefreshSessionStore();
+        const families = Object.keys(normalized.families);
+        for (let i = 0; i < families.length; i++) {
+          const entry = normalized.families[families[i]];
           if (entry && typeof entry.exp === 'number' && entry.exp > now) {
-            cleaned[k] = entry;
+            cleaned.families[families[i]] = entry;
+          }
+        }
+        const revoked = Object.keys(normalized.revoked);
+        for (let i = 0; i < revoked.length; i++) {
+          const until = Number(normalized.revoked[revoked[i]]) || 0;
+          if (until > now) {
+            cleaned.revoked[revoked[i]] = until;
+          }
+        }
+        const legacyUsers = Object.keys(normalized.legacyRevokedBefore);
+        for (let i = 0; i < legacyUsers.length; i++) {
+          const marker = normalized.legacyRevokedBefore[legacyUsers[i]];
+          if (marker && Number(marker.expiresAt) > now) {
+            cleaned.legacyRevokedBefore[legacyUsers[i]] = marker;
           }
         }
         this.writeSecretFile(storePath, JSON.stringify(cleaned, null, 2));
         this.chmodSecretFile(storePath);
       }
       catch (e) {
-        // non-fatal: stateless validation still works as a fallback
+        // non-fatal
       }
+    }
+    _isRefreshFamilyRevoked(store, family) {
+      if (!family || !store || !store.revoked) {
+        return false;
+      }
+      const until = Number(store.revoked[String(family)]) || 0;
+      return until > Math.floor(Date.now() / 1000);
+    }
+    _tombstoneRefreshFamily(store, family) {
+      if (!family) {
+        return;
+      }
+      const key = String(family);
+      delete store.families[key];
+      store.revoked[key] = Math.floor(Date.now() / 1000) + HAXCMS_REFRESH_TOMBSTONE_SECONDS;
+    }
+    // Security (review 2026-10): a true legacy token (no family claim) cannot
+    // be tombstoned individually, so a logout without a family records a
+    // per-user cutoff and legacy tokens issued at/before it are rejected.
+    _isLegacyRefreshRevoked(store, user, iat) {
+      const marker = store && store.legacyRevokedBefore
+        ? store.legacyRevokedBefore[String(user)]
+        : null;
+      if (!marker || !(Number(marker.expiresAt) > Math.floor(Date.now() / 1000))) {
+        return false;
+      }
+      return !(Number(iat) > Number(marker.at));
     }
     /**
      * Record a new refresh session (called on login / institutional issuance).
@@ -5200,83 +5567,134 @@ class HAXCMSClass {
       if (!user || !family || !jti) {
         return;
       }
-      const sessions = this._loadRefreshSessions();
-      sessions[String(user)] = {
-        family: String(family),
+      const store = this._loadRefreshSessions();
+      store.families[String(family)] = {
+        user: String(user),
         currentJtiHash: this._hashJti(jti),
         previousJtiHash: null,
         previousValidUntil: 0,
         exp: Math.floor(Number(exp) || 0),
       };
-      this._saveRefreshSessions(sessions);
+      delete store.revoked[String(family)];
+      this._saveRefreshSessions(store);
     }
     /**
      * Rotate a refresh session: validate family/jti against the store, then move
      * the current jti to previous (with a grace window) and record a new current.
-     * Returns true if the rotation was accepted, false if the jti/family did not
-     * match (stolen/revoked/out-of-order token). A missing store entry is
-     * treated as legacy-accepted so deployments upgrade without logging users out.
+     * Returns true if the rotation was accepted, false otherwise.
+     *
+     * Security (review 2026-10): a tombstoned (revoked) family, a family-bearing
+     * token with no store entry, a family owned by a different user, and an
+     * unknown jti are all rejected (and the presented family is tombstoned) —
+     * nothing is ever overwritten or re-seeded from a presented token. Only a
+     * true legacy token (options.legacy: no family claim at all) is accepted
+     * and seeded under the freshly generated family. Mirrors PHP
+     * rotateRefreshSession.
      */
-    rotateRefreshSession(user, family, oldJti, newJti, newExp) {
+    rotateRefreshSession(user, family, oldJti, newJti, newExp, options = {}) {
       if (!user || !family || !oldJti || !newJti) {
         return false;
       }
-      const sessions = this._loadRefreshSessions();
-      const key = String(user);
-      const entry = sessions[key];
+      const legacy = !!(options && options.legacy);
+      const store = this._loadRefreshSessions();
+      const key = String(family);
       const now = Math.floor(Date.now() / 1000);
-      const oldHash = this._hashJti(oldJti);
-      if (entry && entry.family === String(family)) {
-        const currentMatch = entry.currentJtiHash === oldHash;
-        const previousMatch = entry.previousJtiHash === oldHash && now < (entry.previousValidUntil || 0);
-        if (!currentMatch && !previousMatch) {
-          // possible token theft / replay of an older jti -> revoke the family
-          delete sessions[key];
-          this._saveRefreshSessions(sessions);
+      if (this._isRefreshFamilyRevoked(store, key)) {
+        return false;
+      }
+      const entry = store.families[key];
+      if (legacy) {
+        if (entry || this._isLegacyRefreshRevoked(store, user, options.iat)) {
           return false;
         }
+        store.families[key] = {
+          user: String(user),
+          currentJtiHash: this._hashJti(newJti),
+          previousJtiHash: null,
+          previousValidUntil: 0,
+          exp: Math.floor(Number(newExp) || 0),
+        };
+        this._saveRefreshSessions(store);
+        return true;
       }
-      // legacy / missing entry: accept and seed the store going forward
-      const next = entry || {};
-      next.family = String(family);
-      next.previousJtiHash = oldHash;
-      next.previousValidUntil = now + HAXCMS_REFRESH_GRACE_SECONDS;
-      next.currentJtiHash = this._hashJti(newJti);
-      next.exp = Math.floor(Number(newExp) || 0);
-      sessions[key] = next;
-      this._saveRefreshSessions(sessions);
+      // a family owned by another user is rejected without touching it
+      if (entry && entry.user !== String(user)) {
+        return false;
+      }
+      const oldHash = this._hashJti(oldJti);
+      const currentMatch = !!entry && entry.currentJtiHash === oldHash;
+      const previousMatch = !!entry && entry.previousJtiHash === oldHash && now < (entry.previousValidUntil || 0);
+      if (!entry || (!currentMatch && !previousMatch)) {
+        // unknown / revoked family or replay of an older jti -> tombstone it
+        this._tombstoneRefreshFamily(store, key);
+        this._saveRefreshSessions(store);
+        return false;
+      }
+      entry.previousJtiHash = oldHash;
+      entry.previousValidUntil = now + HAXCMS_REFRESH_GRACE_SECONDS;
+      entry.currentJtiHash = this._hashJti(newJti);
+      entry.exp = Math.floor(Number(newExp) || 0);
+      store.families[key] = entry;
+      this._saveRefreshSessions(store);
       return true;
     }
     /**
-     * Revoke a user's refresh family (called on logout). Best-effort.
+     * Revoke a refresh family (called on logout / replay detection).
+     * Security (review 2026-10): writes a tombstone instead of deleting so the
+     * revoked family can't be re-seeded by replaying its token. With no family
+     * (legacy token) every family of the user is tombstoned and a legacy cutoff
+     * is recorded. Mirrors PHP revokeRefreshSession.
      */
-    revokeRefreshSession(user) {
-      if (!user) {
+    revokeRefreshSession(user, family = null) {
+      if (!user && !family) {
         return;
       }
-      const sessions = this._loadRefreshSessions();
-      if (Object.prototype.hasOwnProperty.call(sessions, String(user))) {
-        delete sessions[String(user)];
-        this._saveRefreshSessions(sessions);
+      const store = this._loadRefreshSessions();
+      if (family) {
+        const entry = store.families[String(family)];
+        // never let one user's request revoke another user's family
+        if (entry && user && entry.user !== String(user)) {
+          return;
+        }
+        this._tombstoneRefreshFamily(store, family);
       }
+      else {
+        const families = Object.keys(store.families);
+        for (let i = 0; i < families.length; i++) {
+          if (store.families[families[i]] && store.families[families[i]].user === String(user)) {
+            this._tombstoneRefreshFamily(store, families[i]);
+          }
+        }
+        const now = Math.floor(Date.now() / 1000);
+        store.legacyRevokedBefore[String(user)] = {
+          at: now,
+          expiresAt: now + HAXCMS_REFRESH_TOMBSTONE_SECONDS,
+        };
+      }
+      this._saveRefreshSessions(store);
     }
     /**
      * Validate a refresh token's family/jti against the store WITHOUT rotating.
-     * Used by connectionTest recovery where we mint an access token but still
-     * want to reject a revoked/stolen refresh. Returns true when acceptable
-     * (including the legacy/missing-entry case so deploys don't log users out).
+     * Security (review 2026-10): rejects tombstoned families, family-bearing
+     * tokens with no store entry and families owned by another user. Only a
+     * true legacy token (no family claim) is accepted, unless a logout cutoff
+     * covers it. Mirrors PHP validateRefreshSession.
      */
-    validateRefreshSession(user, family, jti) {
-      if (!user || !family || !jti) {
-        // tokens without family/jti (legacy) are accepted for migration
-        return true;
+    validateRefreshSession(user, family, jti, iat = null) {
+      if (!user) {
+        return false;
       }
-      const sessions = this._loadRefreshSessions();
-      const entry = sessions[String(user)];
-      if (!entry) {
-        return true;
+      const store = this._loadRefreshSessions();
+      if (!family) {
+        // true legacy token (pre-rotation): accepted for migration unless a
+        // logout cutoff was recorded after it was issued
+        return !this._isLegacyRefreshRevoked(store, user, iat);
       }
-      if (entry.family !== String(family)) {
+      if (!jti || this._isRefreshFamilyRevoked(store, family)) {
+        return false;
+      }
+      const entry = store.families[String(family)];
+      if (!entry || entry.user !== String(user)) {
         return false;
       }
       const now = Math.floor(Date.now() / 1000);
@@ -5300,6 +5718,9 @@ class HAXCMSClass {
         return null;
       }
       const user = decodedRefresh.user;
+      // Security (review 2026-10): only a token with no family claim at all is
+      // a legacy token that may be seeded under a fresh family.
+      const legacy = !decodedRefresh.family;
       const family = decodedRefresh.family || uuidv4();
       const oldJti = decodedRefresh.jti || uuidv4();
       // Generate a fresh jti + iat/exp for the rotated token. We build the
@@ -5318,9 +5739,13 @@ class HAXCMSClass {
         },
         this.refreshPrivateKey + this.salt,
       );
-      const ok = this.rotateRefreshSession(user, family, oldJti, newJti, newExp);
+      const ok = this.rotateRefreshSession(user, family, oldJti, newJti, newExp, {
+        legacy: legacy,
+        iat: decodedRefresh.iat,
+      });
       if (!ok) {
-        this.revokeRefreshSession(user);
+        // rotateRefreshSession already tombstoned the presented family; do not
+        // revoke the user's other (unrelated) device sessions here
         return null;
       }
       this.setRefreshTokenCookie(res, rotated, 24 * 60 * 60 * 1000);

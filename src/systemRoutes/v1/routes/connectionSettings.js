@@ -29,6 +29,24 @@ function normalizePath(pathValue = '') {
 }
 
 
+// Security (review 2026-10): extract <name> from a /<base>/<sitesDirectory>/<name>/
+// path without consulting (or mutating) any global request state.
+function getSiteNameFromPath(pathValue = '') {
+  let requestPath = String(pathValue || '').split('?')[0];
+  let basePath = String(HAXCMS.basePath || '/');
+  if (basePath.charAt(0) !== '/') {
+    basePath = '/' + basePath;
+  }
+  if (basePath.charAt(basePath.length - 1) !== '/') {
+    basePath += '/';
+  }
+  const prefix = `${basePath}${HAXCMS.sitesDirectory}/`;
+  if (requestPath.indexOf(prefix) !== 0) {
+    return '';
+  }
+  return requestPath.substring(prefix.length).split('/')[0];
+}
+
 function getSystemOpenApiOperationPaths() {
   if (cachedSystemOpenApiOperationPaths) {
     return cachedSystemOpenApiOperationPaths;
@@ -164,18 +182,21 @@ async function connectionSettings(req, res) {
   // name parsed from a multisite site-context URL (/_sites/<name>/...).
   // tracked separately because it must drive the site API base path, whereas
   // sitename (below) may also be resolved from the single-site context.
-  var multisiteUrlName = '';
-  // express gives this up on requests but doesn't know it ahead of time
-  if (req.headers && req.headers.referer) {
-    let details = new url.URL(req.headers.referer);
-    HAXCMS.protocol = details.protocol.replace(':', '');
-    HAXCMS.domain = details.host;
-    HAXCMS.request_url = details;
-    const siteContextPrefix = `${HAXCMS.protocol}://${HAXCMS.domain}${HAXCMS.basePath}${HAXCMS.sitesDirectory}/`;
-    if (req.headers.referer.indexOf(siteContextPrefix) === 0) {
-      const sitepath = req.headers.referer.replace(siteContextPrefix, '');
-      const siteparts = sitepath.split('/');
-      multisiteUrlName = siteparts[0];
+  // Security (review 2026-10): request data is no longer written onto the
+  // process-global HAXCMS singleton (HAXCMS.protocol / domain / request_url
+  // used to be overwritten from the attacker-controlled Referer before auth,
+  // poisoning every later consumer: app-store connection URLs, site OpenAPI
+  // server URLs, generated RSS/sitemap/metadata). The site name is derived
+  // per request: first from this request's own path (site-scoped system route
+  // /_sites/<name>/system/api/...), then from the Referer path, then from the
+  // single-site context — the same precedence the site API uses.
+  var multisiteUrlName = getSiteNameFromPath(req && (req.originalUrl || req.url) ? (req.originalUrl || req.url) : '');
+  if (multisiteUrlName === '' && req && req.headers && typeof req.headers.referer === 'string') {
+    try {
+      multisiteUrlName = getSiteNameFromPath(new url.URL(req.headers.referer).pathname);
+    }
+    catch (e) {
+      multisiteUrlName = '';
     }
   }
   sitename = multisiteUrlName;
@@ -203,9 +224,18 @@ async function connectionSettings(req, res) {
     }
     catch (e) {}
   }
-  const siteToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName() + ':' + sitename);
+  // Security (review 2026-10): bind request tokens to the AUTHENTICATED
+  // principal of this request (valid Bearer JWT, or a refresh cookie whose
+  // family passes the refresh-session store check) rather than the configured
+  // fallback user. NOTE: unauthenticated callers still receive tokens bound to
+  // the configured user because the shipped front end (app-hax in-page login)
+  // loads this script once before login and keeps using these tokens after
+  // login without re-fetching; stripping them would break login. Tokens alone
+  // are not sufficient to call any protected route (a valid JWT is required).
+  const tokenUserName = HAXCMS.getAuthenticatedRawUserName(req) || HAXCMS.getActiveUserName();
+  const siteToken = HAXCMS.getRequestToken(tokenUserName + ':' + sitename);
   // user token is just the name of the logged in user
-  const userToken = HAXCMS.getRequestToken(HAXCMS.getActiveUserName());
+  const userToken = HAXCMS.getRequestToken(tokenUserName);
   let normalizedBasePath = String(HAXCMS.basePath || '/');
   if (normalizedBasePath.charAt(0) !== '/') {
     normalizedBasePath = '/' + normalizedBasePath;
@@ -281,7 +311,11 @@ async function connectionSettings(req, res) {
   };
   const returnData = JSON.stringify(returnDataObj);
   let after='';
-  if (HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
+  // local no-login mode (src/local.js) injects a super-user JWT so the editor
+  // works without a login screen. Security (review 2026-10): never in a
+  // production runtime, matching the validateJWT bypass guard (PHP removed
+  // this injection entirely, SEC-03).
+  if (HAXCMS.HAXCMS_DISABLE_JWT_CHECKS && !HAXCMS.isProductionRuntime()) {
     after = `window.appSettings.jwt = "${HAXCMS.getJWT(HAXCMS.superUser.name)}"`;
   }
   res.send(`window.MicroFrontendRegistryConfig = window.MicroFrontendRegistryConfig || {};

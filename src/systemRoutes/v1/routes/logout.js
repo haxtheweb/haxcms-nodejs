@@ -8,7 +8,10 @@ function logoutRoute(req, res)  {
       if (req && req.cookies && req.cookies.haxcms_refresh_token) {
         const decoded = HAXCMS.decodeRefreshToken(req.cookies.haxcms_refresh_token);
         if (decoded && decoded.user) {
-          HAXCMS.revokeRefreshSession(decoded.user);
+          // Security (review 2026-10): tombstone this session's family (or, for
+          // a legacy token without a family, every family of the user) so the
+          // logged-out refresh token can't be replayed to mint access tokens.
+          HAXCMS.revokeRefreshSession(decoded.user, decoded.family || null);
         }
       }
     }

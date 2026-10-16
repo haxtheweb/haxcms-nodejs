@@ -41,6 +41,15 @@ const {
    * )
    */
 async function saveSiteAsTemplate(req, res) {
+  // Security (F2/IDOR-001, review 2026-10): object-level authorization on
+  // the named site, mirroring PHP lifecycle.php / operations. No-op unless
+  // config.iam is set.
+  if (!(await HAXCMS.userCanAccessSite(req.body && req.body.site ? req.body.site.name : '', req))) {
+    return res.status(403).json({
+      status: 403,
+      data: { message: 'Access denied to site' },
+    });
+  }
   if (
     !req.body ||
     !req.body.site ||

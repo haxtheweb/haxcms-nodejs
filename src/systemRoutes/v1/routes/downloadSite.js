@@ -79,6 +79,15 @@ function createArchiver(format, options = {}) {
    * )
    */
   async function downloadSite(req, res) {
+    // Security (F2/IDOR-001, review 2026-10): object-level authorization on
+    // the named site, mirroring PHP lifecycle.php / operations. No-op unless
+    // config.iam is set.
+    if (!(await HAXCMS.userCanAccessSite(req.body && req.body.site ? req.body.site.name : '', req))) {
+      return res.status(403).json({
+        status: 403,
+        data: { message: 'Access denied to site' },
+      });
+    }
     // load site
       let site = await HAXCMS.loadSite(req.body['site']['name']);
       // create archived directory in this tree if it doesn't exist already

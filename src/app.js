@@ -1472,6 +1472,12 @@ systemStructureContext().then((site) => {
           isAuthenticated = basicAuth.authenticated;
         }
         if (isAuthenticated) {
+          // Security (review 2026-10): bind the principal to the IAM tenant on
+          // authenticated system routes (PHP SystemApiSecurity parity). No-op
+          // unless config.iam is set.
+          if (!enforceSystemApiIamAuthorization(req, res, op, systemV1OpenRouteRegistry, basicAuth)) {
+            return;
+          }
           if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
             return;
           }
@@ -1523,6 +1529,12 @@ systemStructureContext().then((site) => {
           isAuthenticated = basicAuth.authenticated;
         }
         if (isAuthenticated) {
+          // Security (review 2026-10): bind the principal to the IAM tenant on
+          // authenticated system routes (PHP SystemApiSecurity parity). No-op
+          // unless config.iam is set.
+          if (!enforceSystemApiIamAuthorization(req, res, op, systemV1OpenRouteRegistry, basicAuth)) {
+            return;
+          }
           if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
             return;
           }
@@ -2445,7 +2457,7 @@ function normalizeIamAuthorizationResult(iamAuthorization = null) {
     message: '',
   };
 }
-function validateHaxiamManagedUserIdentityForRequest() {
+function validateHaxiamManagedUserIdentityForRequest(req = null, authenticatedUser = null) {
   if (
     typeof HAXCMS.getDeploymentProfile !== 'function' ||
     HAXCMS.getDeploymentProfile() !== 'haxiam-managed'
@@ -2464,8 +2476,10 @@ function validateHaxiamManagedUserIdentityForRequest() {
     };
   }
   try {
+    // Security (review 2026-10): pass the request so the (now implemented)
+    // IAM check resolves tenant + principal per request.
     return normalizeIamAuthorizationResult(
-      HAXCMS.validateIAMRouteAuthorization(true),
+      HAXCMS.validateIAMRouteAuthorization(true, req, null, authenticatedUser),
     );
   } catch (e) {
     return {
@@ -2474,6 +2488,33 @@ function validateHaxiamManagedUserIdentityForRequest() {
       message: 'Tenant identity validation failed',
     };
   }
+}
+// Security (review 2026-10): IAM tenant binding for authenticated (non-open)
+// system routes. Mirrors PHP SystemApiSecurity (validateIAMRouteAuthorization
+// for 'authenticated' and 'admin' routes when config.iam is set). Returns true
+// when the request may proceed, otherwise sends the 403 envelope.
+function enforceSystemApiIamAuthorization(req, res, op, openRoutes, basicAuth) {
+  if (!(HAXCMS.config && HAXCMS.config.iam)) {
+    return true;
+  }
+  if (Array.isArray(openRoutes) && openRoutes.includes(op)) {
+    return true;
+  }
+  if (HAXCMS.isCLI() || (HAXCMS.HAXCMS_DISABLE_JWT_CHECKS && !HAXCMS.isProductionRuntime())) {
+    return true;
+  }
+  const basicUser = basicAuth && basicAuth.authenticated ? basicAuth.userName : null;
+  const result = normalizeIamAuthorizationResult(
+    HAXCMS.validateIAMRouteAuthorization(true, req, null, basicUser),
+  );
+  if (result.allowed) {
+    return true;
+  }
+  res.status(result.status || 403).json({
+    status: result.status || 403,
+    data: { message: result.message || 'Access denied' },
+  });
+  return false;
 }
 async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
   const policy = getSiteApiRouteAuthPolicy(route, method);
@@ -2610,7 +2651,7 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
         message: 'Invalid X-HAXCMS-Site-Token header',
       };
     }
-    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
+    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest(req, authContext.userName);
     if (!iamAuthorization.allowed) {
       return {
         allowed: false,
@@ -2638,7 +2679,7 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
         message: 'Invalid X-HAXCMS-User-Token header',
       };
     }
-    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
+    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest(req, authContext.userName);
     if (!iamAuthorization.allowed) {
       return {
         allowed: false,
