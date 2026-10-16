@@ -199,5 +199,37 @@
       "link=\"tel:+15555550100\""
     ],
     "mustNotContain": []
+  },
+  {
+    "name": "text-attributes-and-raster-data-preserved",
+    "input": "<img alt=\"Data: 2024 results\" title=\"JavaScript: the good parts\" src=\"files/a.png\"><media-image source=\"data:image/png;base64,iVBORw0KGgo=\" alt=\"JavaScript: the good parts\" caption=\"Data: 2024 results\"></media-image><my-element aria-label=\"javascript: notes\" some-prop=\"data:image/jpeg;base64,AAAA\" note=\"java script: two words\"></my-element>",
+    "mustContain": [
+      "alt=\"Data: 2024 results\"",
+      "title=\"JavaScript: the good parts\"",
+      "source=\"data:image/png;base64,iVBORw0KGgo=\"",
+      "caption=\"Data: 2024 results\"",
+      "aria-label=\"javascript: notes\"",
+      "some-prop=\"data:image/jpeg;base64,AAAA\"",
+      "note=\"java script: two words\""
+    ],
+    "mustNotContain": []
+  },
+  {
+    "name": "unsafe-data-media-types-and-newline-obfuscation-removed",
+    "input": "<my-element a=\"data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;\" b=\"data:image/svg+xml;base64,PHN2Zz4=\" c=\"java\tscript:alert(1)\" d2=\"&#10;javascript:alert(1)\" keep=\"yes\"></my-element><media-image source=\"data:image/svg+xml;base64,PHN2Zz4=\" alt=\"x\"></media-image>",
+    "mustContain": [
+      "keep=\"yes\"",
+      "alt=\"x\""
+    ],
+    "mustNotContain": [
+      "data:text/html",
+      "svg+xml",
+      " a=",
+      " b=",
+      " c=",
+      " d2=",
+      "script:",
+      "source="
+    ]
   }
 ]

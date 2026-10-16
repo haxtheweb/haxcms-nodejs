@@ -36,15 +36,33 @@ const URL_ATTRIBUTE_NAMES = new Set([
   'sources',
   'tracks',
 ])
-// Security (SEC-SANITIZE): schemes that can execute script. Checked on EVERY
-// attribute regardless of name (DOMPurify's CUSTOM_ELEMENT_HANDLING lets any
+// Security (SEC-SANITIZE): schemes that can execute script. Checked on
+// attributes regardless of name (DOMPurify's CUSTOM_ELEMENT_HANDLING lets any
 // attribute on a custom element through without a URI check). This is a
 // denylist on purpose: HAX attribute values are routinely scheme-shaped
 // (icon="icons:check", title="Note: hi") so the http/https/mailto/tel
-// allowlist can only apply to URL-named attributes.
-const SCRIPT_CAPABLE_SCHEMES = new Set(['javascript', 'vbscript', 'livescript', 'mocha', 'data'])
+// allowlist can only apply to URL-named attributes. data: is handled
+// separately (only non-raster media types are removed).
+const SCRIPT_CAPABLE_SCHEMES = new Set(['javascript', 'vbscript', 'livescript', 'mocha'])
+// raster image media types allowed in data: URIs
+const SAFE_DATA_IMAGE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/bmp',
+])
+const DATA_MEDIA_TYPE_RE = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+)/
+// human-readable text attributes: never treated as URLs
+const TEXT_ATTRIBUTE_NAMES = new Set(['alt', 'title', 'label', 'caption', 'placeholder', 'summary'])
+// URL names added for SEC-SANITIZE; unchecked on main, where HAX content
+// relies on raster data: URIs (media-image source="data:image/png;...")
+const DATA_IMAGE_URL_ATTRIBUTE_NAMES = new Set(['link', 'source', 'file', 'sources', 'tracks'])
 const SCHEME_PREFIX_RE = /^([a-z][a-z0-9+.-]*):/
-const SCHEME_STRIP_RE = /[\u0000-\u0020\u007f]+/g
+// browsers' URL parser removes TAB/LF/CR anywhere and C0/space at the start
+const SCHEME_TAB_NEWLINE_RE = /[\t\n\r]+/g
+const SCHEME_LEADING_RE = /^[\u0000-\u0020]+/
 const SCHEME_ENTITY_RE = /&#[xX]([0-9a-fA-F]+);?|&#([0-9]+);?|&(colon|Tab|NewLine|plus|period);/g
 const SCHEME_NAMED_ENTITIES = {
   colon: ':',
@@ -175,15 +193,22 @@ function decodeSchemeEntities(value) {
   })
 }
 
-// Security (SEC-SANITIZE): leading scheme of an attribute value after
-// decoding entities, removing ASCII whitespace/control chars and lowercasing;
-// '' when the value has no leading scheme.
-function getNormalizedScheme(value) {
+// Security (SEC-SANITIZE): normalised attribute value for scheme
+// detection: decodeSchemeEntities -> remove TAB/LF/CR anywhere -> strip
+// leading [\x00-\x20] -> lowercase. Interior spaces are kept, as in browsers.
+function normalizeSchemeValue(value) {
   if (value === null || value === undefined) {
     return ''
   }
-  const normalized = decodeSchemeEntities(value).replace(SCHEME_STRIP_RE, '').toLowerCase()
-  const match = normalized.match(SCHEME_PREFIX_RE)
+  return decodeSchemeEntities(value)
+    .replace(SCHEME_TAB_NEWLINE_RE, '')
+    .replace(SCHEME_LEADING_RE, '')
+    .toLowerCase()
+}
+
+// leading scheme of the normalised value, '' when there is none
+function getNormalizedScheme(value) {
+  const match = normalizeSchemeValue(value).match(SCHEME_PREFIX_RE)
   return match ? match[1] : ''
 }
 
@@ -191,19 +216,45 @@ function hasScriptCapableScheme(value) {
   return SCRIPT_CAPABLE_SCHEMES.has(getNormalizedScheme(value))
 }
 
+// data: URI with an explicit media type that is not a safe raster image
+// (data:text/html, data:image/svg+xml, ...). "Data: 2024 results" and
+// data:image/png survive.
+function hasUnsafeDataMediaType(value) {
+  const match = normalizeSchemeValue(value).match(DATA_MEDIA_TYPE_RE)
+  return match !== null && !SAFE_DATA_IMAGE_TYPES.has(match[1])
+}
+
+function isSafeRasterDataURI(value) {
+  const match = normalizeSchemeValue(value).match(DATA_MEDIA_TYPE_RE)
+  return match !== null && SAFE_DATA_IMAGE_TYPES.has(match[1])
+}
+
+function isTextAttribute(attributeName) {
+  return TEXT_ATTRIBUTE_NAMES.has(attributeName) || attributeName.indexOf('aria-') === 0
+}
+
 // Security (SEC-SANITIZE): returns the value to keep, or null when the
-// attribute must be removed (empty boolean attributes stay ''). URL-named attributes go through the
-// sanitizeURLValue allowlist; every attribute is then rejected if its
-// normalised value starts with a script-capable scheme.
+// attribute must be removed (empty boolean attributes stay '').
+//  - URL-named attributes: sanitizeURLValue allowlist (link/source/file/
+//    sources/tracks additionally accept raster data:image URIs, as on main),
+//    then the script-scheme / unsafe-data check.
+//  - text attributes (alt, title, label, caption, placeholder, summary,
+//    aria-*): kept as-is.
+//  - everything else: removed when the scheme is javascript/vbscript/
+//    livescript/mocha or a data: URI with a non-raster media type.
 function sanitizeAttributeValue(attributeName, value) {
   let safeValue = value === null || value === undefined ? '' : String(value)
   if (isURLLikeAttribute(attributeName)) {
-    safeValue = sanitizeURLValue(safeValue, '')
-    if (safeValue === '') {
-      return null
+    if (!(DATA_IMAGE_URL_ATTRIBUTE_NAMES.has(attributeName) && isSafeRasterDataURI(safeValue))) {
+      safeValue = sanitizeURLValue(safeValue, '')
+      if (safeValue === '') {
+        return null
+      }
     }
+  } else if (isTextAttribute(attributeName)) {
+    return safeValue
   }
-  if (hasScriptCapableScheme(safeValue)) {
+  if (hasScriptCapableScheme(safeValue) || hasUnsafeDataMediaType(safeValue)) {
     return null
   }
   return safeValue
@@ -476,6 +527,7 @@ module.exports = {
   sanitizeHTMLForStorage,
   sanitizeAttributeValue,
   hasScriptCapableScheme,
+  hasUnsafeDataMediaType,
   sanitizeURLValue,
   sanitizeMetadataValue,
   escapeHTMLAttribute,

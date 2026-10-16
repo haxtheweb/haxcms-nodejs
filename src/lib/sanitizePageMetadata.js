@@ -4,7 +4,11 @@
 // cannot bypass saveNode's rules by being sent through another route.
 const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
 const html_entity_decode = require('locutus/php/strings/html_entity_decode').html_entity_decode;
-const { sanitizeURLValue, sanitizeMetadataValue } = require('./sanitizeContent.js');
+const {
+  sanitizeURLValue,
+  sanitizeMetadataValue,
+  hasScriptCapableScheme,
+} = require('./sanitizeContent.js');
 
 const FORBIDDEN_METADATA_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 // fields saveNode runs through sanitizeURLValue
@@ -30,6 +34,19 @@ function sanitizeMetadataString(value) {
   return sanitizeMetadataValue(value, false);
 }
 
+// unknown keys: neutralise markup / attribute breakout only (< > ") and keep
+// & and ' so URLs such as metadata.images entries round-trip unchanged; values
+// with a javascript/vbscript/livescript/mocha scheme are dropped (undefined)
+function sanitizeUnknownMetadataString(value) {
+  if (hasScriptCapableScheme(value)) {
+    return undefined;
+  }
+  return String(value)
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function isPlainObject(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return false;
@@ -38,12 +55,12 @@ function isPlainObject(value) {
   return proto === Object.prototype || proto === null;
 }
 
-// unknown keys: strings escaped, finite numbers / booleans / null kept,
+// strings through escapeString, finite numbers / booleans / null kept,
 // arrays and plain objects walked (forbidden keys dropped), everything else
 // dropped (returns undefined)
-function sanitizeMetadataNested(value, depth = 0) {
+function sanitizeMetadataNested(value, escapeString, depth = 0) {
   if (typeof value === 'string') {
-    return sanitizeMetadataString(value);
+    return escapeString(value);
   }
   if (value === null || typeof value === 'boolean') {
     return value;
@@ -57,7 +74,7 @@ function sanitizeMetadataNested(value, depth = 0) {
   if (Array.isArray(value)) {
     const out = [];
     for (const entry of value) {
-      const clean = sanitizeMetadataNested(entry, depth + 1);
+      const clean = sanitizeMetadataNested(entry, escapeString, depth + 1);
       if (clean !== undefined) {
         out.push(clean);
       }
@@ -70,7 +87,7 @@ function sanitizeMetadataNested(value, depth = 0) {
       if (FORBIDDEN_METADATA_KEYS.has(key)) {
         continue;
       }
-      const clean = sanitizeMetadataNested(value[key], depth + 1);
+      const clean = sanitizeMetadataNested(value[key], escapeString, depth + 1);
       if (clean !== undefined) {
         out[key] = clean;
       }
@@ -138,7 +155,7 @@ function sanitizePageMetadata(incoming, options = {}) {
       } else if (typeof value === 'string' || typeof value === 'number') {
         result.values[key] = sanitizeMetadataString(String(value));
       } else {
-        const clean = sanitizeMetadataNested(value);
+        const clean = sanitizeMetadataNested(value, sanitizeMetadataString);
         if (clean !== undefined) {
           result.values[key] = clean;
         }
@@ -154,7 +171,7 @@ function sanitizePageMetadata(incoming, options = {}) {
       }
       continue;
     }
-    const clean = sanitizeMetadataNested(value);
+    const clean = sanitizeMetadataNested(value, sanitizeUnknownMetadataString);
     if (clean !== undefined) {
       result.values[key] = clean;
     }

@@ -81,7 +81,12 @@ describe('SEC-SANITIZE: custom element attribute schemes', () => {
     ['arbitrary attribute, entity + whitespace', '<my-element some-prop=" j&#x61;vascript&colon;alert(1)"></my-element>', 'some-prop'],
     ['arbitrary attribute, double encoded', '<my-element some-prop="&amp;#106;avascript:alert(1)"></my-element>', 'some-prop'],
     ['arbitrary attribute, data:', '<my-element some-prop="data:text/html;base64,PHNjcmlwdD4="></my-element>', 'some-prop'],
-    ['standard element, title attribute', '<a title="javascript:alert(1)" href="#x">x</a>', 'title'],
+    ['standard element, non-text attribute', '<a data-x="javascript:alert(1)" href="#x">x</a>', 'data-x'],
+    ['arbitrary attribute, data:image/svg+xml', '<my-element some-prop="data:image/svg+xml;base64,PHN2Zz4="></my-element>', 'some-prop'],
+    ['arbitrary attribute, tab inside scheme', '<my-element some-prop="java\tscript:alert(1)"></my-element>', 'some-prop'],
+    ['arbitrary attribute, &#10; before scheme', '<my-element some-prop="&#10;javascript:alert(1)"></my-element>', 'some-prop'],
+    ['media-image source, data:image/svg+xml', '<media-image source="data:image/svg+xml;base64,PHN2Zz4="></media-image>', 'source'],
+    ['media-image source, data:text/html', '<media-image source="data:text/html,x"></media-image>', 'source'],
   ]
   for (const [name, input, attr] of removed) {
     test('removes ' + name, () => {
@@ -127,6 +132,34 @@ describe('SEC-SANITIZE: custom element attribute schemes', () => {
     }
   })
 
+  test('text attributes and raster data: URIs survive (as on main)', () => {
+    const output = sanitizeHTMLForStorage(
+      '<img alt="Data: 2024 results" title="Data: 2024 results" src="files/a.png">' +
+        '<media-image alt="JavaScript: the good parts" source="data:image/png;base64,iVBORw0KGgo="></media-image>' +
+        '<my-element some-prop="data:image/webp;base64,AAAA" aria-description="javascript: notes" note="Data: 2024 results"></my-element>',
+    )
+    for (const snippet of [
+      'alt="Data: 2024 results"',
+      'title="Data: 2024 results"',
+      'alt="JavaScript: the good parts"',
+      'source="data:image/png;base64,iVBORw0KGgo="',
+      'some-prop="data:image/webp;base64,AAAA"',
+      'aria-description="javascript: notes"',
+      'note="Data: 2024 results"',
+    ]) {
+      assert.ok(output.indexOf(snippet) !== -1, snippet + ' missing from ' + output)
+    }
+  })
+
+  test('interior spaces are not removed before scheme detection', () => {
+    const output = sanitizeHTMLForStorage('<my-element note="java script: two words"></my-element>')
+    assert.equal(output, '<my-element note="java script: two words"></my-element>')
+  })
+
+  test('existing src-type attributes still reject data: URIs (unchanged from main)', () => {
+    assert.equal(sanitizeHTMLForStorage('<img src="data:image/png;base64,AAAA">'), '<img>')
+  })
+
   test('URL-named custom attributes still use the http/https/mailto/tel allowlist', () => {
     const output = sanitizeHTMLForStorage(
       '<simple-cta link="ftp://example.com/x"></simple-cta><pdf-browser-viewer file="file:///etc/passwd"></pdf-browser-viewer>',
@@ -144,9 +177,15 @@ describe('SEC-SANITIZE: custom element attribute schemes', () => {
     assert.equal(sanitizeAttributeValue('title', 'Note: hi'), 'Note: hi')
     assert.equal(sanitizeAttributeValue('icon', 'hax:page-edit'), 'hax:page-edit')
     assert.equal(sanitizeAttributeValue('title', ''), '')
-    assert.equal(sanitizeAttributeValue('title', 'livescript:x'), null)
-    assert.equal(sanitizeAttributeValue('title', 'mocha:x'), null)
-    assert.equal(sanitizeAttributeValue('title', '&#0;javascript:x'), null)
+    assert.equal(sanitizeAttributeValue('title', 'javascript:x'), 'javascript:x')
+    assert.equal(sanitizeAttributeValue('aria-label', 'javascript:x'), 'javascript:x')
+    assert.equal(sanitizeAttributeValue('data-x', 'livescript:x'), null)
+    assert.equal(sanitizeAttributeValue('data-x', 'mocha:x'), null)
+    assert.equal(sanitizeAttributeValue('data-x', '&#0;javascript:x'), null)
+    assert.equal(sanitizeAttributeValue('data-x', 'data:,plain'), 'data:,plain')
+    assert.equal(sanitizeAttributeValue('data-x', 'data:text/plain,x'), null)
+    assert.equal(sanitizeAttributeValue('source', 'data:image/gif;base64,R0lG'), 'data:image/gif;base64,R0lG')
+    assert.equal(sanitizeAttributeValue('src', 'data:image/gif;base64,R0lG'), null)
     assert.equal(sanitizeAttributeValue('link', 'blob:https://x/y'), null)
     assert.equal(sanitizeAttributeValue('link', ''), null)
     // non-script, non-allowlisted scheme in a non-URL attribute is plain text
@@ -332,6 +371,22 @@ describe('SEC-SANITIZE: sanitizePageMetadata', () => {
     assert.equal(sanitizeMetadataValue('&amp; &', false), '&amp; &amp;')
   })
 
+  test('unknown keys: only < > " escaped, & and \' kept, script schemes dropped', () => {
+    const { values } = sanitizePageMetadata(
+      {
+        images: ['files/a.png?x=1&y=2', 'javascript:alert(1)', '<b>"q"</b>'],
+        note: 'Tom & Jerry\'s',
+        evil: ' JAVA\tSCRIPT:alert(1)',
+        nested: { link: 'vbscript:x', ok: 'mocha is a drink' },
+      },
+      { themes: THEMES },
+    )
+    assert.deepEqual(values.images, ['files/a.png?x=1&y=2', '&lt;b&gt;&quot;q&quot;&lt;/b&gt;'])
+    assert.equal(values.note, 'Tom & Jerry\'s')
+    assert.ok(!Object.prototype.hasOwnProperty.call(values, 'evil'))
+    assert.deepEqual(values.nested, { ok: 'mocha is a drink' })
+  })
+
   test('non-object metadata is ignored', () => {
     const page = { metadata: { keep: 1 } }
     applyPageMetadata(page, 'nope', {})
@@ -424,6 +479,67 @@ describe('SEC-SANITIZE: saveOutline metadata and title', () => {
     assert.equal(saved.metadata.locked, true)
     assert.equal(saved.metadata.polluted, undefined)
     assert.equal({}.polluted, undefined)
+  })
+})
+
+describe('SEC-SANITIZE: saveOutline metadata round-trip', () => {
+  test('metadata.images URLs with & survive two outline saves unchanged', async (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'haxcms-sec-outline-rt-'))
+    t.after(() => fs.removeSync(dir))
+    fs.outputFileSync(path.join(dir, 'pages/item-a/index.html'), '<p>A</p>')
+    const items = [
+      {
+        id: 'item-a',
+        title: 'A',
+        location: 'pages/item-a/index.html',
+        slug: 'a',
+        parent: null,
+        indent: 0,
+        order: 0,
+        metadata: { created: 1 },
+      },
+    ]
+    const site = {
+      name: 'demo',
+      siteDirectory: dir,
+      manifest: { items, metadata: { site: {} }, addItem(p) { items.push(p) }, save: async () => {} },
+      loadNode(id) {
+        return items.find((i) => i.id === id) || null
+      },
+      updateNode: async (page) => {
+        const index = items.findIndex((i) => i.id === page.id)
+        if (index !== -1) items[index] = page
+      },
+      getUniqueSlugName: (slug) => slug,
+      getPageContent: async () => '',
+      deleteNode: async () => {},
+      gitCommit: async () => {},
+      rebuildManagedFiles: async () => {},
+      updateAlternateFormats: async () => {},
+      writePageAlternateFormats: async () => {},
+    }
+    t.mock.method(HAXCMS, 'validateRequestToken', () => true)
+    t.mock.method(HAXCMS, 'getActiveUserName', () => 'tester')
+    t.mock.method(HAXCMS, 'loadSite', async () => site)
+    t.mock.method(HAXCMS, 'getThemes', () => THEMES)
+    const imageUrl = 'https://cdn.example.com/a.png?w=100&h=200&fit=crop'
+    let metadata = { created: 1, images: [imageUrl], caption: 'Tom & Jerry\'s' }
+    for (let round = 0; round < 2; round++) {
+      const req = {
+        headers: { 'x-haxcms-site-token': 'token' },
+        body: {
+          site: { name: 'demo' },
+          items: [{ id: 'item-a', title: 'A', parent: null, indent: 0, order: 0, metadata: metadata }],
+        },
+      }
+      const res = stubRes()
+      await saveOutline(req, res)
+      assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+      // the client sends back exactly what the server stored
+      metadata = JSON.parse(JSON.stringify(items.find((i) => i.id === 'item-a').metadata))
+    }
+    assert.deepEqual(metadata.images, [imageUrl])
+    assert.equal(metadata.caption, 'Tom & Jerry\'s')
   })
 })
 
