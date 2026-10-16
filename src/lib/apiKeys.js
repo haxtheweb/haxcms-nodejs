@@ -104,11 +104,41 @@ async function readEffectiveApiKeys(haxcms) {
   return normalizeApiKeys(mergedApiKeys);
 }
 
+// Security (SEC-10 parity): same semantics as HAXCMS.writeSecretFile +
+// chmodSecretFile, for callers that pass a plain config object.
+function writeSecretFileFallback(filePath, data) {
+  if (process.platform === 'win32') {
+    fs.writeFileSync(filePath, data);
+    return;
+  }
+  fs.writeFileSync(filePath, data, { mode: 0o600 });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  }
+  catch (e) {
+    // non-fatal
+  }
+}
+
 async function writeApiKeys(haxcms, keys = {}) {
   const filePath = getApiKeysFilePath(haxcms);
   const normalized = normalizeApiKeys(keys);
   await fs.ensureDir(path.dirname(filePath));
-  await fs.writeFile(filePath, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
+  const data = `${JSON.stringify(normalized, null, 2)}\n`;
+  // Security (SEC-10 parity): apiKeys.json holds third-party API secrets, so
+  // write it 0600 via the HAXCMS secret-file helpers (mode on create) and then
+  // chmod (covers a pre-existing file created with the default umask).
+  if (
+    haxcms &&
+    typeof haxcms.writeSecretFile === 'function' &&
+    typeof haxcms.chmodSecretFile === 'function'
+  ) {
+    haxcms.writeSecretFile(filePath, data);
+    haxcms.chmodSecretFile(filePath);
+  }
+  else {
+    writeSecretFileFallback(filePath, data);
+  }
   return normalized;
 }
 
