@@ -19,6 +19,7 @@ const fs = require("fs-extra");
 const crypto = require('crypto');
 const YAML = require('yaml');
 const sslServer = require('./lib/sslServer.js');
+const { resolveListenHost } = require('./lib/serverHost.js');
 const server = sslServer.createServer(app);
 const serverProtocol = sslServer.getServerProtocol();
 const PAGE_VARIANT_CONTENT_TYPES = {
@@ -926,6 +927,9 @@ const SENSITIVE_STATIC_BASENAMES = [
   // where they might be served from outside _config.
   'userdata.json',
   'apikeys.json',
+  // Security (review 2026-10): one-time seeded admin password file written to
+  // the config dir when stderr is not a TTY (see HAXCMS.reportSeededCredentials)
+  'initial_admin_password.txt',
 ];
 function isSensitiveStaticPath(url = '') {
   let decodedPath = String(url || '').split('?')[0];
@@ -1702,13 +1706,32 @@ systemStructureContext().then((site) => {
     res.status(500).send('Server error');
   });
 });
+// Security (review 2026-10): bind no-login mode (HAXCMS_DISABLE_JWT_CHECKS) to
+// loopback unless HAXCMS_HOST explicitly opts in; auth mode keeps the default
+// all-interfaces bind but honours HAXCMS_HOST. Applies to the HTTP and HTTPS
+// server alike since both come from sslServer.createServer above.
+const listenHostResolution = resolveListenHost({
+  authDisabled: HAXCMS.HAXCMS_DISABLE_JWT_CHECKS === true,
+  envHost: process.env.HAXCMS_HOST,
+})
+const listenHost = listenHostResolution.host
+if (listenHostResolution.warning) {
+  console.error('***************************************************************')
+  console.error(listenHostResolution.warning)
+  console.error('***************************************************************')
+}
 server.on('listening', onServerListening);
 server.on('error', handleServerError);
 startServer(currentPort);
 
 function startServer(portToTry) {
   currentPort = Number(portToTry)
-  server.listen(currentPort)
+  if (listenHost) {
+    server.listen(currentPort, listenHost)
+  }
+  else {
+    server.listen(currentPort)
+  }
 }
 function onServerListening() {
   const runtimePort = getRuntimePort()

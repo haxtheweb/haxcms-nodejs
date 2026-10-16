@@ -36,34 +36,45 @@ else {
     // didn't find anything, so we have to create something on the fly
     if (fs.pathExistsSync(baseConfigPath)) {
         try {
-            fs.mkdirSync(path.join(baseConfigPath, '.haxcmsconfig'));
+            // Security (review 2026-10): tolerate a pre-existing EMPTY
+            // ~/.haxcmsconfig. The Docker image declares it as a VOLUME so the
+            // keys / salt / admin user survive container recreation; a fresh
+            // named volume or bind mount is an empty directory, and the old
+            // mkdirSync() threw EEXIST there, dropping into the 'epic fail'
+            // branch below (config inside the package, regenerated every boot).
+            // ensureDirSync + copy-if-absent never overwrites existing files.
             const homeConfig = path.join(baseConfigPath, '.haxcmsconfig');
-            // touch empty file for there to be a config folder definition
-            fs.createFileSync(path.join(homeConfig, '.isHAXcmsConfig'));
-            fs.mkdirSync(path.join(homeConfig, 'tmp'));
-            fs.mkdirSync(path.join(homeConfig, 'cache'));
-            fs.mkdirSync(path.join(homeConfig, 'user'));
-            fs.mkdirSync(path.join(homeConfig, 'user/files'));
+            fs.ensureDirSync(homeConfig);
+            fs.ensureDirSync(path.join(homeConfig, 'tmp'));
+            fs.ensureDirSync(path.join(homeConfig, 'cache'));
+            fs.ensureDirSync(path.join(homeConfig, 'user'));
+            fs.ensureDirSync(path.join(homeConfig, 'user/files'));
             // user-level skeletons live here (writable from UI)
-            fs.mkdirSync(path.join(homeConfig, 'user/skeletons'));
+            fs.ensureDirSync(path.join(homeConfig, 'user/skeletons'));
             // deployment-level skeleton overrides live here (mirrors PHP _config/skeletons)
-            fs.mkdirSync(path.join(homeConfig, 'skeletons'));
+            fs.ensureDirSync(path.join(homeConfig, 'skeletons'));
             // settings directory for system-level feature flags (enabled blocks/themes/skeletons)
-            fs.mkdirSync(path.join(homeConfig, 'settings'));
-            fs.mkdirSync(path.join(homeConfig, 'node_modules'));
-    
-            fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/config.json'), path.join(homeConfig, 'config.json'));
-            fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/my-custom-elements.js'), path.join(homeConfig, 'my-custom-elements.js'));
-            fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/userData.json'), path.join(homeConfig, 'userData.json'));
+            fs.ensureDirSync(path.join(homeConfig, 'settings'));
+            fs.ensureDirSync(path.join(homeConfig, 'node_modules'));
+            const copyIfAbsent = (from, to) => {
+                if (!fs.pathExistsSync(to)) {
+                    fs.copyFileSync(from, to);
+                }
+            };
+            copyIfAbsent(path.join(__dirname, '/../boilerplate/systemsetup/config.json'), path.join(homeConfig, 'config.json'));
+            copyIfAbsent(path.join(__dirname, '/../boilerplate/systemsetup/my-custom-elements.js'), path.join(homeConfig, 'my-custom-elements.js'));
+            copyIfAbsent(path.join(__dirname, '/../boilerplate/systemsetup/userData.json'), path.join(homeConfig, 'userData.json'));
             // just for platform consistency, this makes no sense at face value
-            fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/config.php'), path.join(homeConfig, 'config.php'));
-            fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/.htaccess'), path.join(homeConfig, '.htaccess'));
+            copyIfAbsent(path.join(__dirname, '/../boilerplate/systemsetup/config.php'), path.join(homeConfig, 'config.php'));
+            copyIfAbsent(path.join(__dirname, '/../boilerplate/systemsetup/.htaccess'), path.join(homeConfig, '.htaccess'));
             // the boilerplate ships this as a dotfile; the old name without the dot
             // threw ENOENT, which fell through to the 'epic fail' branch below and
             // put credentials inside the installed package (lost on every update)
-            fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/.user-files-htaccess'), path.join(homeConfig, 'user/files/.htaccess'));
+            copyIfAbsent(path.join(__dirname, '/../boilerplate/systemsetup/.user-files-htaccess'), path.join(homeConfig, 'user/files/.htaccess'));
+            // touch the marker LAST so a half-seeded directory is re-seeded next boot
+            fs.ensureFileSync(path.join(homeConfig, '.isHAXcmsConfig'));
             // now we can declare that we have a path
-            discoverConfigPath = path.join(baseConfigPath, '.haxcmsconfig');    
+            discoverConfigPath = homeConfig;
         }
         catch(e) {
             // epic fail

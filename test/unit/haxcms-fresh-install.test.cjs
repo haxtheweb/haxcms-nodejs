@@ -101,3 +101,44 @@ test('a fresh install seeds the admin user and the secret files', () => {
   )
   assert.ok(bannerLines.some((line) => line.indexOf('username: admin') !== -1))
 })
+
+// Security (review 2026-10): node --test pipes child stderr, so this boot ran
+// with a NON-TTY stderr (the Docker / systemd case). The plaintext password
+// must go to a 0600 file in the config dir, never into the captured log.
+test('non-TTY boot writes the seeded password to a 0600 file, not the log', () => {
+  assert.equal(loadError, null)
+  assert.equal(Boolean(process.stderr.isTTY), false)
+  const passwordFile = path.join(configRoot, 'INITIAL_ADMIN_PASSWORD.txt')
+  assert.ok(fs.statSync(passwordFile).isFile())
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(passwordFile).mode & 0o777, 0o600)
+  }
+  const contents = fs.readFileSync(passwordFile, 'utf8')
+  assert.match(contents, /^username: admin\npassword: \S+\n$/)
+  const plaintext = contents.split('\n')[1].replace('password: ', '')
+  // the file holds the real seeded password (it verifies against the stored hash)
+  assert.equal(HAXCMS.verifyStoredPassword(HAXCMS.user.password, plaintext), true)
+  // the log announces the file path but never the plaintext
+  const joined = bannerLines.join('\n')
+  assert.ok(joined.indexOf(passwordFile) !== -1)
+  assert.equal(joined.indexOf(plaintext), -1)
+})
+
+test('TTY stderr keeps printing the seeded password and writes no file', () => {
+  const passwordFile = path.join(configRoot, 'INITIAL_ADMIN_PASSWORD.txt')
+  fs.removeSync(passwordFile)
+  const lines = []
+  const original = console.error
+  console.error = function () {
+    for (let i = 0; i < arguments.length; i++) {
+      lines.push(String(arguments[i]))
+    }
+  }
+  try {
+    HAXCMS.reportSeededCredentials('admin', 'tty-visible-secret', true)
+  } finally {
+    console.error = original
+  }
+  assert.ok(lines.some((line) => line.indexOf('password: tty-visible-secret') !== -1))
+  assert.equal(fs.existsSync(passwordFile), false)
+})

@@ -35,6 +35,51 @@ npm start
 ```
 
 Visit http://localhost:3000 if it doesn't automatically open
+
+### No-login mode (`npx @haxtheweb/haxcms-nodejs`, `npm run dev:nologin`)
+The `haxcms-nodejs` bin (`src/local.js`) sets `HAXCMS_DISABLE_JWT_CHECKS`, which
+turns **every** authentication check off. In this mode the server binds to
+`127.0.0.1` only, so it is reachable from this machine and nowhere else. It is
+not meant for LAN/remote access; use the normal (login) mode for that. If you
+really must expose it, set `HAXCMS_HOST` (for example `0.0.0.0`): the server
+then prints a loud security warning, because anyone who can reach the address
+gets full superuser access. `HAXCMS_DISABLE_JWT_CHECKS` is always ignored when
+`NODE_ENV=production`.
+
+## Environment variables
+| Variable | Purpose |
+| --- | --- |
+| `PORT` | Port to listen on (default `3000`; the next free port is tried if busy). |
+| `HAXCMS_HOST` | Interface to bind. Default: all interfaces in login mode, `127.0.0.1` in no-login mode. A non-loopback value in no-login mode prints a security warning. |
+| `HAXCMS_DISABLE_JWT_CHECKS` | Local no-login mode (set by the `haxcms-nodejs` bin). Disables authentication; ignored when `NODE_ENV=production`. |
+| `HAXCMS_ROOT` | Root directory holding `_sites`, `_published` and friends (default: current directory). |
+| `HAXCMS_ENABLE_SSL` | Serve HTTPS with locally generated certificates (mkcert, falling back to openssl). |
+| `HAXCMS_SSL_KEY` / `HAXCMS_SSL_CERT` / `HAXCMS_SSL_CA` | Paths to your own TLS key, certificate and optional CA bundle (takes priority over `HAXCMS_ENABLE_SSL`). |
+| `HAXCMS_RUNTIME_USERNAME` / `HAXCMS_RUNTIME_PASSWORD` | Override the admin username/password at runtime without editing `.user` (for example from Docker secrets or host env vars). |
+| `HAXCMS_ALLOW_DEFAULT_CREDS` | Emergency override that lets the server start even when known default credentials are detected. Do not use in production. |
+| `NODE_ENV` | `production` disables development-only behaviour, including no-login mode. |
+
+### First-run admin password
+On first start, if no `.user` file exists in the config directory, HAXcms creates
+an `admin` account with a random password. When stderr is an interactive
+terminal the password is printed there. Otherwise (Docker, systemd, CI) it is
+written to `INITIAL_ADMIN_PASSWORD.txt` (mode `0600`) in the config directory
+and only that path is logged, so the secret never ends up in log aggregation.
+Read it, log in, change the password, then delete the file. Alternatively,
+supply `HAXCMS_RUNTIME_USERNAME` / `HAXCMS_RUNTIME_PASSWORD`.
+
+### Docker
+The image runs as the non-root `node` user and declares two volumes. Mount both
+so data and keys survive container recreation:
+```bash
+docker run -p 3000:3000 \
+  -v haxcms-sites:/app/_sites \
+  -v haxcms-config:/home/node/.haxcmsconfig \
+  haxcms-nodejs
+```
+`/home/node/.haxcmsconfig` holds the JWT signing keys, password salt, admin
+account, `userData.json` and `apiKeys.json`. To read the first-run password:
+`docker exec <container> cat /home/node/.haxcmsconfig/INITIAL_ADMIN_PASSWORD.txt`.
 ## API conformance testing
 Run endpoint conformance checks against `src/openapi/site-spec.yaml`:
 ```bash

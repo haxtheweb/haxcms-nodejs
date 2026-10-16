@@ -11,6 +11,8 @@ const explodeImport = require('locutus/php/strings/explode');
 // may need to change as we get into CLI integration
 const HAXCMS_ROOT = process.env.HAXCMS_ROOT || path.join(process.cwd(), "/");
 const HAXCMS_DEFAULT_THEME = 'clean-two';
+// Security (review 2026-10): one-time seeded admin password file (non-TTY runs)
+const INITIAL_ADMIN_PASSWORD_FILE = 'INITIAL_ADMIN_PASSWORD.txt';
 const HAXCMS_FALLBACK_HEX = '#3f51b5';
 // Scoped .htaccess written into every site's .well-known/agent-skills/ dir.
 // CORS open so browser-based agents on other origins can fetch the index +
@@ -3576,6 +3578,45 @@ class HAXCMSClass {
     }
     fs.writeFileSync(filePath, data, { mode: 0o600 });
   }
+  // Security (review 2026-10): announce the one-time seeded admin password.
+  // On an interactive terminal it is printed as before. When stderr is NOT a
+  // TTY (Docker / systemd / CI, where stderr is captured into log aggregators
+  // that many people can read) the plaintext is written to a 0600 file in the
+  // config dir instead and only that path is logged. The file basename is in
+  // app.js SENSITIVE_STATIC_BASENAMES so it is never web-served.
+  reportSeededCredentials(userName, password, isTTY) {
+    const interactive = typeof isTTY === 'boolean'
+      ? isTTY
+      : !!(process.stderr && process.stderr.isTTY);
+    console.error('***************************************************************');
+    console.error('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
+    console.error('\n*** HAXcms admin seeded credentials ***');
+    console.error(`username: ${userName}`);
+    if (interactive) {
+      console.error(`password: ${password}`);
+    }
+    else {
+      const passwordFile = path.join(this.configDirectory, INITIAL_ADMIN_PASSWORD_FILE);
+      try {
+        this.writeSecretFile(
+          passwordFile,
+          `username: ${userName}\npassword: ${password}\n`
+        );
+        // writeFileSync's mode only applies on create; enforce it on overwrite
+        this.chmodSecretFile(passwordFile);
+        console.error(`password: written to ${passwordFile} (mode 0600)`);
+        console.error('Read it once, log in, change the password, then DELETE that file.');
+      }
+      catch (e) {
+        console.error(`password: could not be written to ${passwordFile}; ` +
+          'set HAXCMS_RUNTIME_USERNAME / HAXCMS_RUNTIME_PASSWORD or remove ' +
+          `${path.join(this.configDirectory, ".user")} and restart on a TTY.`);
+      }
+    }
+    console.error(`\nCredentials saved to: ${path.join(this.configDirectory, ".user")}`);
+    console.error('Change this password immediately for production use.');
+    console.error('\n***************************************************************');
+  }
   // Security (HAX-SEC-011): best-effort chmod of an existing secret file to
   // 0o600. Covers files created by a previous version that used the default
   // umask. Non-fatal: failures (read-only fs, locked-down env) are swallowed.
@@ -3846,14 +3887,7 @@ class HAXCMSClass {
       };
       this.writeSecretFile(path.join(this.configDirectory, ".user"), JSON.stringify(this.user, null, 2));
       if (!this.isCLI()) {
-        console.error('***************************************************************');
-        console.error('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
-        console.error('\n*** HAXcms admin seeded credentials ***');
-        console.error(`username: ${this.user.name}`);
-        console.error(`password: ${seededPassword}`);
-        console.error(`\nCredentials saved to: ${path.join(this.configDirectory, ".user")}`);
-        console.error('Change this password immediately for production use.');
-        console.error('\n***************************************************************');
+        this.reportSeededCredentials(this.user.name, seededPassword);
       }
     }
     // Security (HAX-SEC-011): tighten permissions on existing secret files to

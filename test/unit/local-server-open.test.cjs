@@ -55,7 +55,7 @@ const SCRUBBED_ENV_KEYS = [
   'XDG_RUNTIME_DIR',
 ]
 const MANAGED_ENV_KEYS = ['PORT', 'HAXCMS_ROOT', 'HAXCMS_ENABLE_SSL', 'NODE_ENV',
-  'HAXCMS_DISABLE_JWT_CHECKS', 'PATH', 'BROWSER'].concat(SCRUBBED_ENV_KEYS)
+  'HAXCMS_DISABLE_JWT_CHECKS', 'HAXCMS_HOST', 'PATH', 'BROWSER'].concat(SCRUBBED_ENV_KEYS)
 
 function captureEnv(key) {
   return {
@@ -203,6 +203,7 @@ process.env.HAXCMS_ROOT = runtimeRoot + '/'
 process.env.PORT = '0'
 delete process.env.HAXCMS_ENABLE_SSL
 delete process.env.NODE_ENV
+delete process.env.HAXCMS_HOST
 
 globalThis.HAXCMS_RUNTIME_CREDENTIALS = {
   username: TEST_USER_NAME,
@@ -254,4 +255,13 @@ test('local.js boots on an ephemeral port and opens the served URL', async (t) =
     return
   }
   assert.equal(recorded, 'http://localhost:' + port)
+})
+
+// Security (review 2026-10): no-login mode (every auth check returns true) must
+// not be reachable from the network. Without HAXCMS_HOST it binds loopback only.
+test('local.js (no-login mode) listens on 127.0.0.1, not all interfaces', async () => {
+  await appModule.serverReady
+  const address = appModule.server.address()
+  assert.ok(address && typeof address === 'object')
+  assert.equal(address.address, '127.0.0.1')
 })

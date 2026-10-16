@@ -180,6 +180,8 @@ test.before(async () => {
   fs.ensureDirSync(path.join(siteDir, 'theme'))
   fs.writeFileSync(path.join(siteDir, 'theme', 'style.css'), 'body { margin: 0 }')
   fs.writeFileSync(path.join(siteDir, 'files', 'forced-download.html'), '<p>download me</p>')
+  // Security (review 2026-10): a real file so a 404 proves the guard, not absence
+  fs.writeFileSync(path.join(siteDir, 'files', 'INITIAL_ADMIN_PASSWORD.txt'), 'username: admin\npassword: x\n')
   // login through the real session route for the JWT/user token
   const login = await request('POST', runtime.baseUrl + '/system/api/v1/session/login', {
     headers: {
@@ -387,6 +389,9 @@ test('sensitive config files never web-serve and answer 404', async () => {
     '/_sites/' + SITE_NAME + '/userData.json',
     '/_sites/' + SITE_NAME + '/apiKeys.json',
     '/%5fconfig/.user',
+    // Security (review 2026-10): the one-time seeded admin password file
+    '/_sites/' + SITE_NAME + '/files/INITIAL_ADMIN_PASSWORD.txt',
+    '/_sites/' + SITE_NAME + '/files/initial_admin_password.TXT',
   ]
   for (let i = 0; i < paths.length; i++) {
     const result = await request('GET', runtime.baseUrl + paths[i], {})

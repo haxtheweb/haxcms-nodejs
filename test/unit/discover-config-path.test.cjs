@@ -45,3 +45,35 @@ test('a fresh home directory gets a complete ~/.haxcmsconfig', () => {
 test('the site boilerplate no longer ships an empty file named "false"', () => {
   assert.equal(fs.existsSync(path.join(BOILERPLATE_SITE, 'false')), false)
 })
+
+// Security (review 2026-10): the Docker image mounts ~/.haxcmsconfig as a
+// VOLUME. A fresh named volume / bind mount is an EMPTY directory; the old
+// mkdirSync() threw EEXIST and fell back to the package's boilerplate folder,
+// so keys, salt and the admin user were regenerated on every recreate.
+test('a pre-existing empty ~/.haxcmsconfig (fresh Docker volume) is seeded in place', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'haxcms-discover-vol-'))
+  try {
+    const expected = path.join(home, '.haxcmsconfig')
+    fs.mkdirSync(expected)
+    assert.equal(discoverIn(home), expected)
+    for (const file of ['.isHAXcmsConfig', 'config.json', 'userData.json', 'user/files/.htaccess', 'tmp', 'settings']) {
+      assert.ok(fs.existsSync(path.join(expected, file)), `${file} created`)
+    }
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('re-seeding a half-initialised ~/.haxcmsconfig never overwrites existing files', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'haxcms-discover-keep-'))
+  try {
+    const expected = path.join(home, '.haxcmsconfig')
+    fs.mkdirSync(expected)
+    // no marker yet, but an operator-provided config.json is already there
+    fs.writeFileSync(path.join(expected, 'config.json'), '{"keep":true}')
+    assert.equal(discoverIn(home), expected)
+    assert.equal(fs.readFileSync(path.join(expected, 'config.json'), 'utf8'), '{"keep":true}')
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+})
