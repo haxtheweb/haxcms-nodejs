@@ -2,6 +2,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { parse } = require('node-html-parser');
 const JSONOutlineSchema = require('./JSONOutlineSchema.js');
+const { resolvePageLocation } = require('./pageLocation.js');
 
 const WORDSPERMIN = 225;
 
@@ -143,8 +144,10 @@ async function getItemHTML(site, item) {
   if (!site || !item || !item.location || !site.siteDirectory) {
     return '';
   }
-  const pagePath = path.join(site.siteDirectory, item.location);
-  if (!fs.existsSync(pagePath)) {
+  // Security (review 2026-10): only read page files provably inside the site
+  // directory (rejects `..` segments, NUL, symlink escapes).
+  const pagePath = resolvePageLocation(site.siteDirectory, item.location);
+  if (pagePath === false || !fs.existsSync(pagePath)) {
     return '';
   }
   try {

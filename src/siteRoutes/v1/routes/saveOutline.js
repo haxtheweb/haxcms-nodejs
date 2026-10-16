@@ -119,9 +119,12 @@ const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
         // if it doesn't exist currently make sure the name is unique
         let tmpLoad = site.loadNode(page.id);
         if (!tmpLoad) {
+          // Security (review 2026-10): confine boilerplate copy to the site dir
           await HAXCMS.recurseCopy(
               HAXCMS.boilerplatePath + 'page/default',
-              site.siteDirectory + '/' + page.location.replace('/index.html', '')
+              site.siteDirectory + '/' + page.location.replace('/index.html', ''),
+              [],
+              site.siteDirectory
           );
           pageAlternateContentMap[page.id] = '';
         }
@@ -161,9 +164,12 @@ const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
                 let tmpTitle = normalizeOutlineSlug(site, cleanTitle, page, pAuto);
                 page.location = 'pages/' + page.id + '/index.html';
                 page.slug = tmpTitle;
+                // Security (review 2026-10): confine boilerplate copy to the site dir
                 await HAXCMS.recurseCopy(
                     HAXCMS.boilerplatePath + 'page/default',
-                    site.siteDirectory + '/' + page.location.replace('/index.html', '')
+                    site.siteDirectory + '/' + page.location.replace('/index.html', ''),
+                    [],
+                    site.siteDirectory
                 );
                 pageAlternateContentMap[page.id] = '';
             }

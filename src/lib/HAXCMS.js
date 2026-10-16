@@ -7,6 +7,7 @@ const GitPlus = require('./GitPlus.js');
 const JSONOutlineSchema = require('./JSONOutlineSchema.js');
 const { discoverConfigPath } = require('./discoverConfigPath.js');
 const filter_var = require('./filter_var.js');
+const { resolvePageLocation, isDestinationWithinBase } = require('./pageLocation.js');
 const explodeImport = require('locutus/php/strings/explode');
 // may need to change as we get into CLI integration
 const HAXCMS_ROOT = process.env.HAXCMS_ROOT || path.join(process.cwd(), "/");
@@ -796,6 +797,8 @@ class HAXCMSSite
               this.siteDirectory + '/index.html'
             ).size;
         } else if (
+          // Security (review 2026-10): ignore locations outside the site dir
+          resolvePageLocation(this.siteDirectory, item.location) !== false &&
           fs.pathExistsSync(this.siteDirectory + '/' + item.location) &&
           fs.lstatSync(this.siteDirectory + '/' + item.location).isFile()
         ) {
@@ -1055,7 +1058,10 @@ class HAXCMSSite
         let page = new JSONOutlineSchemaItem();
         // support direct ID setting, useful for parent associations calculated ahead of time
         if (id) {
-          page.id = id;
+          // Security (review 2026-10): sanitize caller-supplied id before it is
+          // used to build the on-disk page location. Mirrors PHP
+          // HAXCMSSite::addPage (N1) but preserves case (see sanitizeItemId).
+          page.id = HAXCMS.sanitizeItemId(id);
         }
         // set a crappy default title
         page.title = title;
@@ -1098,6 +1104,7 @@ class HAXCMSSite
         page.metadata.created = Math.floor(Date.now() / 1000);
         page.metadata.updated = Math.floor(Date.now() / 1000);
         let location = path.join(this.siteDirectory, 'pages', page.id);
+        let copied = true;
         // copy the page we use for simplicity (or later complexity if we want)
         switch (template) {
             case 'course':
@@ -1106,12 +1113,16 @@ class HAXCMSSite
             case 'init':
             case 'lesson':
             case 'default':
-              await HAXCMS.recurseCopy(HAXCMS.boilerplatePath + 'page/' + template, location);
+              copied = await HAXCMS.recurseCopy(HAXCMS.boilerplatePath + 'page/' + template, location, [], this.siteDirectory);
             break;
             // didn't understand it, just go default
             default:
-              await HAXCMS.recurseCopy(HAXCMS.boilerplatePath + 'page/default', location);
+              copied = await HAXCMS.recurseCopy(HAXCMS.boilerplatePath + 'page/default', location, [], this.siteDirectory);
             break;
+        }
+        // Security (review 2026-10): destination escaped the site directory
+        if (copied === false) {
+          return false;
         }
         this.manifest.addItem(page);
         this.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
@@ -1362,7 +1373,8 @@ class HAXCMSSite
         }
         catch (e) {}
       }
-      if (source === '' && item && item.location && item.location.indexOf('..') === -1 && this.siteDirectory) {
+      // Security (review 2026-10): realpath containment, not just a `..` substring check
+      if (source === '' && item && item.location && this.siteDirectory && resolvePageLocation(this.siteDirectory, item.location) !== false) {
         try {
           const html = fs.readFileSync(path.join(this.siteDirectory, item.location), 'utf8');
           source = this.getLLMSSafeText(decodeLLMSEntities(String(html).replace(/<[^>]+>/g, ' ')));
@@ -1502,6 +1514,10 @@ class HAXCMSSite
         }
         textData = '';
         try {
+          // Security (review 2026-10): never index files outside the site dir
+          if (resolvePageLocation(this.siteDirectory, item.location) === false) {
+            throw new Error('page location outside site directory');
+          }
           textData = await fs.readFileSync(path.join(this.siteDirectory, item.location),
           {encoding:'utf8', flag:'r'});
           textData = this.cleanSearchData(textData);
@@ -1849,6 +1865,11 @@ class HAXCMSSite
      */
     async getPageContent(page) {
       if ((page.location) && page.location != '') {
+        // Security (review 2026-10): only read locations provably inside the
+        // site directory. Mirrors PHP HAXCMSSite::getPageContent (N5).
+        if (resolvePageLocation(this.siteDirectory, page.location, { mustExist: false }) === false) {
+          return '';
+        }
         return filter_var(await fs.readFileSync(path.join(this.siteDirectory, page.location),
         {encoding:'utf8', flag:'r'}));
       }
@@ -1859,6 +1880,11 @@ class HAXCMSSite
      */
     async writePageAlternateFormats(page, htmlContent = '') {
       if (!page || !page.location || page.location == '' || !this.siteDirectory) {
+        return false;
+      }
+      // Security (review 2026-10): alternate formats are written next to
+      // page.location; refuse locations that escape the site directory.
+      if (resolvePageLocation(this.siteDirectory, page.location, { mustExist: false }) === false) {
         return false;
       }
       let content = '';
@@ -2056,7 +2082,11 @@ class HAXCMSSite
       // set the title
       item.title = params['node']['title'].replace("\n", '');
       if ((params['node']['id']) && params['node']['id'] != '' && params['node']['id'] != null) {
-          item.id = params['node']['id'];
+          // Security (review 2026-10): sanitize the client-supplied id before
+          // composing the on-disk location so `../../x` (or encoded /
+          // backslash / NUL variants) cannot escape the site's pages dir.
+          // Mirrors PHP HAXCMSSite::itemFromParams (N1), case preserved.
+          item.id = HAXCMS.sanitizeItemId(params['node']['id']);
       }
       item.location = 'pages/' + item.id + '/index.html';
       if ((params['indent']) && params['indent'] != '' && params['indent'] != null) {
@@ -4031,6 +4061,42 @@ class HAXCMSClass {
   }
 
   /**
+   * Sanitize an outline item id that will be used to build an on-disk page
+   * location (pages/<id>/index.html).
+   *
+   * Security (review 2026-10): same pipeline as generateMachineName (mirrors
+   * PHP HAXCMS::generateMachineName as applied in HAXCMSSite::itemFromParams /
+   * addPage, N1) EXCEPT it does not lowercase. Item ids are referenced by
+   * parent pointers within the same request (docx import batches) and from
+   * existing site.json files, so lowercasing a legitimate mixed-case id would
+   * orphan its children. Canonical `item-<uuid>` ids pass through unchanged.
+   */
+  sanitizeItemId(id) {
+    if (id === undefined || id === null) {
+      return 'default';
+    }
+    let n = String(id);
+    n = n.replace(/\0/g, '');
+    try {
+      n = decodeURIComponent(n);
+    }
+    catch (e) {
+      // if decode fails, fall back to original string
+    }
+    // decoding can reintroduce NUL bytes (%00)
+    n = n.replace(/\0/g, '');
+    n = n.replace(/\.{2,}/g, '');
+    n = n.replace(/[\\/]/g, '');
+    n = n.replace(/[^a-zA-Z0-9_-]+/g, '-');
+    n = n.replace(/[-_]{2,}/g, '-');
+    n = n.replace(/^[-_]+|[-_]+$/g, '');
+    if (!n) {
+      n = 'default';
+    }
+    return n;
+  }
+
+  /**
    * Generate slug name
    */
   generateSlugName(name) {
@@ -5389,9 +5455,20 @@ class HAXCMSClass {
     /**
      * Recursive copy to rename high level but copy all files
      */
-    async recurseCopy(src, dst, skip = [])
+    async recurseCopy(src, dst, skip = [], base = null)
     {
+      // Security (review 2026-10): when copying into a site-relative page
+      // path, callers pass the site directory as `base` and the destination
+      // must resolve strictly inside it (no NUL, no `..` segment, realpath
+      // containment). Mirrors PHP HAXCMSSite::recurseCopy's destination guard
+      // (N1). System copies (new site / clone) omit `base` and are unchanged.
+      if (base !== null && base !== undefined) {
+        if (!isDestinationWithinBase(base, dst)) {
+          return false;
+        }
+      }
       await fs.copySync(src, dst);
+      return true;
     }
 }
 const HAXCMS = new HAXCMSClass();

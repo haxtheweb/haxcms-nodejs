@@ -119,10 +119,20 @@ async function createNode(req, res) {
       item.metadata.images = [];
       item.metadata.videos = [];
       // generate the boilerplate to fill this page
-      HAXCMS.recurseCopy(
+      // Security (review 2026-10): confine the boilerplate copy to the site
+      // directory (item.id is already sanitized by itemFromParams).
+      const copied = await HAXCMS.recurseCopy(
         HAXCMS.boilerplatePath + 'page/default',
-        path.join(site.siteDirectory, item.location.replace('/index.html', ''))
+        path.join(site.siteDirectory, item.location.replace('/index.html', '')),
+        [],
+        site.siteDirectory
       );
+      if (copied === false) {
+        return res.status(400).json({
+          status: 400,
+          data: { message: 'Invalid page location' },
+        });
+      }
       // add the item back into the outline schema
       site.manifest.addItem(item);
       await site.manifest.save();
