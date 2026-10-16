@@ -1,93 +1,31 @@
 const { parse } = require('node-html-parser');
 const HTMLtoDOCX = require('html-to-docx');
+const exportImageResolver = require('./exportImageResolver.js');
 
 /**
- * Run async work over a list with bounded concurrency, so validating a large
- * number of remote images (e.g. an entire site export) doesn't open hundreds
- * of simultaneous connections.
+ * Security (review 2026-10): pre-resolve every <img> to a data: URI through
+ * exportImageResolver (site-confined local reads, SSRF-guarded + byte-capped
+ * remote fetches, image magic-byte check) so the converter never fetches a
+ * URL or reads a path itself. If the resolver fails, all images are removed
+ * rather than falling back to the raw HTML.
  */
-async function mapWithConcurrency(items, limit, fn) {
-  const results = new Array(items.length);
-  let cursor = 0;
-  async function worker() {
-    while (cursor < items.length) {
-      const current = cursor;
-      cursor += 1;
-      results[current] = await fn(items[current], current);
-    }
-  }
-  const workerCount = Math.max(1, Math.min(limit, items.length));
-  const workers = [];
-  for (let i = 0; i < workerCount; i++) {
-    workers.push(worker());
-  }
-  await Promise.all(workers);
-  return results;
-}
-
-/**
- * Check whether a remote URL actually resolves to image bytes. Authored
- * content can reference URLs that 200-redirect into an unrelated HTML page
- * (e.g. an auth/login flow) rather than 404ing, which would otherwise reach
- * html-to-docx's image embedder and throw an opaque "unsupported file type:
- * undefined" error that aborts the entire export.
- */
-async function isRemoteImageUrl(url, timeoutMs = 8000) {
+async function inlineImagesForExport(html, options) {
   try {
-    const axios = require('axios');
-    const response = await axios.get(url, {
-      timeout: timeoutMs,
-      maxRedirects: 5,
-      responseType: 'arraybuffer',
-      validateStatus: () => true,
-    });
-    if (response.status < 200 || response.status >= 300) {
-      return false;
-    }
-    const contentType = String(
-      (response.headers && response.headers['content-type']) || '',
-    ).toLowerCase();
-    return contentType.indexOf('image/') === 0;
+    return await exportImageResolver.inlineExportImages(html, options || {});
   } catch (e) {
-    return false;
+    return exportImageResolver.stripAllImages(html);
   }
-}
-
-/**
- * Remove <img> tags whose remote src does not resolve to actual image bytes,
- * so a single broken/redirected image reference cannot abort the whole DOCX
- * conversion. Local/data-URI images are left untouched.
- */
-async function stripUnreachableRemoteImages(html) {
-  if (!html) {
-    return html;
-  }
-  let doc;
-  try {
-    doc = parse(html);
-  } catch (e) {
-    return html;
-  }
-  const images = doc.querySelectorAll('img').filter((img) =>
-    /^https?:\/\//i.test(img.getAttribute('src') || ''),
-  );
-  if (images.length === 0) {
-    return html;
-  }
-  await mapWithConcurrency(images, 8, async (img) => {
-    const valid = await isRemoteImageUrl(img.getAttribute('src'));
-    if (!valid) {
-      img.remove();
-    }
-  });
-  return doc.toString();
 }
 
 /**
  * Convert HTML string to a DOCX Buffer.
  * Shared between the system route handler and site export.
+ *
+ * imageOptions (all optional):
+ *  - siteDirectory: site root used to embed site-relative images
+ *  - basePaths: prefixes (site base path) marking a src as site-relative
  */
-async function convertHtmlToDocxBuffer(html) {
+async function convertHtmlToDocxBuffer(html, imageOptions = {}) {
   let sanitized = String(html || '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -100,12 +38,16 @@ async function convertHtmlToDocxBuffer(html) {
     sanitized = '<p>No content available</p>';
   }
 
-  try {
-    sanitized = await stripUnreachableRemoteImages(sanitized);
-  } catch (e) {
-    // Non-fatal: fall through with the original HTML if the validation pass
-    // itself fails for any reason.
-  }
+  // Security (review 2026-10): html-to-docx downloads every http(s) <img src>
+  // with its bundled node-fetch (no SSRF guard, no byte cap) and base64-embeds
+  // the bytes, so an authored <img src="http://169.254.169.254/..."> leaked
+  // internal responses into the document. The old pre-check
+  // (isRemoteImageUrl) also fetched through raw axios with redirects. Every
+  // image is now resolved here and handed over as a data: URI.
+  sanitized = await inlineImagesForExport(sanitized, {
+    siteDirectory: imageOptions && imageOptions.siteDirectory ? imageOptions.siteDirectory : '',
+    basePaths: imageOptions && Array.isArray(imageOptions.basePaths) ? imageOptions.basePaths : [],
+  });
 
   const options = {
     table: { row: { cantSplit: true } },
@@ -427,17 +369,27 @@ function findChromeExecutable() {
 }
 
 /**
- * Convert HTML string to a PDF Buffer using puppeteer-core.
- * Requires Chrome/Chromium to be installed on the host.
+ * Security (review 2026-10): request filter for PDF rendering. Every
+ * resource Chrome would load (img, link, object, CSS url(), fonts, fetch) is
+ * aborted unless it is inline (data:) or the blank document itself
+ * (about:). Images are pre-resolved to data: URIs by preparePdfHtml, so they
+ * still render. Mirrors PHP dompdf isRemoteEnabled=false + chroot.
  */
-async function htmlToPdfBuffer(html, base = '/') {
-  const puppeteer = require('puppeteer-core');
-  const executablePath = findChromeExecutable();
-  if (!executablePath) {
-    throw new Error(
-      'No Chrome/Chromium executable found. Install Chrome or set PUPPETEER_EXECUTABLE_PATH.',
-    );
-  }
+function isAllowedPdfRequestUrl(url) {
+  const value = String(url || '').trim().toLowerCase();
+  return value.indexOf('data:') === 0 || value.indexOf('about:') === 0;
+}
+
+/**
+ * Sanitize HTML for PDF rendering and pre-resolve its images to data: URIs.
+ * Split out of htmlToPdfBuffer so it can be tested without Chrome.
+ *
+ * options (all optional):
+ *  - siteDirectory / basePaths: as for convertHtmlToDocxBuffer
+ * An absolute http(s) base is also used to resolve relative srcs that are
+ * not site files; those are fetched through the SSRF guard.
+ */
+async function preparePdfHtml(html, base = '/', options = {}) {
   let sanitized = String(html || '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -448,6 +400,30 @@ async function htmlToPdfBuffer(html, base = '/') {
   if (!sanitized) {
     sanitized = '<p>No content available</p>';
   }
+  const basePaths = options && Array.isArray(options.basePaths) ? options.basePaths.slice() : [];
+  if (base && base !== '/' && basePaths.indexOf(base) === -1) {
+    basePaths.push(base);
+  }
+  return inlineImagesForExport(sanitized, {
+    siteDirectory: options && options.siteDirectory ? options.siteDirectory : '',
+    basePaths: basePaths,
+    baseUrl: /^https?:\/\//i.test(String(base || '')) ? base : '',
+  });
+}
+
+/**
+ * Convert HTML string to a PDF Buffer using puppeteer-core.
+ * Requires Chrome/Chromium to be installed on the host.
+ */
+async function htmlToPdfBuffer(html, base = '/', options = {}) {
+  const puppeteer = require('puppeteer-core');
+  const executablePath = findChromeExecutable();
+  if (!executablePath) {
+    throw new Error(
+      'No Chrome/Chromium executable found. Install Chrome or set PUPPETEER_EXECUTABLE_PATH.',
+    );
+  }
+  let sanitized = await preparePdfHtml(html, base, options);
   let browser = null;
   try {
     // Security (L3): enable Chromium's OS-level sandbox when not running as
@@ -465,6 +441,20 @@ async function htmlToPdfBuffer(html, base = '/') {
       args: launchArgs,
     });
     const page = await browser.newPage();
+    // Security (review 2026-10): Chrome previously fetched every <img>, <link>,
+    // <object> and CSS url() in the export (SSRF to internal hosts / cloud
+    // metadata, rendered into the PDF). JavaScript is off (scripts are
+    // stripped anyway, this also stops inline handlers) and every request
+    // that is not data:/about: is aborted.
+    await page.setJavaScriptEnabled(false);
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      if (isAllowedPdfRequestUrl(request.url())) {
+        request.continue();
+      } else {
+        request.abort();
+      }
+    });
     if (base && base !== '/') {
       // Security (L4): full HTML-attribute escape as defense-in-depth even
       // though the route validates base as a URL. Escaping &, ", <, > ensures
@@ -515,5 +505,7 @@ module.exports = {
   processDocxHtml,
   convertHtmlToDocxBuffer,
   htmlToPdfBuffer,
+  preparePdfHtml,
+  isAllowedPdfRequestUrl,
   sanitizeUntrustedHtml,
 };

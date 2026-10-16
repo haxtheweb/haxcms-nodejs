@@ -1,6 +1,5 @@
 const path = require('path');
 const fs = require('fs-extra');
-const Axios = require('axios')
 const { HAXCMS } = require('./HAXCMS.js');
 const { buildFilePublicUrl } = require('./siteFileUrl.js');
 const { getDeterministicFileUuid } = require('./siteFileUuid.js');
@@ -504,51 +503,114 @@ function isValidBulkImportStagedPath(inputPath) {
 }
 
 /**
+ * Security (review 2026-10): blocked address ranges as real CIDR tables,
+ * compared on packed bytes instead of text prefixes. The previous prefix
+ * checks only blocked the exact address 0.0.0.0 (0.0.0.1 reaches localhost on
+ * Linux) and missed 192.0.0.0/24, 198.18.0.0/15, multicast, 240.0.0.0/4 and
+ * 255.255.255.255. These tables are identical to PHP
+ * SsrfGuard::$BLOCKED_IPV4_CIDRS / $BLOCKED_IPV6_CIDRS so both backends share
+ * one posture.
+ */
+const BLOCKED_IPV4_CIDRS = [
+  ['0.0.0.0', 8], // "this network"; 0.0.0.x connects to localhost on Linux
+  ['10.0.0.0', 8], // private
+  ['100.64.0.0', 10], // carrier-grade NAT (RFC 6598)
+  ['127.0.0.0', 8], // loopback
+  ['169.254.0.0', 16], // link-local / cloud metadata (169.254.169.254)
+  ['172.16.0.0', 12], // private
+  ['192.0.0.0', 24], // IETF protocol assignments (RFC 6890)
+  ['192.168.0.0', 16], // private
+  ['198.18.0.0', 15], // benchmarking (RFC 2544)
+  ['224.0.0.0', 4], // multicast
+  ['240.0.0.0', 4], // reserved, includes 255.255.255.255 broadcast
+];
+const BLOCKED_IPV6_CIDRS = [
+  ['::', 128], // unspecified
+  ['::1', 128], // loopback
+  ['64:ff9b:1::', 48], // local-use NAT64 (RFC 8215)
+  ['100::', 64], // discard-only (RFC 6666)
+  ['fc00::', 7], // unique local
+  ['fe80::', 10], // link-local
+  ['fec0::', 10], // deprecated site-local
+  ['ff00::', 8], // multicast
+];
+
+/**
+ * Parse a strict dotted-quad IPv4 address into a 4-byte Buffer, or null.
+ */
+function ipv4ToBuffer(ip) {
+  if (!ip || typeof ip !== 'string') {
+    return null;
+  }
+  var octets = ip.split('.');
+  if (octets.length !== 4) {
+    return null;
+  }
+  var out = Buffer.alloc(4);
+  for (var i = 0; i < 4; i++) {
+    if (!/^[0-9]{1,3}$/.test(octets[i])) {
+      return null;
+    }
+    var v = parseInt(octets[i], 10);
+    if (v > 255) {
+      return null;
+    }
+    out[i] = v;
+  }
+  return out;
+}
+
+/**
+ * True when packed address `addr` falls inside `network`/`prefixLen`
+ * (both Buffers of the same length).
+ */
+function packedInCidr(addr, network, prefixLen) {
+  if (!addr || !network || addr.length !== network.length) {
+    return false;
+  }
+  var fullBytes = Math.floor(prefixLen / 8);
+  for (var i = 0; i < fullBytes; i++) {
+    if (addr[i] !== network[i]) {
+      return false;
+    }
+  }
+  var remBits = prefixLen % 8;
+  if (remBits > 0) {
+    var mask = (0xff << (8 - remBits)) & 0xff;
+    if ((addr[fullBytes] & mask) !== (network[fullBytes] & mask)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function packedInCidrTable(packed, table, toBuffer) {
+  for (var i = 0; i < table.length; i++) {
+    if (packedInCidr(packed, toBuffer(table[i][0]), table[i][1])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Check if an IPv4 address is in a private, reserved, loopback, link-local,
- * carrier-grade NAT, or cloud-metadata range.
+ * carrier-grade NAT, multicast, or cloud-metadata range.
  *
- * Security (HAX-SEC-007): includes 100.64.0.0/10 (CGNAT / RFC 6598) which was
- * previously missing in both backends and is reachable in some cloud/LAN
- * topologies. Split out from isPrivateOrReservedIP so the IPv4-mapped IPv6
- * normalization below can reuse it.
+ * Security (HAX-SEC-007): includes 100.64.0.0/10 (CGNAT / RFC 6598).
+ * Security (review 2026-10): now a CIDR lookup against BLOCKED_IPV4_CIDRS.
+ * A string that is not a dotted-quad is not an IPv4 address and is reported
+ * as not private (unchanged contract; dns.lookup only yields real IPs).
  */
 function isPrivateOrReservedIPv4(ip) {
   if (!ip || typeof ip !== 'string') {
     return true;
   }
-  if (ip === '0.0.0.0') {
-    return true;
+  var packed = ipv4ToBuffer(ip);
+  if (!packed) {
+    return false;
   }
-  if (ip.startsWith('127.')) {
-    return true;
-  }
-  // link-local / cloud metadata (169.254.169.254)
-  if (ip.startsWith('169.254.')) {
-    return true;
-  }
-  if (ip.startsWith('10.')) {
-    return true;
-  }
-  if (ip.startsWith('192.168.')) {
-    return true;
-  }
-  // private Class B (172.16.0.0/12)
-  if (ip.startsWith('172.')) {
-    var parts172 = ip.split('.');
-    var secondOctet172 = parseInt(parts172[1], 10);
-    if (secondOctet172 >= 16 && secondOctet172 <= 31) {
-      return true;
-    }
-  }
-  // carrier-grade NAT (100.64.0.0/10, RFC 6598)
-  if (ip.startsWith('100.')) {
-    var parts100 = ip.split('.');
-    var secondOctet100 = parseInt(parts100[1], 10);
-    if (secondOctet100 >= 64 && secondOctet100 <= 127) {
-      return true;
-    }
-  }
-  return false;
+  return packedInCidrTable(packed, BLOCKED_IPV4_CIDRS, ipv4ToBuffer);
 }
 
 /**
@@ -673,43 +735,43 @@ function isPrivateOrReservedIP(ip) {
   }
   var packed = ipv6ToBuffer(ip);
   if (packed) {
-    // IPv6 unspecified (::) and loopback (::1) — matched on packed bytes so
-    // every equivalent spelling (::, ::0001, 0:0:0:0:0:0:0:1, ::0.0.0.1) is
-    // caught, not just the canonical text forms.
-    var allZero = true;
-    for (var z = 0; z < 16; z++) {
-      if (packed[z] !== 0) { allZero = false; break; }
-    }
-    if (allZero) {
+    // Security (review 2026-10): CIDR lookup on the packed bytes, so every
+    // equivalent spelling (::, ::0001, 0:0:0:0:0:0:0:1, FE80::1, fe9f::1)
+    // matches. The previous text check only caught a literal 'fe80' prefix,
+    // missing the rest of fe80::/10, multicast and site-local.
+    if (packedInCidrTable(packed, BLOCKED_IPV6_CIDRS, ipv6ToBuffer)) {
       return true;
     }
-    var isLoopback = true;
-    for (var l = 0; l < 15; l++) {
-      if (packed[l] !== 0) { isLoopback = false; break; }
+    // Embedded-IPv4 forms: decode the IPv4 address the packet would really
+    // reach and re-check it against the IPv4 table.
+    //   ::ffff:0:0/96  IPv4-mapped         -> bytes 12-15
+    //   ::/96          IPv4-compatible     -> bytes 12-15
+    //   64:ff9b::/96   NAT64 well-known    -> bytes 12-15 (review 2026-10)
+    //   2002::/16      6to4                -> bytes 2-5   (review 2026-10)
+    //   2001::/32      Teredo client       -> bytes 12-15 XOR 0xff (review 2026-10)
+    // The prefix test keeps legitimate public v6 such as 2001:db8::1.2.3.4
+    // (whose trailing bytes merely look like IPv4) public.
+    var embedded = null;
+    if (
+      packedInCidr(packed, ipv6ToBuffer('::ffff:0:0'), 96) ||
+      packedInCidr(packed, ipv6ToBuffer('::'), 96) ||
+      packedInCidr(packed, ipv6ToBuffer('64:ff9b::'), 96)
+    ) {
+      embedded = packed.slice(12, 16);
     }
-    if (isLoopback && packed[15] === 1) {
-      return true;
+    else if (packedInCidr(packed, ipv6ToBuffer('2002::'), 16)) {
+      embedded = packed.slice(2, 6);
     }
-    var lowerIP = ip.toLowerCase();
-    // IPv6 unique local (fc00::/7)
-    if (lowerIP.startsWith('fc') || lowerIP.startsWith('fd')) {
-      return true;
+    else if (packedInCidr(packed, ipv6ToBuffer('2001::'), 32)) {
+      embedded = Buffer.from([
+        packed[12] ^ 0xff,
+        packed[13] ^ 0xff,
+        packed[14] ^ 0xff,
+        packed[15] ^ 0xff,
+      ]);
     }
-    // IPv6 link-local (fe80::/10)
-    if (lowerIP.startsWith('fe80')) {
-      return true;
-    }
-    // IPv4-mapped (::ffff:0:0/96) and IPv4-compatible (::/96, deprecated):
-    // decode the trailing 4 bytes to dotted-quad and re-check.
-    var prefixZero = true;
-    for (var p = 0; p < 10; p++) {
-      if (packed[p] !== 0) { prefixZero = false; break; }
-    }
-    var isMapped = prefixZero && packed[10] === 0xff && packed[11] === 0xff;
-    var isCompat = prefixZero && packed[10] === 0 && packed[11] === 0;
-    if (isMapped || isCompat) {
-      var v4 = packed[12] + '.' + packed[13] + '.' + packed[14] + '.' + packed[15];
-      return isPrivateOrReservedIPv4(v4);
+    if (embedded) {
+      return packedInCidrTable(embedded, BLOCKED_IPV4_CIDRS, ipv4ToBuffer);
     }
     // any other IPv6 is treated as a public v6 address
     return false;
@@ -931,6 +993,16 @@ class HAXCMSFile
         }
         catch (err) {
           console.warn(err);
+          // Security (review 2026-10): the streaming byte cap aborted the
+          // download; say so instead of a generic failure.
+          if (err && err.code === 'SSRF_TOO_LARGE') {
+            return {
+              'status': 500,
+              'data': {
+                'message': 'Downloaded file exceeds the maximum upload size',
+              }
+            };
+          }
           return {
             'status' : 500,
             'data' : {
@@ -1119,22 +1191,38 @@ class HAXCMSFile
 }
 
 async function downloadAndSaveFile(url, filepath) {
-  // Security (HAX-SEC-007): do not follow HTTP redirects so an attacker cannot
-  // redirect from a validated public IP to a metadata/internal endpoint
-  // mid-request. Matches PHP SsrfGuard's max_redirects=0 / FOLLOWLOCATION=false.
-  // The SSRF pre-check in HAXCMSFile.save() (validateUrlNotSSRF) already
-  // validates the initial URL; this closes the redirect-rebinding variant.
-  const response = await Axios({
-      url,
-      method: 'GET',
-      responseType: 'stream',
-      maxRedirects: 0
-  });
-  return new Promise((resolve, reject) => {
-      response.data.pipe(fs.createWriteStream(filepath))
-          .on('error', reject)
-          .once('close', () => resolve(filepath)); 
-  });
+  // Security (review 2026-10): download through safeFetch instead of raw
+  // Axios. The old path validated DNS in save() (validateUrlNotSSRF) and then
+  // let Axios resolve the hostname again (DNS-rebinding TOCTOU), had no
+  // timeout or byte cap, and only checked the size after the whole body was
+  // on disk. safeFetch pins the connection to the validated IP, streams to
+  // disk while enforcing maxUploadSizeMb, and deletes the partial file on any
+  // error. Redirects stay disabled (maxRedirects 0), matching the previous
+  // HAX-SEC-007 posture and PHP SsrfGuard.
+  // Lazy require: safeFetch.js requires this module.
+  const safeFetchLib = require('./safeFetch.js');
+  const maxBytes = await safeFetchLib.getUploadMaxBytes();
+  try {
+    const response = await safeFetchLib.safeFetch(url, {
+      maxBytes: maxBytes,
+      maxRedirects: 0,
+      timeoutMs: 120000,
+      filePath: filepath,
+    });
+    if (!response || !response.ok || !response.filePath) {
+      const statusErr = new Error('Remote file download failed' + (response && response.status ? ' with HTTP ' + response.status : ''));
+      statusErr.code = 'DOWNLOAD_FAILED';
+      throw statusErr;
+    }
+    return filepath;
+  }
+  catch (e) {
+    try {
+      fs.removeSync(filepath);
+    }
+    catch (removeErr) {}
+    throw e;
+  }
 }
 
 HAXCMSFile.stripExecutableExtensionPatterns = stripExecutableExtensionPatterns;
@@ -1143,6 +1231,9 @@ HAXCMSFile.isValidBulkImportStagedPath = isValidBulkImportStagedPath;
 HAXCMSFile.getBulkImportStagingRootPath = getBulkImportStagingRootPath;
 HAXCMSFile.isPathWithinRoot = isPathWithinRoot;
 HAXCMSFile.isPrivateOrReservedIP = isPrivateOrReservedIP;
+HAXCMSFile.downloadAndSaveFile = downloadAndSaveFile;
+HAXCMSFile.BLOCKED_IPV4_CIDRS = BLOCKED_IPV4_CIDRS;
+HAXCMSFile.BLOCKED_IPV6_CIDRS = BLOCKED_IPV6_CIDRS;
 HAXCMSFile.validateUrlNotSSRF = validateUrlNotSSRF;
 HAXCMSFile.mimeMatchesAllowed = mimeMatchesAllowed;
 HAXCMSFile.detectMimeTypeFromContent = detectMimeTypeFromContent;

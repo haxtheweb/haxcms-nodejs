@@ -1,6 +1,7 @@
 'use strict';
 
 const dns = require('dns');
+const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const HAXCMSFile = require('./HAXCMSFile.js');
@@ -174,68 +175,123 @@ function buildResponseLike(statusCode, statusMessage, rawHeaders, bodyBuffer) {
  * connection target IP is overridden. Supports a caller-supplied AbortSignal
  * and an idle/total timeout. Returns a fetch-Response-like object.
  */
-function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs) {
+function buildTooLargeError(maxBytes) {
+  var err = new Error('Remote response exceeds the maximum allowed size of ' + maxBytes + ' bytes');
+  err.code = 'SSRF_TOO_LARGE';
+  return err;
+}
+
+function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, limits) {
   var isHttps = parsed.protocol === 'https:';
   var lib = isHttps ? https : http;
   var requestOptions = buildPinnedRequestOptions(parsed, fetchOptions, pinnedIp);
   var bodyData = fetchOptions.body;
   var signal = fetchOptions.signal;
+  var maxBytes = limits && limits.maxBytes > 0 ? limits.maxBytes : 0;
+  var filePath = limits && limits.filePath ? limits.filePath : null;
   return new Promise(function (resolve, reject) {
     var settled = false;
     var timer = null;
-    var req = lib.request(requestOptions, function (response) {
-      var chunks = [];
-      response.on('data', function (chunk) { chunks.push(chunk); });
-      response.on('end', function () {
-        if (settled) { return; }
-        settled = true;
-        if (timer) { clearTimeout(timer); }
-        var bodyBuffer = Buffer.concat(chunks);
-        resolve(buildResponseLike(response.statusCode, response.statusMessage, response.headers, bodyBuffer));
-      });
-      response.on('error', function (e) {
-        if (settled) { return; }
-        settled = true;
-        if (timer) { clearTimeout(timer); }
-        reject(e);
-      });
-    });
-    req.on('error', function (e) {
+    var fileStream = null;
+    // Security (review 2026-10): on any failure after a file sink was opened,
+    // close and delete the partial file so nothing half-written is left.
+    function discardFile() {
+      if (fileStream) {
+        var stream = fileStream;
+        fileStream = null;
+        try { stream.destroy(); } catch (e) {}
+        try { fs.unlinkSync(filePath); } catch (e) {}
+      }
+    }
+    function fail(e) {
       if (settled) { return; }
       settled = true;
       if (timer) { clearTimeout(timer); }
+      try { req.destroy(); } catch (destroyErr) {}
+      discardFile();
       reject(e);
+    }
+    var req = lib.request(requestOptions, function (response) {
+      // Security (review 2026-10): enforce a response byte cap. A declared
+      // Content-Length over the cap is rejected before any body is read; the
+      // running byte count aborts the request as soon as the cap is crossed,
+      // so a hostile or endless upstream cannot exhaust memory or disk.
+      if (maxBytes > 0) {
+        var declared = parseInt(response.headers && response.headers['content-length'], 10);
+        if (!isNaN(declared) && declared > maxBytes) {
+          fail(buildTooLargeError(maxBytes));
+          return;
+        }
+      }
+      var isFinalSuccess = response.statusCode >= 200 && response.statusCode < 300;
+      if (filePath && isFinalSuccess) {
+        try {
+          fileStream = fs.createWriteStream(filePath);
+        } catch (e) {
+          fail(e);
+          return;
+        }
+        fileStream.on('error', function (e) { fail(e); });
+      }
+      var chunks = [];
+      var received = 0;
+      response.on('data', function (chunk) {
+        if (settled) { return; }
+        received += chunk.length;
+        if (maxBytes > 0 && received > maxBytes) {
+          fail(buildTooLargeError(maxBytes));
+          return;
+        }
+        if (fileStream) {
+          fileStream.write(chunk);
+        }
+        else {
+          chunks.push(chunk);
+        }
+      });
+      response.on('end', function () {
+        if (settled) { return; }
+        var bodyBuffer = Buffer.concat(chunks);
+        if (fileStream) {
+          var stream = fileStream;
+          stream.end(function () {
+            if (settled) { return; }
+            settled = true;
+            if (timer) { clearTimeout(timer); }
+            var fileResponse = buildResponseLike(response.statusCode, response.statusMessage, response.headers, bodyBuffer);
+            fileResponse.filePath = filePath;
+            fileResponse.bytesWritten = received;
+            resolve(fileResponse);
+          });
+          return;
+        }
+        settled = true;
+        if (timer) { clearTimeout(timer); }
+        resolve(buildResponseLike(response.statusCode, response.statusMessage, response.headers, bodyBuffer));
+      });
+      response.on('error', function (e) {
+        fail(e);
+      });
+    });
+    req.on('error', function (e) {
+      fail(e);
     });
     if (timeoutMs && timeoutMs > 0) {
       timer = setTimeout(function () {
-        if (settled) { return; }
-        settled = true;
-        req.destroy();
         var err = new Error('safeFetch timed out');
         err.code = 'SSRF_TIMEOUT';
-        reject(err);
+        fail(err);
       }, timeoutMs);
     }
     if (signal) {
+      var abortErr = new Error('safeFetch aborted');
+      abortErr.code = 'SSRF_ABORT';
       if (signal.aborted) {
-        if (!settled) {
-          settled = true;
-          if (timer) { clearTimeout(timer); }
-          req.destroy();
-          var abortErr = new Error('safeFetch aborted');
-          abortErr.code = 'SSRF_ABORT';
-          reject(abortErr);
-        }
+        fail(abortErr);
       }
       else {
         signal.addEventListener('abort', function onAbort() {
-          if (settled) { return; }
-          settled = true;
-          if (timer) { clearTimeout(timer); }
-          req.destroy();
-          var abortErr = new Error('safeFetch aborted');
-          abortErr.code = 'SSRF_ABORT';
-          reject(abortErr);
+          fail(abortErr);
         });
       }
     }
@@ -272,25 +328,72 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs) {
  */
 const SAFE_FETCH_MAX_REDIRECTS = 5;
 const SAFE_FETCH_TIMEOUT_MS = 15000;
+// Security (review 2026-10): default response byte cap. Text/JSON fetches
+// (import APIs, page bodies, md/yaml links) never come near this; callers that
+// download real files (site imports, build.files, URL uploads) pass
+// maxBytes from getUploadMaxBytes() so the site's maxUploadSizeMb applies.
+const SAFE_FETCH_DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
 
+/**
+ * Security (review 2026-10): byte limit for remote downloads that become site
+ * files, tied to the configured media maxUploadSizeMb (same setting
+ * HAXCMSFile.save enforces on uploads). Falls back to the media-settings
+ * default when the settings cannot be read.
+ */
+async function getUploadMaxBytes() {
+  var mediaSettings = require('./mediaSettings.js');
+  try {
+    var HAXCMS = require('./HAXCMS.js').HAXCMS;
+    var settings = await mediaSettings.readMediaSettings(HAXCMS);
+    if (settings && typeof settings.maxUploadSizeMb === 'number' && settings.maxUploadSizeMb > 0) {
+      return settings.maxUploadSizeMb * 1024 * 1024;
+    }
+  }
+  catch (e) {}
+  var fallbackMb = mediaSettings.DEFAULT_MEDIA_SETTINGS && mediaSettings.DEFAULT_MEDIA_SETTINGS.maxUploadSizeMb
+    ? mediaSettings.DEFAULT_MEDIA_SETTINGS.maxUploadSizeMb
+    : 1024;
+  return fallbackMb * 1024 * 1024;
+}
+
+/**
+ * Options (beyond the fetch-like headers/method/body/signal):
+ *  - maxBytes: response byte cap (default SAFE_FETCH_DEFAULT_MAX_BYTES).
+ *    Exceeding it rejects with code SSRF_TOO_LARGE.
+ *  - maxRedirects: redirect hop cap (default SAFE_FETCH_MAX_REDIRECTS).
+ *  - timeoutMs: per-hop total timeout (default SAFE_FETCH_TIMEOUT_MS; ignored
+ *    when the caller passes its own signal).
+ *  - filePath: stream a final 2xx body to this path instead of buffering it;
+ *    the partial file is deleted on any error. The response carries
+ *    .filePath and .bytesWritten.
+ */
 async function safeFetch(urlString, options) {
   var fetchOptions = options || {};
   // Only add a timeout when the caller did not supply their own signal;
   // combining two signals would require AbortSignal.any (Node 20.3+), which
   // is not guaranteed available on the supported Node 18.20.3 LTS line.
-  var timeoutMs = fetchOptions.signal ? 0 : SAFE_FETCH_TIMEOUT_MS;
+  var timeoutMs = fetchOptions.signal
+    ? 0
+    : (fetchOptions.timeoutMs > 0 ? fetchOptions.timeoutMs : SAFE_FETCH_TIMEOUT_MS);
+  var maxRedirects = typeof fetchOptions.maxRedirects === 'number' && fetchOptions.maxRedirects >= 0
+    ? Math.min(fetchOptions.maxRedirects, SAFE_FETCH_MAX_REDIRECTS)
+    : SAFE_FETCH_MAX_REDIRECTS;
+  var limits = {
+    maxBytes: fetchOptions.maxBytes > 0 ? fetchOptions.maxBytes : SAFE_FETCH_DEFAULT_MAX_BYTES,
+    filePath: fetchOptions.filePath || null,
+  };
   var currentUrl = urlString;
-  for (var hop = 0; hop <= SAFE_FETCH_MAX_REDIRECTS; hop++) {
+  for (var hop = 0; hop <= maxRedirects; hop++) {
     // Security (L1): resolve + validate, then pin the IP for the connect so
     // DNS rebinding cannot redirect the request to a private/metadata address
     // between the SSRF check and the actual TCP connection.
     var resolved = await resolveAndValidateUrl(currentUrl);
-    var response = await pinnedFetchSingle(resolved.parsed, fetchOptions, resolved.pinnedIp, resolved.family, timeoutMs);
+    var response = await pinnedFetchSingle(resolved.parsed, fetchOptions, resolved.pinnedIp, resolved.family, timeoutMs, limits);
     // not a redirect (or 304 Not Modified) -> final response
     if (response.status < 300 || response.status >= 400 || response.status === 304) {
       return response;
     }
-    if (hop === SAFE_FETCH_MAX_REDIRECTS) {
+    if (hop === maxRedirects) {
       var tooManyErr = new Error('safeFetch exceeded the redirect hop cap');
       tooManyErr.code = 'SSRF_REDIRECTS';
       throw tooManyErr;
@@ -316,6 +419,8 @@ async function safeFetch(urlString, options) {
 
 module.exports = {
   safeFetch,
+  getUploadMaxBytes,
+  SAFE_FETCH_DEFAULT_MAX_BYTES,
   assertUrlNotSSRF,
   isPrivateOrReservedIP,
   validateUrlNotSSRF: HAXCMSFile.validateUrlNotSSRF,
