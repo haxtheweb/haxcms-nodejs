@@ -577,6 +577,25 @@ describe('materializeInlineImages — #2945', () => {
     assert.deepEqual(savedImages(siteDirectory), [])
   })
 
+  test('scripted SVG is never stored, under any label (placeholder only)', async () => {
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><script>alert(document.domain)</script><rect width="20" height="20"/></svg>',
+    ).toString('base64')
+    const before = fs.readdirSync(path.join(siteDirectory, 'files')).sort()
+    for (const mime of ['image/svg+xml', 'image/png', 'image/jpeg', 'image/gif', 'image/webp']) {
+      const { html: result, uuids } = await materializeInlineImages(
+        '<p><img alt="s" src="data:' + mime + ';base64,' + svg + '"></p>',
+        site,
+        { pageTitle: 'Scripted' },
+      )
+      assert.equal(result, '<p><place-holder type="image" text="s"></place-holder></p>', mime)
+      assert.deepEqual(uuids, [], mime)
+    }
+    const after = fs.readdirSync(path.join(siteDirectory, 'files')).sort()
+    assert.deepEqual(after, before, 'no file (svg or otherwise) written')
+    assert.equal(after.filter(function (n) { return /\.svg$/i.test(n) }).length, 0)
+  })
+
   test('non-string content is returned as it came in', async () => {
     const u = await materializeInlineImages(undefined, site)
     assert.equal(u.html, undefined)

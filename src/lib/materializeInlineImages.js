@@ -109,8 +109,8 @@ async function optimizeInlineImageBuffer(buffer, extension) {
   // sharp/libvips when they carry a PNG, JPEG, GIF or WebP signature. PHP only
   // decodes via getimagesize + the gif/jpeg/png/webp GD decoders; anything
   // else (SVG/XML, HEIF/AVIF, TIFF, PDF, ...) must never reach a decoder.
-  // Rejected payloads fall through unchanged to HAXCMSFile.save, which
-  // re-validates the content and refuses it (the image becomes a placeholder).
+  // Rejected payloads are returned unchanged here, and saveImage() never
+  // saves them (the image becomes a placeholder).
   if (!detectInlineRasterType(buffer)) {
     return { buffer: buffer, extension: extension };
   }
@@ -233,6 +233,12 @@ async function saveImage(src, site, nameBase) {
   }
   const base = nameBase || 'page';
   let buffer = Buffer.from(match[2], 'base64');
+  // Security (PR8-2): bytes that are not a PNG/JPEG/GIF/WebP raster are never
+  // saved (HAXCMSFile.save accepts e.g. SVG, which could carry <script>);
+  // returning null renders the image place-holder instead.
+  if (!detectInlineRasterType(buffer)) {
+    return null;
+  }
   // Always convert allowed non-JPG rasters (png/gif/webp) to jpg and apply
   // the xl resize + 90% compression rules for web-friendly docx imports.
   const optimized = await optimizeInlineImageBuffer(buffer, extension);
