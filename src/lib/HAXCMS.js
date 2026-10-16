@@ -200,12 +200,20 @@ function isSafeGitRemoteUrl(url) {
   return true;
 }
 /**
- * Security (PR8-6): managed templates that embed the site title/description
- * inside JSON / XML string values. They are rendered with Twig html
- * autoescape (PHP Twig's default) so `"`, `<`, `&` cannot break out of the
- * value or inject keys/elements.
+ * Security (PR8-6): managed templates that embed the site title/description,
+ * and the per-format escaping applied to those two values (same in PHP PR2).
+ * Twig autoescape stays off for all of them; the values are pre-escaped for
+ * their context instead, so `Tom's R&D` stays literal in JSON/markdown:
+ *  - json: escaped as JSON string contents (JSON.stringify(v).slice(1, -1))
+ *  - xml:  escapeXMLValue (&, <, >, ", ')
+ *  - text: no escaping (control-char/backslash rule only)
  */
-const MANAGED_AUTOESCAPE_TEMPLATES = ['manifest.json', 'package.json', 'imsmanifest.xml', 'llms.txt'];
+const MANAGED_TEMPLATE_TEXT_FORMATS = {
+  'manifest.json': 'json',
+  'package.json': 'json',
+  'imsmanifest.xml': 'xml',
+  'llms.txt': 'text',
+};
 /**
  * Security (PR8-6) parity contract with PHP (PR2): before rendering managed
  * JSON/XML, title/description have CR, LF and TAB replaced by a space and every
@@ -219,6 +227,39 @@ function sanitizeManagedTemplateText(value) {
     return value;
   }
   return value.replace(/[\r\n\t]/g, ' ').replace(/[\x00-\x1f\x7f\\]/g, '');
+}
+/**
+ * Security (PR8-6): escape an already rule-sanitized title/description for
+ * the managed template format ('json' | 'xml' | 'text').
+ */
+function escapeManagedTemplateText(value, format) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const text = sanitizeManagedTemplateText(String(value));
+  if (format === 'json') {
+    return JSON.stringify(text).slice(1, -1);
+  }
+  if (format === 'xml') {
+    return escapeXMLValue(text);
+  }
+  return text;
+}
+/**
+ * Security (PR8-6): template variables for one managed file: title and
+ * description escaped for that file's format, everything else unchanged.
+ */
+function managedTemplateVarsFor(fileName, templateVars) {
+  const format = Object.prototype.hasOwnProperty.call(MANAGED_TEMPLATE_TEXT_FORMATS, fileName)
+    ? MANAGED_TEMPLATE_TEXT_FORMATS[fileName]
+    : null;
+  if (!format) {
+    return templateVars;
+  }
+  return Object.assign({}, templateVars, {
+    title: escapeManagedTemplateText(templateVars.title, format),
+    description: escapeManagedTemplateText(templateVars.description, format),
+  });
 }
 // a site object
 class HAXCMSSite
@@ -896,14 +937,11 @@ class HAXCMSSite
             try {
               let fileData = await fs.readFileSync(this.siteDirectory + '/' + templates[key],
                 {encoding:'utf8', flag:'r'}, 'utf8');
-              // Security (PR8-6): html autoescape for the managed JSON/XML/llms
-              // templates that embed title/description (PHP Twig parity).
-              let template = await Twig.twig({
-                data: fileData,
-                async: false,
-                autoescape: MANAGED_AUTOESCAPE_TEMPLATES.indexOf(templates[key]) !== -1 ? 'html' : false,
-              });
-              let templatedHTML = template.render(templateVars);
+              let template = await Twig.twig({data: fileData, async: false});
+              // Security (PR8-6): title/description pre-escaped per format
+              // (JSON string / XML / plain text) for the managed files that
+              // embed them; see MANAGED_TEMPLATE_TEXT_FORMATS.
+              let templatedHTML = template.render(managedTemplateVarsFor(templates[key], templateVars));
               await fs.writeFileSync(this.siteDirectory + '/' + templates[key], templatedHTML);           
             }
             catch(e) {}
@@ -5497,4 +5535,4 @@ async function systemStructureContext(dir = null) {
   return null;
 }
 
-module.exports = { HAXCMS, HAXCMSClass, HAXCMSSite, systemStructureContext, loadConfigJson, sanitizeGitCommitMessage, isSafeGitRemoteUrl, GIT_BRANCH_PATTERN, sanitizeManagedTemplateText, MANAGED_AUTOESCAPE_TEMPLATES };
+module.exports = { HAXCMS, HAXCMSClass, HAXCMSSite, systemStructureContext, loadConfigJson, sanitizeGitCommitMessage, isSafeGitRemoteUrl, GIT_BRANCH_PATTERN, sanitizeManagedTemplateText, escapeManagedTemplateText, managedTemplateVarsFor, MANAGED_TEMPLATE_TEXT_FORMATS };
