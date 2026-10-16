@@ -436,6 +436,21 @@ test('addPage sanitizes request-supplied metadata (SEC-SANITIZE)', async () => {
   assert.equal({}.polluted, undefined)
 })
 
+test('addPage stores the title as plain text (SEC-SANITIZE)', async () => {
+  const site = await HAXCMS.loadSite('unit-site')
+  const page = await site.addPage(
+    null,
+    '&lt;img src=x onerror=alert(1)&gt;<b>Tom</b> &amp; Jerry',
+    'default',
+    'plain-title-page',
+  )
+  assert.equal(page.title, 'Tom & Jerry')
+  const empty = await site.addPage(null, '<b></b>', 'default', 'empty-title-page')
+  assert.equal(empty.title, 'New page')
+  const missing = await site.addPage(null, undefined, 'default', 'missing-title-page')
+  assert.equal(missing.title, 'New page')
+})
+
 test('addPage deduplicates a slug that collides with an existing page', async () => {
   const site = await HAXCMS.loadSite('unit-site')
   const duplicate = await site.addPage(null, 'Welcome', 'init', 'welcome')

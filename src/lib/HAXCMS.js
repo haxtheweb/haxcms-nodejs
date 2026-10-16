@@ -128,7 +128,7 @@ const {
   escapeXMLValue,
 } = require('./sanitizeContent.js');
 const { materializeInlineImages } = require('./materializeInlineImages.js');
-const { applyPageMetadata } = require('./sanitizePageMetadata.js');
+const { applyPageMetadata, toPlainText } = require('./sanitizePageMetadata.js');
 const exec = util.promisify(child_process.exec);
 const turndownService = new TurndownService();
 turndownService.keep(function(node) {
@@ -1059,6 +1059,12 @@ class HAXCMSSite
           page.id = id;
         }
         // set a crappy default title
+        // Security (SEC-SANITIZE): title can come straight from a request
+        // (createNode items[]); store plain text like saveOutline / PHP
+        title = toPlainText(title);
+        if (title === '') {
+          title = 'New page';
+        }
         page.title = title;
         if (parent == null) {
           page.parent = null;
