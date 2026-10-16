@@ -588,4 +588,52 @@ describe('materializeInlineImages — #2945', () => {
       assert.equal(meta.format, 'jpeg')
     }
   })
+  // Security (review 2026-10): libvips sniffs magic bytes, so the declared
+  // data: MIME is not enough; SVG/HEIF bytes must never reach sharp.
+  test('SVG bytes declared as image/png are not handed to sharp or saved', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="red"/></svg>'
+    const uri = 'data:image/png;base64,' + Buffer.from(svg).toString('base64')
+    const { html: result, uuids } = await materializeInlineImages(
+      '<p><img alt="x" src="' + uri + '"></p>',
+      site,
+      { pageTitle: 'Svg Smuggle' },
+    )
+    assert.equal(result, '<p><place-holder type="image" text="x"></place-holder></p>')
+    assert.deepEqual(uuids, [])
+    assert.deepEqual(savedImages(siteDirectory), [])
+  })
+
+  test('optimizeInlineImageBuffer does not rasterize non-raster input', async () => {
+    const { optimizeInlineImageBuffer, sniffRasterMime } = require('../../src/lib/materializeInlineImages.js')
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>')
+    const out = await optimizeInlineImageBuffer(svg, 'png')
+    assert.equal(out.extension, 'png', 'svg must not be converted to jpg by librsvg')
+    assert.ok(out.buffer.equals(svg))
+    // ISO-BMFF / HEIF header
+    const heif = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypheic'), Buffer.alloc(16)])
+    assert.equal(sniffRasterMime(heif), null)
+    assert.equal(sniffRasterMime(Buffer.from(PNG_BASE64, 'base64')), 'image/png')
+  })
+
+  test('raster bytes that do not match the declared MIME become a place-holder', async () => {
+    const gif = await sharp({
+      create: { width: 3, height: 3, channels: 3, background: { r: 0, g: 0, b: 0 } },
+    }).gif().toBuffer()
+    const uri = 'data:image/png;base64,' + gif.toString('base64')
+    const { html: result } = await materializeInlineImages('<img src="' + uri + '">', site)
+    assert.equal(result, '<place-holder type="image" text=""></place-holder>')
+    assert.deepEqual(savedImages(siteDirectory), [])
+  })
+
+  test('sharp is given an explicit limitInputPixels cap', async () => {
+    const { MAX_INLINE_IMAGE_INPUT_PIXELS, optimizeInlineImageBuffer } = require('../../src/lib/materializeInlineImages.js')
+    assert.ok(MAX_INLINE_IMAGE_INPUT_PIXELS > 0 && MAX_INLINE_IMAGE_INPUT_PIXELS < 268402689)
+    // a PNG whose IHDR declares 10000 x 10000 (over the cap) is not decoded
+    const wide = Buffer.from(PNG_BASE64, 'base64')
+    wide.writeUInt32BE(10000, 16)
+    wide.writeUInt32BE(10000, 20)
+    wide.writeUInt32BE(require('zlib').crc32(wide.subarray(12, 29)), 29)
+    const out = await optimizeInlineImageBuffer(wide, 'png')
+    assert.equal(out.extension, 'png', 'over-cap image falls back to original bytes')
+  })
 })

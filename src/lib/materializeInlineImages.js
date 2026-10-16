@@ -12,6 +12,49 @@ const MAX_INLINE_IMAGE_WIDTH = 1200;
 const MAX_INLINE_IMAGE_HEIGHT = 900;
 // Docx imports are not web-optimized; compress aggressively at save time.
 const INLINE_IMAGE_QUALITY = 90;
+// Security (review 2026-10): explicit decoded-pixel cap for sharp (its default
+// is ~268M px). 8192 x 8192 comfortably covers print-sized docx images while
+// bounding libvips memory for a hostile header that declares a huge canvas.
+const MAX_INLINE_IMAGE_INPUT_PIXELS = 8192 * 8192;
+
+/**
+ * Security (review 2026-10): sniff the decoded bytes and return the raster
+ * MIME only for PNG / JPEG / GIF / WebP, else null. libvips picks its loader
+ * from magic bytes, not from the data: URI's declared MIME, so without this
+ * gate a `data:image/png;base64,<svg or heif bytes>` payload reached librsvg /
+ * libheif. Mirrors the PHP MaterializeInlineImages gate, where gumlet
+ * ImageResize::createFromString only accepts GD raster types.
+ */
+function sniffRasterMime(buffer) {
+  if (!Buffer.isBuffer(buffer)) {
+    return null;
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47 &&
+    buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  if (
+    buffer.length >= 6 &&
+    buffer.toString('latin1', 0, 3) === 'GIF' &&
+    (buffer.toString('latin1', 3, 6) === '87a' || buffer.toString('latin1', 3, 6) === '89a')
+  ) {
+    return 'image/gif';
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('latin1', 0, 4) === 'RIFF' &&
+    buffer.toString('latin1', 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  return null;
+}
 
 // Inline-image MIME -> extension, derived from HAXCMSFile's allow-list so this
 // pre-filter cannot drift from what HAXCMSFile.save actually accepts. Built
@@ -74,9 +117,17 @@ function fileNameBaseFromPageTitle(pageTitle) {
  * On failure, returns the original buffer + extension unchanged.
  */
 async function optimizeInlineImageBuffer(buffer, extension) {
+  // Security (review 2026-10): never hand non-raster bytes (SVG, HEIF, TIFF,
+  // PDF, ...) to sharp/libvips; return them untouched for the caller to reject.
+  if (!sniffRasterMime(buffer)) {
+    return { buffer: buffer, extension: extension };
+  }
   try {
     // flatten alpha onto white so PNG/WebP/GIF transparency becomes a real JPG
-    let pipeline = sharp(buffer, { failOn: 'none' })
+    let pipeline = sharp(buffer, {
+      failOn: 'none',
+      limitInputPixels: MAX_INLINE_IMAGE_INPUT_PIXELS,
+    })
       .rotate()
       .resize({
         width: MAX_INLINE_IMAGE_WIDTH,
@@ -193,6 +244,14 @@ async function saveImage(src, site, nameBase) {
   }
   const base = nameBase || 'page';
   let buffer = Buffer.from(match[2], 'base64');
+  // Security (review 2026-10): the decoded bytes must be a PNG/JPEG/GIF/WebP
+  // raster AND match the declared data: MIME before sharp sees them; anything
+  // else is not materialized and renders as an image place-holder, same as an
+  // unsupported MIME today. Mirrors PHP MaterializeInlineImages::saveImage.
+  const sniffed = sniffRasterMime(buffer);
+  if (!sniffed || extensionByMimeCache[sniffed] !== extension) {
+    return null;
+  }
   // Always convert allowed non-JPG rasters (png/gif/webp) to jpg and apply
   // the xl resize + 90% compression rules for web-friendly docx imports.
   const optimized = await optimizeInlineImageBuffer(buffer, extension);
@@ -258,6 +317,8 @@ module.exports = {
   materializeInlineImages,
   fileNameBaseFromPageTitle,
   optimizeInlineImageBuffer,
+  sniffRasterMime,
+  MAX_INLINE_IMAGE_INPUT_PIXELS,
   MAX_INLINE_IMAGE_WIDTH,
   MAX_INLINE_IMAGE_HEIGHT,
   INLINE_IMAGE_QUALITY,

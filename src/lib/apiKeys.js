@@ -108,7 +108,32 @@ async function writeApiKeys(haxcms, keys = {}) {
   const filePath = getApiKeysFilePath(haxcms);
   const normalized = normalizeApiKeys(keys);
   await fs.ensureDir(path.dirname(filePath));
-  await fs.writeFile(filePath, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
+  const data = `${JSON.stringify(normalized, null, 2)}\n`;
+  // Security (review 2026-10): apiKeys.json holds third-party API secrets but
+  // was written with the default umask (usually 0644). Route it through the
+  // same 0600 secret-file helpers as .pk/.rpk/.user, then chmod so a file
+  // created by an older version is tightened too. Mirrors PHP
+  // APIKeysService::writeAPIKeys SEC-10 (LOCK_EX + chmod 0600).
+  if (haxcms && typeof haxcms.writeSecretFile === 'function') {
+    haxcms.writeSecretFile(filePath, data);
+  }
+  else if (process.platform === 'win32') {
+    await fs.writeFile(filePath, data, 'utf8');
+  }
+  else {
+    await fs.writeFile(filePath, data, { encoding: 'utf8', mode: 0o600 });
+  }
+  if (haxcms && typeof haxcms.chmodSecretFile === 'function') {
+    haxcms.chmodSecretFile(filePath);
+  }
+  else if (process.platform !== 'win32') {
+    try {
+      await fs.chmod(filePath, 0o600);
+    }
+    catch (e) {
+      // non-fatal, same as HAXCMS.chmodSecretFile
+    }
+  }
   return normalized;
 }
 

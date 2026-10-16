@@ -271,3 +271,43 @@ test('readEffectiveApiKeys returns empty defaults when neither config nor file e
     fs.removeSync(tmpDir)
   }
 })
+
+// Security (review 2026-10): apiKeys.json must be written 0600 (mirrors PHP
+// APIKeysService SEC-10), including tightening a pre-existing 0644 file.
+test('writeApiKeys writes apiKeys.json with mode 0600', { skip: process.platform === 'win32' }, async () => {
+  const tmpDir = mkTempConfigDir()
+  const oldUmask = process.umask(0o022)
+  try {
+    const haxcms = { configDirectory: tmpDir }
+    const filePath = getApiKeysFilePath(haxcms)
+    fs.ensureDirSync(path.dirname(filePath))
+    fs.writeFileSync(filePath, '{}\n', { mode: 0o644 })
+    assert.equal(fs.statSync(filePath).mode & 0o777, 0o644)
+    await writeApiKeys(haxcms, { youtube: 'secret' })
+    assert.equal(fs.statSync(filePath).mode & 0o777, 0o600)
+    fs.removeSync(filePath)
+    await writeApiKeys(haxcms, { youtube: 'secret' })
+    assert.equal(fs.statSync(filePath).mode & 0o777, 0o600)
+  } finally {
+    process.umask(oldUmask)
+    fs.removeSync(tmpDir)
+  }
+})
+
+test('writeApiKeys uses the HAXCMS secret-file helpers when available', async () => {
+  const tmpDir = mkTempConfigDir()
+  try {
+    const calls = []
+    const haxcms = {
+      configDirectory: tmpDir,
+      writeSecretFile(p, d) { calls.push(['write', p]); fs.writeFileSync(p, d, { mode: 0o600 }) },
+      chmodSecretFile(p) { calls.push(['chmod', p]) },
+    }
+    await writeApiKeys(haxcms, { vimeo: 'v' })
+    const filePath = getApiKeysFilePath(haxcms)
+    assert.deepEqual(calls, [['write', filePath], ['chmod', filePath]])
+    assert.equal((await readApiKeys(haxcms)).vimeo, 'v')
+  } finally {
+    fs.removeSync(tmpDir)
+  }
+})
