@@ -33,6 +33,8 @@ const HAXCMSFile = require('../../src/lib/HAXCMSFile.js')
 const {
   materializeInlineImages,
   fileNameBaseFromPageTitle,
+  optimizeInlineImageBuffer,
+  detectInlineRasterType,
   MAX_INLINE_IMAGE_WIDTH,
   MAX_INLINE_IMAGE_HEIGHT,
 } = require('../../src/lib/materializeInlineImages.js')
@@ -524,6 +526,55 @@ describe('materializeInlineImages — #2945', () => {
       assert.equal(site.manifest.items.length, 0)
       assert.deepEqual(savedImages(siteDirectory), [])
     })
+  })
+
+  // Security (PR8-2): only PNG/JPEG/GIF/WebP signatures may reach sharp.
+  test('detectInlineRasterType accepts png/jpeg/gif/webp signatures only', async () => {
+    const png = Buffer.from(PNG_BASE64, 'base64')
+    const jpeg = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 1, g: 2, b: 3 } } }).jpeg().toBuffer()
+    const gif = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 1, g: 2, b: 3 } } }).gif().toBuffer()
+    const webp = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 1, g: 2, b: 3 } } }).webp().toBuffer()
+    const tiff = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 1, g: 2, b: 3 } } }).tiff().toBuffer()
+    assert.equal(detectInlineRasterType(png), 'png')
+    assert.equal(detectInlineRasterType(jpeg), 'jpeg')
+    assert.equal(detectInlineRasterType(gif), 'gif')
+    assert.equal(detectInlineRasterType(webp), 'webp')
+    assert.equal(detectInlineRasterType(tiff), null)
+    assert.equal(detectInlineRasterType(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>')), null)
+    assert.equal(detectInlineRasterType(Buffer.from('<?xml version="1.0"?><svg/>')), null)
+    assert.equal(detectInlineRasterType(Buffer.from('%PDF-1.7\n%....')), null)
+    // ISO-BMFF (HEIF/AVIF) ftyp box
+    const heif = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypheic\0\0\0\0mif1heic')])
+    const avif = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypavif\0\0\0\0mif1avif')])
+    assert.equal(detectInlineRasterType(heif), null)
+    assert.equal(detectInlineRasterType(avif), null)
+    assert.equal(detectInlineRasterType(Buffer.alloc(0)), null)
+    assert.equal(detectInlineRasterType('not a buffer'), null)
+  })
+
+  test('optimizeInlineImageBuffer never decodes non-raster bytes (svg/tiff)', async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="red"/></svg>')
+    const outSvg = await optimizeInlineImageBuffer(svg, 'png')
+    assert.equal(outSvg.extension, 'png')
+    assert.ok(outSvg.buffer.equals(svg), 'svg bytes returned untouched, not rasterised')
+    const tiff = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 1, g: 2, b: 3 } } }).tiff().toBuffer()
+    const outTiff = await optimizeInlineImageBuffer(tiff, 'jpg')
+    assert.equal(outTiff.extension, 'jpg')
+    assert.ok(outTiff.buffer.equals(tiff))
+  })
+
+  test('svg / tiff bytes labelled as png become place-holders, nothing saved', async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="red"/></svg>')
+    const tiff = await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 1, g: 2, b: 3 } } }).tiff().toBuffer()
+    for (const bytes of [svg, tiff]) {
+      const { html: result, uuids } = await materializeInlineImages(
+        '<p><img alt="x" src="data:image/png;base64,' + bytes.toString('base64') + '"></p>',
+        site,
+      )
+      assert.equal(result, '<p><place-holder type="image" text="x"></place-holder></p>')
+      assert.deepEqual(uuids, [])
+    }
+    assert.deepEqual(savedImages(siteDirectory), [])
   })
 
   test('non-string content is returned as it came in', async () => {
