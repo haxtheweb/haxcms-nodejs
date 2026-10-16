@@ -128,6 +128,42 @@ const {
   escapeXMLValue,
 } = require('./sanitizeContent.js');
 const { materializeInlineImages } = require('./materializeInlineImages.js');
+
+/**
+ * Security (review 2026-10): Twig.js renders the managed boilerplate files
+ * with autoescape off, so a site title/description such as
+ *   x", "start_url": "https://evil.example/", "z": "
+ * injected keys into manifest.json, and a description could add a
+ * "scripts": {"postinstall": ...} to the site's committed package.json.
+ * Return a copy of templateVars with every string value encoded for the
+ * output context of `fileName`: JSON string-literal escaping for .json and
+ * the JSON api-catalog, XML escaping for .xml, newline stripping for plain
+ * text (.txt / .md). Other files (service-worker.js uses json_encode|raw on
+ * non-string values) are rendered as before.
+ */
+function escapeTemplateVarsForFile(templateVars, fileName) {
+  const lower = String(fileName || '').toLowerCase();
+  let encode = null;
+  if (lower.endsWith('.json') || lower.endsWith('api-catalog')) {
+    encode = (value) => JSON.stringify(value).slice(1, -1);
+  }
+  else if (lower.endsWith('.xml')) {
+    // also drop C0 control chars that are not allowed in XML 1.0 at all
+    encode = (value) => escapeXMLValue(value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''));
+  }
+  else if (lower.endsWith('.txt') || lower.endsWith('.md')) {
+    encode = (value) => value.replace(/[\r\n\u2028\u2029]+/g, ' ');
+  }
+  if (!encode) {
+    return templateVars;
+  }
+  const escaped = {};
+  for (const key of Object.keys(templateVars)) {
+    const value = templateVars[key];
+    escaped[key] = typeof value === 'string' ? encode(value) : value;
+  }
+  return escaped;
+}
 const exec = util.promisify(child_process.exec);
 const turndownService = new TurndownService();
 turndownService.keep(function(node) {
@@ -839,7 +875,8 @@ class HAXCMSSite
               let fileData = await fs.readFileSync(this.siteDirectory + '/' + templates[key],
                 {encoding:'utf8', flag:'r'}, 'utf8');
               let template = await Twig.twig({data: fileData, async: false});
-              let templatedHTML = template.render(templateVars);
+              // Security (review 2026-10): context-correct encoding per file
+              let templatedHTML = template.render(escapeTemplateVarsForFile(templateVars, templates[key]));
               await fs.writeFileSync(this.siteDirectory + '/' + templates[key], templatedHTML);           
             }
             catch(e) {}
