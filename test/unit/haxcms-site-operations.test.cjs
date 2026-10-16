@@ -409,6 +409,33 @@ test('addPage creates pages with parent, template, order, indent, and metadata',
   assert.ok(unknownTemplatePage)
 })
 
+test('addPage sanitizes request-supplied metadata (SEC-SANITIZE)', async () => {
+  const site = await HAXCMS.loadSite('unit-site')
+  const page = await site.addPage(
+    null,
+    'Metadata Page',
+    'default',
+    'metadata-page',
+    null,
+    null,
+    '<p></p>',
+    null,
+    JSON.parse(
+      '{"linkUrl":"javascript:alert(1)","image":"files/ok.png","icon":"icons:check",' +
+        '"accentColor":"red\\" onmouseover=\\"x","theme":{"key":"not-installed","path":"https://evil.example/x.js"},' +
+        '"__proto__":{"polluted":true},"pageType":"<b>lesson</b>"}',
+    ),
+  )
+  assert.equal(page.metadata.linkUrl, undefined)
+  assert.equal(page.metadata.image, 'files/ok.png')
+  assert.equal(page.metadata.icon, 'icons:check')
+  assert.equal(page.metadata.accentColor, 'red&quot; onmouseover=&quot;x')
+  assert.equal(page.metadata.theme, undefined)
+  assert.equal(page.metadata.pageType, '&lt;b&gt;lesson&lt;/b&gt;')
+  assert.equal(page.metadata.polluted, undefined)
+  assert.equal({}.polluted, undefined)
+})
+
 test('addPage deduplicates a slug that collides with an existing page', async () => {
   const site = await HAXCMS.loadSite('unit-site')
   const duplicate = await site.addPage(null, 'Welcome', 'init', 'welcome')
@@ -1120,6 +1147,22 @@ test('handleStyleGuideSave validates body content and persists a valid style gui
       .readFileSync(path.join(site.siteDirectory, 'theme', 'style-guide.html'), 'utf8')
       .indexOf('style guide') !== -1,
   )
+})
+
+test('handleStyleGuideSave sanitizes the HTML before writing (SEC-SANITIZE)', async () => {
+  const site = await HAXCMS.loadSite('unit-blog')
+  const saved = await site.handleStyleGuideSave({
+    node: {
+      body:
+        '<div onclick="alert(1)">guide</div><script>alert(2)</script>' +
+        '<simple-cta link="javascript:alert(3)" label="go"></simple-cta>',
+    },
+  })
+  assert.equal(saved.status, 200)
+  const written = fs.readFileSync(path.join(site.siteDirectory, 'theme', 'style-guide.html'), 'utf8')
+  assert.ok(written.indexOf('guide') !== -1)
+  assert.ok(written.indexOf('label="go"') !== -1)
+  assert.ok(!/onclick|<script|javascript:/i.test(written), written)
 })
 
 test('handleStyleGuideSave rejects an externally configured style guide', async () => {

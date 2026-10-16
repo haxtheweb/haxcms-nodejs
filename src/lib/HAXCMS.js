@@ -128,6 +128,7 @@ const {
   escapeXMLValue,
 } = require('./sanitizeContent.js');
 const { materializeInlineImages } = require('./materializeInlineImages.js');
+const { applyPageMetadata } = require('./sanitizePageMetadata.js');
 const exec = util.promisify(child_process.exec);
 const turndownService = new TurndownService();
 turndownService.keep(function(node) {
@@ -1089,11 +1090,10 @@ class HAXCMSSite
         }
         page.slug = this.getUniqueSlugName(HAXCMS.cleanTitle(slug));
         // support presetting multiple metadata attributes like tags, pageType, etc
+        // Security (SEC-SANITIZE): metadata can come straight from a request
+        // (createNode items[]); apply saveNode's per-field rules
         if (metadata) {
-          for (const key in metadata) {
-            let value = metadata[key]
-            page.metadata[key] = value;
-          }
+          applyPageMetadata(page, metadata, { themes: HAXCMS.getThemes() });
         }
         page.metadata.created = Math.floor(Date.now() / 1000);
         page.metadata.updated = Math.floor(Date.now() / 1000);
@@ -3132,8 +3132,12 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       }
       
       // write the content to the style guide file
+      // Security (SEC-SANITIZE): sanitize the style-guide HTML before writing,
+      // matching saveNode and PHP (SEC-08), so an editor cannot inject <script>
+      // into theme/style-guide.html (served to every site visitor).
+      const sanitizedContent = sanitizeHTMLForStorage(cleanContent);
       try {
-        await fs.writeFile(styleGuideFile, cleanContent);
+        await fs.writeFile(styleGuideFile, sanitizedContent);
       } catch (error) {
         return { 'status': 500, 'data': { 'message': 'Failed to write style guide file' } };
       }

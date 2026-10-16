@@ -26,7 +26,35 @@ const URL_ATTRIBUTE_NAMES = new Set([
   'poster',
   'srcset',
   'xlink:href',
+  // Security (SEC-SANITIZE): HAX custom elements carry URLs in these
+  // non-standard attribute names (simple-cta link, media-image source,
+  // pdf-browser-viewer file, video-player sources/tracks). Keep in parity
+  // with PHP SanitizeContent::URL_ATTRIBUTE_NAMES.
+  'link',
+  'source',
+  'file',
+  'sources',
+  'tracks',
 ])
+// Security (SEC-SANITIZE): schemes that can execute script. Checked on EVERY
+// attribute regardless of name (DOMPurify's CUSTOM_ELEMENT_HANDLING lets any
+// attribute on a custom element through without a URI check). This is a
+// denylist on purpose: HAX attribute values are routinely scheme-shaped
+// (icon="icons:check", title="Note: hi") so the http/https/mailto/tel
+// allowlist can only apply to URL-named attributes.
+const SCRIPT_CAPABLE_SCHEMES = new Set(['javascript', 'vbscript', 'livescript', 'data'])
+const SCHEME_PREFIX_RE = /^([a-z][a-z0-9+.-]*):/
+const SCHEME_STRIP_RE = /[\u0000-\u0020\u007f]+/g
+const SCHEME_ENTITY_RE = /&#[xX]([0-9a-fA-F]+);?|&#([0-9]+);?|&(colon|Tab|NewLine|plus|period);/g
+const SCHEME_NAMED_ENTITIES = {
+  colon: ':',
+  Tab: '\t',
+  NewLine: '\n',
+  plus: '+',
+  period: '.',
+}
+const EXISTING_ENTITY_SAFE_AMP_RE = /&(?![a-zA-Z][a-zA-Z0-9]*;|#[0-9]+;|#[xX][0-9a-fA-F]+;)/g
+const XML_ILLEGAL_CHARS_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g
 const ALLOWED_PROTOCOLS = new Set(['http', 'https', 'mailto', 'tel'])
 const TEXT_TEMPLATE_HOSTS = new Set(['code-sample', 'runkit-embed', 'web-container'])
 const IFRAME_ALLOWED_ATTRIBUTES = new Set([
@@ -88,13 +116,11 @@ function getDOMPurify() {
       data.keepAttr = false
       return
     }
-    if (isURLLikeAttribute(attributeName)) {
-      const safeValue = sanitizeURLValue(data.attrValue, '')
-      if (safeValue === '') {
-        data.keepAttr = false
-      } else {
-        data.attrValue = safeValue
-      }
+    const safeValue = sanitizeAttributeValue(attributeName, data.attrValue)
+    if (safeValue === null) {
+      data.keepAttr = false
+    } else {
+      data.attrValue = safeValue
     }
   })
 
@@ -127,16 +153,76 @@ function sanitizeURLValue(value, fallback = '') {
   return fallback
 }
 
-function sanitizeMetadataValue(value) {
+// Security (SEC-SANITIZE): single-pass decode of the entity forms that can
+// spell a scheme (numeric with or without ';', plus &colon; &Tab; &NewLine;
+// &plus; &period;). Invalid code points decode to ''. Parity contract with PHP
+// SanitizeContent::decodeSchemeEntities.
+function decodeSchemeEntities(value) {
+  return String(value).replace(SCHEME_ENTITY_RE, function (match, hex, dec, named) {
+    if (named) {
+      return SCHEME_NAMED_ENTITIES[named]
+    }
+    const codePoint = hex ? parseInt(hex, 16) : parseInt(dec, 10)
+    if (
+      !Number.isFinite(codePoint) ||
+      codePoint <= 0 ||
+      codePoint > 0x10ffff ||
+      (codePoint >= 0xd800 && codePoint <= 0xdfff)
+    ) {
+      return ''
+    }
+    return String.fromCodePoint(codePoint)
+  })
+}
+
+// Security (SEC-SANITIZE): leading scheme of an attribute value after
+// decoding entities, removing ASCII whitespace/control chars and lowercasing;
+// '' when the value has no leading scheme.
+function getNormalizedScheme(value) {
   if (value === null || value === undefined) {
     return ''
   }
-  return escapeHTMLAttribute(value)
+  const normalized = decodeSchemeEntities(value).replace(SCHEME_STRIP_RE, '').toLowerCase()
+  const match = normalized.match(SCHEME_PREFIX_RE)
+  return match ? match[1] : ''
 }
 
-function escapeHTMLAttribute(value) {
+function hasScriptCapableScheme(value) {
+  return SCRIPT_CAPABLE_SCHEMES.has(getNormalizedScheme(value))
+}
+
+// Security (SEC-SANITIZE): returns the value to keep, or null when the
+// attribute must be removed (empty boolean attributes stay ''). URL-named attributes go through the
+// sanitizeURLValue allowlist; every attribute is then rejected if its
+// normalised value starts with a script-capable scheme.
+function sanitizeAttributeValue(attributeName, value) {
+  let safeValue = value === null || value === undefined ? '' : String(value)
+  if (isURLLikeAttribute(attributeName)) {
+    safeValue = sanitizeURLValue(safeValue, '')
+    if (safeValue === '') {
+      return null
+    }
+  }
+  if (hasScriptCapableScheme(safeValue)) {
+    return null
+  }
+  return safeValue
+}
+
+// doubleEncode=false mirrors PHP htmlspecialchars(..., double_encode: false):
+// an '&' that already starts an entity is left alone, so values that
+// round-trip through the editor (saveOutline sends every item's metadata
+// back) do not accumulate &amp;amp;... on every save.
+function sanitizeMetadataValue(value, doubleEncode = true) {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  return escapeHTMLAttribute(value, doubleEncode)
+}
+
+function escapeHTMLAttribute(value, doubleEncode = true) {
   return String(value === null || value === undefined ? '' : value)
-    .replace(/&/g, '&amp;')
+    .replace(doubleEncode === false ? EXISTING_ENTITY_SAFE_AMP_RE : /&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/\"/g, '&quot;')
@@ -145,6 +231,10 @@ function escapeHTMLAttribute(value) {
 
 function escapeXMLValue(value) {
   return String(value === null || value === undefined ? '' : value)
+    // Security (SEC-SANITIZE): drop code points not allowed in XML 1.0
+    // (allowed: #x9 #xA #xD [#x20-#xD7FF] [#xE000-#xFFFD] [#x10000-#x10FFFF]);
+    // lone surrogates are dropped, valid surrogate pairs are kept.
+    .replace(XML_ILLEGAL_CHARS_RE, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -290,13 +380,11 @@ function sanitizeElementAttributes(element) {
       element.removeAttribute(attribute.name)
       return
     }
-    if (isURLLikeAttribute(attributeName)) {
-      const safeValue = sanitizeURLValue(attribute.value, '')
-      if (safeValue === '') {
-        element.removeAttribute(attribute.name)
-      } else if (safeValue !== attribute.value) {
-        element.setAttribute(attribute.name, safeValue)
-      }
+    const safeValue = sanitizeAttributeValue(attributeName, attribute.value)
+    if (safeValue === null) {
+      element.removeAttribute(attribute.name)
+    } else if (safeValue !== attribute.value) {
+      element.setAttribute(attribute.name, safeValue)
     }
   })
 
@@ -386,6 +474,8 @@ function sanitizeHTMLForStorage(html) {
 
 module.exports = {
   sanitizeHTMLForStorage,
+  sanitizeAttributeValue,
+  hasScriptCapableScheme,
   sanitizeURLValue,
   sanitizeMetadataValue,
   escapeHTMLAttribute,
