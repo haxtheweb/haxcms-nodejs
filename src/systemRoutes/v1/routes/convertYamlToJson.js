@@ -1,4 +1,4 @@
-const yaml = require('js-yaml');
+const { loadYamlBounded, YamlLimitError } = require('../../../lib/safeYaml.js');
 const { safeFetch } = require('../../../lib/safeFetch.js');
 
 /**
@@ -43,7 +43,21 @@ async function convertYamlToJson(req, res) {
       });
     }
 
-    const jsonOutput = yaml.load(yamlData);
+    // Security (review 2026-10): 256 KB input cap + expanded-node budget so an
+    // alias bomb cannot make JSON.stringify allocate gigabytes (296 bytes of
+    // YAML previously produced 69 MB of JSON; ~380 bytes OOM'd the process).
+    let jsonOutput;
+    try {
+      jsonOutput = loadYamlBounded(yamlData);
+    } catch (e) {
+      if (e instanceof YamlLimitError) {
+        return res.status(400).json({
+          status: 400,
+          data: { error: e.message, contents: '' },
+        });
+      }
+      throw e;
+    }
     const jsonString = JSON.stringify(jsonOutput, null, 2);
     return res.json({
       status: 200,

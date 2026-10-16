@@ -1,7 +1,7 @@
 const MarkdownIt = require('markdown-it')
 const markdownItContainer = require('markdown-it-container')
 const markdownItFootnote = require('markdown-it-footnote')
-const yaml = require('js-yaml')
+const { loadYamlBounded } = require('../../../../lib/safeYaml.js')
 const { parse } = require('node-html-parser')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
 const { HAXCMS } = require('../../../../lib/HAXCMS.js')
@@ -844,7 +844,9 @@ function splitFrontmatter(markdown) {
   }
   let data = {}
   try {
-    const parsed = yaml.load(match[1])
+    // Security (review 2026-10): bounded load so an alias bomb in imported
+    // front matter is dropped instead of being expanded downstream.
+    const parsed = loadYamlBounded(match[1])
     if (parsed && typeof parsed === 'object') {
       data = parsed
     }
