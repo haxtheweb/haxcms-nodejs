@@ -23,12 +23,12 @@ function getAuthenticatedUserName(jwt = '') {
   return ''
 }
 
-function validateIAMAuthorizationIfNeeded() {
+function validateIAMAuthorizationIfNeeded(req) {
   if (typeof HAXCMS.validateIAMRouteAuthorization !== 'function') {
     return { allowed: true }
   }
   try {
-    return HAXCMS.validateIAMRouteAuthorization(true)
+    return HAXCMS.validateIAMRouteAuthorization(true, req)
   }
   catch (e) {
     return {
@@ -58,7 +58,7 @@ function sessionRoute(req, res) {
     })
   }
 
-  const iamAuthorization = validateIAMAuthorizationIfNeeded()
+  const iamAuthorization = validateIAMAuthorizationIfNeeded(req)
   if (
     iamAuthorization &&
     typeof iamAuthorization === 'object' &&

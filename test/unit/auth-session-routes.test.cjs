@@ -500,15 +500,21 @@ describe('connectionTest', () => {
     assertCookieCleared(res)
   })
 
-  test('rotation returning null falls back to a freshly minted access token', (t) => {
+  test('rotation returning null is authoritative: no access token is minted', (t) => {
+    // Security (SEC-SESSION): previously a rejected rotation fell back to
+    // getJWT(), so a replayed/revoked refresh cookie still got an access token
+    const revoked = []
     t.mock.method(HAXCMS, 'rotateRefreshTokenAndCookie', () => null)
-    t.mock.method(HAXCMS, 'getJWT', (user) => 'fallback-access-jwt')
+    t.mock.method(HAXCMS, 'getJWT', () => 'fallback-access-jwt')
+    t.mock.method(HAXCMS, 'revokeRefreshSession', (user) => {
+      revoked.push(user)
+    })
     const res = authRes()
     connectionTest(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
-    assert.equal(res.statusCode, null)
-    assert.equal(res.body.authenticated, true)
-    assert.equal(res.body.refreshed, true)
-    assert.equal(res.body.jwt, 'fallback-access-jwt')
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body.authenticated, false)
+    assert.equal(res.body.reason, 'no_session')
+    assert.deepEqual(revoked, [ACTIVE_USER])
   })
 
   test('user resolution falls back to the refresh cookie when the JWT has no user', (t) => {

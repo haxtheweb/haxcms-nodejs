@@ -2445,7 +2445,7 @@ function normalizeIamAuthorizationResult(iamAuthorization = null) {
     message: '',
   };
 }
-function validateHaxiamManagedUserIdentityForRequest() {
+function validateHaxiamManagedUserIdentityForRequest(req = null) {
   if (
     typeof HAXCMS.getDeploymentProfile !== 'function' ||
     HAXCMS.getDeploymentProfile() !== 'haxiam-managed'
@@ -2465,7 +2465,7 @@ function validateHaxiamManagedUserIdentityForRequest() {
   }
   try {
     return normalizeIamAuthorizationResult(
-      HAXCMS.validateIAMRouteAuthorization(true),
+      HAXCMS.validateIAMRouteAuthorization(true, req),
     );
   } catch (e) {
     return {
@@ -2610,7 +2610,7 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
         message: 'Invalid X-HAXCMS-Site-Token header',
       };
     }
-    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
+    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest(req);
     if (!iamAuthorization.allowed) {
       return {
         allowed: false,
@@ -2638,7 +2638,7 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
         message: 'Invalid X-HAXCMS-User-Token header',
       };
     }
-    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
+    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest(req);
     if (!iamAuthorization.allowed) {
       return {
         allowed: false,
