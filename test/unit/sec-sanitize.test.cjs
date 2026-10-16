@@ -72,6 +72,9 @@ describe('SEC-SANITIZE: custom element attribute schemes', () => {
     ['hex entity, no semicolon', '<simple-cta link="&#x6A;avascript&#58alert(1)"></simple-cta>', 'link'],
     ['&colon;', '<simple-cta link="javascript&colon;alert(1)"></simple-cta>', 'link'],
     ['vbscript', '<simple-cta link="vbscript:msgbox(1)"></simple-cta>', 'link'],
+    ['mocha', '<simple-cta link="mocha:alert(1)"></simple-cta>', 'link'],
+    ['mocha in arbitrary attribute, obfuscated', '<my-element some-prop=" MO&#99;ha&colon;alert(1)"></my-element>', 'some-prop'],
+    ['livescript in arbitrary attribute', '<my-element some-prop="livescript:alert(1)"></my-element>', 'some-prop'],
     ['data:text/html', '<simple-cta link="data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;"></simple-cta>', 'link'],
     // non-URL-named attributes: the script-scheme check applies to every name
     ['arbitrary attribute', '<my-element some-prop="javascript:alert(1)"></my-element>', 'some-prop'],
@@ -84,7 +87,7 @@ describe('SEC-SANITIZE: custom element attribute schemes', () => {
     test('removes ' + name, () => {
       const output = sanitizeHTMLForStorage(input)
       assert.ok(output.indexOf(' ' + attr + '=') === -1, output)
-      assert.ok(!/javascript|vbscript|avascript|data:/i.test(output), output)
+      assert.ok(!/javascript|vbscript|avascript|livescript|mocha|data:/i.test(output), output)
     })
   }
 
@@ -142,6 +145,7 @@ describe('SEC-SANITIZE: custom element attribute schemes', () => {
     assert.equal(sanitizeAttributeValue('icon', 'hax:page-edit'), 'hax:page-edit')
     assert.equal(sanitizeAttributeValue('title', ''), '')
     assert.equal(sanitizeAttributeValue('title', 'livescript:x'), null)
+    assert.equal(sanitizeAttributeValue('title', 'mocha:x'), null)
     assert.equal(sanitizeAttributeValue('title', '&#0;javascript:x'), null)
     assert.equal(sanitizeAttributeValue('link', 'blob:https://x/y'), null)
     assert.equal(sanitizeAttributeValue('link', ''), null)

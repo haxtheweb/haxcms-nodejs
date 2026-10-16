@@ -156,13 +156,19 @@
     ]
   },
   {
-    "name": "custom-element-vbscript-and-data-html-removed",
-    "input": "<simple-cta link=\"vbscript:msgbox(1)\"></simple-cta><simple-cta link=\"data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;\"></simple-cta>",
-    "mustContain": [],
+    "name": "custom-element-vbscript-mocha-livescript-and-data-html-removed",
+    "input": "<simple-cta link=\"vbscript:msgbox(1)\"></simple-cta><simple-cta link=\"data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;\"></simple-cta><simple-cta link=\"mocha:alert(1)\"></simple-cta><my-element some-prop=\" MO&#99;ha&colon;alert(1)\" keep=\"yes\"></my-element><simple-cta link=\"livescript:alert(1)\"></simple-cta>",
+    "mustContain": [
+      "keep=\"yes\""
+    ],
     "mustNotContain": [
       "vbscript",
       "data:",
-      "link="
+      "link=",
+      "mocha",
+      "MO",
+      "livescript",
+      "some-prop="
     ]
   },
   {

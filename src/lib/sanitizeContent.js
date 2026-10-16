@@ -42,7 +42,7 @@ const URL_ATTRIBUTE_NAMES = new Set([
 // denylist on purpose: HAX attribute values are routinely scheme-shaped
 // (icon="icons:check", title="Note: hi") so the http/https/mailto/tel
 // allowlist can only apply to URL-named attributes.
-const SCRIPT_CAPABLE_SCHEMES = new Set(['javascript', 'vbscript', 'livescript', 'data'])
+const SCRIPT_CAPABLE_SCHEMES = new Set(['javascript', 'vbscript', 'livescript', 'mocha', 'data'])
 const SCHEME_PREFIX_RE = /^([a-z][a-z0-9+.-]*):/
 const SCHEME_STRIP_RE = /[\u0000-\u0020\u007f]+/g
 const SCHEME_ENTITY_RE = /&#[xX]([0-9a-fA-F]+);?|&#([0-9]+);?|&(colon|Tab|NewLine|plus|period);/g
