@@ -198,3 +198,37 @@ test('createServer prefers custom certs over the local generation flow', { skip:
   assert.equal(sslServer.getServerProtocol(), 'https')
   await closeServer(server)
 })
+
+// ---------------------------------------------------------------------------
+// Security (PR8-7): no shell — every external command goes through
+// execFileSync with an argv array, so a config path containing shell
+// metacharacters can never be interpreted by a shell.
+// ---------------------------------------------------------------------------
+test('cert generation and probes use execFileSync argv arrays, never execSync', (t) => {
+  const childProcess = require('node:child_process')
+  const fileCalls = []
+  t.mock.method(childProcess, 'execSync', function () {
+    throw new Error('execSync must not be used')
+  })
+  t.mock.method(childProcess, 'execFileSync', function (file, args, options) {
+    fileCalls.push({ file: file, args: args, options: options })
+    return Buffer.from('')
+  })
+  t.mock.method(console, 'log', function () {})
+  assert.equal(sslServer.isMkcertAvailable(), true)
+  assert.equal(sslServer.generateMkcertCerts(), true)
+  assert.equal(sslServer.generateOpensslCerts(), true)
+  assert.deepEqual(fileCalls.map(function (c) { return c.file }), ['mkcert', 'mkcert', 'mkcert', 'openssl'])
+  for (const c of fileCalls) {
+    assert.ok(Array.isArray(c.args), 'argv array for ' + c.file)
+    assert.ok(!c.options || !c.options.shell, 'no shell option')
+  }
+  assert.deepEqual(fileCalls[0].args, ['--version'])
+  assert.deepEqual(fileCalls[1].args, ['-install'])
+  // paths are passed as single argv entries, unquoted
+  assert.deepEqual(fileCalls[2].args, ['-key-file', keyPath, '-cert-file', certPath, 'localhost', '127.0.0.1', '::1'])
+  const opensslArgs = fileCalls[3].args
+  assert.equal(opensslArgs[opensslArgs.indexOf('-keyout') + 1], keyPath)
+  assert.equal(opensslArgs[opensslArgs.indexOf('-out') + 1], certPath)
+  assert.ok(opensslArgs[opensslArgs.indexOf('-config') + 1].endsWith('openssl-san.cnf'))
+})

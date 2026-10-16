@@ -30,7 +30,8 @@ function getCustomSslCerts() {
 
 function isMkcertAvailable() {
   try {
-    child_process.execSync('mkcert --version', { stdio: 'ignore' });
+    // Security (PR8-7): argv arrays via execFileSync, never a shell string.
+    child_process.execFileSync('mkcert', ['--version'], { stdio: 'ignore' });
     return true;
   } catch (e) {
     return false;
@@ -54,13 +55,16 @@ function generateMkcertCerts() {
   }
   try {
     // Ensure the local CA is installed in system/browser trust stores
-    child_process.execSync('mkcert -install', { stdio: 'ignore' });
+    child_process.execFileSync('mkcert', ['-install'], { stdio: 'ignore' });
   } catch (e) {
     // -install may already be done or may fail silently; continue to cert generation
   }
   try {
-    child_process.execSync(
-      `mkcert -key-file "${KEY_PATH}" -cert-file "${CERT_PATH}" localhost 127.0.0.1 ::1`,
+    // Security (PR8-7): SSL_DIR derives from the discovered config path, which
+    // may contain shell metacharacters; pass paths as argv, not via a shell.
+    child_process.execFileSync(
+      'mkcert',
+      ['-key-file', KEY_PATH, '-cert-file', CERT_PATH, 'localhost', '127.0.0.1', '::1'],
       { stdio: 'ignore', cwd: SSL_DIR }
     );
     console.log(`Generated locally-trusted SSL certificates via mkcert in ${SSL_DIR}`);
@@ -106,8 +110,10 @@ IP.2 = ::1
 `;
   fs.writeFileSync(configPath, sanConfig.trim());
   try {
-    child_process.execSync(
-      `openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout "${KEY_PATH}" -out "${CERT_PATH}" -config "${configPath}"`,
+    // Security (PR8-7): argv array via execFileSync, no shell interpolation.
+    child_process.execFileSync(
+      'openssl',
+      ['req', '-x509', '-nodes', '-days', '365', '-newkey', 'rsa:2048', '-keyout', KEY_PATH, '-out', CERT_PATH, '-config', configPath],
       { stdio: 'ignore' }
     );
     console.log(`Generated self-signed SSL certificates in ${SSL_DIR}`);
