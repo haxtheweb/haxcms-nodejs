@@ -1,7 +1,7 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const path = require('path');
 const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
-const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
+const { sanitizeHTMLForStorage, sanitizeTextValue } = require('../../../lib/sanitizeContent.js');
 const { materializeInlineImages } = require('../../../lib/materializeInlineImages.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 /**
@@ -98,9 +98,18 @@ async function createNode(req, res) {
           // do nothing
         }
         else {
+          // Security (review 2026-10): same plain-text title cleanup as saveNode /
+          // saveOutline; metadata is sanitized inside addPage. Mirrors PHP createNode
+          let itemTitle = nodeParams['items'][i]['title'];
+          if (typeof itemTitle === 'string') {
+            itemTitle = sanitizeTextValue(itemTitle);
+            if (itemTitle.trim() === '') {
+              itemTitle = 'New page';
+            }
+          }
           item = await site.addPage(
           nodeParams['items'][i]['parent'], 
-          nodeParams['items'][i]['title'], 
+          itemTitle, 
           'html', 
           nodeParams['items'][i]['slug'],
           nodeParams['items'][i]['id'],

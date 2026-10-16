@@ -2,11 +2,11 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const filter_var = require('../../../lib/filter_var.js');
 const path = require('path');
 const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
-const html_entity_decode = require("locutus/php/strings/html_entity_decode").html_entity_decode;
 const {
   sanitizeHTMLForStorage,
   sanitizeURLValue,
   sanitizeMetadataValue,
+  sanitizeTextValue,
 } = require('../../../lib/sanitizeContent.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
@@ -153,7 +153,9 @@ const FileContentScanner = require('../../../lib/FileContentScanner.js');
                 // update attributes in the page
                 if (data["attributes"]["title"]) {
                   // decode entities and strip tags so manifest stores clean text
-                  page.title = html_entity_decode(strip_tags(data["attributes"]["title"]));
+                  // Security (review 2026-10): decode BEFORE stripping (was strip then
+                  // decode, which revived &lt;img onerror&gt; as live markup)
+                  page.title = sanitizeTextValue(data["attributes"]["title"]);
                 }
                 if (Object.prototype.hasOwnProperty.call(data["attributes"], 'override-pathauto')) {
                   const val = data["attributes"]['override-pathauto'];
@@ -333,10 +335,14 @@ const FileContentScanner = require('../../../lib/FileContentScanner.js');
                 // auto generate a text only description from first 200 chars
                 // unless we were sent one to use
                 if ((data["attributes"]["description"]) && data["attributes"]["description"] != '') {
-                  page.description = html_entity_decode(strip_tags(data["attributes"]["description"]));
+                  // Security (review 2026-10): decode then strip, see title above
+                  page.description = sanitizeTextValue(data["attributes"]["description"]);
                 }
                 else {
-                  const decodedClean = html_entity_decode(clean);
+                  // Security (review 2026-10): body text is already tag-stripped; decode
+                  // once and strip again so encoded markup in the body text cannot
+                  // become live tags in the description
+                  const decodedClean = sanitizeTextValue(clean);
                   page.description = decodedClean.substring(0, 200).replace("\n", '');
                 }
                 let readtime = Math.round(countWords(clean) / 200);

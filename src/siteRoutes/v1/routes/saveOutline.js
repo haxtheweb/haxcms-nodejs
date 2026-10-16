@@ -2,7 +2,11 @@ const fs = require('fs-extra');
 const path = require('path');
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
-const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
+const {
+  sanitizeHTMLForStorage,
+  sanitizePageMetadata,
+  sanitizeTextValue,
+} = require('../../../lib/sanitizeContent.js');
 const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 const FileContentScanner = require('../../../lib/FileContentScanner.js');
@@ -62,7 +66,13 @@ const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
         }
         // set a title if we have one
         if (item.title != '' && item.title) {
-          page.title = item.title;
+          // Security (review 2026-10): same plain-text cleanup saveNode applies
+          // (decode entities, then strip tags) instead of storing raw markup;
+          // a title that is nothing but markup keeps the current title
+          const safeTitle = sanitizeTextValue(item.title);
+          if (safeTitle.trim() !== '') {
+            page.title = safeTitle;
+          }
         }
         // description belongs to the JSON Outline Schema item; same handling
         // as the setDescription node operation
@@ -173,8 +183,13 @@ const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
         }
         safeLocationMap[page.id] = page.location;
         // check for any metadata keys that did come over
-        for (let pageKey in item.metadata) {
-            page.metadata[pageKey] = item.metadata[pageKey];
+        // Security (review 2026-10): no raw mass-assignment; known-sensitive keys
+        // get saveNode's per-field rules and unknown keys are passed through only
+        // as JSON data without executable-scheme strings (see sanitizePageMetadata).
+        // Mirrors PHP saveOutline.php
+        const safeMetadata = sanitizePageMetadata(item.metadata, HAXCMS.getThemes());
+        for (let pageKey in safeMetadata) {
+            page.metadata[pageKey] = safeMetadata[pageKey];
         }
         // safety check for new things
         if (typeof page.metadata.created === 'undefined') {

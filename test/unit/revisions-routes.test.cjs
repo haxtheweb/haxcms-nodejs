@@ -529,3 +529,39 @@ describe('revisions routes — restoreItemRevision', () => {
     assert.equal(resNoSite.statusCode, 404)
   })
 })
+
+// Security (review 2026-10): restoring a revision must not resurrect markup the
+// storage sanitizer would reject (revision predates the policy or was committed
+// outside HAXcms). Mirrors PHP OperationsNodeRevisionsTest.
+describe('revisions routes — restore sanitizes historical content', () => {
+  test('a revision containing script / javascript: URLs is sanitized before writing', async (t) => {
+    const site = await makeGitSite(t)
+    const htmlPath = path.join(site.siteDirectory, 'pages', 'item-1', 'index.html')
+    fs.writeFileSync(
+      htmlPath,
+      '<p>evil revision</p><script>alert(1)</script>' +
+        '<img src=x onerror="alert(2)"><simple-cta link="javascript:alert(3)" label="go"></simple-cta>\n',
+    )
+    git(site.siteDirectory, 'add', '.')
+    git(site.siteDirectory, 'commit', '--quiet', '-m', 'evil revision')
+    const evilHash = git(site.siteDirectory, 'rev-parse', 'HEAD')
+    fs.writeFileSync(htmlPath, '<p>clean head</p>\n')
+    git(site.siteDirectory, 'add', '.')
+    git(site.siteDirectory, 'commit', '--quiet', '-m', 'clean head')
+    mockSite(t, site)
+    const res = stubRes()
+    await restoreItemRevision(
+      makeReq({ params: { idOrSlug: 'first-page', revisionId: evilHash } }),
+      res,
+    )
+    assert.equal(res.statusCode, 200)
+    const written = site.page.writes[0].content
+    assert.ok(written.indexOf('evil revision') !== -1)
+    assert.equal(written.indexOf('<script'), -1)
+    assert.equal(written.indexOf('onerror'), -1)
+    assert.equal(written.indexOf('javascript:'), -1)
+    assert.ok(written.indexOf('label="go"') !== -1)
+    // alternate formats are rebuilt from the sanitized html too
+    assert.equal(site.calls.writePageAlternateFormats[0].content, written)
+  })
+})

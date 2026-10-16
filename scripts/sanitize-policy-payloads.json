@@ -80,5 +80,147 @@
       "data-selected=\"feedback\""
     ],
     "mustNotContain": []
+  },
+  {
+    "name": "custom-element-link-attribute-javascript-removed",
+    "input": "<simple-cta link=\"javascript:alert(1)\" label=\"go\"></simple-cta>",
+    "mustContain": [
+      "<simple-cta",
+      "label=\"go\""
+    ],
+    "mustNotContain": [
+      "javascript:",
+      "alert(1)",
+      "link="
+    ]
+  },
+  {
+    "name": "custom-element-file-attribute-javascript-removed",
+    "input": "<pdf-browser-viewer file=\"javascript:alert(1)\"></pdf-browser-viewer>",
+    "mustContain": [
+      "<pdf-browser-viewer"
+    ],
+    "mustNotContain": [
+      "javascript:",
+      "file="
+    ]
+  },
+  {
+    "name": "custom-element-link-removed-safe-source-kept",
+    "input": "<media-image link=\"javascript:alert(1)\" source=\"x.png\"></media-image>",
+    "mustContain": [
+      "source=\"x.png\""
+    ],
+    "mustNotContain": [
+      "javascript:",
+      "link="
+    ]
+  },
+  {
+    "name": "custom-element-source-attribute-javascript-removed",
+    "input": "<h5p-element source=\"javascript:1\"></h5p-element>",
+    "mustContain": [
+      "<h5p-element"
+    ],
+    "mustNotContain": [
+      "javascript:",
+      "source="
+    ]
+  },
+  {
+    "name": "custom-element-url-whitespace-case-obfuscation-removed",
+    "input": "<simple-cta link=\" JaVaScRiPt:alert(1)\"></simple-cta>",
+    "mustContain": [
+      "<simple-cta"
+    ],
+    "mustNotContain": [
+      "JaVaScRiPt",
+      "alert(1)",
+      "link="
+    ]
+  },
+  {
+    "name": "custom-element-url-tab-entity-obfuscation-removed",
+    "input": "<simple-cta link=\"java&#x09;script:alert(1)\"></simple-cta>",
+    "mustContain": [
+      "<simple-cta"
+    ],
+    "mustNotContain": [
+      "script:",
+      "alert(1)",
+      "link="
+    ]
+  },
+  {
+    "name": "custom-element-url-decimal-entity-obfuscation-removed",
+    "input": "<simple-cta link=\"&#106;avascript:alert(1)\"></simple-cta>",
+    "mustContain": [
+      "<simple-cta"
+    ],
+    "mustNotContain": [
+      "avascript:",
+      "alert(1)",
+      "link="
+    ]
+  },
+  {
+    "name": "arbitrary-attribute-executable-schemes-removed",
+    "input": "<my-widget target-thing=\"javascript:alert(1)\" payload=\"data:text/html;base64,PHNjcmlwdD4=\" legacy=\" VBScript:msgbox(1)\" keep=\"ok\"></my-widget>",
+    "mustContain": [
+      "keep=\"ok\""
+    ],
+    "mustNotContain": [
+      "javascript:",
+      "data:text/html",
+      "VBScript",
+      "target-thing=",
+      "payload=",
+      "legacy="
+    ]
+  },
+  {
+    "name": "video-player-json-sources-with-javascript-removed",
+    "input": "<video-player sources='[{\"src\":\"javascript:alert(1)\",\"type\":\"video/mp4\"}]'></video-player>",
+    "mustContain": [
+      "<video-player"
+    ],
+    "mustNotContain": [
+      "javascript:",
+      "sources="
+    ]
+  },
+  {
+    "name": "video-player-json-sources-safe-kept",
+    "input": "<video-player sources='[{\"src\":\"https://example.com/v.mp4\",\"type\":\"video/mp4\"}]'></video-player>",
+    "mustContain": [
+      "sources=",
+      "https://example.com/v.mp4"
+    ],
+    "mustNotContain": []
+  },
+  {
+    "name": "non-url-attribute-values-with-colons-preserved",
+    "input": "<p title=\"Note: x\" data-time=\"10:30\" data-chapter=\"Chapter 1: Intro\" data-summary=\"Data: 5 records, 3 failed\" aria-label=\"JavaScript: the good parts\">t</p>",
+    "mustContain": [
+      "title=\"Note: x\"",
+      "data-time=\"10:30\"",
+      "data-chapter=\"Chapter 1: Intro\"",
+      "data-summary=\"Data: 5 records, 3 failed\"",
+      "aria-label=\"JavaScript: the good parts\""
+    ],
+    "mustNotContain": []
+  },
+  {
+    "name": "allowed-schemes-relative-and-anchor-urls-preserved",
+    "input": "<simple-cta link=\"https://example.com/x\"></simple-cta><simple-cta link=\"mailto:a@example.com\"></simple-cta><simple-cta link=\"tel:+15555550100\"></simple-cta><simple-cta link=\"/relative/page\"></simple-cta><simple-cta link=\"#anchor\"></simple-cta><media-image source=\"files/a:b.png\"></media-image>",
+    "mustContain": [
+      "link=\"https://example.com/x\"",
+      "link=\"mailto:a@example.com\"",
+      "link=\"tel:+15555550100\"",
+      "link=\"/relative/page\"",
+      "link=\"#anchor\"",
+      "source=\"files/a:b.png\""
+    ],
+    "mustNotContain": []
   }
 ]

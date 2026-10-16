@@ -126,6 +126,7 @@ const {
   sanitizeURLValue,
   escapeHTMLAttribute,
   escapeXMLValue,
+  sanitizePageMetadata,
 } = require('./sanitizeContent.js');
 const { materializeInlineImages } = require('./materializeInlineImages.js');
 const exec = util.promisify(child_process.exec);
@@ -1090,9 +1091,12 @@ class HAXCMSSite
         page.slug = this.getUniqueSlugName(HAXCMS.cleanTitle(slug));
         // support presetting multiple metadata attributes like tags, pageType, etc
         if (metadata) {
-          for (const key in metadata) {
-            let value = metadata[key]
-            page.metadata[key] = value;
+          // Security (review 2026-10): createNode items[].metadata reaches here
+          // from the client; apply saveNode's per-field rules instead of a raw
+          // copy (see sanitizePageMetadata). Mirrors PHP HAXCMSSite::addPage
+          const safeMetadata = sanitizePageMetadata(metadata, HAXCMS.getThemes());
+          for (const key in safeMetadata) {
+            page.metadata[key] = safeMetadata[key];
           }
         }
         page.metadata.created = Math.floor(Date.now() / 1000);
@@ -3132,8 +3136,13 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       }
       
       // write the content to the style guide file
+      // Security (review 2026-10): sanitize the style-guide HTML before writing,
+      // like every other saveNode body, so an editor cannot store <script> /
+      // event handlers in theme/style-guide.html (served to all site visitors).
+      // Mirrors PHP Operations::saveNode style-guide branch (SEC-08)
+      const sanitizedContent = sanitizeHTMLForStorage(cleanContent);
       try {
-        await fs.writeFile(styleGuideFile, cleanContent);
+        await fs.writeFile(styleGuideFile, sanitizedContent);
       } catch (error) {
         return { 'status': 500, 'data': { 'message': 'Failed to write style guide file' } };
       }

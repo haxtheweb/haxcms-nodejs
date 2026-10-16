@@ -5,7 +5,7 @@ const child_process = require('node:child_process');
 const execFile = util.promisify(child_process.execFile);
 const stripTagsImport = require('locutus/php/strings/strip_tags');
 const strip_tags = stripTagsImport.strip_tags || stripTagsImport;
-const { sanitizeURLValue } = require('../../lib/sanitizeContent.js');
+const { sanitizeURLValue, sanitizeHTMLForStorage } = require('../../lib/sanitizeContent.js');
 const {
   getApiBasePath,
   getQueryValue,
@@ -590,7 +590,12 @@ async function restoreItemRevision(req, res) {
       ['show', revisionHash + ':' + fileData.location],
       false,
     );
-    const bytes = await page.writeLocation(revisionContent, site.siteDirectory);
+    // Security (review 2026-10): a historical revision may predate the current
+    // storage policy (or have been committed outside HAXcms); run it through the
+    // same sanitizer as saveNode before it becomes live content again.
+    // Mirrors PHP nodeRevisions.php restore
+    const restoredContent = sanitizeHTMLForStorage(String(revisionContent || ''));
+    const bytes = await page.writeLocation(restoredContent, site.siteDirectory);
     if (bytes === false) {
       return res.status(500).json({
         status: 500,
@@ -616,7 +621,7 @@ async function restoreItemRevision(req, res) {
       } catch (e) {}
     }
     if (typeof site.writePageAlternateFormats === 'function') {
-      await site.writePageAlternateFormats(page, revisionContent);
+      await site.writePageAlternateFormats(page, restoredContent);
     }
     if (
       !page.metadata ||
