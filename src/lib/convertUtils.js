@@ -2,6 +2,7 @@ const { parse } = require('node-html-parser');
 const HTMLtoDOCX = require('html-to-docx');
 const {
   resolveExportImages,
+  finalizeExportHtml,
   installPdfRequestFilter,
 } = require('./exportImageResolver.js');
 
@@ -34,10 +35,13 @@ async function convertHtmlToDocxBuffer(html, imageOptions) {
   // so one broken reference cannot abort the whole conversion. Fail closed:
   // if the pass itself throws, strip all images rather than pass them on.
   try {
-    sanitized = await resolveExportImages(sanitized, Object.assign({}, imageOptions || {}, { output: 'data-uri' }));
+    sanitized = await resolveExportImages(sanitized, Object.assign({}, imageOptions || {}, { output: 'data-uri', allowSvg: false }));
   } catch (e) {
-    sanitized = sanitized.replace(/<img\b[^>]*>/gi, '');
+    sanitized = sanitized.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, '');
   }
+  // Security (SEC-SSRF): fail-closed final pass on the exact string handed to
+  // html-to-docx, parsed with html-to-vdom's own htmlparser2 build.
+  sanitized = finalizeExportHtml(sanitized, { consumer: 'docx' });
 
   const options = {
     table: { row: { cantSplit: true } },
@@ -388,10 +392,12 @@ async function htmlToPdfBuffer(html, base = '/', imageOptions) {
     ? Object.assign({}, imageOptions)
     : { remoteBaseUrl: /^https?:\/\//i.test(String(base || '')) ? String(base) : null };
   resolvedImageOptions.output = 'data-uri';
+  // Chrome renders <img> SVG without script execution; DOCX/EPUB drop SVG
+  resolvedImageOptions.allowSvg = true;
   try {
     sanitized = await resolveExportImages(sanitized, resolvedImageOptions);
   } catch (e) {
-    sanitized = sanitized.replace(/<img\b[^>]*>/gi, '');
+    sanitized = sanitized.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, '');
   }
   let browser = null;
   try {

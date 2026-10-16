@@ -20,6 +20,8 @@ const { convertHtmlToDocxBuffer, htmlToPdfBuffer } = require('../../lib/convertU
 const {
   resolveExportImages,
   resolveExportImageToFileUrl,
+  finalizeExportHtml,
+  createExportImageBudget,
 } = require('../../lib/exportImageResolver.js')
 const os = require('os')
 const EPUB = require('epub-gen-memory')
@@ -689,25 +691,46 @@ function removeEpubImageTempDir(dir) {
   catch (e) {}
 }
 
-async function resolveEpubImages(html, site, tempDir) {
-  try {
-    return await resolveExportImages(
-      html,
-      Object.assign(buildExportImageOptions(site, null), { output: 'file', tempDir: tempDir }),
-    )
-  }
-  catch (e) {
-    return String(html || '').replace(/<img\b[^>]*>/gi, '')
+// One image context per EPUB build: shared temp dir and a single per-export
+// byte budget across every chapter and the cover.
+function createEpubImageContext() {
+  return {
+    tempDir: createEpubImageTempDir(),
+    budget: createExportImageBudget(),
   }
 }
 
-async function resolveEpubCover(cover, site, tempDir) {
+async function resolveEpubImages(html, site, imageContext) {
+  let resolved = ''
+  try {
+    resolved = await resolveExportImages(
+      html,
+      Object.assign(buildExportImageOptions(site, null), {
+        output: 'file',
+        tempDir: imageContext.tempDir,
+        budget: imageContext.budget,
+        allowSvg: false,
+      }),
+    )
+  }
+  catch (e) {
+    resolved = String(html || '').replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, '')
+  }
+  // fail-closed final pass with epub-gen-memory's own htmlparser2 build
+  return finalizeExportHtml(resolved, { consumer: 'epub', tempDir: imageContext.tempDir })
+}
+
+async function resolveEpubCover(cover, site, imageContext) {
   if (!cover) {
     return ''
   }
   return await resolveExportImageToFileUrl(
     cover,
-    Object.assign(buildExportImageOptions(site, null), { tempDir: tempDir }),
+    Object.assign(buildExportImageOptions(site, null), {
+      tempDir: imageContext.tempDir,
+      budget: imageContext.budget,
+      allowSvg: false,
+    }),
   )
 }
 
@@ -780,7 +803,7 @@ async function buildSiteExportEpubBuffer(site, basePath = '/', ancestor) {
       ? String(site.manifest.metadata.site.logo)
       : ''
 
-  const imageTempDir = createEpubImageTempDir()
+  const imageContext = createEpubImageContext()
   try {
     const content = []
     for (let i = 0; i < itemsToExport.length; i++) {
@@ -792,7 +815,7 @@ async function buildSiteExportEpubBuffer(site, basePath = '/', ancestor) {
       let itemContent = await getItemContent(site, item)
       if (itemContent) {
         itemContent = processHtmlForEpub(itemContent, basePath, itemsToExport)
-        itemContent = await resolveEpubImages(itemContent, site, imageTempDir)
+        itemContent = await resolveEpubImages(itemContent, site, imageContext)
       }
       content.push({
         title: itemTitle,
@@ -806,7 +829,7 @@ async function buildSiteExportEpubBuffer(site, basePath = '/', ancestor) {
       author: author,
       publisher: 'HAX The Web',
       description: description,
-      cover: await resolveEpubCover(cover, site, imageTempDir),
+      cover: await resolveEpubCover(cover, site, imageContext),
       tocTitle: 'Table of Contents',
       css: EPUB_EXPORT_CSS,
       date: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.updated ? new Date(site.manifest.metadata.site.updated * 1000).toISOString() : new Date().toISOString(),
@@ -819,18 +842,18 @@ async function buildSiteExportEpubBuffer(site, basePath = '/', ancestor) {
     return await epubGenerator(options, content)
   }
   finally {
-    removeEpubImageTempDir(imageTempDir)
+    removeEpubImageTempDir(imageContext.tempDir)
   }
 }
 
 async function buildItemExportEpubBuffer(site, item, basePath = '/') {
-  const imageTempDir = createEpubImageTempDir()
+  const imageContext = createEpubImageContext()
   try {
     const itemTitle = buildItemExportDocumentTitle(item)
     let itemContent = await getItemContent(site, item)
     if (itemContent) {
       itemContent = processHtmlForEpub(itemContent, basePath, getOrderedItems(site))
-      itemContent = await resolveEpubImages(itemContent, site, imageTempDir)
+      itemContent = await resolveEpubImages(itemContent, site, imageContext)
     }
 
     const author =
@@ -867,7 +890,7 @@ async function buildItemExportEpubBuffer(site, item, basePath = '/') {
       author: author,
       publisher: 'HAX The Web',
       description: description,
-      cover: await resolveEpubCover(cover, site, imageTempDir),
+      cover: await resolveEpubCover(cover, site, imageContext),
       tocTitle: 'Table of Contents',
       css: EPUB_EXPORT_CSS,
       date: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.updated ? new Date(site.manifest.metadata.site.updated * 1000).toISOString() : new Date().toISOString(),
@@ -880,7 +903,7 @@ async function buildItemExportEpubBuffer(site, item, basePath = '/') {
     return await epubGenerator(options, content)
   }
   finally {
-    removeEpubImageTempDir(imageTempDir)
+    removeEpubImageTempDir(imageContext.tempDir)
   }
 }
 

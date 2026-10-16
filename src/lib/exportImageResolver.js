@@ -12,7 +12,8 @@
  *
  * resolveExportImages() rewrites every <img> BEFORE the HTML reaches an
  * export library so the library never fetches anything itself:
- *   - data:image/(png|jpeg|gif|webp|bmp|svg+xml);base64 -> kept (re-validated)
+ *   - data:image/(png|jpeg|gif|webp|bmp);base64 -> kept (re-validated; svg+xml
+ *       only when allowSvg, i.e. for the PDF renderer)
  *   - relative / site paths (and absolute URLs on the site's own origin)
  *       -> resolved to a regular file inside the site directory (port of PHP
  *          ExportConverters::resolveLocalImageFile: NUL and '..' rejected,
@@ -22,8 +23,19 @@
  *       guard + pinned IP + byte cap + timeout) and embedded; dropped on any
  *       failure
  *   - any other scheme -> dropped
- * Only bytes whose magic number is an allowlisted image type are embedded.
- * srcset/sizes are removed (the libraries would otherwise fetch them).
+ * Only bytes whose magic number is an allowlisted image type are embedded
+ * (png/jpeg/gif/webp/bmp; svg only for the PDF renderer). srcset/sizes are
+ * removed and <img> keeps only src/alt/width/height/title.
+ *
+ * Parsing uses htmlparser2 — the tokenizer html-to-docx (via html-to-vdom)
+ * and epub-gen-memory use — so markup such as <img/src=...> or <IMG SRC=...>
+ * is seen as an image exactly as the consumers see it. finalizeExportHtml()
+ * then re-parses the serialised result with each consumer's OWN htmlparser2
+ * build immediately before the hand-off and fails closed (plus a regex
+ * backstop on the final string).
+ *
+ * A per-export budget (default 50 MB, HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES)
+ * bounds the total embedded bytes; images past the budget are dropped.
  *
  * Output is a data: URI (DOCX, PDF) or a file:// URL to a copy written in a
  * caller-owned temp directory (EPUB: epub-gen-memory derives the media type
@@ -34,14 +46,54 @@ const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { parse } = require('node-html-parser');
+const htmlparser2 = require('htmlparser2');
+const renderDom = require('dom-serializer').default;
 const safeFetchLib = require('./safeFetch.js');
 
 const EXPORT_IMAGE_FETCH_TIMEOUT_MS = 8000;
 const EXPORT_IMAGE_CONCURRENCY = 8;
-// Node-side guard on the total bytes embedded into a single export document so
-// a page with hundreds of large images cannot exhaust memory.
-const EXPORT_IMAGE_MAX_TOTAL_BYTES = 100 * 1024 * 1024;
+// Per-export budget on the total bytes embedded (all chapters of an EPUB
+// share one budget). Parity with PHP: 50 MB default. Override with
+// HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES (same style as the safeFetch cap).
+const EXPORT_IMAGE_DEFAULT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
+const EXPORT_IMAGE_MAX_TOTAL_BYTES = EXPORT_IMAGE_DEFAULT_MAX_TOTAL_BYTES;
+
+function getExportImageMaxTotalBytes() {
+  var fromEnv = parseInt(process.env.HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES || '', 10);
+  if (!isNaN(fromEnv) && fromEnv > 0) {
+    return fromEnv;
+  }
+  return EXPORT_IMAGE_DEFAULT_MAX_TOTAL_BYTES;
+}
+
+/**
+ * Create a byte budget shared by every resolveExportImages /
+ * resolveExportImageToFileUrl call of one export.
+ */
+function createExportImageBudget(maxTotalBytes) {
+  var total = typeof maxTotalBytes === 'number' && maxTotalBytes > 0
+    ? maxTotalBytes
+    : getExportImageMaxTotalBytes();
+  return { remaining: total, total: total };
+}
+
+function takeFromBudget(budget, size) {
+  if (!budget || size > budget.remaining) {
+    return false;
+  }
+  budget.remaining -= size;
+  return true;
+}
+
+// raster types every consumer may embed (PHP parity drops svg for docx/epub)
+const RASTER_IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp'];
+
+function isEmbeddableMime(mime, options) {
+  if (RASTER_IMAGE_MIMES.indexOf(mime) !== -1) {
+    return true;
+  }
+  return mime === 'image/svg+xml' && !!(options && options.allowSvg);
+}
 
 const ALLOWED_IMAGE_MIME_EXTENSIONS = {
   'image/png': 'png',
@@ -268,7 +320,7 @@ async function resolveExportImageSource(src, options) {
   try {
     if (classified.kind === 'data') {
       var data = parseImageDataUri(classified.value);
-      if (!data || data.buffer.length > maxBytes) {
+      if (!data || data.buffer.length > maxBytes || !isEmbeddableMime(data.mime, opts)) {
         return null;
       }
       return data;
@@ -284,7 +336,7 @@ async function resolveExportImageSource(src, options) {
       }
       var localBuffer = fs.readFileSync(filePath);
       var localMime = sniffImageMime(localBuffer);
-      return localMime ? { buffer: localBuffer, mime: localMime } : null;
+      return localMime && isEmbeddableMime(localMime, opts) ? { buffer: localBuffer, mime: localMime } : null;
     }
     if (classified.kind === 'remote') {
       var response = await safeFetchLib.safeFetch(classified.value, {
@@ -297,7 +349,7 @@ async function resolveExportImageSource(src, options) {
       }
       var remoteBuffer = Buffer.from(await response.arrayBuffer());
       var remoteMime = sniffImageMime(remoteBuffer);
-      return remoteMime ? { buffer: remoteBuffer, mime: remoteMime } : null;
+      return remoteMime && isEmbeddableMime(remoteMime, opts) ? { buffer: remoteBuffer, mime: remoteMime } : null;
     }
   }
   catch (e) {
@@ -341,6 +393,42 @@ async function mapWithConcurrency(items, limit, fn) {
   await Promise.all(workers);
 }
 
+// attributes an <img> may keep after the rewrite (anything else could carry a
+// URL a consumer might fetch, e.g. lowsrc, dynsrc, longdesc, data-src)
+const IMG_KEEP_ATTRIBUTES = ['alt', 'width', 'height', 'title'];
+
+function findElements(nodes, predicate) {
+  return htmlparser2.DomUtils.findAll(predicate, nodes);
+}
+
+// attribute values kept on <img> are reduced to plain text without the
+// characters that could end a quoted attribute or a tag in any serializer
+function cleanKeptAttributeValue(value) {
+  return String(value).replace(/[<>"\u0000-\u001f]/g, ' ');
+}
+
+/**
+ * Remove a node from its tree. htmlparser2 3.x (html-to-vdom) leaves
+ * top-level nodes with parent === null, where DomUtils.removeElement only
+ * unlinks siblings; splice those out of the root array instead.
+ */
+function removeNode(node, rootNodes) {
+  var siblings = node.parent && node.parent.children ? node.parent.children : rootNodes;
+  if (node.prev) {
+    node.prev.next = node.next;
+  }
+  if (node.next) {
+    node.next.prev = node.prev;
+  }
+  var index = siblings ? siblings.indexOf(node) : -1;
+  if (index !== -1) {
+    siblings.splice(index, 1);
+  }
+  node.parent = null;
+  node.prev = null;
+  node.next = null;
+}
+
 /**
  * Rewrite every <img> in html as described in the module comment.
  *
@@ -352,8 +440,11 @@ async function mapWithConcurrency(items, limit, fn) {
  *                  URL and fetch them through safeFetch (system convert routes)
  *   output         'data-uri' (default) or 'file' (requires tempDir)
  *   tempDir        directory for output 'file'
+ *   allowSvg       also embed image/svg+xml (PDF only)
  *   maxBytes       per-image cap (default safeFetch 20 MB)
- *   maxTotalBytes  per-document cap (default 100 MB); later images dropped
+ *   budget         shared per-export budget (createExportImageBudget); when
+ *                  omitted a fresh one is created from maxTotalBytes
+ *   maxTotalBytes  budget size when no budget is passed (default 50 MB)
  */
 async function resolveExportImages(html, options) {
   if (!html) {
@@ -364,38 +455,40 @@ async function resolveExportImages(html, options) {
   if (!opts.realSiteDir) {
     opts.siteDir = null;
   }
-  var maxTotalBytes = typeof opts.maxTotalBytes === 'number' && opts.maxTotalBytes > 0
-    ? opts.maxTotalBytes
-    : EXPORT_IMAGE_MAX_TOTAL_BYTES;
-  var htmlString = String(html);
-  var trimmed = htmlString.trim().toLowerCase();
-  var isFullDocument = trimmed.startsWith('<!doctype') || trimmed.startsWith('<html');
+  var budget = opts.budget || createExportImageBudget(opts.maxTotalBytes);
   var doc;
   try {
-    doc = isFullDocument
-      ? parse(htmlString)
-      : parse('<div id="haxcms-export-image-wrapper">' + htmlString + '</div>');
+    // default options = what epub-gen-memory uses; html-to-vdom only differs
+    // in keeping attribute-name case, which this pass normalises away
+    doc = htmlparser2.parseDocument(String(html));
   }
   catch (e) {
     // fail closed: if we cannot rewrite images, strip every <img> tag
-    return htmlString.replace(/<img\b[^>]*>/gi, '');
+    return String(html).replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, '');
   }
   // srcset / sizes would let the library (or Chrome) fetch other candidates
-  var withSrcset = doc.querySelectorAll('[srcset]');
-  for (var s = 0; s < withSrcset.length; s++) {
-    withSrcset[s].removeAttribute('srcset');
-    withSrcset[s].removeAttribute('sizes');
+  var all = findElements(doc.children, function () { return true; });
+  for (var a = 0; a < all.length; a++) {
+    var attribs = all[a].attribs || {};
+    var names = Object.keys(attribs);
+    for (var n = 0; n < names.length; n++) {
+      var lower = names[n].toLowerCase();
+      if (lower === 'srcset' || lower === 'sizes') {
+        delete attribs[names[n]];
+      }
+    }
   }
-  var images = doc.querySelectorAll('img');
-  var totalBytes = 0;
+  var images = findElements(doc.children, function (el) {
+    return String(el.name || '').toLowerCase() === 'img';
+  });
   var counter = 0;
   await mapWithConcurrency(images, EXPORT_IMAGE_CONCURRENCY, async function (img) {
-    var resolved = await resolveExportImageSource(img.getAttribute('src'), opts);
-    if (!resolved || totalBytes + resolved.buffer.length > maxTotalBytes) {
-      img.remove();
+    var src = img.attribs && Object.prototype.hasOwnProperty.call(img.attribs, 'src') ? img.attribs.src : '';
+    var resolved = await resolveExportImageSource(src, opts);
+    if (!resolved || !takeFromBudget(budget, resolved.buffer.length)) {
+      removeNode(img, doc.children);
       return;
     }
-    totalBytes += resolved.buffer.length;
     counter += 1;
     var newSrc = '';
     try {
@@ -405,21 +498,26 @@ async function resolveExportImages(html, options) {
       newSrc = '';
     }
     if (!newSrc) {
-      img.remove();
+      removeNode(img, doc.children);
       return;
     }
-    img.setAttribute('src', newSrc);
+    var kept = { src: newSrc };
+    for (var k = 0; k < IMG_KEEP_ATTRIBUTES.length; k++) {
+      var keepName = IMG_KEEP_ATTRIBUTES[k];
+      if (img.attribs && typeof img.attribs[keepName] === 'string') {
+        kept[keepName] = cleanKeptAttributeValue(img.attribs[keepName]);
+      }
+    }
+    img.attribs = kept;
   });
-  if (isFullDocument) {
-    return doc.toString();
-  }
-  var wrapper = doc.querySelector('#haxcms-export-image-wrapper');
-  return wrapper ? wrapper.innerHTML : '';
+  // emptyAttrs: alt="" stays alt="" (the final pass expects name="value")
+  return renderDom(doc, { emptyAttrs: true });
 }
 
 /**
  * Resolve a single image reference (e.g. the EPUB cover) to a file:// URL in
- * tempDir, or '' when it cannot be resolved safely.
+ * tempDir, or '' when it cannot be resolved safely. Counts against
+ * options.budget when given.
  */
 async function resolveExportImageToFileUrl(src, options) {
   var opts = Object.assign({}, options || {}, { output: 'file' });
@@ -427,8 +525,9 @@ async function resolveExportImageToFileUrl(src, options) {
   if (!opts.realSiteDir) {
     opts.siteDir = null;
   }
+  var budget = opts.budget || createExportImageBudget(opts.maxTotalBytes);
   var resolved = await resolveExportImageSource(src, opts);
-  if (!resolved) {
+  if (!resolved || !takeFromBudget(budget, resolved.buffer.length)) {
     return '';
   }
   try {
@@ -437,6 +536,156 @@ async function resolveExportImageToFileUrl(src, options) {
   catch (e) {
     return '';
   }
+}
+
+// --- final fail-closed pass -------------------------------------------------
+
+// Each consumer's own htmlparser2 build, resolved from the consumer's
+// location so the guard tokenises exactly as the library will.
+function loadConsumerParser(consumer) {
+  // html-to-vdom is resolved the way html-to-docx itself resolves it
+  var anchor = consumer === 'docx'
+    ? require.resolve('html-to-vdom/lib/parse-html.js', { paths: [path.dirname(require.resolve('html-to-docx'))] })
+    : require.resolve('epub-gen-memory');
+  var parserPath = require.resolve('htmlparser2', { paths: [path.dirname(anchor)] });
+  return require(parserPath);
+}
+
+function parseLikeConsumer(consumer, html) {
+  var lib = loadConsumerParser(consumer);
+  if (consumer === 'docx') {
+    // html-to-vdom/lib/parse-html.js (htmlparser2 3.x)
+    var handler = new lib.DomHandler();
+    var parser = new lib.Parser(handler, { lowerCaseAttributeNames: false });
+    parser.parseComplete(html);
+    return {
+      nodes: handler.dom,
+      render: function (nodes) { return lib.DomUtils.getOuterHTML(nodes); },
+      domUtils: lib.DomUtils,
+    };
+  }
+  // epub-gen-memory/dist/lib/util/html-parse.js (htmlparser2 7.x)
+  var doc = lib.parseDocument(html);
+  var serializerPath = require.resolve('dom-serializer', { paths: [path.dirname(require.resolve('epub-gen-memory'))] });
+  var serialize = require(serializerPath).default;
+  return {
+    nodes: doc.children,
+    render: function () { return serialize(doc, { emptyAttrs: true }); },
+    domUtils: lib.DomUtils,
+  };
+}
+
+function isAllowedFinalImageSrc(value, options) {
+  var opts = options || {};
+  var src = String(value || '');
+  var mimes = opts.allowSvg ? RASTER_IMAGE_MIMES.concat(['image/svg+xml']) : RASTER_IMAGE_MIMES;
+  var dataMatch = /^data:(image\/[a-z+]+);base64,[A-Za-z0-9+/=]+$/.exec(src);
+  if (dataMatch) {
+    return mimes.indexOf(dataMatch[1]) !== -1;
+  }
+  if (opts.tempDir && src.indexOf('file://') === 0) {
+    var filePath;
+    try {
+      filePath = require('url').fileURLToPath(src);
+    }
+    catch (e) {
+      return false;
+    }
+    var base = path.basename(filePath);
+    if (!/^export-image-[A-Za-z0-9-]+\.(png|jpg|gif|webp|bmp)$/.test(base)) {
+      return false;
+    }
+    if (path.join(opts.tempDir, base) !== filePath || pathToFileURL(filePath).toString() !== src) {
+      return false;
+    }
+    try {
+      return fs.lstatSync(filePath).isFile();
+    }
+    catch (e) {
+      return false;
+    }
+  }
+  return false;
+}
+
+// tags removed outright before hand-off (they can reference external
+// resources and nothing in an export needs them)
+const FINAL_REMOVE_TAGS = ['image', 'object', 'embed', 'link'];
+
+/**
+ * Security (SEC-SSRF): last pass on the exact string handed to html-to-docx
+ * (consumer 'docx') or epub-gen-memory (consumer 'epub'). Re-parses with that
+ * consumer's own htmlparser2 and removes every <img> whose src (any case of
+ * the attribute name) is not an allowed data: URI or one of our temp files,
+ * every srcset attribute, <image>/<object>/<embed>/<link>/<input type=image>,
+ * and <video poster>. Then a regex backstop removes any remaining
+ * `<img` tag text that is not in the exact canonical shape this pass emits.
+ * Never throws: on any error every <img ...> is stripped.
+ */
+function finalizeExportHtml(html, options) {
+  var opts = options || {};
+  var consumer = opts.consumer === 'docx' ? 'docx' : 'epub';
+  var output;
+  try {
+    var parsed = parseLikeConsumer(consumer, String(html || ''));
+    var DomUtils = parsed.domUtils;
+    var elements = DomUtils.findAll(function () { return true; }, parsed.nodes);
+    for (var i = 0; i < elements.length; i++) {
+      var el = elements[i];
+      var tag = String(el.name || '').toLowerCase();
+      var attribs = el.attribs || {};
+      var names = Object.keys(attribs);
+      var lowerMap = {};
+      for (var n = 0; n < names.length; n++) {
+        var lower = names[n].toLowerCase();
+        if (lower === 'srcset' || (tag === 'video' && lower === 'poster')) {
+          delete attribs[names[n]];
+          continue;
+        }
+        (lowerMap[lower] = lowerMap[lower] || []).push(names[n]);
+      }
+      var isImageInput = tag === 'input' && lowerMap.type &&
+        lowerMap.type.some(function (name) { return String(attribs[name]).trim().toLowerCase() === 'image'; });
+      if (FINAL_REMOVE_TAGS.indexOf(tag) !== -1 || isImageInput) {
+        removeNode(el, parsed.nodes);
+        continue;
+      }
+      if (tag === 'img') {
+        var srcNames = lowerMap.src || [];
+        var ok = srcNames.length === 1 && srcNames[0] === 'src' && isAllowedFinalImageSrc(attribs.src, opts);
+        if (!ok) {
+          removeNode(el, parsed.nodes);
+          continue;
+        }
+        // canonical shape for the regex backstop
+        var canonical = { src: attribs.src };
+        for (var k = 0; k < IMG_KEEP_ATTRIBUTES.length; k++) {
+          var keepName = IMG_KEEP_ATTRIBUTES[k];
+          // empty values are dropped: some serializers (dom-serializer 0.2,
+          // used by html-to-vdom's htmlparser2) emit them as bare names
+          if (typeof attribs[keepName] === 'string' && attribs[keepName] !== '') {
+            canonical[keepName] = cleanKeptAttributeValue(attribs[keepName]);
+          }
+        }
+        el.attribs = canonical;
+      }
+    }
+    output = parsed.render(parsed.nodes);
+  }
+  catch (e) {
+    return String(html || '').replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, '');
+  }
+  // Regex backstop: any "<img" that starts a tag (case-insensitive, followed
+  // by a non-name character such as whitespace, '/', '>' or end of input) must
+  // be exactly <img src="ALLOWED"( name="value")*> or it is removed.
+  return output.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, function (tagText) {
+    var m = /^<img src="([^"<>]*)"((?: (?:alt|width|height|title)="[^"<>]*")*)\s*\/?>$/.exec(tagText);
+    if (!m) {
+      return '';
+    }
+    var src = m[1].replace(/&amp;/g, '&');
+    return isAllowedFinalImageSrc(src, opts) ? tagText : '';
+  });
 }
 
 /**
@@ -476,6 +725,9 @@ async function installPdfRequestFilter(page) {
 
 module.exports = {
   resolveExportImages,
+  finalizeExportHtml,
+  createExportImageBudget,
+  isAllowedFinalImageSrc,
   resolveExportImageSource,
   resolveExportImageToFileUrl,
   resolveLocalImageFile,
@@ -484,4 +736,5 @@ module.exports = {
   isAllowedPdfRequestUrl,
   installPdfRequestFilter,
   EXPORT_IMAGE_MAX_TOTAL_BYTES,
+  EXPORT_IMAGE_DEFAULT_MAX_TOTAL_BYTES,
 };

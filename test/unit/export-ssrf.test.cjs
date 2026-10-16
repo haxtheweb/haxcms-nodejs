@@ -33,6 +33,9 @@ const {
 } = require('../../src/lib/safeFetch.js')
 const {
   resolveExportImages,
+  finalizeExportHtml,
+  createExportImageBudget,
+  EXPORT_IMAGE_DEFAULT_MAX_TOTAL_BYTES,
   resolveLocalImageFile,
   classifyImageSource,
   sniffImageMime,
@@ -643,6 +646,188 @@ describe('EPUB export image handling', () => {
     assert.ok(allChapters.indexOf('127.0.0.1') === -1)
     assert.ok(allChapters.indexOf('file://') === -1)
     assert.ok(allChapters.indexOf('/etc/passwd') === -1)
+  })
+})
+
+// --- parser-differential bypasses (coordinator review) ----------------------
+// node-html-parser did not see <img/src=...> as an image, while html-to-docx
+// (html-to-vdom -> htmlparser2 3.x) and epub-gen-memory (htmlparser2 7.x) do
+// and fetched it. Every variant below must cause zero requests.
+
+function bypassVariants(port) {
+  const u = (name) => 'http://127.0.0.1:' + port + '/' + name + '.png'
+  return [
+    { name: 'slash separator', html: '<p>x</p><p><img/src="' + u('slash') + '"></p>' },
+    { name: 'upper case', html: '<p>x</p><IMG SRC="' + u('upper') + '">' },
+    { name: 'mixed case attr', html: '<p>x</p><iMg sRc="' + u('mixed') + '">' },
+    { name: 'newline separator', html: '<p>x</p><img\nsrc="' + u('newline') + '">' },
+    { name: 'tab + unquoted', html: '<p>x</p><img\tsrc=' + u('tab') + '>' },
+    { name: 'unclosed at end', html: '<p>x</p><img src="' + u('unclosed') + '" /' },
+    { name: 'unclosed no slash', html: '<p>x</p><img src="' + u('unclosed2') + '"' },
+    { name: 'entity attr name 1', html: '<p>x</p><img &#115;rc="' + u('ent1') + '">' },
+    { name: 'entity attr name 2', html: '<p>x</p><img s&#114;c="' + u('ent2') + '">' },
+    { name: 'duplicate src', html: '<p>x</p><img src="data:image/png;base64,' + PNG_1X1.toString('base64') + '" src="' + u('dup') + '" SRC="' + u('dup2') + '">' },
+    { name: 'srcset only', html: '<p>x</p><img srcset="' + u('srcset') + ' 1x">' },
+    { name: 'svg image', html: '<p>x</p><svg><image href="' + u('svgimage') + '"/></svg>' },
+    { name: 'input image', html: '<p>x</p><input type="image" src="' + u('input') + '">' },
+    { name: 'video poster', html: '<p>x</p><video poster="' + u('poster') + '"></video>' },
+    { name: 'object/embed/link', html: '<p>x</p><object data="' + u('obj') + '"></object><embed src="' + u('embed') + '"><link rel="stylesheet" href="' + u('link') + '">' },
+    { name: 'img inside table', html: '<table><tr><td><img/src="' + u('table') + '"></td></tr></table>' },
+  ]
+}
+
+function makeEpubSite(siteDir, pages, logo) {
+  const items = pages.map((html, i) => ({
+    id: 'item-' + i, title: 'Page ' + i, slug: 'page-' + i, parent: null, indent: 0, order: i,
+    location: 'pages/item-' + i + '/index.html', metadata: { published: true },
+  }))
+  return {
+    siteDirectory: siteDir,
+    name: 'demo',
+    manifest: {
+      title: 'Demo',
+      metadata: { site: { name: 'demo', logo: logo || '' } },
+      items: items,
+      orderTree() { return items },
+      findBranch() { return items },
+    },
+    loadNode(id) { return items.find((it) => it.id === id) || null },
+    async getPageContent(page) { return pages[Number(page.id.replace('item-', ''))] },
+  }
+}
+
+function exportRes() {
+  return {
+    statusCode: null, headers: {}, sent: null, body: null,
+    status(c) { this.statusCode = c; return this },
+    json(o) { this.body = o; return this },
+    send(v) { this.sent = v; return this },
+    set(n, v) { this.headers[n] = v; return this },
+    setHeader(n, v) { this.headers[n] = v; return this },
+  }
+}
+
+function exportReq(params) {
+  return {
+    headers: { host: 'cms.example.com' },
+    query: {},
+    params: params,
+    body: {},
+    haxcmsSiteApiAuth: { authenticated: true, securityLevel: 'authenticated-site', userName: 'tester', siteName: 'demo' },
+  }
+}
+
+async function epubImageEntries(buffer) {
+  const zip = await JSZip.loadAsync(buffer)
+  return Object.keys(zip.files).filter((n) => /OEBPS\/images\//.test(n) && !zip.files[n].dir)
+}
+
+describe('parser-differential bypasses are closed (DOCX + EPUB)', () => {
+  test('DOCX: every variant causes zero requests', async (t) => {
+    const srv = await startServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'image/png' })
+      res.end(PNG_1X1)
+    })
+    t.after(srv.close)
+    for (const variant of bypassVariants(srv.port)) {
+      const docx = await convertHtmlToDocxBuffer(variant.html)
+      assert.ok(docx && docx.length > 0, variant.name)
+      assert.deepEqual(srv.hits, [], variant.name)
+    }
+  })
+
+  test('EPUB: every variant causes zero requests', async (t) => {
+    const { siteDir } = makeSiteFixture(t)
+    const srv = await startServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'image/png' })
+      res.end(PNG_1X1)
+    })
+    t.after(srv.close)
+    const { HAXCMS } = require('../../src/lib/HAXCMS.js')
+    const { itemExport } = require('../../src/siteRoutes/v1/exports.js')
+    for (const variant of bypassVariants(srv.port)) {
+      const site = makeEpubSite(siteDir, [variant.html])
+      const loadSite = t.mock.method(HAXCMS, 'loadSite', async () => site)
+      const res = exportRes()
+      await itemExport(exportReq({ idOrSlug: 'page-0', format: 'epub' }), res)
+      loadSite.mock.restore()
+      assert.equal(res.statusCode, 200, variant.name + ' ' + JSON.stringify(res.body))
+      assert.deepEqual(srv.hits, [], variant.name)
+    }
+  })
+
+  test('finalizeExportHtml strips disallowed images for both consumer parsers', () => {
+    const good = 'data:image/png;base64,' + PNG_1X1.toString('base64')
+    const svg = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')
+    for (const consumer of ['docx', 'epub']) {
+      for (const variant of bypassVariants(1)) {
+        const out = finalizeExportHtml(variant.html, { consumer })
+        assert.ok(out.indexOf('127.0.0.1') === -1, consumer + ' ' + variant.name + ': ' + out)
+      }
+      const kept = finalizeExportHtml('<p><img src="' + good + '" alt="a&quot;>b"></p>', { consumer })
+      assert.ok(kept.indexOf(good) !== -1, consumer + ' keeps valid data image: ' + kept)
+      const keptEmptyAlt = finalizeExportHtml('<img src="' + good + '" alt="">', { consumer })
+      assert.ok(keptEmptyAlt.indexOf(good) !== -1, consumer + ' keeps image with empty alt: ' + keptEmptyAlt)
+      assert.ok(finalizeExportHtml('<img src="' + svg + '">', { consumer }).indexOf('<img') === -1, consumer + ' drops svg')
+      assert.ok(finalizeExportHtml('<img src="file:///etc/passwd">', { consumer, tempDir: os.tmpdir() }).indexOf('<img') === -1)
+    }
+  })
+
+  test('svg is not embedded for DOCX/EPUB but is for PDF', async () => {
+    const svgUri = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64')
+    assert.equal(imgSrcs(await resolveExportImages('<img src="' + svgUri + '">', {})).length, 0)
+    assert.equal(imgSrcs(await resolveExportImages('<img src="' + svgUri + '">', { allowSvg: true })).length, 1)
+  })
+})
+
+describe('per-export image byte budget', () => {
+  test('default budget is 50 MB and can be overridden by env', () => {
+    assert.equal(EXPORT_IMAGE_DEFAULT_MAX_TOTAL_BYTES, 50 * 1024 * 1024)
+    assert.equal(createExportImageBudget().total, 50 * 1024 * 1024)
+    const prev = process.env.HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES
+    process.env.HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES = '1234'
+    try {
+      assert.equal(createExportImageBudget().total, 1234)
+    }
+    finally {
+      if (prev === undefined) { delete process.env.HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES } else { process.env.HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES = prev }
+    }
+  })
+
+  test('a shared budget spans several resolve calls', async (t) => {
+    const { siteDir } = makeSiteFixture(t)
+    const budget = createExportImageBudget(PNG_1X1.length * 2)
+    const first = await resolveExportImages('<img src="files/pic.png">', { siteDir, budget })
+    const second = await resolveExportImages('<img src="files/pic.png">', { siteDir, budget })
+    const third = await resolveExportImages('<img src="files/pic.png">', { siteDir, budget })
+    assert.equal(imgSrcs(first).length, 1)
+    assert.equal(imgSrcs(second).length, 1)
+    assert.equal(imgSrcs(third).length, 0)
+  })
+
+  test('EPUB site export applies one budget across all chapters', async (t) => {
+    const { siteDir } = makeSiteFixture(t)
+    const prev = process.env.HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES
+    process.env.HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES = String(PNG_1X1.length * 2)
+    t.after(() => {
+      if (prev === undefined) { delete process.env.HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES } else { process.env.HAXCMS_EXPORT_IMAGE_MAX_TOTAL_BYTES = prev }
+    })
+    const { HAXCMS } = require('../../src/lib/HAXCMS.js')
+    const { siteExport } = require('../../src/siteRoutes/v1/exports.js')
+    // three chapters, one image each: only two fit in the per-export budget
+    const site = makeEpubSite(siteDir, [
+      '<p>one</p><img src="files/pic.png">',
+      '<p>two</p><img src="files/pic.png">',
+      '<p>three</p><img src="files/pic.png">',
+    ])
+    t.mock.method(HAXCMS, 'loadSite', async () => site)
+    const res = exportRes()
+    await siteExport(exportReq({ format: 'epub' }), res)
+    assert.equal(res.statusCode, 200, JSON.stringify(res.body))
+    const zip = await JSZip.loadAsync(res.sent)
+    const chapters = Object.keys(zip.files).filter((n) => /page-\d\.xhtml$/.test(n))
+    assert.equal(chapters.length, 3)
+    assert.equal((await epubImageEntries(res.sent)).length, 2)
   })
 })
 
