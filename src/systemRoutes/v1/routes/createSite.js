@@ -943,7 +943,9 @@ async function createSite(req, res) {
       git.setDir(site.siteDirectory);
       await git.init();
       await git.add();
-      await git.commit('A new journey begins: ' + site.manifest.title + ' (' + site.manifest.id + ')');
+      // Security (review 2026-10): the title is user input; sanitize it like
+      // HAXCMSSite.gitCommit() (GitPlus.commit also passes -m as one argv).
+      await git.commit(site.sanitizeGitCommitMessage('A new journey begins: ' + site.manifest.title + ' (' + site.manifest.id + ')', 'A new journey begins'));
       // make a branch but dont use it
       if (configuredStaticBranch) {
         await git.createBranch(configuredStaticBranch);
