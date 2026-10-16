@@ -1000,6 +1000,37 @@ test('rebuildManagedFiles re-renders the managed template set', async () => {
   assert.ok(indexHtml.indexOf('<') !== -1)
 })
 
+// Security (PR8-6): a malicious site title/description must not break the
+// managed JSON/XML files or inject keys/elements.
+test('rebuildManagedFiles keeps manifest.json / package.json / imsmanifest.xml well-formed with a malicious title', async () => {
+  const site = await HAXCMS.createSite('unit-twig-evil')
+  site.manifest.title = 'Evil "title", "injected": "yes\n\r\tline2 \\ \u0001\u007f <b>&</b>'
+  site.manifest.description = 'Desc "}, "pwn": {"a": "\nnext\\"line'
+  await site.rebuildManagedFiles()
+  const manifest = JSON.parse(fs.readFileSync(path.join(site.siteDirectory, 'manifest.json'), 'utf8'))
+  assert.equal(Object.prototype.hasOwnProperty.call(manifest, 'injected'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(manifest, 'pwn'), false)
+  assert.equal(manifest.name, 'Evil &quot;title&quot;, &quot;injected&quot;: &quot;yes   line2   &lt;b&gt;&amp;&lt;/b&gt;')
+  assert.equal(manifest.description, 'Desc &quot;}, &quot;pwn&quot;: {&quot;a&quot;: &quot; next&quot;line')
+  const pkg = JSON.parse(fs.readFileSync(path.join(site.siteDirectory, 'package.json'), 'utf8'))
+  assert.equal(Object.prototype.hasOwnProperty.call(pkg, 'pwn'), false)
+  assert.equal(pkg.description, manifest.description)
+  const ims = fs.readFileSync(path.join(site.siteDirectory, 'imsmanifest.xml'), 'utf8')
+  assert.equal(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(ims), false, 'no XML-illegal control chars')
+  assert.ok(ims.indexOf('<b>') === -1, 'title markup is escaped in imsmanifest.xml')
+  assert.ok(ims.indexOf('&lt;b&gt;') !== -1)
+})
+
+test('sanitizeManagedTemplateText follows the PHP parity rule', () => {
+  const { sanitizeManagedTemplateText } = require('../../src/lib/HAXCMS.js')
+  assert.equal(sanitizeManagedTemplateText('a\r\nb\tc'), 'a  b c')
+  assert.equal(sanitizeManagedTemplateText('x\u0000\u0001\u001f\u007fy'), 'xy')
+  assert.equal(sanitizeManagedTemplateText('back\\slash\\'), 'backslash')
+  assert.equal(sanitizeManagedTemplateText('keep "quotes" & <tags> é ☃'), 'keep "quotes" & <tags> é ☃')
+  assert.equal(sanitizeManagedTemplateText(undefined), undefined)
+  assert.equal(sanitizeManagedTemplateText(null), null)
+})
+
 test('maybeUpgradeLegacyBootstrap rebuilds managed files when a legacy bootstrap is detected', async () => {
   const legacy = await HAXCMS.createSite('unit-legacy')
   fs.writeFileSync(

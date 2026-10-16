@@ -199,6 +199,27 @@ function isSafeGitRemoteUrl(url) {
   }
   return true;
 }
+/**
+ * Security (PR8-6): managed templates that embed the site title/description
+ * inside JSON / XML string values. They are rendered with Twig html
+ * autoescape (PHP Twig's default) so `"`, `<`, `&` cannot break out of the
+ * value or inject keys/elements.
+ */
+const MANAGED_AUTOESCAPE_TEMPLATES = ['manifest.json', 'package.json', 'imsmanifest.xml', 'llms.txt'];
+/**
+ * Security (PR8-6) parity contract with PHP (PR2): before rendering managed
+ * JSON/XML, title/description have CR, LF and TAB replaced by a space and every
+ * other control character (U+0000-U+001F, U+007F) and every backslash
+ * dropped. html autoescape does not touch these, and a raw newline or `\`
+ * inside a JSON string makes manifest.json / package.json unparseable.
+ * Non-string values are returned unchanged.
+ */
+function sanitizeManagedTemplateText(value) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  return value.replace(/[\r\n\t]/g, ' ').replace(/[\x00-\x1f\x7f\\]/g, '');
+}
 // a site object
 class HAXCMSSite
 {
@@ -759,10 +780,11 @@ class HAXCMSSite
           'basePath' :
               this.getPWAScopePath(),
           'domain': domain,
-          'title': this.manifest.title,
+          // Security (PR8-6): see sanitizeManagedTemplateText
+          'title': sanitizeManagedTemplateText(this.manifest.title),
           'short': this.manifest.metadata.site.name,
           'privateSite' : (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.private) ? this.manifest.metadata.site.settings.private : false,
-          'description': this.manifest.description,
+          'description': sanitizeManagedTemplateText(this.manifest.description),
           'forceUpgrade': this.getForceUpgrade(),
           'swhash': [],
           'ghPagesURLParamCount': 0,
@@ -874,7 +896,13 @@ class HAXCMSSite
             try {
               let fileData = await fs.readFileSync(this.siteDirectory + '/' + templates[key],
                 {encoding:'utf8', flag:'r'}, 'utf8');
-              let template = await Twig.twig({data: fileData, async: false});
+              // Security (PR8-6): html autoescape for the managed JSON/XML/llms
+              // templates that embed title/description (PHP Twig parity).
+              let template = await Twig.twig({
+                data: fileData,
+                async: false,
+                autoescape: MANAGED_AUTOESCAPE_TEMPLATES.indexOf(templates[key]) !== -1 ? 'html' : false,
+              });
               let templatedHTML = template.render(templateVars);
               await fs.writeFileSync(this.siteDirectory + '/' + templates[key], templatedHTML);           
             }
@@ -5469,4 +5497,4 @@ async function systemStructureContext(dir = null) {
   return null;
 }
 
-module.exports = { HAXCMS, HAXCMSClass, HAXCMSSite, systemStructureContext, loadConfigJson, sanitizeGitCommitMessage, isSafeGitRemoteUrl, GIT_BRANCH_PATTERN };
+module.exports = { HAXCMS, HAXCMSClass, HAXCMSSite, systemStructureContext, loadConfigJson, sanitizeGitCommitMessage, isSafeGitRemoteUrl, GIT_BRANCH_PATTERN, sanitizeManagedTemplateText, MANAGED_AUTOESCAPE_TEMPLATES };
