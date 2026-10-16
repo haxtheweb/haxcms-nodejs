@@ -237,10 +237,23 @@ class HAXCMSSite
       // siteDirectory set so we can discover this and work with it while it's being built
       this.siteDirectory = path.join(this.directory, tmpname);
       // attempt to shift it on the file system
-      await HAXCMS.recurseCopy(
+      // Security (N1/N5 parity): recurseCopy refuses traversal / escaping
+      // destinations; treat a refusal as a failed site creation (createSite
+      // already returns false when newSite does). The sites directory is the
+      // containment base, so make sure it exists (copySync used to create it
+      // implicitly) unless it is itself a traversal attempt.
+      if (!hasTraversal(directory)) {
+        fs.ensureDirSync(directory);
+      }
+      const copied = await HAXCMS.recurseCopy(
           HAXCMS.boilerplatePath + 'site',
-          directory + '/' + tmpname
+          directory + '/' + tmpname,
+          [],
+          directory
       );
+      if (copied === false) {
+        return false;
+      }
       try {
         // create symlink to make it easier to resolve things to single built asset buckets
         await fs.symlink('../../build', directory + '/' + tmpname + '/build');

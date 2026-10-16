@@ -89,10 +89,20 @@ function replaceWithKnownPrefix(value, sourcePrefixes = [], targetPrefix = '') {
       // ensure the path to the new folder is valid
       // recurseCopy preserves theme/ and custom/ directories automatically,
       // so user-customized files such as theme.css, theme.html, and custom.es6.js are retained
-      await HAXCMS.recurseCopy(
+      // Security (N1/N5 parity): recurseCopy refuses traversal / escaping
+      // destinations; never continue to load/rewrite a clone that wasn't made.
+      const copied = await HAXCMS.recurseCopy(
           HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.name,
-          HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + cloneName
+          HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + cloneName,
+          [],
+          HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory
       );
+      if (copied === false) {
+        return res.status(500).json({
+          status: 500,
+          data: { message: 'Unable to clone site' },
+        });
+      }
       // we need to then load and rewrite the site name var or it will conflict given the name change
       let newSite = await HAXCMS.loadSite(cloneName);
       newSite.manifest.metadata.site.name = cloneName;

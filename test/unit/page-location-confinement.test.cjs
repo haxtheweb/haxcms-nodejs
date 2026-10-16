@@ -369,3 +369,53 @@ test('legitimate page locations still read and write', async (t) => {
   assert.match(await JOSHelpers.siteHTMLContent(null, fx.site), /<p>updated<\/p>/)
   assert.equal(new FeedMe().safeReadItemContent(fx.site, page), '<p>updated</p>')
 })
+
+// --- recurseCopy refusal is handled by site create / clone -----------------
+
+const createSiteRoute = require('../../src/systemRoutes/v1/routes/createSite.js')
+const cloneSiteRoute = require('../../src/systemRoutes/v1/routes/cloneSite.js')
+
+test('newSite: a refused boilerplate copy fails the creation (returns false)', async (t) => {
+  const fx = await makeFixture(t)
+  const before = fx.snapshotOutside()
+  const site = new HAXCMSSite()
+  // a `..` segment in the target directory is refused by recurseCopy
+  const result = await site.newSite(
+    path.join(fx.sitesDir, 'mysite') + '/../../sites',
+    '/',
+    'brandnew',
+  )
+  assert.equal(result, false)
+  assert.equal(fs.existsSync(path.join(fx.sitesDir, 'brandnew')), false)
+  assert.deepEqual(fx.snapshotOutside(), before)
+})
+
+test('newSite: a refused copy makes HAXCMS.createSite return false', async (t) => {
+  t.mock.method(HAXCMS, 'recurseCopy', async () => false)
+  const result = await HAXCMS.createSite('refused-site-' + Date.now())
+  assert.equal(result, false)
+})
+
+test('createSite route: a failed site creation answers 500, not a crash', async (t) => {
+  t.mock.method(HAXCMS, 'loadSite', async () => false)
+  const res = stubRes()
+  await createSiteRoute({ headers: {}, body: { site: { name: 'refused' } } }, res)
+  assert.equal(res.statusCode, 500)
+  assert.deepEqual(res.body, { status: 500, data: { message: 'Unable to create site' } })
+})
+
+test('cloneSite route: a refused copy answers 500 and loads no clone', async (t) => {
+  const source = { name: 'mysite', manifest: { metadata: { site: { name: 'mysite' } } } }
+  let loads = 0
+  t.mock.method(HAXCMS, 'loadSite', async () => {
+    loads++
+    return source
+  })
+  t.mock.method(HAXCMS, 'getUniqueName', () => 'mysite-1')
+  t.mock.method(HAXCMS, 'recurseCopy', async () => false)
+  const res = stubRes()
+  await cloneSiteRoute({ headers: {}, body: { site: { name: 'mysite' } } }, res)
+  assert.equal(res.statusCode, 500)
+  assert.deepEqual(res.body, { status: 500, data: { message: 'Unable to clone site' } })
+  assert.equal(loads, 1)
+})
