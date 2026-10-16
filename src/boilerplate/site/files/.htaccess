@@ -16,3 +16,14 @@ Options -ExecCGI
 <IfModule mod_mime.c>
   RemoveCharset .txt .md .json .yaml .yml .xml
 </IfModule>
+# Security (review 2026-10): uploaded markup must never render inline in the
+# site origin (stored XSS). FilesMatch tests the real on-disk filename, i.e.
+# after URL decoding, so /files/x%2ehtml is covered too. Keep the extension
+# list identical to the root .htaccess, the nginx configs and haxcms-nodejs
+# app.js FORCE_DOWNLOAD_UPLOAD_EXTENSION_PATTERN.
+<IfModule mod_headers.c>
+  <FilesMatch "(?i)\.(html?|xht(ml)?|xml|svg)$">
+    Header always set Content-Disposition "attachment"
+    Header always set X-Content-Type-Options "nosniff"
+  </FilesMatch>
+</IfModule>
