@@ -124,7 +124,7 @@ function legacyRefreshToken(user, iatOffset) {
 // 2. refresh-token revocation truth table
 // ---------------------------------------------------------------------------
 describe('refresh-session store truth table', () => {
-  test('legacy token (no family claim) is accepted and seeded into a new family', (t) => {
+  test('legacy token (no family claim) is accepted and seeded into a new family', async (t) => {
     const storePath = isolateStore(t)
     const decoded = HAXCMS.decodeRefreshToken(legacyRefreshToken(ACTIVE_USER))
     assert.deepEqual(HAXCMS.checkRefreshSession(decoded), { ok: true, reason: 'legacy', legacy: true })
@@ -139,7 +139,7 @@ describe('refresh-session store truth table', () => {
     assert.equal(HAXCMS.checkRefreshSession(rotated).reason, 'current')
   })
 
-  test('legacy token issued before a legacy logout tombstone is rejected', (t) => {
+  test('legacy token issued before a legacy logout tombstone is rejected', async (t) => {
     isolateStore(t)
     const decoded = HAXCMS.decodeRefreshToken(legacyRefreshToken(ACTIVE_USER, -10))
     HAXCMS.revokeRefreshSession(ACTIVE_USER, null)
@@ -148,7 +148,7 @@ describe('refresh-session store truth table', () => {
     assert.equal(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), decoded), null)
   })
 
-  test('family-bearing token with no store entry is rejected (no accept+seed)', (t) => {
+  test('family-bearing token with no store entry is rejected (no accept+seed)', async (t) => {
     const storePath = isolateStore(t)
     const decoded = { user: ACTIVE_USER, family: 'never-recorded', jti: 'j1', iat: 1 }
     assert.equal(HAXCMS.checkRefreshSession(decoded).reason, 'no_entry')
@@ -159,12 +159,12 @@ describe('refresh-session store truth table', () => {
       !readStore(storePath).users[ACTIVE_USER].families['never-recorded'].revoked) : false, false)
   })
 
-  test('family claim without a jti is rejected as invalid', (t) => {
+  test('family claim without a jti is rejected as invalid', async (t) => {
     isolateStore(t)
     assert.equal(HAXCMS.checkRefreshSession({ user: ACTIVE_USER, family: 'f' }).reason, 'invalid')
   })
 
-  test('matching jti rotates; previous jti is honoured within the grace window', (t) => {
+  test('matching jti rotates; previous jti is honoured within the grace window', async (t) => {
     isolateStore(t)
     const first = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken(ACTIVE_USER))
     const res = fakeRes()
@@ -175,7 +175,7 @@ describe('refresh-session store truth table', () => {
     assert.equal(HAXCMS.checkRefreshSession(first).reason, 'previous')
   })
 
-  test('stale jti tombstones the family and every later attempt is rejected', (t) => {
+  test('stale jti tombstones the family and every later attempt is rejected', async (t) => {
     const storePath = isolateStore(t)
     const first = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken(ACTIVE_USER))
     const r1 = fakeRes()
@@ -195,7 +195,7 @@ describe('refresh-session store truth table', () => {
     assert.equal(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), third), null)
   })
 
-  test('logout tombstones only the presented family; other devices stay signed in', (t) => {
+  test('logout tombstones only the presented family; other devices stay signed in', async (t) => {
     isolateStore(t)
     const laptop = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken(ACTIVE_USER))
     const phone = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken(ACTIVE_USER))
@@ -207,7 +207,7 @@ describe('refresh-session store truth table', () => {
     assert.equal(HAXCMS.checkRefreshSession(phone).reason, 'current')
   })
 
-  test('a v1 store file is migrated on load so live sessions survive the upgrade', (t) => {
+  test('a v1 store file is migrated on load so live sessions survive the upgrade', async (t) => {
     const storePath = isolateStore(t)
     const now = Math.floor(Date.now() / 1000)
     fs.mkdirSync(path.dirname(storePath), { recursive: true })
@@ -231,7 +231,7 @@ describe('refresh-session store truth table', () => {
     assert.equal(Object.prototype.hasOwnProperty.call(store.users, '__proto__'), false)
   })
 
-  test('expired live entries and expired tombstones are pruned on write', (t) => {
+  test('expired live entries and expired tombstones are pruned on write', async (t) => {
     const storePath = isolateStore(t)
     const now = Math.floor(Date.now() / 1000)
     HAXCMS._saveRefreshSessions({
@@ -257,14 +257,14 @@ describe('refresh-session store truth table', () => {
     assert.ok(store.users.keeper.families.liveTomb)
   })
 
-  test('tombstones outlive the refresh-token lifetime', (t) => {
+  test('tombstones outlive the refresh-token lifetime', async (t) => {
     const storePath = isolateStore(t)
     HAXCMS.revokeRefreshSession(ACTIVE_USER, 'some-family')
     const tomb = readStore(storePath).users[ACTIVE_USER].families['some-family']
     assert.ok(tomb.exp >= Math.floor(Date.now() / 1000) + 24 * 60 * 60)
   })
 
-  test('an unwritable store falls back to a legacy (no-family) token so login still works', (t) => {
+  test('an unwritable store falls back to a legacy (no-family) token so login still works', async (t) => {
     isolateStore(t)
     t.mock.method(HAXCMS, '_saveRefreshSessions', () => false)
     const decoded = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken(ACTIVE_USER))
@@ -281,38 +281,38 @@ describe('refresh-session store truth table', () => {
 // 2. end-to-end route flows (real login / refresh / logout / connection-test)
 // ---------------------------------------------------------------------------
 describe('route flows with real tokens', () => {
-  test('login -> refresh -> replay of the old cookie revokes the family', (t) => {
+  test('login -> refresh -> replay of the old cookie revokes the family', async (t) => {
     isolateStore(t)
     const login = realLogin(t)
     const r1 = fakeRes()
-    refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, r1)
+    await refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, r1)
     assert.equal(r1.body.status, 200)
     const rotatedCookie = lastCookie(r1)
     // a second rotation moves login.cookie out of the grace slot
     const r2 = fakeRes()
-    refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: rotatedCookie } }, r2)
+    await refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: rotatedCookie } }, r2)
     assert.equal(r2.body.status, 200)
     const latest = lastCookie(r2)
     // attacker replays the original login cookie
     const r3 = fakeRes()
-    refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, r3)
+    await refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, r3)
     assert.equal(r3.statusCode, 401)
     // the legitimate latest cookie is now revoked too
     const r4 = fakeRes()
-    refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: latest } }, r4)
+    await refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: latest } }, r4)
     assert.equal(r4.statusCode, 401)
     assert.equal(lastCookie(r4), '')
   })
 
-  test('logout makes the refresh cookie unusable for refresh and connection-test', (t) => {
+  test('logout makes the refresh cookie unusable for refresh and connection-test', async (t) => {
     isolateStore(t)
     const login = realLogin(t)
     logoutRoute({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, fakeRes())
     const r1 = fakeRes()
-    refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, r1)
+    await refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, r1)
     assert.equal(r1.statusCode, 401)
     const r2 = fakeRes()
-    connectionTest({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, r2)
+    await connectionTest({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, r2)
     assert.equal(r2.body.authenticated, false)
     assert.equal(r2.body.reason, 'no_session')
     // and it no longer authenticates a request
@@ -322,20 +322,20 @@ describe('route flows with real tokens', () => {
     )
   })
 
-  test('logout with a legacy cookie tombstones legacy tokens for that user', (t) => {
+  test('logout with a legacy cookie tombstones legacy tokens for that user', async (t) => {
     isolateStore(t)
     const legacy = legacyRefreshToken(ACTIVE_USER, -5)
     logoutRoute({ headers: {}, cookies: { haxcms_refresh_token: legacy } }, fakeRes())
     const res = fakeRes()
-    refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: legacy } }, res)
+    await refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: legacy } }, res)
     assert.equal(res.statusCode, 401)
   })
 
-  test('connection-test recovers a live session and rotates the cookie', (t) => {
+  test('connection-test recovers a live session and rotates the cookie', async (t) => {
     isolateStore(t)
     const login = realLogin(t)
     const res = fakeRes()
-    connectionTest({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, res)
+    await connectionTest({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, res)
     assert.equal(res.body.authenticated, true)
     assert.equal(res.body.refreshed, true)
     assert.ok(lastCookie(res))
@@ -351,7 +351,7 @@ describe('connection-test / refresh origin gate', () => {
     t.mock.method(HAXCMS, 'resolveTrustedHost', () => 'cms.example.com')
   }
 
-  test('cross-origin connection-test with a refresh cookie is denied before rotating', (t) => {
+  test('cross-origin connection-test with a refresh cookie is denied before rotating', async (t) => {
     isolateStore(t)
     trustedOrigin(t)
     const login = realLogin(t)
@@ -362,7 +362,7 @@ describe('connection-test / refresh origin gate', () => {
       return original.apply(HAXCMS, arguments)
     })
     const res = fakeRes()
-    connectionTest({
+    await connectionTest({
       headers: { origin: 'https://evil.example' },
       cookies: { haxcms_refresh_token: login.cookie },
     }, res)
@@ -373,29 +373,29 @@ describe('connection-test / refresh origin gate', () => {
     assert.equal(lastCookie(res), '')
   })
 
-  test('same-origin connection-test with a refresh cookie proceeds', (t) => {
+  test('same-origin connection-test with a refresh cookie proceeds', async (t) => {
     isolateStore(t)
     trustedOrigin(t)
     const login = realLogin(t)
     const res = fakeRes()
-    connectionTest({
+    await connectionTest({
       headers: { origin: 'https://cms.example.com', 'sec-fetch-site': 'same-origin' },
       cookies: { haxcms_refresh_token: login.cookie },
     }, res)
     assert.equal(res.body.authenticated, true)
   })
 
-  test('Sec-Fetch-Site: cross-site is rejected even without Origin/Referer', (t) => {
+  test('Sec-Fetch-Site: cross-site is rejected even without Origin/Referer', async (t) => {
     isolateStore(t)
     const login = realLogin(t)
     const res = fakeRes()
-    connectionTest({
+    await connectionTest({
       headers: { 'sec-fetch-site': 'cross-site' },
       cookies: { haxcms_refresh_token: login.cookie },
     }, res)
     assert.equal(res.statusCode, 403)
     const refreshRes = fakeRes()
-    refreshAccessToken({
+    await refreshAccessToken({
       headers: { 'sec-fetch-site': 'cross-site' },
       cookies: { haxcms_refresh_token: login.cookie },
     }, refreshRes)
@@ -403,17 +403,17 @@ describe('connection-test / refresh origin gate', () => {
     assert.equal(refreshRes.body.data.message, 'Cross-origin request denied')
   })
 
-  test('Sec-Fetch-Site same-site / none / same-origin are not rejected by the header alone', () => {
+  test('Sec-Fetch-Site same-site / none / same-origin are not rejected by the header alone', async () => {
     assert.equal(HAXCMS.isSameOriginRequest({ headers: { 'sec-fetch-site': 'same-origin' } }), true)
     assert.equal(HAXCMS.isSameOriginRequest({ headers: { 'sec-fetch-site': 'none' } }), true)
     assert.equal(HAXCMS.isSameOriginRequest({ headers: { 'sec-fetch-site': 'same-site' } }), true)
     assert.equal(HAXCMS.isSameOriginRequest({ headers: { 'sec-fetch-site': 'Cross-Site' } }), false)
   })
 
-  test('an anonymous cross-origin probe without a cookie still answers 200 no_session', (t) => {
+  test('an anonymous cross-origin probe without a cookie still answers 200 no_session', async (t) => {
     trustedOrigin(t)
     const res = fakeRes()
-    connectionTest({ headers: { origin: 'https://evil.example' }, cookies: {} }, res)
+    await connectionTest({ headers: { origin: 'https://evil.example' }, cookies: {} }, res)
     assert.equal(res.statusCode, 200)
     assert.equal(res.body.reason, 'no_session')
   })
@@ -581,7 +581,7 @@ describe('trustProxy', () => {
     })
   }
 
-  test('boolean true is rejected with a one-time warning and falls back to false', (t) => {
+  test('boolean true is rejected with a one-time warning and falls back to false', async (t) => {
     const warnings = []
     t.mock.method(console, 'warn', (msg) => warnings.push(String(msg)))
     HAXCMS.__trustProxyWarned = false
@@ -597,13 +597,13 @@ describe('trustProxy', () => {
     )
   })
 
-  test('the string "true" is rejected too', (t) => {
+  test('the string "true" is rejected too', async (t) => {
     t.mock.method(console, 'warn', () => {})
     withTrustProxy(t, 'true')
     assert.equal(HAXCMS.getTrustProxySetting(), false)
   })
 
-  test('hop counts, IP/CIDR strings and lists are accepted', (t) => {
+  test('hop counts, IP/CIDR strings and lists are accepted', async (t) => {
     t.mock.method(console, 'warn', () => {})
     withTrustProxy(t, 1)
     assert.equal(HAXCMS.getTrustProxySetting(), 1)
@@ -646,7 +646,7 @@ describe('IAM authorization', () => {
     }
   }
 
-  test('non-IAM deployments are always allowed (default behaviour unchanged)', () => {
+  test('non-IAM deployments are always allowed (default behaviour unchanged)', async () => {
     assert.deepEqual(
       HAXCMS.validateIAMRouteAuthorization(true, { headers: {}, cookies: {} }),
       { allowed: true, status: 200, message: '' },
@@ -654,7 +654,7 @@ describe('IAM authorization', () => {
     assert.equal(HAXCMS.isIAMEnabled(), false)
   })
 
-  test('IAM requires an authenticated user', (t) => {
+  test('IAM requires an authenticated user', async (t) => {
     withIAM(t, '/srv/haxiam/')
     const result = HAXCMS.validateIAMRouteAuthorization(true, { headers: {}, cookies: {}, originalUrl: '/system/api/v1/x' })
     assert.equal(result.allowed, false)
@@ -663,7 +663,7 @@ describe('IAM authorization', () => {
     assert.equal(HAXCMS.validateIAMRouteAuthorization(false, { headers: {}, cookies: {} }).allowed, true)
   })
 
-  test('IAM binds the authenticated user to the tenant from HAXCMS_ROOT', (t) => {
+  test('IAM binds the authenticated user to the tenant from HAXCMS_ROOT', async (t) => {
     withIAM(t, '/var/www/users/' + ACTIVE_USER + '/')
     assert.equal(HAXCMS.validateIAMRouteAuthorization(true, bearer(ACTIVE_USER)).allowed, true)
     // different tenant root -> denied
@@ -671,14 +671,14 @@ describe('IAM authorization', () => {
     assert.equal(HAXCMS.validateIAMRouteAuthorization(true, bearer(ACTIVE_USER)).allowed, false)
   })
 
-  test('IAM denies when the tenant root and the request path user disagree', (t) => {
+  test('IAM denies when the tenant root and the request path user disagree', async (t) => {
     withIAM(t, '/var/www/users/' + ACTIVE_USER + '/')
     const req = bearer(ACTIVE_USER, '/other-tenant/system/api/v1/session')
     assert.equal(HAXCMS.getRequestPathUserName(req), 'other-tenant')
     assert.equal(HAXCMS.validateIAMRouteAuthorization(true, req).allowed, false)
   })
 
-  test('IAM falls back to the request path tenant and ignores /system paths', (t) => {
+  test('IAM falls back to the request path tenant and ignores /system paths', async (t) => {
     withIAM(t, '/srv/haxiam/')
     assert.equal(HAXCMS.getRequestPathUserName({ originalUrl: '/system/api/v1/x' }), null)
     const own = bearer(ACTIVE_USER, '/' + ACTIVE_USER + '/x/api/v1/site')
@@ -744,5 +744,183 @@ describe('IAM authorization', () => {
     await lifecycle.downloadSiteSkeleton({ body: {}, headers: {}, cookies: {} }, res)
     assert.equal(res.statusCode, 400)
     assert.equal(calls, 0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// review follow-ups: concurrent-tab grace path, host-only origin check, and
+// request tokens on successful session responses
+// ---------------------------------------------------------------------------
+describe('concurrent tabs refreshing with the same cookie (grace path)', () => {
+  async function refreshWith(cookie) {
+    const res = fakeRes()
+    await refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: cookie } }, res)
+    return res
+  }
+
+  for (const order of ['A-first', 'B-first']) {
+    test('both tabs get the same successor and whichever cookie is kept still works (' + order + ')', async (t) => {
+      const storePath = isolateStore(t)
+      const login = realLogin(t)
+      // tabs A and B both send the SAME old cookie; the server processes one
+      // first (current-jti path), the other second (previous-within-grace path)
+      const first = await refreshWith(login.cookie)
+      const second = await refreshWith(login.cookie)
+      assert.equal(first.body.status, 200)
+      assert.equal(second.body.status, 200)
+      const cookieFirst = lastCookie(first)
+      const cookieSecond = lastCookie(second)
+      const jtiFirst = HAXCMS.decodeRefreshToken(cookieFirst).jti
+      const jtiSecond = HAXCMS.decodeRefreshToken(cookieSecond).jti
+      assert.equal(jtiFirst, jtiSecond, 'deterministic successor: same jti for both tabs')
+      // the browser keeps whichever Set-Cookie arrived LAST
+      const kept = order === 'A-first' ? cookieSecond : cookieFirst
+      const next = await refreshWith(kept)
+      assert.equal(next.body.status, 200, 'kept cookie still refreshes')
+      const store = readStore(storePath)
+      const fam = HAXCMS.decodeRefreshToken(kept).family
+      assert.notEqual(store.users[ACTIVE_USER].families[fam].revoked, true, 'family not tombstoned')
+      // and the chain continues normally
+      const after = await refreshWith(lastCookie(next))
+      assert.equal(after.body.status, 200)
+    })
+  }
+
+  test('the grace-path accept leaves current/previous untouched', (t) => {
+    const storePath = isolateStore(t)
+    const x = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken(ACTIVE_USER))
+    assert.ok(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), x))
+    const before = readStore(storePath).users[ACTIVE_USER].families[x.family]
+    assert.ok(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), x))
+    const afterEntry = readStore(storePath).users[ACTIVE_USER].families[x.family]
+    assert.equal(afterEntry.currentJtiHash, before.currentJtiHash)
+    assert.equal(afterEntry.previousJtiHash, before.previousJtiHash)
+    assert.equal(afterEntry.previousValidUntil, before.previousValidUntil)
+    assert.equal(afterEntry.currentJtiHash, HAXCMS._hashJti(HAXCMS.successorJti(x.family, x.jti)))
+  })
+
+  test('a token outside the grace slot is still a stale replay', (t) => {
+    isolateStore(t)
+    const x = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken(ACTIVE_USER))
+    const r1 = fakeRes()
+    HAXCMS.rotateRefreshTokenAndCookie(r1, x)
+    const y = HAXCMS.decodeRefreshToken(lastCookie(r1))
+    HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), y)
+    assert.equal(HAXCMS.checkRefreshSession(x).reason, 'stale_jti')
+    assert.equal(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), x), null)
+  })
+})
+
+describe('host-only same-origin comparison', () => {
+  test('TLS-terminating proxy without trusted proxies: server sees http, Origin is https', async (t) => {
+    isolateStore(t)
+    t.mock.method(HAXCMS, 'resolveTrustedProtocol', () => 'http')
+    t.mock.method(HAXCMS, 'resolveTrustedHost', () => 'cms.example.com')
+    assert.equal(HAXCMS.isSameOriginRequest({ headers: { origin: 'https://cms.example.com' } }), true)
+    const login = realLogin(t)
+    const res = fakeRes()
+    await connectionTest({
+      headers: { origin: 'https://cms.example.com' },
+      cookies: { haxcms_refresh_token: login.cookie },
+    }, res)
+    assert.equal(res.body.authenticated, true)
+  })
+
+  test('Apache plain http with protossl forced: server says https, Origin is http', async (t) => {
+    isolateStore(t)
+    t.mock.method(HAXCMS, 'resolveTrustedProtocol', () => 'https')
+    t.mock.method(HAXCMS, 'resolveTrustedHost', () => 'cms.example.com:8080')
+    assert.equal(HAXCMS.isSameOriginRequest({ headers: { referer: 'http://cms.example.com:8080/x' } }), true)
+    const login = realLogin(t)
+    const res = fakeRes()
+    await refreshAccessToken({
+      headers: { origin: 'http://cms.example.com:8080' },
+      cookies: { haxcms_refresh_token: login.cookie },
+    }, res)
+    assert.equal(res.body.status, 200)
+  })
+
+  test('host or port mismatch is still rejected', (t) => {
+    t.mock.method(HAXCMS, 'resolveTrustedHost', () => 'cms.example.com')
+    assert.equal(HAXCMS.isSameOriginRequest({ headers: { origin: 'https://cms.example.com:4443' } }), false)
+    assert.equal(HAXCMS.isSameOriginRequest({ headers: { origin: 'https://evil.example' } }), false)
+  })
+})
+
+describe('request tokens on successful session responses', () => {
+  const userToken = () => HAXCMS.getRequestToken(ACTIVE_USER)
+  const siteToken = (name) => HAXCMS.getRequestToken(ACTIVE_USER + ':' + name)
+
+  test('login returns userToken alongside the jwt', (t) => {
+    isolateStore(t)
+    t.mock.method(HAXCMS, 'testLogin', () => true)
+    const res = fakeRes()
+    loginRoute({ body: { username: ACTIVE_USER, password: 'x' }, headers: {}, ip: '10.8.8.8' }, res)
+    assert.equal(res.body.status, 200)
+    assert.ok(res.body.jwt)
+    assert.equal(res.body.userToken, userToken())
+    assert.equal(Object.prototype.hasOwnProperty.call(res.body, 'siteToken'), false)
+  })
+
+  test('refresh returns userToken and a siteToken resolved from the Referer path', async (t) => {
+    isolateStore(t)
+    const login = realLogin(t)
+    const res = fakeRes()
+    await refreshAccessToken({
+      headers: {
+        host: 'cms.example.com',
+        referer: 'http://cms.example.com' + HAXCMS.basePath + HAXCMS.sitesDirectory + '/my-site/page',
+      },
+      cookies: { haxcms_refresh_token: login.cookie },
+    }, res)
+    assert.equal(res.body.status, 200)
+    assert.equal(res.body.userToken, userToken())
+    assert.equal(res.body.siteToken, siteToken('my-site'))
+  })
+
+  test('refresh resolves the site from the body before the Referer, and omits siteToken without context', async (t) => {
+    isolateStore(t)
+    const login = realLogin(t)
+    const res = fakeRes()
+    await refreshAccessToken({
+      headers: {},
+      body: { site: { name: 'body-site' } },
+      cookies: { haxcms_refresh_token: login.cookie },
+    }, res)
+    assert.equal(res.body.siteToken, siteToken('body-site'))
+    const bare = fakeRes()
+    await refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: lastCookie(res) } }, bare)
+    assert.equal(bare.body.status, 200)
+    assert.equal(bare.body.userToken, userToken())
+    assert.equal(Object.prototype.hasOwnProperty.call(bare.body, 'siteToken'), false)
+  })
+
+  test('unsafe site names are ignored rather than tokenized', async () => {
+    assert.equal(await HAXCMS.resolveSessionSiteName({ body: { site: { name: '../etc' } }, headers: {} }), '')
+    assert.equal(await HAXCMS.resolveSessionSiteName({ query: { siteName: 'ok_name-1' }, headers: {} }), 'ok_name-1')
+  })
+
+  test('authenticated connection-test (bearer) returns userToken and siteToken', async (t) => {
+    isolateStore(t)
+    const res = fakeRes()
+    await connectionTest({
+      headers: {
+        authorization: 'Bearer ' + HAXCMS.getJWT(ACTIVE_USER),
+        referer: 'http://cms.example.com' + HAXCMS.basePath + HAXCMS.sitesDirectory + '/ct-site/',
+      },
+      cookies: {},
+    }, res)
+    assert.equal(res.body.authenticated, true)
+    assert.equal(res.body.userToken, userToken())
+    assert.equal(res.body.siteToken, siteToken('ct-site'))
+  })
+
+  test('anonymous / failed connection-test never carries tokens', async (t) => {
+    isolateStore(t)
+    const res = fakeRes()
+    await connectionTest({ headers: {}, cookies: {} }, res)
+    assert.equal(res.body.authenticated, false)
+    assert.equal(res.body.userToken, undefined)
+    assert.equal(res.body.siteToken, undefined)
   })
 })

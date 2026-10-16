@@ -5611,11 +5611,40 @@ class HAXCMSClass {
       }
       const now = Math.floor(Date.now() / 1000);
       const next = userEntry.families[String(family)];
+      const newHash = this._hashJti(newJti);
+      // Security (SEC-SESSION): grace-path accept (the presented jti is the
+      // PREVIOUS one, i.e. a sibling tab already rotated from it). Callers
+      // derive newJti deterministically (successorJti), so the successor of
+      // the previous jti IS the current jti: re-issue it and leave
+      // current/previous untouched. Rotating again here would drop the jti the
+      // sibling tab just received; if the browser kept that cookie, its next
+      // refresh would be stale_jti and tombstone the whole family.
+      if (check.reason === 'previous' && next.currentJtiHash === newHash) {
+        next.exp = Math.max(Math.floor(Number(next.exp) || 0), Math.floor(Number(newExp) || 0));
+        return this._saveRefreshSessions(store);
+      }
+      // normal rotation from the current jti (or a grace accept on a family
+      // whose current jti was not derived deterministically, e.g. migrated
+      // from the v1 store: fall back to a normal rotation)
       next.previousJtiHash = this._hashJti(oldJti);
       next.previousValidUntil = now + HAXCMS_REFRESH_GRACE_SECONDS;
-      next.currentJtiHash = this._hashJti(newJti);
+      next.currentJtiHash = newHash;
       next.exp = Math.floor(Number(newExp) || 0);
       return this._saveRefreshSessions(store);
+    }
+    /**
+     * Security (SEC-SESSION): deterministic successor of a jti within a family
+     * (HMAC with the refresh signing key). Rotating from the same jti always
+     * yields the same successor, so two tabs that refresh concurrently with
+     * the same cookie both receive the SAME new jti and whichever Set-Cookie
+     * the browser keeps stays valid.
+     */
+    successorJti(family, jti) {
+      return crypto
+        .createHmac('sha256', this.refreshPrivateKey + this.salt)
+        .update('haxcms-refresh-successor:' + String(family) + ':' + String(jti))
+        .digest('hex')
+        .substring(0, 32);
     }
     /**
      * Revoke a refresh family (logout / theft detection). Writes a tombstone
@@ -5683,7 +5712,10 @@ class HAXCMSClass {
       // Generate a fresh jti + iat/exp for the rotated token. We build the
       // payload directly (not via getRefreshToken) so we preserve the existing
       // family and avoid recording a competing session entry.
-      const newJti = uuidv4();
+      // Security (SEC-SESSION): family tokens rotate to a DETERMINISTIC
+      // successor jti (see successorJti / rotateRefreshSession grace path);
+      // legacy tokens start a new family with a random jti.
+      const newJti = isLegacy ? uuidv4() : this.successorJti(decodedRefresh.family, decodedRefresh.jti);
       const newIat = Math.floor(Date.now() / 1000);
       const newExp = newIat + REFRESH_TOKEN_LIFETIME_SECONDS;
       let family = decodedRefresh.family;
@@ -5719,11 +5751,113 @@ class HAXCMSClass {
       return this.getJWT(user);
     }
     /**
+     * Security (SEC-SESSION): resolve the site context of a session request so
+     * an authenticated session response can carry a fresh siteToken. Order:
+     *   1. request body: site.name, then siteName
+     *   2. query: siteName
+     *   3. request path: <basePath><sitesDirectory>/<name>/...
+     *   4. Referer path: <basePath><sitesDirectory>/<name>/... (path only)
+     *   5. single-site context (cwd site.json metadata.site.name / name)
+     * Returns '' when no site context is resolvable. Only machine-name-safe
+     * values ([A-Za-z0-9_-]) are returned.
+     */
+    async resolveSessionSiteName(req) {
+      const safe = (value) => {
+        if (typeof value !== 'string') {
+          return '';
+        }
+        let v = value.trim();
+        try {
+          v = decodeURIComponent(v);
+        }
+        catch (e) {}
+        return /^[A-Za-z0-9_-]+$/.test(v) ? v : '';
+      };
+      if (req && req.body && typeof req.body === 'object') {
+        if (req.body.site && typeof req.body.site === 'object' && safe(req.body.site.name)) {
+          return safe(req.body.site.name);
+        }
+        if (safe(req.body.siteName)) {
+          return safe(req.body.siteName);
+        }
+      }
+      if (req && req.query && typeof req.query === 'object' && safe(req.query.siteName)) {
+        return safe(req.query.siteName);
+      }
+      const sitePrefix = String(this.basePath || '/') + String(this.sitesDirectory || '') + '/';
+      const fromPath = (pathValue) => {
+        if (typeof pathValue !== 'string' || pathValue.indexOf(sitePrefix) !== 0) {
+          return '';
+        }
+        return safe(pathValue.substring(sitePrefix.length).split('/')[0]);
+      };
+      if (req) {
+        const rawPath = typeof req.originalUrl === 'string' && req.originalUrl !== ''
+          ? req.originalUrl
+          : (typeof req.url === 'string' ? req.url : '');
+        const pathName = fromPath(rawPath.split('?')[0]);
+        if (pathName) {
+          return pathName;
+        }
+      }
+      if (req && req.headers && typeof req.headers.referer === 'string' && req.headers.referer !== '') {
+        try {
+          const refererName = fromPath(new URL(req.headers.referer).pathname);
+          if (refererName) {
+            return refererName;
+          }
+        }
+        catch (e) {}
+      }
+      try {
+        const singleSite = await systemStructureContext();
+        if (
+          singleSite &&
+          singleSite.manifest &&
+          singleSite.manifest.metadata &&
+          singleSite.manifest.metadata.site &&
+          singleSite.manifest.metadata.site.name
+        ) {
+          return safe(String(singleSite.manifest.metadata.site.name));
+        }
+        if (singleSite && singleSite.name) {
+          return safe(String(singleSite.name));
+        }
+      }
+      catch (e) {}
+      return '';
+    }
+    /**
+     * Security (SEC-SESSION): request tokens to hand back on a SUCCESSFUL,
+     * authenticated session response (login / refresh / connection-test) so
+     * an editor that booted anonymously (connection-settings omits tokens for
+     * anonymous callers) can pick them up without a page reload.
+     * Returns { userToken, siteToken? } -- siteToken only when a site context
+     * is resolvable (see resolveSessionSiteName). Tokens bind to the same
+     * user identity connection-settings uses (getActiveUserName).
+     */
+    async getSessionRequestTokens(req) {
+      const user = this.getActiveUserName();
+      const tokens = {
+        userToken: this.getRequestToken(user),
+      };
+      const siteName = await this.resolveSessionSiteName(req);
+      if (siteName !== '') {
+        tokens.siteToken = this.getRequestToken(user + ':' + siteName);
+      }
+      return tokens;
+    }
+    /**
      * Security (EXPRESS-CSRF-001 / M1 + SEC-SESSION): same-origin gate for the
      * cookie-authenticated, state-changing session endpoints (session/refresh
      * and session/connection-test, which both rotate the refresh cookie).
      * - Sec-Fetch-Site: 'cross-site' is always rejected when the browser sends it.
-     * - Origin (falling back to Referer) must match the trusted protocol + host.
+     * - Origin (falling back to Referer) host[:port] must match the trusted
+     *   host. The scheme is deliberately NOT compared (PHP parity): behind a
+     *   TLS-terminating proxy without trusted-proxy config, or Apache plain
+     *   http with protossl forced, the server-side scheme differs from the
+     *   browser's and comparing it caused false 403s. Cross-site attackers
+     *   cannot forge the host part of Origin.
      * - No Origin/Referer (non-browser clients, or same-origin omits) is allowed;
      *   SameSite=Lax + no credentialed CORS remain the primary control.
      * Returns true when the request may proceed.
@@ -5754,11 +5888,7 @@ class HAXCMSClass {
       if (!parsed || !parsed.host) {
         return false;
       }
-      const expectedProtocol = this.resolveTrustedProtocol(req);
       const expectedHost = this.resolveTrustedHost(req);
-      if (parsed.protocol.replace(':', '') !== expectedProtocol) {
-        return false;
-      }
       if (parsed.host !== expectedHost) {
         return false;
       }

@@ -45,9 +45,13 @@ function loginRoute(req, res)  {
     // Security (HAX-SEC / PHP [M3] parity): use the centralized helper so
     // Secure/SameSite/HttpOnly/path flags are consistent at every call site.
     HAXCMS.setRefreshTokenCookie(res, HAXCMS.getRefreshToken(u), 24 * 60 * 60 * 1000);
+    // Security (SEC-SESSION): connection-settings omits request tokens for
+    // anonymous callers and the editor loads it once per page, so hand the
+    // userToken back with the JWT for an in-page login.
     return res.json({
       status: 200,
       jwt: HAXCMS.getJWT(u),
+      userToken: HAXCMS.getRequestToken(HAXCMS.getActiveUserName()),
     });
   }
   // login end point requested yet a jwt already exists

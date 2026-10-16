@@ -184,9 +184,11 @@ async function connectionSettings(req, res) {
       refererDetails = null;
     }
   }
+  // host[:port] comparison only (scheme not compared; parity with
+  // HAXCMS.isSameOriginRequest). The recorded protocol always comes from the
+  // trusted resolver, never from the referer.
   const sameOriginReferer = !!(
     refererDetails &&
-    refererDetails.protocol.replace(':', '') === trustedProtocol &&
     refererDetails.host === trustedHost
   );
   if (refererDetails) {

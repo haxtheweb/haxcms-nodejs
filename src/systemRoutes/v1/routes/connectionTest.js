@@ -107,7 +107,7 @@ function validateIAMAuthorizationIfNeeded(req) {
  *   )
  * )
  */
-function connectionTest(req, res) {
+async function connectionTest(req, res) {
   // Auth-state probes must never be cached: a cached authenticated body could
   // be served to a different user (token leak), and a cached anonymous body
   // could mask a now-logged-in session. Applies to every response branch.
@@ -180,13 +180,23 @@ function connectionTest(req, res) {
     });
   }
 
-  return res.json({
+  // Security (SEC-SESSION): include fresh request tokens (userToken, and
+  // siteToken when a site context is resolvable) for an editor that booted
+  // anonymously from connection-settings.
+  let sessionTokens = {};
+  try {
+    sessionTokens = await HAXCMS.getSessionRequestTokens(req);
+  }
+  catch (e) {
+    sessionTokens = {};
+  }
+  return res.json(Object.assign({
     status: 200,
     authenticated: true,
     jwt,
     refreshed,
     user: resolveAuthenticatedUser(req, jwt),
-  });
+  }, sessionTokens));
 }
 
 module.exports = connectionTest;

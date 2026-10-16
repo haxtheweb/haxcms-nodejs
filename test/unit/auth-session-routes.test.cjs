@@ -127,7 +127,7 @@ function mockIAMAuthorization(t, impl) {
 // session
 // ---------------------------------------------------------------------------
 describe('session', () => {
-  test('missing Authorization header answers 401 missing_jwt', () => {
+  test('missing Authorization header answers 401 missing_jwt', async () => {
     const res = authRes()
     sessionRoute({ headers: {} }, res)
     assert.equal(res.statusCode, 401)
@@ -135,14 +135,14 @@ describe('session', () => {
     assert.equal(res.body.reason, 'missing_jwt')
   })
 
-  test('non-bearer Authorization header answers 401 missing_jwt', () => {
+  test('non-bearer Authorization header answers 401 missing_jwt', async () => {
     const res = authRes()
     sessionRoute({ headers: { authorization: 'Basic dXNlcjpwYXNz' } }, res)
     assert.equal(res.statusCode, 401)
     assert.equal(res.body.reason, 'missing_jwt')
   })
 
-  test('an expired bearer token answers 401 invalid_jwt', () => {
+  test('an expired bearer token answers 401 invalid_jwt', async () => {
     const res = authRes()
     sessionRoute(bearerReq(mintExpiredAccessToken(ACTIVE_USER)), res)
     assert.equal(res.statusCode, 401)
@@ -150,7 +150,7 @@ describe('session', () => {
     assert.equal(res.body.message, 'Authentication failed')
   })
 
-  test('a wrong-signature bearer token answers 401 invalid_jwt', () => {
+  test('a wrong-signature bearer token answers 401 invalid_jwt', async () => {
     const now = Math.floor(Date.now() / 1000)
     const forged = JWT.sign(
       { id: HAXCMS.getRequestToken('user'), user: ACTIVE_USER, iat: now, exp: now + 60 },
@@ -162,7 +162,7 @@ describe('session', () => {
     assert.equal(res.body.reason, 'invalid_jwt')
   })
 
-  test('a valid bearer token answers 200 with the token and user', () => {
+  test('a valid bearer token answers 200 with the token and user', async () => {
     const token = mintAccessToken(ACTIVE_USER)
     const res = authRes()
     sessionRoute(bearerReq(token), res)
@@ -173,7 +173,7 @@ describe('session', () => {
     assert.equal(res.body.user, ACTIVE_USER)
   })
 
-  test('a lowercase bearer prefix is still accepted', () => {
+  test('a lowercase bearer prefix is still accepted', async () => {
     const token = mintAccessToken(ACTIVE_USER)
     const res = authRes()
     sessionRoute(
@@ -184,7 +184,7 @@ describe('session', () => {
     assert.equal(res.body.authenticated, true)
   })
 
-  test('IAM denial answers 403 not_authorized', (t) => {
+  test('IAM denial answers 403 not_authorized', async (t) => {
     mockIAMAuthorization(t, () => ({
       allowed: false,
       status: 403,
@@ -198,7 +198,7 @@ describe('session', () => {
     assert.equal(res.body.message, 'Access denied')
   })
 
-  test('an IAM validation crash answers 403 Access denied', (t) => {
+  test('an IAM validation crash answers 403 Access denied', async (t) => {
     mockIAMAuthorization(t, () => {
       throw new Error('IAM backend unreachable')
     })
@@ -214,7 +214,7 @@ describe('session', () => {
 // logout
 // ---------------------------------------------------------------------------
 describe('logout', () => {
-  test('logout without cookies clears the refresh cookie and answers loggedout', () => {
+  test('logout without cookies clears the refresh cookie and answers loggedout', async () => {
     const res = authRes()
     logoutRoute({ headers: {} }, res)
     assert.equal(res.statusCode, null)
@@ -222,7 +222,7 @@ describe('logout', () => {
     assertCookieCleared(res)
   })
 
-  test('logout revokes the refresh family of a valid refresh cookie', (t) => {
+  test('logout revokes the refresh family of a valid refresh cookie', async (t) => {
     const revoked = []
     t.mock.method(HAXCMS, 'revokeRefreshSession', (user) => {
       revoked.push(user)
@@ -234,7 +234,7 @@ describe('logout', () => {
     assertCookieCleared(res)
   })
 
-  test('logout with a malformed refresh cookie stays 200 without revoking', (t) => {
+  test('logout with a malformed refresh cookie stays 200 without revoking', async (t) => {
     const revoked = []
     t.mock.method(HAXCMS, 'revokeRefreshSession', (user) => {
       revoked.push(user)
@@ -246,7 +246,7 @@ describe('logout', () => {
     assertCookieCleared(res)
   })
 
-  test('logout with a refresh cookie that carries no user does not revoke', (t) => {
+  test('logout with a refresh cookie that carries no user does not revoke', async (t) => {
     const revoked = []
     t.mock.method(HAXCMS, 'revokeRefreshSession', (user) => {
       revoked.push(user)
@@ -259,7 +259,7 @@ describe('logout', () => {
     assertCookieCleared(res)
   })
 
-  test('logout ignores a decoding crash and still clears the cookie', (t) => {
+  test('logout ignores a decoding crash and still clears the cookie', async (t) => {
     t.mock.method(HAXCMS, 'decodeRefreshToken', () => {
       throw new Error('decode blew up')
     })
@@ -279,18 +279,18 @@ describe('refreshAccessToken', () => {
     t.mock.method(HAXCMS, 'resolveTrustedHost', () => 'cms.example.com')
   }
 
-  test('no Origin or Referer header proceeds to token validation', () => {
+  test('no Origin or Referer header proceeds to token validation', async () => {
     const res = authRes()
-    refreshAccessToken({ headers: {}, cookies: {} }, res)
+    await refreshAccessToken({ headers: {}, cookies: {} }, res)
     assert.equal(res.statusCode, 401)
     assert.equal(res.body.data.message, 'Refresh token validation failed')
     assertCookieCleared(res)
   })
 
-  test('a matching Origin proceeds to token validation', (t) => {
+  test('a matching Origin proceeds to token validation', async (t) => {
     mockTrustedOrigin(t)
     const res = authRes()
-    refreshAccessToken(
+    await refreshAccessToken(
       { headers: { origin: 'https://cms.example.com' }, cookies: {} },
       res,
     )
@@ -298,10 +298,10 @@ describe('refreshAccessToken', () => {
     assert.equal(res.body.data.message, 'Refresh token validation failed')
   })
 
-  test('a mismatched Origin host answers 403 Cross-origin request denied', (t) => {
+  test('a mismatched Origin host answers 403 Cross-origin request denied', async (t) => {
     mockTrustedOrigin(t)
     const res = authRes()
-    refreshAccessToken(
+    await refreshAccessToken(
       { headers: { origin: 'https://evil.example' }, cookies: {} },
       res,
     )
@@ -310,21 +310,24 @@ describe('refreshAccessToken', () => {
     assertCookieCleared(res)
   })
 
-  test('a mismatched Origin protocol answers 403', (t) => {
+  test('a mismatched Origin scheme alone is NOT rejected (host-only comparison)', async (t) => {
+    // Security (SEC-SESSION, PHP parity): the scheme is not compared, so a
+    // TLS-terminating proxy without trusted-proxy config (server sees http,
+    // browser sends https Origin) does not produce false 403s
     mockTrustedOrigin(t)
     const res = authRes()
-    refreshAccessToken(
+    await refreshAccessToken(
       { headers: { origin: 'http://cms.example.com' }, cookies: {} },
       res,
     )
-    assert.equal(res.statusCode, 403)
-    assert.equal(res.body.data.message, 'Cross-origin request denied')
+    assert.equal(res.statusCode, 401)
+    assert.equal(res.body.data.message, 'Refresh token validation failed')
   })
 
-  test('Referer is checked when Origin is absent', (t) => {
+  test('Referer is checked when Origin is absent', async (t) => {
     mockTrustedOrigin(t)
     const res = authRes()
-    refreshAccessToken(
+    await refreshAccessToken(
       { headers: { referer: 'https://evil.example/attack' }, cookies: {} },
       res,
     )
@@ -332,10 +335,10 @@ describe('refreshAccessToken', () => {
     assert.equal(res.body.data.message, 'Cross-origin request denied')
   })
 
-  test('a malformed Origin value answers 403', (t) => {
+  test('a malformed Origin value answers 403', async (t) => {
     mockTrustedOrigin(t)
     const res = authRes()
-    refreshAccessToken(
+    await refreshAccessToken(
       { headers: { origin: 'not a url at all' }, cookies: {} },
       res,
     )
@@ -343,58 +346,61 @@ describe('refreshAccessToken', () => {
     assert.equal(res.body.data.message, 'Cross-origin request denied')
   })
 
-  test('no refresh cookie answers 401 with the cookie cleared', () => {
+  test('no refresh cookie answers 401 with the cookie cleared', async () => {
     const res = authRes()
-    refreshAccessToken({ headers: {}, cookies: {} }, res)
+    await refreshAccessToken({ headers: {}, cookies: {} }, res)
     assert.equal(res.statusCode, 401)
     assert.equal(res.body.data.message, 'Refresh token validation failed')
     assertCookieCleared(res)
   })
 
-  test('a malformed refresh cookie answers 401', () => {
+  test('a malformed refresh cookie answers 401', async () => {
     const res = authRes()
-    refreshAccessToken(refreshReq('garbage.value.here'), res)
+    await refreshAccessToken(refreshReq('garbage.value.here'), res)
     assert.equal(res.statusCode, 401)
     assert.equal(res.body.data.message, 'Refresh token validation failed')
     assertCookieCleared(res)
   })
 
-  test('an expired refresh cookie answers 401', () => {
+  test('an expired refresh cookie answers 401', async () => {
     const res = authRes()
-    refreshAccessToken(refreshReq(mintExpiredRefreshToken(ACTIVE_USER)), res)
+    await refreshAccessToken(refreshReq(mintExpiredRefreshToken(ACTIVE_USER)), res)
     assert.equal(res.statusCode, 401)
     assert.equal(res.body.data.message, 'Refresh token validation failed')
     assertCookieCleared(res)
   })
 
-  test('a valid refresh token rotates and answers 200 with a fresh access JWT', (t) => {
+  test('a valid refresh token rotates and answers 200 with a fresh access JWT', async (t) => {
     const rotated = []
     t.mock.method(HAXCMS, 'rotateRefreshTokenAndCookie', (res, decodedRefresh) => {
       rotated.push(decodedRefresh.user)
       return 'rotated-access-jwt'
     })
     const res = authRes()
-    refreshAccessToken(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
+    await refreshAccessToken(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
     assert.equal(res.statusCode, null)
-    assert.deepEqual(res.body, { status: 200, jwt: 'rotated-access-jwt' })
+    assert.equal(res.body.status, 200)
+    assert.equal(res.body.jwt, 'rotated-access-jwt')
+    // Security (SEC-SESSION): fresh request tokens ride along
+    assert.equal(res.body.userToken, HAXCMS.getRequestToken(ACTIVE_USER))
     assert.deepEqual(rotated, [ACTIVE_USER])
   })
 
-  test('a replayed refresh token (rotation rejected) revokes the family and answers 401', (t) => {
+  test('a replayed refresh token (rotation rejected) revokes the family and answers 401', async (t) => {
     const revoked = []
     t.mock.method(HAXCMS, 'rotateRefreshTokenAndCookie', () => null)
     t.mock.method(HAXCMS, 'revokeRefreshSession', (user) => {
       revoked.push(user)
     })
     const res = authRes()
-    refreshAccessToken(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
+    await refreshAccessToken(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
     assert.equal(res.statusCode, 401)
     assert.equal(res.body.data.message, 'Refresh token validation failed')
     assert.deepEqual(revoked, [ACTIVE_USER])
     assertCookieCleared(res)
   })
 
-  test('a rejected rotation without a decoded user skips revocation', (t) => {
+  test('a rejected rotation without a decoded user skips revocation', async (t) => {
     const revoked = []
     t.mock.method(HAXCMS, 'rotateRefreshTokenAndCookie', () => null)
     t.mock.method(HAXCMS, 'revokeRefreshSession', (user) => {
@@ -402,7 +408,7 @@ describe('refreshAccessToken', () => {
     })
     const res = authRes()
     // decodes, but the decoded payload has no user so revoke is skipped
-    refreshAccessToken(refreshReq(HAXCMS.getRefreshToken(null, false)), res)
+    await refreshAccessToken(refreshReq(HAXCMS.getRefreshToken(null, false)), res)
     assert.equal(res.statusCode, 401)
     assert.deepEqual(revoked, [])
     assertCookieCleared(res)
@@ -413,9 +419,9 @@ describe('refreshAccessToken', () => {
 // connectionTest
 // ---------------------------------------------------------------------------
 describe('connectionTest', () => {
-  test('an anonymous probe answers 200 no_session with Cache-Control no-store', () => {
+  test('an anonymous probe answers 200 no_session with Cache-Control no-store', async () => {
     const res = authRes()
-    connectionTest({ headers: {}, cookies: {} }, res)
+    await connectionTest({ headers: {}, cookies: {} }, res)
     assert.equal(res.statusCode, 200)
     assert.equal(res.body.authenticated, false)
     assert.equal(res.body.reason, 'no_session')
@@ -424,9 +430,9 @@ describe('connectionTest', () => {
     assertCookieCleared(res)
   })
 
-  test('an expired bearer token answers 401 invalid_session', () => {
+  test('an expired bearer token answers 401 invalid_session', async () => {
     const res = authRes()
-    connectionTest(bearerReq(mintExpiredAccessToken(ACTIVE_USER)), res)
+    await connectionTest(bearerReq(mintExpiredAccessToken(ACTIVE_USER)), res)
     assert.equal(res.statusCode, 401)
     assert.equal(res.body.authenticated, false)
     assert.equal(res.body.reason, 'invalid_session')
@@ -434,10 +440,10 @@ describe('connectionTest', () => {
     assertCookieCleared(res)
   })
 
-  test('a valid bearer token answers 200 with the token and the user', () => {
+  test('a valid bearer token answers 200 with the token and the user', async () => {
     const token = mintAccessToken(ACTIVE_USER)
     const res = authRes()
-    connectionTest(bearerReq(token), res)
+    await connectionTest(bearerReq(token), res)
     assert.equal(res.statusCode, null)
     assert.equal(res.body.status, 200)
     assert.equal(res.body.authenticated, true)
@@ -446,22 +452,22 @@ describe('connectionTest', () => {
     assert.equal(res.body.user, ACTIVE_USER)
   })
 
-  test('a malformed refresh cookie answers 200 no_session when no bearer was supplied', () => {
+  test('a malformed refresh cookie answers 200 no_session when no bearer was supplied', async () => {
     const res = authRes()
-    connectionTest(refreshReq('garbage.value.here'), res)
+    await connectionTest(refreshReq('garbage.value.here'), res)
     assert.equal(res.statusCode, 200)
     assert.equal(res.body.reason, 'no_session')
     assertCookieCleared(res)
   })
 
-  test('refresh-cookie recovery rotates and answers 200 refreshed', (t) => {
+  test('refresh-cookie recovery rotates and answers 200 refreshed', async (t) => {
     const rotated = []
     t.mock.method(HAXCMS, 'rotateRefreshTokenAndCookie', (res, decodedRefresh) => {
       rotated.push(decodedRefresh.user)
       return 'recovered-access-jwt'
     })
     const res = authRes()
-    connectionTest(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
+    await connectionTest(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
     assert.equal(res.statusCode, null)
     assert.equal(res.body.status, 200)
     assert.equal(res.body.authenticated, true)
@@ -470,7 +476,7 @@ describe('connectionTest', () => {
     assert.deepEqual(rotated, [ACTIVE_USER])
   })
 
-  test('a revoked refresh family is rejected, revoked, and cleared', (t) => {
+  test('a revoked refresh family is rejected, revoked, and cleared', async (t) => {
     const revoked = []
     t.mock.method(HAXCMS, 'validateRefreshSession', () => false)
     t.mock.method(HAXCMS, 'revokeRefreshSession', (user) => {
@@ -479,7 +485,7 @@ describe('connectionTest', () => {
     // a supplied-but-stale bearer plus a revoked refresh family answers 401
     // invalid_session, revokes the family again, and clears the cookie
     const res = authRes()
-    connectionTest(
+    await connectionTest(
       bearerReq(mintExpiredAccessToken(ACTIVE_USER), {
         haxcms_refresh_token: HAXCMS.getRefreshToken(ACTIVE_USER, false),
       }),
@@ -492,15 +498,15 @@ describe('connectionTest', () => {
     assertCookieCleared(res, 2)
   })
 
-  test('refresh recovery for an unknown user answers no session', () => {
+  test('refresh recovery for an unknown user answers no session', async () => {
     const res = authRes()
-    connectionTest(refreshReq(HAXCMS.getRefreshToken('ghost-user', false)), res)
+    await connectionTest(refreshReq(HAXCMS.getRefreshToken('ghost-user', false)), res)
     assert.equal(res.statusCode, 200)
     assert.equal(res.body.reason, 'no_session')
     assertCookieCleared(res)
   })
 
-  test('rotation returning null is authoritative: no access token is minted', (t) => {
+  test('rotation returning null is authoritative: no access token is minted', async (t) => {
     // Security (SEC-SESSION): previously a rejected rotation fell back to
     // getJWT(), so a replayed/revoked refresh cookie still got an access token
     const revoked = []
@@ -510,20 +516,20 @@ describe('connectionTest', () => {
       revoked.push(user)
     })
     const res = authRes()
-    connectionTest(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
+    await connectionTest(refreshReq(HAXCMS.getRefreshToken(ACTIVE_USER, false)), res)
     assert.equal(res.statusCode, 200)
     assert.equal(res.body.authenticated, false)
     assert.equal(res.body.reason, 'no_session')
     assert.deepEqual(revoked, [ACTIVE_USER])
   })
 
-  test('user resolution falls back to the refresh cookie when the JWT has no user', (t) => {
+  test('user resolution falls back to the refresh cookie when the JWT has no user', async (t) => {
     // validateJWT passes but decodeJWT yields no user: the cookie user wins
     t.mock.method(HAXCMS, 'validateJWT', () => true)
     t.mock.method(HAXCMS, 'decodeJWT', () => ({ exp: 1 }))
     t.mock.method(HAXCMS, 'decodeRefreshToken', () => ({ user: 'cookie-user' }))
     const res = authRes()
-    connectionTest(bearerReq('jwt-without-user', {
+    await connectionTest(bearerReq('jwt-without-user', {
       haxcms_refresh_token: 'any-cookie-value',
     }), res)
     assert.equal(res.statusCode, null)
@@ -531,14 +537,14 @@ describe('connectionTest', () => {
     assert.equal(res.body.user, 'cookie-user')
   })
 
-  test('IAM denial answers 403 not_authorized', (t) => {
+  test('IAM denial answers 403 not_authorized', async (t) => {
     mockIAMAuthorization(t, () => ({
       allowed: false,
       status: 403,
       message: 'Access denied',
     }))
     const res = authRes()
-    connectionTest(bearerReq(mintAccessToken(ACTIVE_USER)), res)
+    await connectionTest(bearerReq(mintAccessToken(ACTIVE_USER)), res)
     assert.equal(res.statusCode, 403)
     assert.equal(res.body.authenticated, false)
     assert.equal(res.body.reason, 'not_authorized')

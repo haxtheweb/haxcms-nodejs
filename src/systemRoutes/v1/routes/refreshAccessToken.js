@@ -19,7 +19,7 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
 function isSameOriginRequest(req) {
   return HAXCMS.isSameOriginRequest(req);
 }
-function refreshAccessToken(req, res) {
+async function refreshAccessToken(req, res) {
   // Security (EXPRESS-CSRF-001 / M1): reject cross-site cookie-bearing requests
   // to this state-changing refresh endpoint before validating the refresh token.
   if (!isSameOriginRequest(req)) {
@@ -38,10 +38,20 @@ function refreshAccessToken(req, res) {
     // next refresh. Legacy tokens without family/jti are upgraded in place.
     const rotatedAccessJwt = HAXCMS.rotateRefreshTokenAndCookie(res, validRefresh);
     if (rotatedAccessJwt) {
-      res.send({
+      // Security (SEC-SESSION): include fresh request tokens (userToken, and
+      // siteToken when a site context is resolvable) so an editor that booted
+      // anonymously can pick them up without reloading connection-settings.
+      let sessionTokens = {};
+      try {
+        sessionTokens = await HAXCMS.getSessionRequestTokens(req);
+      }
+      catch (e) {
+        sessionTokens = {};
+      }
+      res.send(Object.assign({
         status: 200,
         jwt: rotatedAccessJwt,
-      });
+      }, sessionTokens));
       return;
     }
     // rotation rejected (possible replay/theft) -> revoke family and clear
