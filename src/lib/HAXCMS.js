@@ -162,6 +162,105 @@ Twig.extendFunction('constant', function constantLookup(name) {
   }
   return null;
 });
+/**
+ * Security (HAX-SEC-006 / PR8-3): sanitize a git commit message to a
+ * conservative form before it reaches git-interface, which string-splits the
+ * command and only escapes single quotes. Shared by gitCommit() and the
+ * initial newSite() commit so site titles cannot inject git arguments.
+ */
+function sanitizeGitCommitMessage(msg) {
+  var safeMsg = String(msg || 'Committed changes').replace(/[\x00-\x1f\x7f'"\\]/g, '').substring(0, 200);
+  if (safeMsg === '') {
+    safeMsg = 'Committed changes';
+  }
+  return safeMsg;
+}
+// Security (PR8-3): branch names must start alphanumeric (no leading `-` so
+// they can never be read as a git option) and use only safe characters.
+const GIT_BRANCH_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._\-/]*$/;
+/**
+ * Security (PR8-3): a git remote URL is only accepted when it is https:// or
+ * scp-style git@host:path, contains no whitespace / quotes / backslashes /
+ * control characters (git-interface splits commands on whitespace), and does
+ * not use the ext:: transport (arbitrary command execution) anywhere.
+ */
+function isSafeGitRemoteUrl(url) {
+  if (typeof url !== 'string' || url === '') {
+    return false;
+  }
+  if (!/^(https:\/\/|git@)/.test(url)) {
+    return false;
+  }
+  if (/[\s'"\\\x00-\x1f\x7f]/.test(url)) {
+    return false;
+  }
+  if (/ext::/i.test(url) || url.indexOf('--') === 0) {
+    return false;
+  }
+  return true;
+}
+/**
+ * Security (PR8-6): managed templates that embed the site title/description,
+ * and the per-format escaping applied to those two values (same in PHP PR2).
+ * Twig autoescape stays off for all of them; the values are pre-escaped for
+ * their context instead, so `Tom's R&D` stays literal in JSON/markdown:
+ *  - json: escaped as JSON string contents (JSON.stringify(v).slice(1, -1))
+ *  - xml:  escapeXMLValue (&, <, >, ", ')
+ *  - text: no escaping (control-char/backslash rule only)
+ */
+const MANAGED_TEMPLATE_TEXT_FORMATS = {
+  'manifest.json': 'json',
+  'package.json': 'json',
+  'imsmanifest.xml': 'xml',
+  'llms.txt': 'text',
+};
+/**
+ * Security (PR8-6) parity contract with PHP (PR2): before rendering managed
+ * JSON/XML, title/description have CR, LF and TAB replaced by a space and every
+ * other control character (U+0000-U+001F, U+007F) and every backslash
+ * dropped. html autoescape does not touch these, and a raw newline or `\`
+ * inside a JSON string makes manifest.json / package.json unparseable.
+ * Non-string values are returned unchanged.
+ */
+function sanitizeManagedTemplateText(value) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  return value.replace(/[\r\n\t]/g, ' ').replace(/[\x00-\x1f\x7f\\]/g, '');
+}
+/**
+ * Security (PR8-6): escape an already rule-sanitized title/description for
+ * the managed template format ('json' | 'xml' | 'text').
+ */
+function escapeManagedTemplateText(value, format) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const text = sanitizeManagedTemplateText(String(value));
+  if (format === 'json') {
+    return JSON.stringify(text).slice(1, -1);
+  }
+  if (format === 'xml') {
+    return escapeXMLValue(text);
+  }
+  return text;
+}
+/**
+ * Security (PR8-6): template variables for one managed file: title and
+ * description escaped for that file's format, everything else unchanged.
+ */
+function managedTemplateVarsFor(fileName, templateVars) {
+  const format = Object.prototype.hasOwnProperty.call(MANAGED_TEMPLATE_TEXT_FORMATS, fileName)
+    ? MANAGED_TEMPLATE_TEXT_FORMATS[fileName]
+    : null;
+  if (!format) {
+    return templateVars;
+  }
+  return Object.assign({}, templateVars, {
+    title: escapeManagedTemplateText(templateVars.title, format),
+    description: escapeManagedTemplateText(templateVars.description, format),
+  });
+}
 // a site object
 class HAXCMSSite
 {
@@ -475,7 +574,9 @@ class HAXCMSSite
         // which made this commit fail with a stack trace and no initial commit
         const restoreGitIdentity = await this.gitFallbackIdentity(directory + '/' + tmpname);
         try {
-          await git.commit('A new journey begins: ' + this.manifest.title + ' (' + this.manifest.id + ')');
+          // Security (PR8-3): the site title is user input; run it through the
+          // same sanitizer gitCommit() uses before it reaches git-interface.
+          await git.commit(sanitizeGitCommitMessage('A new journey begins: ' + this.manifest.title + ' (' + this.manifest.id + ')'));
         }
         finally {
           restoreGitIdentity();
@@ -720,10 +821,11 @@ class HAXCMSSite
           'basePath' :
               this.getPWAScopePath(),
           'domain': domain,
-          'title': this.manifest.title,
+          // Security (PR8-6): see sanitizeManagedTemplateText
+          'title': sanitizeManagedTemplateText(this.manifest.title),
           'short': this.manifest.metadata.site.name,
           'privateSite' : (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.private) ? this.manifest.metadata.site.settings.private : false,
-          'description': this.manifest.description,
+          'description': sanitizeManagedTemplateText(this.manifest.description),
           'forceUpgrade': this.getForceUpgrade(),
           'swhash': [],
           'ghPagesURLParamCount': 0,
@@ -836,7 +938,10 @@ class HAXCMSSite
               let fileData = await fs.readFileSync(this.siteDirectory + '/' + templates[key],
                 {encoding:'utf8', flag:'r'}, 'utf8');
               let template = await Twig.twig({data: fileData, async: false});
-              let templatedHTML = template.render(templateVars);
+              // Security (PR8-6): title/description pre-escaped per format
+              // (JSON string / XML / plain text) for the managed files that
+              // embed them; see MANAGED_TEMPLATE_TEXT_FORMATS.
+              let templatedHTML = template.render(managedTemplateVarsFor(templates[key], templateVars));
               await fs.writeFileSync(this.siteDirectory + '/' + templates[key], templatedHTML);           
             }
             catch(e) {}
@@ -964,10 +1069,7 @@ class HAXCMSSite
           // quoted token and inject git arguments. This is defense-in-depth;
           // callers should also avoid passing user input (files.js uses the
           // server-generated sanitized filename, not upload.originalname).
-          var safeMsg = String(msg || 'Committed changes').replace(/[\x00-\x1f\x7f'"\\]/g, '').substring(0, 200);
-          if (safeMsg === '') {
-            safeMsg = 'Committed changes';
-          }
+          var safeMsg = sanitizeGitCommitMessage(msg);
           // commit, true flag will attempt to make this a git repo if it currently isn't
           const git = new GitPlus({
             dir: this.siteDirectory,
@@ -980,8 +1082,10 @@ class HAXCMSSite
             // Security (HAX-SEC-006): validate the branch name against a strict
             // pattern before checkout to prevent git argument injection via a
             // configured branch name containing shell/arg metacharacters.
+            // Security (PR8-3): must start alphanumeric so a leading `-` can
+            // never be parsed as a git option.
             var branch = String(this.manifest.metadata.site.git.branch);
-            if (/^[a-zA-Z0-9._\-/]+$/.test(branch)) {
+            if (GIT_BRANCH_PATTERN.test(branch)) {
               await git.checkout(branch);
               await git.push();
             }
@@ -1030,14 +1134,31 @@ class HAXCMSSite
      */
     async gitSetRemote(gitDetails)
     {
+      // Security (PR8-3): previously referenced an undefined `repo` and always
+      // threw (silently swallowed). Validate the URL before it reaches
+      // git-interface (which splits the command on whitespace) and use the
+      // GitPlus instance. Mirrors PHP set_remote (`git remote add origin`),
+      // falling back to `remote set-url` when origin already exists.
+      const url = gitDetails && typeof gitDetails.url === 'string' ? gitDetails.url.trim() : '';
+      if (!isSafeGitRemoteUrl(url)) {
+        console.warn('HAXcms: refusing to set git remote: URL must start with https:// or git@ and contain no whitespace, quotes or ext:: transport');
+        return false;
+      }
       try {
         const git = new GitPlus({
           dir: this.siteDirectory,
           cliVersion: await this.gitTest()
         });
-        await repo.setRemote("origin", gitDetails.url);
+        try {
+          await git.addRemote("origin", url);
+        }
+        catch (e) {
+          await git.setRemote("origin", url);
+        }
       }
-      catch(e){}
+      catch(e){
+        return false;
+      }
       return true;
     }
     /**
@@ -5414,4 +5535,4 @@ async function systemStructureContext(dir = null) {
   return null;
 }
 
-module.exports = { HAXCMS, HAXCMSClass, HAXCMSSite, systemStructureContext, loadConfigJson };
+module.exports = { HAXCMS, HAXCMSClass, HAXCMSSite, systemStructureContext, loadConfigJson, sanitizeGitCommitMessage, isSafeGitRemoteUrl, GIT_BRANCH_PATTERN, sanitizeManagedTemplateText, escapeManagedTemplateText, managedTemplateVarsFor, MANAGED_TEMPLATE_TEXT_FORMATS };

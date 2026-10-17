@@ -32,6 +32,7 @@ const PAGE_VARIANT_CONTENT_TYPES = {
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
 const loginRateLimiter = require('./lib/loginRateLimiter.js');
+const { haxcmsErrorHandler } = require('./lib/requestErrorHandler.js');
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
 // colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
 // the plain `open: <url>` line when color is disabled (CI / non-TTY / NO_COLOR).
@@ -1687,20 +1688,9 @@ systemStructureContext().then((site) => {
       }
     });
   }
-  app.use((err, req, res, next) => {
-    if (err && err.code === 'ENOENT') {
-      res.status(404).end();
-      return;
-    }
-    // Security (HAX-SEC-004): return 413 for multer file-size/count limit errors
-    // so the client gets a meaningful status instead of a generic 500.
-    if (err && (err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_FILE_COUNT')) {
-      res.status(413).json({ status: 413, message: 'File too large or too many files' });
-      return;
-    }
-    console.error(err);
-    res.status(500).send('Server error');
-  });
+  // Security (PR8-4): ENOENT -> 404, multer limits -> 413 (HAX-SEC-004), and
+  // body-parser failures -> 400/413/415 JSON without logging err.body.
+  app.use(haxcmsErrorHandler);
 });
 server.on('listening', onServerListening);
 server.on('error', handleServerError);
