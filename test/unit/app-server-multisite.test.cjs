@@ -194,11 +194,16 @@ test.before(async () => {
   assert.equal(login.status, 200, login.bodyText)
   const loginBody = JSON.parse(login.bodyText)
   runtime.jwt = loginBody.jwt
+  // Security (SEC-SESSION): request tokens are only handed to authenticated
+  // callers, so fetch connection-settings with the login JWT
   const settings = await request(
     'GET',
     runtime.baseUrl + '/system/api/v1/session/connection-settings',
     {
-      headers: { accept: 'application/javascript' },
+      headers: {
+        accept: 'application/javascript',
+        authorization: 'Bearer ' + runtime.jwt,
+      },
     },
   )
   assert.equal(settings.status, 200, settings.bodyText)
@@ -210,6 +215,7 @@ test.before(async () => {
     {
       headers: {
         accept: 'application/javascript',
+        authorization: 'Bearer ' + runtime.jwt,
         referer: runtime.baseUrl + '/_sites/' + SITE_NAME + '/',
       },
     },

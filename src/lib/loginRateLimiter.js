@@ -17,7 +17,8 @@
 // in-memory protection is per-process until then (PHP uses a cache-backed
 // multi-process limiter for parity reference).
 const failedLoginTracker = {};
-const MAX_TRACKED_KEYS = 10000;
+const DEFAULT_MAX_TRACKED_KEYS = 10000;
+let MAX_TRACKED_KEYS = DEFAULT_MAX_TRACKED_KEYS;
 
 // Security (HAX-SEC-003): remove entries whose block has expired AND whose
 // window has elapsed. Called lazily on new-entry creation so the map cannot
@@ -65,24 +66,44 @@ function getTrackerEntry(key, now, settings) {
     pruneExpiredEntries(now, settings);
     var trackedKeys = Object.keys(failedLoginTracker);
     if (trackedKeys.length >= MAX_TRACKED_KEYS) {
-      // evict the oldest entry (lowest firstAttempt) to make room
-      var oldestKey = trackedKeys[0];
-      var oldestTime = failedLoginTracker[trackedKeys[0]].firstAttempt;
-      for (var i = 1; i < trackedKeys.length; i++) {
-        if (failedLoginTracker[trackedKeys[i]].firstAttempt < oldestTime) {
-          oldestKey = trackedKeys[i];
-          oldestTime = failedLoginTracker[trackedKeys[i]].firstAttempt;
+      // Security (SEC-SESSION): never evict an entry that is still actively
+      // blocking (blockedUntil > now). Previously the oldest firstAttempt was
+      // evicted, so an attacker could flood new usernames/IPs to push their
+      // own blocked entry out and reset the block. Expired-by-window entries
+      // were already pruned above; now evict the least-recently-seen
+      // NON-blocked entry. If every tracked entry is blocked, nothing is
+      // evicted and the map may temporarily exceed the soft cap (mirrors PHP
+      // login.php, whose cache-backed tracker never drops a live block).
+      // Growth stays bounded: each blocked entry costs maxAttempts failures
+      // and expires after blockMs.
+      var evictKey = null;
+      var evictSeen = Infinity;
+      for (var i = 0; i < trackedKeys.length; i++) {
+        var candidate = failedLoginTracker[trackedKeys[i]];
+        if (!candidate || candidate.blockedUntil > now) {
+          continue;
+        }
+        var seen = typeof candidate.lastSeen === 'number'
+          ? candidate.lastSeen
+          : candidate.firstAttempt;
+        if (seen < evictSeen) {
+          evictSeen = seen;
+          evictKey = trackedKeys[i];
         }
       }
-      delete failedLoginTracker[oldestKey];
+      if (evictKey !== null) {
+        delete failedLoginTracker[evictKey];
+      }
     }
     entry = {
       firstAttempt: now,
       failedAttempts: 0,
       blockedUntil: 0,
+      lastSeen: now,
     };
     failedLoginTracker[key] = entry;
   }
+  entry.lastSeen = now;
   if (now - entry.firstAttempt > settings.windowMs) {
     entry.firstAttempt = now;
     entry.failedAttempts = 0;
@@ -105,6 +126,7 @@ function isBlocked(entry, now) {
 }
 
 function registerFailedAttempt(entry, now, settings) {
+  entry.lastSeen = now;
   entry.failedAttempts += 1;
   if (entry.failedAttempts >= settings.maxAttempts) {
     entry.blockedUntil = now + settings.blockMs;
@@ -113,7 +135,24 @@ function registerFailedAttempt(entry, now, settings) {
   }
 }
 
+// test hooks (not part of the runtime API)
+function _resetTrackerForTests() {
+  var keys = Object.keys(failedLoginTracker);
+  for (var i = 0; i < keys.length; i++) {
+    delete failedLoginTracker[keys[i]];
+  }
+}
+function _setMaxTrackedKeysForTests(n) {
+  MAX_TRACKED_KEYS = typeof n === 'number' && n > 0 ? n : DEFAULT_MAX_TRACKED_KEYS;
+}
+function _trackedKeyCountForTests() {
+  return Object.keys(failedLoginTracker).length;
+}
+
 module.exports = {
+  _resetTrackerForTests,
+  _setMaxTrackedKeysForTests,
+  _trackedKeyCountForTests,
   getClientIP,
   getAttemptKey,
   getTrackerEntry,

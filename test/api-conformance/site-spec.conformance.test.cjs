@@ -138,13 +138,15 @@ async function loginForJwt(baseUrl) {
   return loginBody.jwt
 }
 
-async function requestConnectionSettings(baseUrl, refererPath = '') {
+async function requestConnectionSettings(baseUrl, refererPath = '', jwt = '') {
   const headers = {
     accept: 'application/javascript',
   }
   if (refererPath && refererPath !== '') {
     headers.referer = `${baseUrl}${refererPath}`
   }
+  // Security (SEC-SESSION): request tokens are only returned to authenticated callers
+  if (jwt) headers.authorization = 'Bearer ' + jwt
   const settingsResponse = await sendHttpRequest({
     method: 'GET',
     url: `${baseUrl}/system/api/v1/session/connection-settings`,
@@ -1278,7 +1280,7 @@ async function setupRuntime() {
   runtime.baseUrl = `http://127.0.0.1:${runtime.port}`
 
   runtime.jwt = await loginForJwt(runtime.baseUrl)
-  runtime.dashboardSettings = await requestConnectionSettings(runtime.baseUrl)
+  runtime.dashboardSettings = await requestConnectionSettings(runtime.baseUrl, '', runtime.jwt)
   await createHarnessSite(
     runtime.baseUrl,
     runtime.jwt,
@@ -1290,6 +1292,7 @@ async function setupRuntime() {
   runtime.siteSettings = await requestConnectionSettings(
     runtime.baseUrl,
     `/${SITE_DIRECTORY_NAME}/${runtime.createdSiteName}/`,
+    runtime.jwt,
   )
   runtime.auth = {
     jwt: runtime.jwt,

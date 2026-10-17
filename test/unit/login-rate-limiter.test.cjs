@@ -208,3 +208,84 @@ test('registerFailedAttempt resets counter after triggering a block', () => {
     clearTrackerEntry(key)
   }
 })
+
+// ---------------------------------------------------------------------------
+// Security (SEC-SESSION): eviction at the tracked-key cap must never drop an
+// entry that is still actively blocking, so an attacker cannot flood fresh
+// usernames/IPs to push their own blocked entry out and reset the block.
+// ---------------------------------------------------------------------------
+const limiter = require('../../src/lib/loginRateLimiter.js')
+// shrink the cap so the flood tests stay fast; restored in each finally
+const CAP = 50
+
+test('flooding the tracker at the cap never evicts an actively blocked entry', () => {
+  limiter._resetTrackerForTests()
+  limiter._setMaxTrackedKeysForTests(CAP)
+  const settings = { windowMs: 60000, maxAttempts: 2, blockMs: 300000 }
+  const now = 5000000
+  const victimKey = 'attacker-ip::admin'
+  try {
+    // block the attacker's own key first so it has the OLDEST firstAttempt
+    const blocked = getTrackerEntry(victimKey, now, settings)
+    registerFailedAttempt(blocked, now, settings)
+    registerFailedAttempt(blocked, now, settings)
+    assert.ok(isBlocked(blocked, now))
+    // flood well past the cap with fresh keys (all inside the window)
+    for (let i = 0; i < CAP + 50; i++) {
+      getTrackerEntry('flood-' + i, now + 1 + i, settings)
+    }
+    const after = getTrackerEntry(victimKey, now + 20000, settings)
+    assert.ok(isBlocked(after, now + 20000), 'the block survived the flood')
+    assert.equal(after, blocked, 'the original entry object is still tracked')
+    assert.ok(limiter._trackedKeyCountForTests() <= CAP)
+  }
+  finally {
+    limiter._resetTrackerForTests()
+    limiter._setMaxTrackedKeysForTests()
+  }
+})
+
+test('at the cap the least-recently-seen non-blocked entry is evicted first', () => {
+  limiter._resetTrackerForTests()
+  limiter._setMaxTrackedKeysForTests(CAP)
+  const settings = { windowMs: 600000, maxAttempts: 5, blockMs: 300000 }
+  const now = 9000000
+  try {
+    for (let i = 0; i < CAP; i++) {
+      getTrackerEntry('fill-' + i, now + i, settings)
+    }
+    // touch the oldest entry so it becomes recently seen
+    getTrackerEntry('fill-0', now + CAP + 1, settings)
+    // adding one more key must evict fill-1 (least recently seen), not fill-0
+    getTrackerEntry('newcomer', now + CAP + 2, settings)
+    assert.equal(limiter._trackedKeyCountForTests(), CAP)
+    const fill0 = getTrackerEntry('fill-0', now + CAP + 3, settings)
+    assert.equal(fill0.firstAttempt, now, 'fill-0 kept its original entry')
+    const fill1 = getTrackerEntry('fill-1', now + CAP + 4, settings)
+    assert.equal(fill1.firstAttempt, now + CAP + 4, 'fill-1 was evicted and recreated')
+  }
+  finally {
+    limiter._resetTrackerForTests()
+    limiter._setMaxTrackedKeysForTests()
+  }
+})
+
+test('when every tracked entry is blocked the cap is soft and nothing is evicted', () => {
+  limiter._resetTrackerForTests()
+  limiter._setMaxTrackedKeysForTests(CAP)
+  const settings = { windowMs: 60000, maxAttempts: 1, blockMs: 300000 }
+  const now = 12000000
+  try {
+    for (let i = 0; i < CAP; i++) {
+      const e = getTrackerEntry('blocked-' + i, now, settings)
+      registerFailedAttempt(e, now, settings)
+    }
+    getTrackerEntry('one-more', now + 1, settings)
+    assert.equal(limiter._trackedKeyCountForTests(), CAP + 1)
+    assert.ok(isBlocked(getTrackerEntry('blocked-0', now + 2, settings), now + 2))
+  }
+  finally {
+    limiter._resetTrackerForTests()
+    limiter._setMaxTrackedKeysForTests()
+  }
+})

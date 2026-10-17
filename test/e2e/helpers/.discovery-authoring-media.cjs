@@ -199,7 +199,8 @@ async function fetchSiteToken(runtime, siteName) {
   const resp = await axios({
     method: 'GET',
     url: runtime.baseUrl + '/system/api/v1/session/connection-settings',
-    headers: { accept: 'application/javascript', referer: runtime.baseUrl + referer },
+    // Security (SEC-SESSION): site tokens are only returned to authenticated callers
+    headers: { accept: 'application/javascript', referer: runtime.baseUrl + referer, authorization: 'Bearer ' + runtime.jwt },
     validateStatus: () => true,
     responseType: 'text',
     transformResponse: [(d) => d],
