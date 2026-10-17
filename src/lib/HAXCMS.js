@@ -7,6 +7,7 @@ const GitPlus = require('./GitPlus.js');
 const JSONOutlineSchema = require('./JSONOutlineSchema.js');
 const { discoverConfigPath } = require('./discoverConfigPath.js');
 const filter_var = require('./filter_var.js');
+const { resolveContainedPath, hasTraversal } = require('./pathConfinement.js');
 const explodeImport = require('locutus/php/strings/explode');
 // may need to change as we get into CLI integration
 const HAXCMS_ROOT = process.env.HAXCMS_ROOT || path.join(process.cwd(), "/");
@@ -236,10 +237,23 @@ class HAXCMSSite
       // siteDirectory set so we can discover this and work with it while it's being built
       this.siteDirectory = path.join(this.directory, tmpname);
       // attempt to shift it on the file system
-      await HAXCMS.recurseCopy(
+      // Security (N1/N5 parity): recurseCopy refuses traversal / escaping
+      // destinations; treat a refusal as a failed site creation (createSite
+      // already returns false when newSite does). The sites directory is the
+      // containment base, so make sure it exists (copySync used to create it
+      // implicitly) unless it is itself a traversal attempt.
+      if (!hasTraversal(directory)) {
+        fs.ensureDirSync(directory);
+      }
+      const copied = await HAXCMS.recurseCopy(
           HAXCMS.boilerplatePath + 'site',
-          directory + '/' + tmpname
+          directory + '/' + tmpname,
+          [],
+          directory
       );
+      if (copied === false) {
+        return false;
+      }
       try {
         // create symlink to make it easier to resolve things to single built asset buckets
         await fs.symlink('../../build', directory + '/' + tmpname + '/build');
@@ -796,11 +810,12 @@ class HAXCMSSite
               this.siteDirectory + '/index.html'
             ).size;
         } else if (
-          fs.pathExistsSync(this.siteDirectory + '/' + item.location) &&
-          fs.lstatSync(this.siteDirectory + '/' + item.location).isFile()
+          // Security (N1/N5 parity): only stat locations contained in the site
+          this.validatePageLocation(item.location) &&
+          fs.lstatSync(this.resolvePageLocationRealPath(item.location)).isFile()
         ) {
             filesize = await fs.statSync(
-              this.siteDirectory + '/' + item.location
+              this.resolvePageLocationRealPath(item.location)
             ).size;
         } else {
             // ?? file referenced but doesn't exist
@@ -1055,7 +1070,11 @@ class HAXCMSSite
         let page = new JSONOutlineSchemaItem();
         // support direct ID setting, useful for parent associations calculated ahead of time
         if (id) {
-          page.id = id;
+          // Security (N1/N5 parity): sanitize caller-supplied id before it is
+          // used to build the on-disk page location (same defense as
+          // itemFromParams / PHP HAXCMSSite::addPage), so a crafted id such as
+          // `../../othersite` cannot escape the site pages directory.
+          page.id = HAXCMS.generateMachineName(id);
         }
         // set a crappy default title
         page.title = title;
@@ -1106,11 +1125,11 @@ class HAXCMSSite
             case 'init':
             case 'lesson':
             case 'default':
-              await HAXCMS.recurseCopy(HAXCMS.boilerplatePath + 'page/' + template, location);
+              await HAXCMS.recurseCopy(HAXCMS.boilerplatePath + 'page/' + template, location, [], this.siteDirectory);
             break;
             // didn't understand it, just go default
             default:
-              await HAXCMS.recurseCopy(HAXCMS.boilerplatePath + 'page/default', location);
+              await HAXCMS.recurseCopy(HAXCMS.boilerplatePath + 'page/default', location, [], this.siteDirectory);
             break;
         }
         this.manifest.addItem(page);
@@ -1364,7 +1383,12 @@ class HAXCMSSite
       }
       if (source === '' && item && item.location && item.location.indexOf('..') === -1 && this.siteDirectory) {
         try {
-          const html = fs.readFileSync(path.join(this.siteDirectory, item.location), 'utf8');
+          // Security (N1/N5 parity): containment-checked read
+          const resolvedLocation = this.resolvePageLocationRealPath(item.location);
+          if (resolvedLocation === false) {
+            throw new Error('invalid page location');
+          }
+          const html = fs.readFileSync(resolvedLocation, 'utf8');
           source = this.getLLMSSafeText(decodeLLMSEntities(String(html).replace(/<[^>]+>/g, ' ')));
         }
         catch (e) {}
@@ -1502,7 +1526,12 @@ class HAXCMSSite
         }
         textData = '';
         try {
-          textData = await fs.readFileSync(path.join(this.siteDirectory, item.location),
+          // Security (N1/N5 parity): read via containment-checked resolver
+          const resolvedLocation = this.resolvePageLocationRealPath(item.location);
+          if (resolvedLocation === false) {
+            throw new Error('invalid page location');
+          }
+          textData = await fs.readFileSync(resolvedLocation,
           {encoding:'utf8', flag:'r'});
           textData = this.cleanSearchData(textData);
           // may seem silly but IDs in lunr have a size limit for some reason in our context..
@@ -1849,9 +1878,39 @@ class HAXCMSSite
      */
     async getPageContent(page) {
       if ((page.location) && page.location != '') {
-        return filter_var(await fs.readFileSync(path.join(this.siteDirectory, page.location),
+        // Security (N1/N5 parity): read via the containment-checked resolver
+        // so a poisoned site.json location cannot read outside the site dir.
+        const resolved = this.resolvePageLocationRealPath(page.location);
+        if (resolved === false) {
+          return '';
+        }
+        return filter_var(await fs.readFileSync(resolved,
         {encoding:'utf8', flag:'r'}));
       }
+    }
+    /**
+     * Security (N1/N5 parity): resolve a page location to its real path and
+     * prove it stays inside this site's directory. Returns false for NUL
+     * bytes, `..` segments, missing files, or anything (incl. symlinks) that
+     * resolves outside the site. Port of PHP
+     * HAXCMSSite::resolvePageLocationRealPath.
+     */
+    resolvePageLocationRealPath(location) {
+      if (!this.siteDirectory) {
+        return false;
+      }
+      const resolved = resolveContainedPath(this.siteDirectory, location);
+      if (resolved === false || !fs.existsSync(resolved)) {
+        return false;
+      }
+      return resolved;
+    }
+    /**
+     * Validate that a page's location is in a valid space (aka
+     * pages/whatever/index.html) and not outside the current site directory.
+     */
+    validatePageLocation(location) {
+      return this.resolvePageLocationRealPath(location) !== false;
     }
     /**
      * Generate per-page alternate formats in the same folder as index.html.
@@ -1859,6 +1918,11 @@ class HAXCMSSite
      */
     async writePageAlternateFormats(page, htmlContent = '') {
       if (!page || !page.location || page.location == '' || !this.siteDirectory) {
+        return false;
+      }
+      // Security (N1/N5 parity): sidecars are written beside the page file,
+      // so refuse when the page location itself escapes the site directory.
+      if (this.resolvePageLocationRealPath(page.location) === false) {
         return false;
       }
       let content = '';
@@ -2056,7 +2120,13 @@ class HAXCMSSite
       // set the title
       item.title = params['node']['title'].replace("\n", '');
       if ((params['node']['id']) && params['node']['id'] != '' && params['node']['id'] != null) {
-          item.id = params['node']['id'];
+          // Security (N1/N5 parity): sanitize a client-supplied id before
+          // composing the on-disk location. generateMachineName strips '..',
+          // slashes and NUL bytes (mirrors PHP HAXCMSSite::itemFromParams), so
+          // an id such as `../../othertenant` cannot escape the pages dir when
+          // recurseCopy/writeLocation build a path from it. Existing
+          // `item-<uuid>` ids pass through unchanged.
+          item.id = HAXCMS.generateMachineName(params['node']['id']);
       }
       item.location = 'pages/' + item.id + '/index.html';
       if ((params['indent']) && params['indent'] != '' && params['indent'] != null) {
@@ -5389,9 +5459,28 @@ class HAXCMSClass {
     /**
      * Recursive copy to rename high level but copy all files
      */
-    async recurseCopy(src, dst, skip = [])
+    async recurseCopy(src, dst, skip = [], base = null)
     {
+      // Security (N1/N5 parity): reject traversal in the destination before
+      // creating anything (mirrors PHP HAXCMSSite::recurseCopy). NUL bytes
+      // and any `..` segment are refused; when the caller supplies the
+      // directory the copy must land in (e.g. the site directory) the
+      // destination must also resolve inside it.
+      if (typeof dst !== 'string' || dst === '' || hasTraversal(dst)) {
+        return false;
+      }
+      if (base !== null && base !== undefined) {
+        const relativeDst = path.relative(path.resolve(base), path.resolve(dst));
+        if (
+          relativeDst === '' ||
+          path.isAbsolute(relativeDst) ||
+          resolveContainedPath(base, relativeDst) === false
+        ) {
+          return false;
+        }
+      }
       await fs.copySync(src, dst);
+      return true;
     }
 }
 const HAXCMS = new HAXCMSClass();

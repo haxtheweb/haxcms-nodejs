@@ -1,5 +1,6 @@
 const fs = require('fs-extra')
 const { escapeXMLValue } = require('./sanitizeContent.js')
+const { resolveContainedPath } = require('./pathConfinement.js')
 // simple RSS / Atom feed generator from a JSON outline schema object
 class FeedMe
 {
@@ -62,10 +63,15 @@ class FeedMe
         if (!site || !site.siteDirectory || !item || !item.location) {
             return ''
         }
-        const safeLocation = String(item.location).replace(/\.\.\//g, '').replace(/\.\//g, '')
+        // Security (N1/N5 parity): the single-pass '../' strip was bypassable
+        // (e.g. `....//`); use the realpath containment resolver instead.
+        const safeLocation = resolveContainedPath(String(site.siteDirectory), String(item.location))
+        if (safeLocation === false) {
+            return ''
+        }
         try {
             return fs.readFileSync(
-                `${site.siteDirectory}/${safeLocation}`,
+                safeLocation,
                 { encoding: 'utf8', flag: 'r' }
             )
         }

@@ -134,12 +134,30 @@ fs.writeFileSync(
           description: 'about page',
           metadata: { created: 1700000001, updated: 1700000001 },
         },
+        // Security (N1/N5 parity): a poisoned manifest location pointing
+        // outside the site; its sidecars must never be served
+        {
+          id: 'poisoned',
+          indent: 0,
+          location: '../outside/secret.html',
+          slug: 'poisoned',
+          order: 2,
+          parent: '',
+          title: 'Poisoned',
+          description: 'poisoned page',
+          metadata: { created: 1700000002, updated: 1700000002 },
+        },
       ],
     },
     null,
     2,
   ),
 )
+// files OUTSIDE the site dir that the poisoned item's location points at
+fs.ensureDirSync(path.join(tempRoot, 'outside'))
+for (const ext of ['html', 'md', 'json', 'yaml', 'xml']) {
+  fs.writeFileSync(path.join(tempRoot, 'outside', 'secret.' + ext), 'OUTSIDE-SECRET')
+}
 fs.ensureDirSync(path.join(runtimeRoot, '.well-known'))
 fs.writeFileSync(
   path.join(runtimeRoot, '.well-known', 'api-catalog'),
@@ -264,6 +282,24 @@ test('page variants serve sidecars from the site directory', async () => {
   assert.equal(yaml.status, 200)
   const xml = await request('GET', baseUrl + '/home.xml', {})
   assert.equal(xml.status, 200)
+})
+
+test('page variants never serve files outside the site for a poisoned location', async () => {
+  const baseUrl = await baseUrlPromise
+  for (const ext of ['md', 'json', 'yaml', 'xml']) {
+    const result = await request('GET', baseUrl + '/poisoned.' + ext, {})
+    assert.equal(result.status, 404, ext)
+    assert.equal(result.bodyText.indexOf('OUTSIDE-SECRET'), -1, ext)
+  }
+  const negotiated = await request('GET', baseUrl + '/poisoned', {
+    headers: { accept: 'text/markdown' },
+  })
+  assert.equal(negotiated.bodyText.indexOf('OUTSIDE-SECRET'), -1)
+  // and nothing was written next to the outside file
+  assert.deepEqual(
+    fs.readdirSync(path.join(tempRoot, 'outside')).sort(),
+    ['secret.html', 'secret.json', 'secret.md', 'secret.xml', 'secret.yaml'],
+  )
 })
 
 test('a missing single-site page renders the page-miss shell at 404', async () => {
