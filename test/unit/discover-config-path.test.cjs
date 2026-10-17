@@ -45,3 +45,20 @@ test('a fresh home directory gets a complete ~/.haxcmsconfig', () => {
 test('the site boilerplate no longer ships an empty file named "false"', () => {
   assert.equal(fs.existsSync(path.join(BOILERPLATE_SITE, 'false')), false)
 })
+
+// Security (SEC-DEPLOY): the Docker image declares an (empty, node-owned)
+// VOLUME at ~/.haxcmsconfig; an empty pre-created directory must be
+// initialised in place rather than falling back to the package boilerplate.
+test('an empty pre-created ~/.haxcmsconfig (Docker volume) is initialised in place', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'haxcms-discover-vol-'))
+  try {
+    const expected = path.join(home, '.haxcmsconfig')
+    fs.mkdirSync(expected)
+    assert.equal(discoverIn(home), expected)
+    for (const file of ['.isHAXcmsConfig', 'config.json', 'userData.json', 'user/files/.htaccess']) {
+      assert.ok(fs.existsSync(path.join(expected, file)), `${file} created`)
+    }
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+})

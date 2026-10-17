@@ -21,6 +21,9 @@ const YAML = require('yaml');
 const sslServer = require('./lib/sslServer.js');
 const server = sslServer.createServer(app);
 const serverProtocol = sslServer.getServerProtocol();
+// Security (SEC-DEPLOY): interface selection for server.listen (loopback when
+// the no-login bypass is active, HAXCMS_HOST always wins).
+const { selectListenHost, getBypassExposureWarning, getBrowserHost } = require('./lib/listenHost.js');
 const PAGE_VARIANT_CONTENT_TYPES = {
   html: 'text/html; charset=utf-8',
   md: 'text/markdown; charset=utf-8',
@@ -926,6 +929,8 @@ const SENSITIVE_STATIC_BASENAMES = [
   // where they might be served from outside _config.
   'userdata.json',
   'apikeys.json',
+  // Security (SEC-DEPLOY): one-time seeded admin password file
+  '.initial-admin-password',
 ];
 function isSensitiveStaticPath(url = '') {
   let decodedPath = String(url || '').split('?')[0];
@@ -1702,13 +1707,31 @@ systemStructureContext().then((site) => {
     res.status(500).send('Server error');
   });
 });
+// Security (SEC-DEPLOY): resolved once at first listen so port-retry attempts
+// keep binding the same interface.
+var listenHost = null
+var listenHostResolved = false
 server.on('listening', onServerListening);
 server.on('error', handleServerError);
 startServer(currentPort);
 
 function startServer(portToTry) {
   currentPort = Number(portToTry)
-  server.listen(currentPort)
+  if (!listenHostResolved) {
+    listenHostResolved = true
+    const jwtChecksDisabled = !!HAXCMS.HAXCMS_DISABLE_JWT_CHECKS
+    listenHost = selectListenHost({ env: process.env, jwtChecksDisabled })
+    const exposureWarning = getBypassExposureWarning(listenHost, jwtChecksDisabled)
+    if (exposureWarning) {
+      console.warn(exposureWarning)
+    }
+  }
+  if (listenHost) {
+    server.listen(currentPort, listenHost)
+  }
+  else {
+    server.listen(currentPort)
+  }
 }
 function onServerListening() {
   const runtimePort = getRuntimePort()
@@ -1727,7 +1750,7 @@ function onServerListening() {
     _themeName = activeSite.manifest.metadata.theme.element;
   }
   cliTheme.printServerBanner({
-    url: `${serverProtocol}://localhost:${runtimePort}`,
+    url: `${serverProtocol}://${getBrowserHost(listenHost)}:${runtimePort}`,
     mode: HAXCMS.runtimeServerMode || '',
     siteName: _siteName,
     theme: _themeName,
@@ -1764,7 +1787,8 @@ module.exports = {
   app,
   server,
   serverReady,
-  serverProtocol
+  serverProtocol,
+  getListenHost: () => listenHost
 };
 function isSiteScopedSystemApiRoutePattern(req) {
   if (!req || !req.route || typeof req.route.path !== 'string') {

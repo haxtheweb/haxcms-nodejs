@@ -12,7 +12,7 @@
 // detectDE answers generic and no real desktop opener (gio/gvfs-open/...)
 // can run, and (3) points BROWSER at the shim. The shim records its argument
 // to a file and exits 0, so the test asserts local.js opened exactly
-// <protocol>://localhost:<ephemeral port>.
+// <protocol>://127.0.0.1:<ephemeral port> (the loopback address it binds).
 //
 // local.js sets HAXCMS_DISABLE_JWT_CHECKS=true before requiring app.js —
 // that is part of its behavior and is allowed to happen in the temp runtime.
@@ -55,7 +55,7 @@ const SCRUBBED_ENV_KEYS = [
   'XDG_RUNTIME_DIR',
 ]
 const MANAGED_ENV_KEYS = ['PORT', 'HAXCMS_ROOT', 'HAXCMS_ENABLE_SSL', 'NODE_ENV',
-  'HAXCMS_DISABLE_JWT_CHECKS', 'PATH', 'BROWSER'].concat(SCRUBBED_ENV_KEYS)
+  'HAXCMS_DISABLE_JWT_CHECKS', 'HAXCMS_HOST', 'PATH', 'BROWSER'].concat(SCRUBBED_ENV_KEYS)
 
 function captureEnv(key) {
   return {
@@ -203,6 +203,8 @@ process.env.HAXCMS_ROOT = runtimeRoot + '/'
 process.env.PORT = '0'
 delete process.env.HAXCMS_ENABLE_SSL
 delete process.env.NODE_ENV
+// Security (SEC-DEPLOY): no explicit host, so no-login mode must bind loopback
+delete process.env.HAXCMS_HOST
 
 globalThis.HAXCMS_RUNTIME_CREDENTIALS = {
   username: TEST_USER_NAME,
@@ -253,5 +255,44 @@ test('local.js boots on an ephemeral port and opens the served URL', async (t) =
     t.skip('the xdg-open shim was never invoked in this environment')
     return
   }
-  assert.equal(recorded, 'http://localhost:' + port)
+  // Security (SEC-DEPLOY): opens exactly the loopback address it binds
+  assert.equal(recorded, 'http://127.0.0.1:' + port)
+})
+
+// Security (SEC-DEPLOY): the no-login launcher binds the IPv4 loopback only.
+test('local.js (no-login mode) listens on 127.0.0.1 only', async () => {
+  await appModule.serverReady
+  assert.equal(appModule.getListenHost(), '127.0.0.1')
+  const address = appModule.server.address()
+  assert.ok(address && typeof address === 'object')
+  assert.equal(address.address, '127.0.0.1')
+})
+
+// Security (SEC-DEPLOY / PHP SEC-03 parity): the bypass superuser JWT is only
+// embedded in connection-settings for loopback clients.
+test('connection-settings embeds the bypass JWT for loopback clients only', async () => {
+  const port = await appModule.serverReady
+  const res = await fetch('http://127.0.0.1:' + port + '/system/api/v1/session/connection-settings')
+  assert.equal(res.status, 200)
+  const body = await res.text()
+  assert.ok(body.indexOf('window.appSettings.jwt = "') !== -1, 'loopback caller gets the JWT')
+
+  const connectionSettings = require(path.join(REPO_ROOT, 'src', 'systemRoutes', 'v1', 'routes', 'connectionSettings.js'))
+  let sent = null
+  const fakeRes = {
+    setHeader() {},
+    status() { return fakeRes },
+    send(value) { sent = String(value) },
+  }
+  await connectionSettings(
+    {
+      headers: { 'x-forwarded-for': '127.0.0.1' },
+      ip: '127.0.0.1',
+      query: {},
+      socket: { remoteAddress: '192.168.50.7' },
+    },
+    fakeRes,
+  )
+  assert.ok(sent && sent.indexOf('window.appSettings =') !== -1, 'payload still served')
+  assert.equal(sent.indexOf('window.appSettings.jwt'), -1, 'remote caller gets no JWT')
 })

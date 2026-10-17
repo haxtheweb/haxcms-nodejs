@@ -13,7 +13,9 @@ WORKDIR /app
 # still write new sites at runtime.
 RUN chown node:node /app \
     && mkdir -p /app/_sites \
-    && chown node:node /app/_sites
+    && chown node:node /app/_sites \
+    && mkdir -p /home/node/.haxcmsconfig \
+    && chown node:node /home/node/.haxcmsconfig
 
 # --- Dependencies layer (cached independently of source changes) ---
 # No --production flag: devDependencies (@babel/cli, @babel/core,
@@ -40,6 +42,29 @@ ENV NODE_ENV=production
 # directory is pre-owned by `node` so a fresh anonymous volume starts writable
 # by the non-root process.
 VOLUME /app/_sites
+
+# Security (SEC-DEPLOY): runtime config + secrets. With cwd=/app and no
+# /app/_config (excluded by .dockerignore), src/lib/discoverConfigPath.js
+# resolves the config directory to $HOME/.haxcmsconfig = /home/node/.haxcmsconfig.
+# It holds the JWT signing keys (.pk/.rpk), SALT.txt, the hashed admin user
+# (.user), apiKeys.json and, on first boot, .initial-admin-password (mode
+# 0600). Persist it so keys/credentials survive container recreation instead
+# of being regenerated (which would log everyone out and seed a new admin).
+# The empty, node-owned directory is initialised in place on first start.
+VOLUME /home/node/.haxcmsconfig
+
+# Admin credentials. Either:
+#   - supply them at runtime (recommended; never bake them into the image):
+#       docker run -e HAXCMS_RUNTIME_USERNAME=admin \
+#                  -e HAXCMS_RUNTIME_PASSWORD='<strong secret>' ...
+#     (these override the stored .user for this process; see README), or
+#   - let the first start seed an `admin` user with a random password. The
+#     password is NOT printed to the (non-TTY) container log; read it with
+#       docker exec <container> cat /home/node/.haxcmsconfig/.initial-admin-password
+#     then change it and delete that file.
+#
+# Network binding: the server listens on all interfaces here (required for
+# published ports). HAXCMS_HOST=<address> pins a specific interface.
 
 # node:22-slim ships no curl or wget, so the health probe uses Node's built-in
 # `http` core module — zero extra packages added to the image. Any 2xx/3xx
