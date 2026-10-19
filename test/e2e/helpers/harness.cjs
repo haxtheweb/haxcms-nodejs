@@ -127,11 +127,15 @@ function parseConnectionSettingsScript(scriptSource) {
   return sandbox.window.appSettings
 }
 
-async function requestConnectionSettings(baseUrl) {
+async function requestConnectionSettings(baseUrl, jwt = '') {
   const response = await axios({
     method: 'GET',
     url: `${baseUrl}/system/api/v1/session/connection-settings`,
-    headers: { accept: 'application/javascript' },
+    headers: Object.assign(
+      { accept: 'application/javascript' },
+      // Security (SEC-SESSION): request tokens are only returned to authenticated callers
+      jwt ? { authorization: 'Bearer ' + jwt } : {},
+    ),
     validateStatus: () => true,
     responseType: 'text',
     transformResponse: [(data) => data],
@@ -224,7 +228,7 @@ async function setupE2ERuntime() {
   // X-HAXCMS-User-Token required by userTokenHeader-declaring system reads
   // (e.g. listSites). The dashboard registry auto-attaches this for browser
   // fetches, but direct axios calls in tests must add it explicitly.
-  runtime.dashboardSettings = await requestConnectionSettings(runtime.baseUrl)
+  runtime.dashboardSettings = await requestConnectionSettings(runtime.baseUrl, runtime.jwt)
   runtime.userToken = runtime.dashboardSettings.userToken
   runtime.userTokenHeader =
     runtime.dashboardSettings.userTokenHeader || 'X-HAXCMS-User-Token'

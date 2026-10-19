@@ -53,6 +53,9 @@ const SITE_FILE_NAME = 'site.json';
 // previous refresh-token jti is still accepted, so concurrent multi-tab
 // refreshes don't mutually invalidate. Mirrors PHP HAXCMS_REFRESH_GRACE_SECONDS.
 const HAXCMS_REFRESH_GRACE_SECONDS = 30;
+// Refresh-token lifetime (24h). Also bounds how long revocation tombstones are
+// kept: no token of a revoked family can outlive this (+60s clock tolerance).
+const REFRESH_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
 // Safeguard config.json loading (haxtheweb/issues#2967): the config.json
 // read/boot path must NEVER write, copy, or overwrite anything on disk. A
 // missing file, an empty file, and a corrupt/unparseable file are all just
@@ -3546,7 +3549,7 @@ class HAXCMSClass {
       this.config.security
     ) {
       if (typeof this.config.security.trustProxy !== 'undefined') {
-        return this.config.security.trustProxy;
+        return this.normalizeTrustProxyValue(this.config.security.trustProxy);
       }
       // PHP parity (M2): honor config.security.trustedProxies (array of proxy
       // IPs). When set, Express trusts forwarded headers only from those peers,
@@ -3559,6 +3562,52 @@ class HAXCMSClass {
         return this.config.security.trustedProxies;
       }
     }
+    return false;
+  }
+  // Security (SEC-SESSION): `trustProxy: true` makes Express trust EVERY hop,
+  // so any client can spoof X-Forwarded-For / -Proto / -Host (rate-limit key
+  // rotation, forged protocol/host). Reject boolean true (and the string
+  // "true") with a one-time warning and fall back to false. Accepted shapes:
+  // false, a hop count (non-negative integer), an IP / CIDR / Express named
+  // subnet string (comma-separated allowed), or an array of those.
+  normalizeTrustProxyValue(value) {
+    const warnOnce = (msg) => {
+      if (!this.__trustProxyWarned) {
+        this.__trustProxyWarned = true;
+        console.warn(msg);
+      }
+    };
+    if (value === true || (typeof value === 'string' && value.trim().toLowerCase() === 'true')) {
+      warnOnce('[HAXcms] config.security.trustProxy=true trusts every proxy hop and lets clients spoof X-Forwarded-* headers; ignoring it (trust proxy disabled). Set a hop count (e.g. 1) or a list of proxy IPs/CIDRs instead.');
+      return false;
+    }
+    if (value === false || value === null || typeof value === 'undefined') {
+      return false;
+    }
+    if (typeof value === 'number') {
+      if (Number.isInteger(value) && value >= 0) {
+        return value;
+      }
+      warnOnce('[HAXcms] config.security.trustProxy must be a non-negative integer hop count, an IP/CIDR list, or false; ignoring invalid value.');
+      return false;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed === '' || trimmed.toLowerCase() === 'false') {
+        return false;
+      }
+      return trimmed;
+    }
+    if (Array.isArray(value)) {
+      const cleaned = [];
+      for (let i = 0; i < value.length; i++) {
+        if (typeof value[i] === 'string' && value[i].trim() !== '') {
+          cleaned.push(value[i].trim());
+        }
+      }
+      return cleaned.length > 0 ? cleaned : false;
+    }
+    warnOnce('[HAXcms] config.security.trustProxy has an unsupported type; ignoring it (trust proxy disabled).');
     return false;
   }
   // PHP parity (M4): read the allowed-host allowlist from
@@ -4205,6 +4254,149 @@ class HAXCMSClass {
       else if (this.superUser.name) {
         return this.superUser.name;
       }
+    }
+    /**
+     * Security (SEC-SESSION): true when HAXiam multi-tenant mode is enabled
+     * (config.iam). All IAM-only checks below are no-ops otherwise, so the
+     * default self-hosted / single-site behaviour is unchanged.
+     */
+    isIAMEnabled() {
+      return !!(this.config && this.config.iam);
+    }
+    /**
+     * Resolve IAM path username from the request path (/<username>/system/api/...).
+     * Port of PHP getRequestPathUserName (HAXCMS.php).
+     */
+    getRequestPathUserName(req = null) {
+      let rawPath = '';
+      if (req && typeof req.originalUrl === 'string' && req.originalUrl !== '') {
+        rawPath = req.originalUrl;
+      }
+      else if (req && typeof req.url === 'string') {
+        rawPath = req.url;
+      }
+      if (rawPath === '') {
+        return null;
+      }
+      let pathOnly = rawPath.split('?')[0].split('#')[0];
+      if (pathOnly === '') {
+        return null;
+      }
+      const basePath = String(this.basePath || '').trim();
+      if (basePath !== '' && basePath !== '/') {
+        const normalizedBase = '/' + basePath.replace(/^\/+|\/+$/g, '');
+        if (pathOnly.indexOf(normalizedBase) === 0) {
+          pathOnly = pathOnly.substring(normalizedBase.length);
+        }
+      }
+      const segments = pathOnly.replace(/^\/+|\/+$/g, '').split('/');
+      if (!segments.length || segments[0] === '') {
+        return null;
+      }
+      // non-IAM routes like /system/api/* do not include a tenant user segment
+      if (segments[0] === 'system') {
+        return null;
+      }
+      return this.generateMachineName(segments[0]);
+    }
+    /**
+     * Resolve the active IAM tenant username from the loaded root path, falling
+     * back to the request path. Port of PHP getIAMTenantUserName.
+     */
+    getIAMTenantUserName(req = null) {
+      if (!this.isIAMEnabled()) {
+        return null;
+      }
+      const root = String(this.HAXCMS_ROOT || '').replace(/\\/g, '/');
+      const match = root.match(/\/users\/([^\/]+)/);
+      if (match && match[1]) {
+        return this.generateMachineName(match[1]);
+      }
+      return this.getRequestPathUserName(req);
+    }
+    /**
+     * Security (SEC-SESSION): validate IAM authorization by binding the
+     * authenticated principal to the resolved IAM tenant identity. Port of PHP
+     * validateIAMRouteAuthorization. Returns { allowed, status, message }.
+     * Non-IAM deployments always get { allowed: true }.
+     */
+    validateIAMRouteAuthorization(requireAuthenticatedUser = true, req = null) {
+      const allow = { allowed: true, status: 200, message: '' };
+      const deny = { allowed: false, status: 403, message: 'Access denied' };
+      if (!this.isIAMEnabled()) {
+        return allow;
+      }
+      const tenantUser = this.getIAMTenantUserName(req);
+      const pathUser = this.getRequestPathUserName(req);
+      // If both are present they must agree.
+      if (tenantUser && pathUser && tenantUser !== pathUser) {
+        return deny;
+      }
+      const rawAuthenticated = this.getRequestAuthenticatedUserName(req);
+      const authenticatedUser = rawAuthenticated ? this.generateMachineName(rawAuthenticated) : '';
+      if (requireAuthenticatedUser && authenticatedUser === '') {
+        return deny;
+      }
+      if (tenantUser && (authenticatedUser === '' || authenticatedUser !== tenantUser)) {
+        return deny;
+      }
+      return allow;
+    }
+    /**
+     * Security (SEC-SESSION, PHP F2/IDOR-001 parity): object-level
+     * authorization on a named site. Port of PHP userCanAccessSite.
+     * - Non-IAM: any authenticated user can access any existing site.
+     * - HAXiam: the site must exist within the authenticated user's sites
+     *   directory (a real directory = owned, a symlink = shared).
+     */
+    async userCanAccessSite(siteName, req = null) {
+      if (typeof siteName !== 'string' || siteName.trim() === '') {
+        return false;
+      }
+      let site = false;
+      try {
+        site = await this.loadSite(siteName);
+      }
+      catch (e) {
+        site = false;
+      }
+      if (
+        !site ||
+        !site.manifest ||
+        !site.manifest.metadata ||
+        !site.manifest.metadata.site ||
+        !site.manifest.metadata.site.name
+      ) {
+        return false;
+      }
+      if (!this.isIAMEnabled()) {
+        return true;
+      }
+      const rawUser = req ? this.getRequestAuthenticatedUserName(req) : '';
+      const activeUser = rawUser ? this.generateMachineName(rawUser) : '';
+      if (activeUser === '') {
+        return false;
+      }
+      const siteMachineName = String(site.manifest.metadata.site.name);
+      const root = String(this.HAXCMS_ROOT || '').replace(/\\/g, '/');
+      const escapedUser = activeUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // HAXCMS_ROOT already scoped to the active user (site-scoped route in IAM)
+      if (new RegExp('/users/' + escapedUser + '(/|$)').test(root)) {
+        return true;
+      }
+      const candidates = [
+        '/var/www/sites/' + activeUser + '/sites/' + siteMachineName,
+      ];
+      if (/\/users\/[^\/]+/.test(root)) {
+        const userRoot = root.replace(/\/users\/[^\/]+/, '/users/' + activeUser).replace(/\/+$/, '');
+        candidates.push(userRoot + '/' + String(this.sitesDirectory).replace(/^\/+|\/+$/g, '') + '/' + siteMachineName);
+      }
+      for (let i = 0; i < candidates.length; i++) {
+        if (fs.existsSync(candidates[i])) {
+          return true;
+        }
+      }
+      return false;
     }
     getRequestToken(value = '')
     {
@@ -5114,21 +5306,28 @@ class HAXCMSClass {
       token['user'] = name;
       let n = Math.floor(Date.now() / 1000);
       token['iat'] = n;
-      token['exp'] = n + (24 * 60 * 60);
-      if (storeRefreshSession) {
+      token['exp'] = n + REFRESH_TOKEN_LIFETIME_SECONDS;
+      if (storeRefreshSession && name) {
         token['family'] = uuidv4();
         token['jti'] = uuidv4();
-      }
-      const signed = JWT.sign(token, this.refreshPrivateKey + this.salt);
-      if (storeRefreshSession && name) {
+        let recorded = false;
         try {
-          this.recordRefreshSession(name, token['family'], token['jti'], token['exp']);
+          recorded = this.recordRefreshSession(name, token['family'], token['jti'], token['exp']);
         }
         catch (e) {
-          // non-fatal: stateless validation still works as a fallback
+          recorded = false;
+        }
+        // Security (SEC-SESSION): family-bearing tokens are only accepted when
+        // the store knows the family. If the store cannot be written (e.g. a
+        // read-only config dir) fall back to a legacy no-family token so login
+        // keeps working (stateless validation; logout writes a legacy tombstone
+        // when it can).
+        if (!recorded) {
+          delete token['family'];
+          delete token['jti'];
         }
       }
-      return signed;
+      return JWT.sign(token, this.refreshPrivateKey + this.salt);
     }
     /**
      * Decode the JWT to ensure accuracy, return false if an error happens
@@ -5218,12 +5417,31 @@ class HAXCMSClass {
       res.cookie('haxcms_refresh_token', value, options);
     }
     /**
-     * Security (H1 rotation): refresh-session store. A file-backed JSON under
-     * the protected _config/settings directory maps user -> { family, currentJtiHash,
-     * previousJtiHash, previousValidUntil, exp }. Only SHA-256 hashes of jti are
-     * stored, never raw token ids. This lets refresh rotate the token (a stolen
-     * old copy dies on the legitimate user's next refresh) and lets logout
-     * revoke the whole family server-side. Mirrors PHP refresh-session helpers.
+     * Security (H1 rotation + SEC-SESSION): refresh-session store. A
+     * file-backed JSON under the protected _config/settings directory. Only
+     * SHA-256 hashes of jti are stored, never raw token ids. This lets refresh
+     * rotate the token (a stolen old copy dies on the legitimate user's next
+     * refresh) and lets logout revoke a family server-side.
+     *
+     * Store shape (version 2, parity contract with PHP):
+     *   {
+     *     "version": 2,
+     *     "users": {
+     *       "<user>": {
+     *         "families": {
+     *           "<family>": { currentJtiHash, previousJtiHash, previousValidUntil, exp }   // live
+     *           "<family>": { revoked: true, revokedAt, exp }                              // tombstone
+     *         },
+     *         "legacyRevokedAt": <unix>,   // optional: legacy (no-family) tokens with iat <= this are rejected
+     *         "legacyRevokedExp": <unix>
+     *       }
+     *     }
+     *   }
+     * Families are tracked per login so several devices can be signed in at
+     * once. Revocation writes a tombstone instead of deleting, so a revoked
+     * (or never-recorded) family can never be re-seeded by presenting an old
+     * token. The legacy v1 shape ({ <user>: { family, currentJtiHash, ... } })
+     * is migrated on load so live sessions survive the upgrade.
      * Grace window: the immediately previous jti stays valid for
      * HAXCMS_REFRESH_GRACE_SECONDS so concurrent multi-tab refreshes don't
      * mutually invalidate.
@@ -5234,177 +5452,640 @@ class HAXCMSClass {
     _hashJti(jti) {
       return crypto.createHash('sha256').update(String(jti || '')).digest('hex');
     }
+    _isSafeRefreshStoreKey(key) {
+      return typeof key === 'string' && key !== '' &&
+        key !== '__proto__' && key !== 'constructor' && key !== 'prototype';
+    }
+    _emptyRefreshStore() {
+      return { version: 2, users: {} };
+    }
+    // Normalize any parsed store (v1 or v2) into the v2 shape.
+    _normalizeRefreshStore(parsed) {
+      const store = this._emptyRefreshStore();
+      if (!parsed || typeof parsed !== 'object') {
+        return store;
+      }
+      if (parsed.version === 2 && parsed.users && typeof parsed.users === 'object') {
+        const userKeys = Object.keys(parsed.users);
+        for (let i = 0; i < userKeys.length; i++) {
+          const userKey = userKeys[i];
+          const userEntry = parsed.users[userKey];
+          if (!this._isSafeRefreshStoreKey(userKey) || !userEntry || typeof userEntry !== 'object') {
+            continue;
+          }
+          const normalizedUser = { families: {} };
+          const families = (userEntry.families && typeof userEntry.families === 'object') ? userEntry.families : {};
+          const familyKeys = Object.keys(families);
+          for (let j = 0; j < familyKeys.length; j++) {
+            const familyKey = familyKeys[j];
+            const familyEntry = families[familyKey];
+            if (this._isSafeRefreshStoreKey(familyKey) && familyEntry && typeof familyEntry === 'object') {
+              normalizedUser.families[familyKey] = familyEntry;
+            }
+          }
+          if (typeof userEntry.legacyRevokedAt === 'number') {
+            normalizedUser.legacyRevokedAt = userEntry.legacyRevokedAt;
+            normalizedUser.legacyRevokedExp = Number(userEntry.legacyRevokedExp) || 0;
+          }
+          store.users[userKey] = normalizedUser;
+        }
+        return store;
+      }
+      // v1 migration: { <user>: { family, currentJtiHash, previousJtiHash, previousValidUntil, exp } }
+      const legacyKeys = Object.keys(parsed);
+      for (let i = 0; i < legacyKeys.length; i++) {
+        const userKey = legacyKeys[i];
+        const entry = parsed[userKey];
+        if (
+          !this._isSafeRefreshStoreKey(userKey) ||
+          !entry ||
+          typeof entry !== 'object' ||
+          !this._isSafeRefreshStoreKey(entry.family)
+        ) {
+          continue;
+        }
+        store.users[userKey] = { families: {} };
+        store.users[userKey].families[entry.family] = {
+          currentJtiHash: entry.currentJtiHash || null,
+          previousJtiHash: entry.previousJtiHash || null,
+          previousValidUntil: Number(entry.previousValidUntil) || 0,
+          exp: Math.floor(Number(entry.exp) || 0),
+        };
+      }
+      return store;
+    }
     _loadRefreshSessions() {
       const storePath = this.getRefreshSessionsPath();
       try {
         if (!fs.existsSync(storePath)) {
-          return {};
+          return this._emptyRefreshStore();
         }
         const raw = fs.readFileSync(storePath, { encoding: 'utf8', flag: 'r' });
-        const parsed = JSON.parse(raw);
-        return (parsed && typeof parsed === 'object') ? parsed : {};
+        return this._normalizeRefreshStore(JSON.parse(raw));
       }
       catch (e) {
-        return {};
+        return this._emptyRefreshStore();
       }
     }
+    // Returns true when the store was written, false on any failure.
     _saveRefreshSessions(sessions) {
       const storePath = this.getRefreshSessionsPath();
       try {
+        const store = this._normalizeRefreshStore(sessions);
         const dir = path.dirname(storePath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
         }
-        // prune expired entries before writing
+        // prune expired live entries AND expired tombstones before writing
         const now = Math.floor(Date.now() / 1000);
-        const cleaned = {};
-        const keys = Object.keys(sessions);
-        for (let i = 0; i < keys.length; i++) {
-          const k = keys[i];
-          const entry = sessions[k];
-          if (entry && typeof entry.exp === 'number' && entry.exp > now) {
-            cleaned[k] = entry;
+        const cleaned = this._emptyRefreshStore();
+        const userKeys = Object.keys(store.users);
+        for (let i = 0; i < userKeys.length; i++) {
+          const userKey = userKeys[i];
+          const userEntry = store.users[userKey];
+          const keptUser = { families: {} };
+          let keep = false;
+          const familyKeys = Object.keys(userEntry.families);
+          for (let j = 0; j < familyKeys.length; j++) {
+            const familyEntry = userEntry.families[familyKeys[j]];
+            if (familyEntry && typeof familyEntry.exp === 'number' && familyEntry.exp > now) {
+              keptUser.families[familyKeys[j]] = familyEntry;
+              keep = true;
+            }
+          }
+          if (typeof userEntry.legacyRevokedAt === 'number' && Number(userEntry.legacyRevokedExp) > now) {
+            keptUser.legacyRevokedAt = userEntry.legacyRevokedAt;
+            keptUser.legacyRevokedExp = Number(userEntry.legacyRevokedExp);
+            keep = true;
+          }
+          if (keep) {
+            cleaned.users[userKey] = keptUser;
           }
         }
         this.writeSecretFile(storePath, JSON.stringify(cleaned, null, 2));
         this.chmodSecretFile(storePath);
+        return true;
       }
       catch (e) {
-        // non-fatal: stateless validation still works as a fallback
+        return false;
       }
+    }
+    // Tombstones outlive every refresh token the family could have issued:
+    // any token in the family expires at most REFRESH_TOKEN_LIFETIME after now
+    // (+60s clock tolerance used by decodeRefreshToken).
+    _refreshTombstoneExp(existingExp = 0) {
+      const now = Math.floor(Date.now() / 1000);
+      return Math.max(Math.floor(Number(existingExp) || 0), now + REFRESH_TOKEN_LIFETIME_SECONDS + 60);
+    }
+    _getRefreshUserEntry(store, user, create = false) {
+      const key = String(user);
+      if (!this._isSafeRefreshStoreKey(key)) {
+        return null;
+      }
+      if (!Object.prototype.hasOwnProperty.call(store.users, key)) {
+        if (!create) {
+          return null;
+        }
+        store.users[key] = { families: {} };
+      }
+      return store.users[key];
     }
     /**
      * Record a new refresh session (called on login / institutional issuance).
+     * Adds a live family for the user without touching the user's other
+     * families (other devices stay signed in). Returns true when persisted.
      */
     recordRefreshSession(user, family, jti, exp) {
-      if (!user || !family || !jti) {
-        return;
+      if (!user || !family || !jti || !this._isSafeRefreshStoreKey(String(family))) {
+        return false;
       }
-      const sessions = this._loadRefreshSessions();
-      sessions[String(user)] = {
-        family: String(family),
+      const store = this._loadRefreshSessions();
+      const userEntry = this._getRefreshUserEntry(store, user, true);
+      if (!userEntry) {
+        return false;
+      }
+      userEntry.families[String(family)] = {
         currentJtiHash: this._hashJti(jti),
         previousJtiHash: null,
         previousValidUntil: 0,
         exp: Math.floor(Number(exp) || 0),
       };
-      this._saveRefreshSessions(sessions);
+      return this._saveRefreshSessions(store);
+    }
+    /**
+     * Security (SEC-SESSION): pure (non-mutating) store check for a decoded
+     * refresh token. Truth table (parity contract with PHP):
+     *   - no family claim (legacy token):  accept, unless iat <= the user's
+     *                                      legacyRevokedAt tombstone
+     *   - family claim but no jti:         reject ('invalid')
+     *   - family with no store entry:      reject ('no_entry')
+     *   - family tombstoned:               reject ('revoked')
+     *   - jti == current:                  accept
+     *   - jti == previous within grace:    accept
+     *   - any other jti:                   reject ('stale_jti'); callers
+     *                                      tombstone the family
+     * Returns { ok, reason, legacy }.
+     */
+    checkRefreshSession(decoded) {
+      if (!decoded || typeof decoded !== 'object' || !decoded.user) {
+        return { ok: false, reason: 'invalid', legacy: false };
+      }
+      const store = this._loadRefreshSessions();
+      const userEntry = this._getRefreshUserEntry(store, decoded.user, false);
+      const hasFamily = typeof decoded.family !== 'undefined' && decoded.family !== null && decoded.family !== '';
+      if (!hasFamily) {
+        if (
+          userEntry &&
+          typeof userEntry.legacyRevokedAt === 'number' &&
+          (Number(decoded.iat) || 0) <= userEntry.legacyRevokedAt
+        ) {
+          return { ok: false, reason: 'revoked', legacy: true };
+        }
+        return { ok: true, reason: 'legacy', legacy: true };
+      }
+      if (typeof decoded.jti !== 'string' || decoded.jti === '' || typeof decoded.family !== 'string') {
+        return { ok: false, reason: 'invalid', legacy: false };
+      }
+      if (!userEntry || !Object.prototype.hasOwnProperty.call(userEntry.families, decoded.family)) {
+        return { ok: false, reason: 'no_entry', legacy: false };
+      }
+      const entry = userEntry.families[decoded.family];
+      if (!entry || entry.revoked === true) {
+        return { ok: false, reason: 'revoked', legacy: false };
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const hash = this._hashJti(decoded.jti);
+      if (entry.currentJtiHash === hash) {
+        return { ok: true, reason: 'current', legacy: false };
+      }
+      if (entry.previousJtiHash === hash && now < (entry.previousValidUntil || 0)) {
+        return { ok: true, reason: 'previous', legacy: false };
+      }
+      return { ok: false, reason: 'stale_jti', legacy: false };
     }
     /**
      * Rotate a refresh session: validate family/jti against the store, then move
      * the current jti to previous (with a grace window) and record a new current.
-     * Returns true if the rotation was accepted, false if the jti/family did not
-     * match (stolen/revoked/out-of-order token). A missing store entry is
-     * treated as legacy-accepted so deployments upgrade without logging users out.
+     * Returns true if the rotation was accepted, false otherwise.
+     * Security (SEC-SESSION): a missing store entry is NO LONGER accepted+seeded
+     * (that made revocation a no-op); a stale/reused jti tombstones the family.
+     * Legacy no-family tokens never reach this method — rotateRefreshTokenAndCookie
+     * seeds a brand new family for them via recordRefreshSession.
      */
     rotateRefreshSession(user, family, oldJti, newJti, newExp) {
       if (!user || !family || !oldJti || !newJti) {
         return false;
       }
-      const sessions = this._loadRefreshSessions();
-      const key = String(user);
-      const entry = sessions[key];
-      const now = Math.floor(Date.now() / 1000);
-      const oldHash = this._hashJti(oldJti);
-      if (entry && entry.family === String(family)) {
-        const currentMatch = entry.currentJtiHash === oldHash;
-        const previousMatch = entry.previousJtiHash === oldHash && now < (entry.previousValidUntil || 0);
-        if (!currentMatch && !previousMatch) {
+      const check = this.checkRefreshSession({ user: user, family: String(family), jti: String(oldJti) });
+      if (!check.ok) {
+        if (check.reason === 'stale_jti') {
           // possible token theft / replay of an older jti -> revoke the family
-          delete sessions[key];
-          this._saveRefreshSessions(sessions);
-          return false;
+          this.revokeRefreshSession(user, String(family));
         }
+        return false;
       }
-      // legacy / missing entry: accept and seed the store going forward
-      const next = entry || {};
-      next.family = String(family);
-      next.previousJtiHash = oldHash;
-      next.previousValidUntil = now + HAXCMS_REFRESH_GRACE_SECONDS;
-      next.currentJtiHash = this._hashJti(newJti);
-      next.exp = Math.floor(Number(newExp) || 0);
-      sessions[key] = next;
-      this._saveRefreshSessions(sessions);
-      return true;
-    }
-    /**
-     * Revoke a user's refresh family (called on logout). Best-effort.
-     */
-    revokeRefreshSession(user) {
-      if (!user) {
-        return;
-      }
-      const sessions = this._loadRefreshSessions();
-      if (Object.prototype.hasOwnProperty.call(sessions, String(user))) {
-        delete sessions[String(user)];
-        this._saveRefreshSessions(sessions);
-      }
-    }
-    /**
-     * Validate a refresh token's family/jti against the store WITHOUT rotating.
-     * Used by connectionTest recovery where we mint an access token but still
-     * want to reject a revoked/stolen refresh. Returns true when acceptable
-     * (including the legacy/missing-entry case so deploys don't log users out).
-     */
-    validateRefreshSession(user, family, jti) {
-      if (!user || !family || !jti) {
-        // tokens without family/jti (legacy) are accepted for migration
-        return true;
-      }
-      const sessions = this._loadRefreshSessions();
-      const entry = sessions[String(user)];
-      if (!entry) {
-        return true;
-      }
-      if (entry.family !== String(family)) {
+      const store = this._loadRefreshSessions();
+      const userEntry = this._getRefreshUserEntry(store, user, false);
+      if (!userEntry || !userEntry.families[String(family)]) {
         return false;
       }
       const now = Math.floor(Date.now() / 1000);
-      const hash = this._hashJti(jti);
-      if (entry.currentJtiHash === hash) {
-        return true;
+      const next = userEntry.families[String(family)];
+      const newHash = this._hashJti(newJti);
+      // Security (SEC-SESSION): grace-path accept (the presented jti is the
+      // PREVIOUS one, i.e. a sibling tab already rotated from it). Callers
+      // derive newJti deterministically (successorJti), so the successor of
+      // the previous jti IS the current jti: re-issue it and leave
+      // current/previous untouched. Rotating again here would drop the jti the
+      // sibling tab just received; if the browser kept that cookie, its next
+      // refresh would be stale_jti and tombstone the whole family.
+      if (check.reason === 'previous' && next.currentJtiHash === newHash) {
+        next.exp = Math.max(Math.floor(Number(next.exp) || 0), Math.floor(Number(newExp) || 0));
+        return this._saveRefreshSessions(store);
       }
-      if (entry.previousJtiHash === hash && now < (entry.previousValidUntil || 0)) {
-        return true;
+      // normal rotation from the current jti (or a grace accept on a family
+      // whose current jti was not derived deterministically, e.g. migrated
+      // from the v1 store: fall back to a normal rotation)
+      next.previousJtiHash = this._hashJti(oldJti);
+      next.previousValidUntil = now + HAXCMS_REFRESH_GRACE_SECONDS;
+      next.currentJtiHash = newHash;
+      next.exp = Math.floor(Number(newExp) || 0);
+      return this._saveRefreshSessions(store);
+    }
+    /**
+     * Security (SEC-SESSION): deterministic successor of a jti within a family
+     * (HMAC with the refresh signing key). Rotating from the same jti always
+     * yields the same successor, so two tabs that refresh concurrently with
+     * the same cookie both receive the SAME new jti and whichever Set-Cookie
+     * the browser keeps stays valid.
+     */
+    successorJti(family, jti) {
+      return crypto
+        .createHmac('sha256', this.refreshPrivateKey + this.salt)
+        .update('haxcms-refresh-successor:' + String(family) + ':' + String(jti))
+        .digest('hex')
+        .substring(0, 32);
+    }
+    /**
+     * Revoke a refresh family (logout / theft detection). Writes a tombstone
+     * rather than deleting, so the family can never be re-seeded. When no
+     * family is given (legacy no-family token) a per-user legacy tombstone is
+     * written instead: every legacy token issued up to now is rejected.
+     * Best-effort.
+     */
+    revokeRefreshSession(user, family = null) {
+      if (!user) {
+        return;
       }
-      return false;
+      const store = this._loadRefreshSessions();
+      const userEntry = this._getRefreshUserEntry(store, user, true);
+      if (!userEntry) {
+        return;
+      }
+      const now = Math.floor(Date.now() / 1000);
+      if (family !== null && typeof family !== 'undefined' && family !== '') {
+        const familyKey = String(family);
+        if (!this._isSafeRefreshStoreKey(familyKey)) {
+          return;
+        }
+        const existing = userEntry.families[familyKey];
+        userEntry.families[familyKey] = {
+          revoked: true,
+          revokedAt: now,
+          exp: this._refreshTombstoneExp(existing && existing.exp),
+        };
+      }
+      else {
+        userEntry.legacyRevokedAt = now;
+        userEntry.legacyRevokedExp = this._refreshTombstoneExp(userEntry.legacyRevokedExp);
+      }
+      this._saveRefreshSessions(store);
+    }
+    /**
+     * Validate a refresh token's family/jti against the store WITHOUT rotating.
+     * Used by connectionTest recovery and request authentication.
+     * Security (SEC-SESSION): only legacy tokens with NO family claim are
+     * accepted without a store entry (see checkRefreshSession truth table).
+     */
+    validateRefreshSession(user, family, jti, iat = 0) {
+      return this.checkRefreshSession({
+        user: user,
+        family: family,
+        jti: jti,
+        iat: iat,
+      }).ok;
     }
     /**
      * Issue a rotated refresh token + cookie for a validated decoded refresh
      * token, returning the new access JWT. Used by refreshAccessToken and
      * connectionTest recovery. On any rotation failure returns null so callers
-     * can clear the cookie and 401. Legacy tokens (no family/jti) are upgraded.
+     * can clear the cookie and 401. Legacy tokens (no family claim) that are not
+     * tombstoned are upgraded into a brand new family.
      */
     rotateRefreshTokenAndCookie(res, decodedRefresh) {
-      if (!decodedRefresh || !decodedRefresh.user) {
+      if (!decodedRefresh || typeof decodedRefresh !== 'object' || !decodedRefresh.user) {
         return null;
       }
       const user = decodedRefresh.user;
-      const family = decodedRefresh.family || uuidv4();
-      const oldJti = decodedRefresh.jti || uuidv4();
+      const isLegacy = typeof decodedRefresh.family === 'undefined' ||
+        decodedRefresh.family === null || decodedRefresh.family === '';
       // Generate a fresh jti + iat/exp for the rotated token. We build the
       // payload directly (not via getRefreshToken) so we preserve the existing
       // family and avoid recording a competing session entry.
-      const newJti = uuidv4();
+      // Security (SEC-SESSION): family tokens rotate to a DETERMINISTIC
+      // successor jti (see successorJti / rotateRefreshSession grace path);
+      // legacy tokens start a new family with a random jti.
+      const newJti = isLegacy ? uuidv4() : this.successorJti(decodedRefresh.family, decodedRefresh.jti);
       const newIat = Math.floor(Date.now() / 1000);
-      const newExp = newIat + (24 * 60 * 60);
-      const rotated = JWT.sign(
-        {
-          user: user,
-          family: family,
-          jti: newJti,
-          iat: newIat,
-          exp: newExp,
-        },
-        this.refreshPrivateKey + this.salt,
-      );
-      const ok = this.rotateRefreshSession(user, family, oldJti, newJti, newExp);
-      if (!ok) {
-        this.revokeRefreshSession(user);
-        return null;
+      const newExp = newIat + REFRESH_TOKEN_LIFETIME_SECONDS;
+      let family = decodedRefresh.family;
+      if (isLegacy) {
+        const legacyCheck = this.checkRefreshSession(decodedRefresh);
+        if (!legacyCheck.ok) {
+          return null;
+        }
+        family = uuidv4();
+        if (!this.recordRefreshSession(user, family, newJti, newExp)) {
+          // store not writable: keep the session alive with another legacy
+          // (no-family) token rather than logging the user out
+          family = null;
+        }
       }
-      this.setRefreshTokenCookie(res, rotated, 24 * 60 * 60 * 1000);
+      else {
+        const ok = this.rotateRefreshSession(user, family, decodedRefresh.jti, newJti, newExp);
+        if (!ok) {
+          return null;
+        }
+      }
+      const payload = {
+        user: user,
+        iat: newIat,
+        exp: newExp,
+      };
+      if (family) {
+        payload.family = family;
+        payload.jti = newJti;
+      }
+      const rotated = JWT.sign(payload, this.refreshPrivateKey + this.salt);
+      this.setRefreshTokenCookie(res, rotated, REFRESH_TOKEN_LIFETIME_SECONDS * 1000);
       return this.getJWT(user);
+    }
+    /**
+     * Security (SEC-SESSION): config.security.requireSessionForRequestTokens,
+     * overridable by env HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS (truthy:
+     * 1/true/yes; any other non-empty value means false). Default FALSE until
+     * the front-end consumes the tokens returned by login/refresh/
+     * connection-test (see shouldIncludeRequestTokens).
+     */
+    getRequireSessionForRequestTokens() {
+      const truthy = (value) => ['1', 'true', 'yes'].indexOf(String(value).trim().toLowerCase()) !== -1;
+      const envValue = process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS;
+      if (typeof envValue === 'string' && envValue.trim() !== '') {
+        return truthy(envValue);
+      }
+      if (this.config && this.config.security) {
+        const configured = this.config.security.requireSessionForRequestTokens;
+        if (configured === true) {
+          return true;
+        }
+        if (typeof configured === 'string') {
+          return truthy(configured);
+        }
+      }
+      return false;
+    }
+    /**
+     * Security (SEC-SESSION): should connection-settings include siteToken /
+     * userToken (and the token header entries)? Evaluated in this order
+     * (parity contract with PHP):
+     *   1. Sec-Fetch-Site present and 'cross-site' or 'same-site' -> omit,
+     *      whatever the flag says (blocks cross-site script inclusion of the
+     *      JS payload).
+     *   2. caller authenticated (valid bearer, or a refresh cookie that passes
+     *      the session store check) -> include.
+     *   3. requireSessionForRequestTokens is true -> omit.
+     *   4. otherwise -> include (pre-existing behaviour; the shipped front-end
+     *      loads connection-settings once, before login, and its request layer
+     *      drops ALL auth headers when a required token is missing).
+     * Returns { include, authenticatedUser, reason }.
+     */
+    shouldIncludeRequestTokens(req) {
+      const fetchSite = req && req.headers && typeof req.headers['sec-fetch-site'] === 'string'
+        ? req.headers['sec-fetch-site'].trim().toLowerCase()
+        : '';
+      const authenticatedUser = this.getRequestAuthenticatedUserName(req);
+      if (fetchSite === 'cross-site' || fetchSite === 'same-site') {
+        return { include: false, authenticatedUser: authenticatedUser, reason: 'sec-fetch-site' };
+      }
+      if (authenticatedUser !== '') {
+        return { include: true, authenticatedUser: authenticatedUser, reason: 'authenticated' };
+      }
+      if (this.getRequireSessionForRequestTokens()) {
+        return { include: false, authenticatedUser: '', reason: 'session-required' };
+      }
+      return { include: true, authenticatedUser: '', reason: 'anonymous-allowed' };
+    }
+    /**
+     * Security (SEC-SESSION): resolve the site context of a session request so
+     * an authenticated session response can carry a fresh siteToken. Order:
+     *   1. request body: site.name, then siteName
+     *   2. query: siteName
+     *   3. request path: <basePath><sitesDirectory>/<name>/...
+     *   4. Referer path: <basePath><sitesDirectory>/<name>/... (path only)
+     *   5. single-site context (cwd site.json metadata.site.name / name)
+     * Returns '' when no site context is resolvable. Only machine-name-safe
+     * values ([A-Za-z0-9_-]) are returned.
+     */
+    async resolveSessionSiteName(req) {
+      const safe = (value) => {
+        if (typeof value !== 'string') {
+          return '';
+        }
+        let v = value.trim();
+        try {
+          v = decodeURIComponent(v);
+        }
+        catch (e) {}
+        return /^[A-Za-z0-9_-]+$/.test(v) ? v : '';
+      };
+      if (req && req.body && typeof req.body === 'object') {
+        if (req.body.site && typeof req.body.site === 'object' && safe(req.body.site.name)) {
+          return safe(req.body.site.name);
+        }
+        if (safe(req.body.siteName)) {
+          return safe(req.body.siteName);
+        }
+      }
+      if (req && req.query && typeof req.query === 'object' && safe(req.query.siteName)) {
+        return safe(req.query.siteName);
+      }
+      const sitePrefix = String(this.basePath || '/') + String(this.sitesDirectory || '') + '/';
+      const fromPath = (pathValue) => {
+        if (typeof pathValue !== 'string' || pathValue.indexOf(sitePrefix) !== 0) {
+          return '';
+        }
+        return safe(pathValue.substring(sitePrefix.length).split('/')[0]);
+      };
+      if (req) {
+        const rawPath = typeof req.originalUrl === 'string' && req.originalUrl !== ''
+          ? req.originalUrl
+          : (typeof req.url === 'string' ? req.url : '');
+        const pathName = fromPath(rawPath.split('?')[0]);
+        if (pathName) {
+          return pathName;
+        }
+      }
+      if (req && req.headers && typeof req.headers.referer === 'string' && req.headers.referer !== '') {
+        try {
+          const refererName = fromPath(new URL(req.headers.referer).pathname);
+          if (refererName) {
+            return refererName;
+          }
+        }
+        catch (e) {}
+      }
+      try {
+        const singleSite = await systemStructureContext();
+        if (
+          singleSite &&
+          singleSite.manifest &&
+          singleSite.manifest.metadata &&
+          singleSite.manifest.metadata.site &&
+          singleSite.manifest.metadata.site.name
+        ) {
+          return safe(String(singleSite.manifest.metadata.site.name));
+        }
+        if (singleSite && singleSite.name) {
+          return safe(String(singleSite.name));
+        }
+      }
+      catch (e) {}
+      return '';
+    }
+    /**
+     * Security (SEC-SESSION): request tokens to hand back on a SUCCESSFUL,
+     * authenticated session response (login / refresh / connection-test) so
+     * an editor that booted anonymously (connection-settings omits tokens for
+     * anonymous callers) can pick them up without a page reload.
+     * Returns { userToken, siteToken? } -- siteToken only when a site context
+     * is resolvable (see resolveSessionSiteName). Tokens bind to the same
+     * user identity connection-settings uses (getActiveUserName).
+     */
+    async getSessionRequestTokens(req) {
+      const user = this.getActiveUserName();
+      const tokens = {
+        userToken: this.getRequestToken(user),
+      };
+      const siteName = await this.resolveSessionSiteName(req);
+      if (siteName !== '') {
+        tokens.siteToken = this.getRequestToken(user + ':' + siteName);
+      }
+      return tokens;
+    }
+    /**
+     * Security (EXPRESS-CSRF-001 / M1 + SEC-SESSION): same-origin gate for the
+     * cookie-authenticated, state-changing session endpoints (session/refresh
+     * and session/connection-test, which both rotate the refresh cookie).
+     * - Sec-Fetch-Site: 'cross-site' is always rejected when the browser sends it.
+     * - Origin (falling back to Referer) host[:port] must match the trusted
+     *   host. The scheme is deliberately NOT compared (PHP parity): behind a
+     *   TLS-terminating proxy without trusted-proxy config, or Apache plain
+     *   http with protossl forced, the server-side scheme differs from the
+     *   browser's and comparing it caused false 403s. Cross-site attackers
+     *   cannot forge the host part of Origin.
+     * - No Origin/Referer (non-browser clients, or same-origin omits) is allowed;
+     *   SameSite=Lax + no credentialed CORS remain the primary control.
+     * Returns true when the request may proceed.
+     */
+    isSameOriginRequest(req) {
+      if (req && req.headers && typeof req.headers['sec-fetch-site'] === 'string') {
+        if (req.headers['sec-fetch-site'].trim().toLowerCase() === 'cross-site') {
+          return false;
+        }
+      }
+      let originHeader = '';
+      if (req && req.headers && typeof req.headers.origin === 'string') {
+        originHeader = req.headers.origin.trim();
+      }
+      if (originHeader === '' && req && req.headers && typeof req.headers.referer === 'string') {
+        originHeader = req.headers.referer.trim();
+      }
+      if (originHeader === '') {
+        return true;
+      }
+      let parsed;
+      try {
+        parsed = new URL(originHeader);
+      }
+      catch (e) {
+        return false;
+      }
+      if (!parsed || !parsed.host) {
+        return false;
+      }
+      const expectedHost = this.resolveTrustedHost(req);
+      if (parsed.host !== expectedHost) {
+        return false;
+      }
+      return true;
+    }
+    /**
+     * Security (SEC-SESSION): resolve the authenticated user for a request
+     * WITHOUT ending it: a valid Bearer access JWT and/or a refresh cookie that
+     * passes both signature/exp validation and the refresh-session store check
+     * (revoked / unknown families are NOT authenticated). If both are present
+     * they must agree. Returns '' when the caller is anonymous. Node port of
+     * PHP getAuthenticatedUserName (which now also consults the store).
+     */
+    getRequestAuthenticatedUserName(req) {
+      if (!req || typeof req !== 'object') {
+        return '';
+      }
+      let jwtUser = '';
+      let jwtToken = '';
+      if (req.headers && typeof req.headers.authorization === 'string') {
+        const authorizationHeader = req.headers.authorization.trim();
+        if (authorizationHeader.toLowerCase().indexOf('bearer ') === 0) {
+          jwtToken = authorizationHeader.substring(7).trim();
+        }
+      }
+      if (jwtToken === '' && this.sessionJwt) {
+        jwtToken = this.sessionJwt;
+      }
+      if (jwtToken !== '') {
+        const decoded = this.decodeJWT(jwtToken);
+        if (
+          decoded &&
+          decoded.id &&
+          decoded.id == this.getRequestToken('user') &&
+          decoded.user &&
+          this.validateUser(decoded.user)
+        ) {
+          jwtUser = String(decoded.user);
+        }
+      }
+      let refreshUser = '';
+      const refreshToken = req.cookies && typeof req.cookies.haxcms_refresh_token === 'string'
+        ? req.cookies.haxcms_refresh_token
+        : '';
+      if (refreshToken !== '') {
+        const decodedRefresh = this.decodeRefreshToken(refreshToken);
+        const now = Math.floor(Date.now() / 1000);
+        if (
+          decodedRefresh &&
+          decodedRefresh.user &&
+          decodedRefresh.iat && decodedRefresh.exp &&
+          decodedRefresh.iat <= now && now < decodedRefresh.exp &&
+          this.validateUser(decodedRefresh.user) &&
+          this.checkRefreshSession(decodedRefresh).ok
+        ) {
+          refreshUser = String(decodedRefresh.user);
+        }
+      }
+      if (jwtUser !== '' && refreshUser !== '' && jwtUser !== refreshUser) {
+        return '';
+      }
+      return jwtUser !== '' ? jwtUser : refreshUser;
     }
     /**
      * Validate that a user name that came across in a JWT decode is legit
