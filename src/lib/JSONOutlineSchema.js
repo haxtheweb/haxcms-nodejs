@@ -242,39 +242,9 @@ class JSONOutlineSchema {
     return children;
   }
 
-  findChildenRecursively(items, activeIds = []) {
-    for (var key in items) {
-      // we found a kid
-      if (activeIds.includes(items[key].parent)) {
-      }
-      let child = this.items[key2];
-      if (child.parent == item.id) {
-        children.push(child);
-      }
-    }
-    for (var key in currentItems) {
-      let item = currentItems[key];
-      if (!idList.includes(item.id)) {
-        idList.push(item.id);
-        found.push(item);
-        let children = [];
-        for (var key2 in this.items) {
-          let child = this.items[key2];
-          if (child.parent == item.id) {
-            children.push(child);
-          }
-        }
-        // sort the kids
-        children.sort(function (a, b) {
-          return a.order - b.order;
-        });
-        // only walk deeper if there were children for this page
-        if (children.length > 0) {
-          this.orderRecurse(children, sorted, idList);
-        }
-      }
-    }
-  }
+  // removed findChildenRecursively(): an unfinished stub with no callers whose
+  // body referenced undeclared item/children/currentItems/idList/found/sorted
+  // (strict-mode ReferenceErrors). findBranch() above covers the use case.
   // Security (I4, 2026-10-19 audit): removed the unused getContentById(),
   // which fetch()ed a manifest-derived location with no SSRF guard. Page
   // content is read from disk via HAXCMSSite.getPageContent().

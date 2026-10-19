@@ -3511,7 +3511,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     ) {
       // @todo think of how to make this less brittle
       // not a fan of pegging loading this definition to our file system's publishing structure
-      themeFields = JSON.parse(
+      const themeFields = JSON.parse(
         await fs.readFileSync(
           HAXCMS.HAXCMS_ROOT +
             "build/es6/node_modules/" +
@@ -3567,7 +3567,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       }
     }
     // response as schema and values
-    response = {};
+    const response = {};
     response.haxSchema = fields;
     response.values = values;
     return response;
@@ -5209,6 +5209,9 @@ class HAXCMSClass {
    * Process the form submission data
    */
   async processForm(form_id, params, context = []) {
+    // strict-mode fix: these were undeclared (class bodies are strict)
+    let value = {};
+    let fields = {};
     // make sure we have the original value / key pairs for the form
     if (this[form_id + "Value"]) {
       value = await this[form_id + "Value"](context);
@@ -5247,9 +5250,14 @@ class HAXCMSClass {
    * for selection keyed by item id: title, ordered based on
    * hierarchy with -- for each level down
    */
-  itemSelectorList() {
+  // strict-mode fix: `site` used to be read from an undeclared PHP-port global
+  // and itemValues/itemBuilder/distance were implicit globals; the site is now
+  // passed in and the working variables are locals.
+  itemSelectorList(site) {
     let items = site.manifest.orderTree(site.manifest.items);
-    itemValues = [
+    let itemBuilder;
+    let distance;
+    let itemValues = [
       {
         text: "-- No page --",
         value: null,
@@ -5450,7 +5458,10 @@ class HAXCMSClass {
    * Build valid JSON Schema for the config we have knowledge of
    */
   getConfigSchema() {
-    schema = {};
+    // strict-mode fix: schema/publishing/props/hax/apiDocs were undeclared
+    // and HAXAppStoreService was never required in this module
+    const HAXAppStoreService = require("./HAXAppStoreService.js");
+    const schema = {};
     schema["schema"] = "http://json-schema.org/schema#";
     schema.title = "HAXCMS Config";
     schema.type = "object";
@@ -5464,7 +5475,7 @@ class HAXCMSClass {
     schema.properties.apis.type = "object";
     schema.properties.apis.properties = {};
     // establish some defaults if nothing set internally
-    publishing = {
+    const publishing = {
       vendor: {
         name: "Vendor",
         description: "Name for this provided (github currently supported)",
@@ -5506,7 +5517,7 @@ class HAXCMSClass {
     // publishing
     for (var key in publishing) {
       let value = publishing[key];
-      props = {};
+      let props = {};
       props.title = value["name"];
       props.type = "string";
       if (this.config.site.git[key]) {
@@ -5541,10 +5552,10 @@ class HAXCMSClass {
       }
     }
     // API keys
-    hax = new HAXAppStoreService();
-    apiDocs = hax.baseSupportedApps();
+    const hax = new HAXAppStoreService();
+    const apiDocs = hax.baseSupportedApps();
     for (var key in apiDocs) {
-      props = {};
+      let props = {};
       props.title = key;
       props.type = "string";
       // if we have this value loaded internally then set it
@@ -5602,28 +5613,9 @@ class HAXCMSClass {
   getSSHKey() {
     return false;
   }
-  // russia strikes again
-  // https://stackoverflow.com/questions/3872423/php-problem-with-russian-language
-  html_to_obj(html) {
-    dom = new DOMDocument();
-    html = mb_convert_encoding(html, "HTML-ENTITIES", "UTF-8");
-    dom.loadHTML(html);
-    return this.element_to_obj(dom.documentElement);
-  }
-  element_to_obj(element) {
-    obj = { tag: element.tagName };
-    for (var attribute in element.attributes) {
-      obj[attribute.name] = attribute.value;
-    }
-    for (var subElement in element.childNodes) {
-      if (subElement.nodeType == XML_TEXT_NODE) {
-        obj["html"] = subElement.wholeText;
-      } else {
-        obj["children"].push(this.element_to_obj(subElement));
-      }
-    }
-    return obj;
-  }
+  // removed html_to_obj()/element_to_obj(): unported PHP (DOMDocument,
+  // mb_convert_encoding, XML_TEXT_NODE) that could never run in Node and had
+  // no callers; they also assigned undeclared globals (strict-mode errors).
   /**
    * parse attributes out of an HTML tag in a safer manner
    */
