@@ -348,3 +348,35 @@ test('site API paths pass through to the site routes', async () => {
   // unauthenticated access to the files route rejects before the handler
   assert.equal(result.status, 401)
 })
+
+// Security (PR8-4): malformed / oversized JSON bodies answer 400/413 JSON and
+// the raw request body never reaches the logs.
+test('malformed JSON body returns 400 envelope and does not log the raw body', async (t) => {
+  const baseUrl = await baseUrlPromise
+  const logged = []
+  const capture = function () {
+    logged.push(Array.prototype.map.call(arguments, function (a) {
+      if (a && typeof a === 'object') {
+        try { return JSON.stringify(a) + ' ' + String(a.body || '') } catch (e) { return String(a) }
+      }
+      return String(a)
+    }).join(' '))
+  }
+  t.mock.method(console, 'error', capture)
+  t.mock.method(console, 'warn', capture)
+  t.mock.method(console, 'log', capture)
+  const secret = 'SUPERSECRETBODYMARKER'
+  const response = await axios({
+    method: 'POST',
+    url: baseUrl + '/system/api/v1/session/login',
+    headers: { 'Content-Type': 'application/json' },
+    data: '{"password":"' + secret + '", broken' + 'x'.repeat(500),
+    transformRequest: [function (d) { return d }],
+    validateStatus: function () { return true },
+  })
+  assert.equal(response.status, 400)
+  assert.deepEqual(response.data, { status: 400, message: 'Malformed request body' })
+  const all = logged.join('\n')
+  assert.equal(all.indexOf(secret), -1, 'raw body must not be logged')
+  assert.equal(all.indexOf('x'.repeat(200)), -1, 'log output is truncated')
+})

@@ -11,6 +11,8 @@ const {
   htmlFromEl,
   processDocxHtml,
   sanitizeUntrustedHtml,
+  stripDelimitedSpans,
+  lazySequenceReplace,
 } = require('../../src/lib/convertUtils.js')
 
 // Build a single parsed element the same way processDocxHtml does: wrap the
@@ -400,5 +402,122 @@ describe('stripMSWord', () => {
       stripMSWord(input),
       '<p>Hello World</p><p>Bold</p>  <strong>bold</strong>',
     )
+  })
+})
+
+// Security (PR8-5): stripMSWord used backtracking lazy regexes that were
+// O(n^2) on many unterminated openers. The linear replacements must produce
+// byte-identical results to the original regexes and finish quickly.
+describe('stripMSWord linear-time scrubbing (PR8-5)', () => {
+  // small deterministic PRNG so failures are reproducible
+  function prng(seed) {
+    let x = seed >>> 0
+    return function () {
+      x ^= x << 13
+      x >>>= 0
+      x ^= x >> 17
+      x ^= x << 5
+      x >>>= 0
+      return x / 4294967296
+    }
+  }
+  function randomString(rand, alphabet, maxParts) {
+    const n = Math.floor(rand() * maxParts)
+    let out = ''
+    for (let i = 0; i < n; i++) {
+      out += alphabet[Math.floor(rand() * alphabet.length)]
+    }
+    return out
+  }
+  const drop = function () { return '' }
+  const keepQuote = function () { return '"' }
+  // [name, original regex, replacement, alphabet, linear implementation]
+  const badTags = ['style', 'script', 'applet', 'embed', 'noframes', 'noscript']
+  const cases = [
+    ['comment', /<!--(\s|.)*?-->/gim, '', ['<!--', '-->', '-', '>', '<', '!', 'a', ' ', '\n'],
+      function (s) { return stripDelimitedSpans(s, '<!--', '-->') }],
+    ['qmark', /<!\?(\s|.)*?>/gim, '', ['<!?', '<!', '?', '>', 'a', '\n'],
+      function (s) { return stripDelimitedSpans(s, '<!?', '>') }],
+    ['msword tags', /<(\/)*(meta|link|title|html|head|body|font|br|\\\\?xml:|xml|st1:|o:|w:|m:|v:)(\s|.)*?>/gim, '',
+      ['<', '/', 'meta', 'META', 'm:', 'o:', 'xml', '\\xml:', '\\\\xml:', 'br', '>', 'x', ' ', '\n', ' '],
+      function (s) {
+        return lazySequenceReplace(s, /<(\/)*(meta|link|title|html|head|body|font|br|\\\\?xml:|xml|st1:|o:|w:|m:|v:)/gi, [{ re: />/g }], drop)
+      }],
+    ['span', /<span[^>]*>([\s\S]*?)<\/span>/gim, '$1', ['<span', '<SPAN', '>', '</span>', '</SPAN>', 'a', ' ', '\n', '<'],
+      function (s) {
+        return lazySequenceReplace(s, /<span/gi, [{ re: />/g }, { re: /<\/span>/gi }], function (str, spans) {
+          return str.substring(spans[1].end, spans[2].start)
+        })
+      }],
+    ['line-height quote', /line-height:.*?\"/g, '"', ['line-height:', '"', ';', 'a', '\n', ' '],
+      function (s) { return lazySequenceReplace(s, /line-height:/g, [{ re: /"/g, lineBounded: true }], keepQuote) }],
+    ['line-height semi', /line-height:.*?;/g, '', ['line-height:', '"', ';', 'a', '\r'],
+      function (s) { return lazySequenceReplace(s, /line-height:/g, [{ re: /;/g, lineBounded: true }], drop) }],
+    ['margin quote', /margin-.*?:.*?\"/g, '"', ['margin-', ':', '"', ';', 'a', '\n'],
+      function (s) {
+        return lazySequenceReplace(s, /margin-/g, [{ re: /:/g, lineBounded: true }, { re: /"/g, lineBounded: true }], keepQuote)
+      }],
+    ['margin semi', /margin-.*?:.*?;/g, '', ['margin-', ':', '"', ';', 'a', '\n'],
+      function (s) {
+        return lazySequenceReplace(s, /margin-/g, [{ re: /:/g, lineBounded: true }, { re: /;/g, lineBounded: true }], drop)
+      }],
+    ['data attr', / data-(\s|.)*?\"(\s|.)*?\"/gim, '', [' data-', ' DATA-', '"', 'a', '\n', ' '],
+      function (s) { return lazySequenceReplace(s, / data-/gi, [{ re: /"/g }, { re: /"/g }], drop) }],
+    ['p style', /<p style=\".*?\">/gm, '<p>', ['<p style="', '">', '"', '>', 'a', '\n'],
+      function (s) { return lazySequenceReplace(s, /<p style="/g, [{ re: /">/g, lineBounded: true }], function () { return '<p>' }) }],
+  ]
+  for (const tag of badTags) {
+    cases.push(['bad tag ' + tag, new RegExp('<' + tag + '(s|.)*?' + tag + '(.*?)>', 'gim'), '',
+      ['<' + tag, '<' + tag.toUpperCase(), tag, '>', 's', 'a', '\n', ' '],
+      function (s) {
+        return lazySequenceReplace(s, new RegExp('<' + tag, 'gi'), [
+          { re: new RegExp(tag, 'gi'), lineBounded: true },
+          { re: />/g, lineBounded: true },
+        ], drop)
+      }])
+  }
+  for (const c of cases) {
+    test('linear replacement matches original regex: ' + c[0], () => {
+      const rand = prng(0x5eed + c[0].length)
+      for (let i = 0; i < 3000; i++) {
+        const input = randomString(rand, c[3], 24)
+        assert.equal(c[4](input), input.replace(c[1], c[2]), 'input: ' + JSON.stringify(input))
+      }
+    })
+  }
+
+  test('180 KB of unterminated <!-- finishes in < 200 ms', () => {
+    const input = '<!--'.repeat(45000)
+    const start = process.hrtime.bigint()
+    const out = stripMSWord(input)
+    const ms = Number(process.hrtime.bigint() - start) / 1e6
+    assert.equal(out, input)
+    assert.ok(ms < 200, 'took ' + ms + ' ms')
+  })
+
+  test('other unterminated openers are linear too', () => {
+    const inputs = [
+      '<!?'.repeat(60000),
+      '<meta'.repeat(36000),
+      '<span'.repeat(36000),
+      '<span>'.repeat(30000),
+      '<style'.repeat(30000),
+      ' data-'.repeat(30000),
+      'line-height:'.repeat(15000),
+      'margin-'.repeat(25000),
+      '<p style="'.repeat(18000),
+    ]
+    for (const input of inputs) {
+      const start = process.hrtime.bigint()
+      stripMSWord(input)
+      const ms = Number(process.hrtime.bigint() - start) / 1e6
+      assert.ok(ms < 200, JSON.stringify(input.slice(0, 12)) + ' took ' + ms + ' ms')
+    }
+  })
+
+  test('terminated comments are still removed', () => {
+    assert.equal(stripMSWord('a<!-- x -->b<!-- y'), 'ab<!-- y')
+    assert.equal(stripMSWord('a<!?xml stuff>b'), 'ab')
+    assert.equal(stripMSWord('<span class="x">keep</span>'), 'keep')
   })
 })

@@ -66,6 +66,37 @@ function fileNameBaseFromPageTitle(pageTitle) {
 }
 
 /**
+ * Security (PR8-2): magic-byte sniff restricted to the raster formats the
+ * inline-image path accepts. Returns 'png' | 'jpeg' | 'gif' | 'webp' or null.
+ */
+function detectInlineRasterType(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) {
+    return null;
+  }
+  if (
+    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e &&
+    buffer[3] === 0x47 && buffer[4] === 0x0d && buffer[5] === 0x0a &&
+    buffer[6] === 0x1a && buffer[7] === 0x0a
+  ) {
+    return 'png';
+  }
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'jpeg';
+  }
+  const gifHeader = buffer.toString('ascii', 0, 6);
+  if (gifHeader === 'GIF87a' || gifHeader === 'GIF89a') {
+    return 'gif';
+  }
+  if (
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'webp';
+  }
+  return null;
+}
+
+/**
  * Resize to the largest recommended preset, convert non-JPG rasters to JPG,
  * and compress at 90% quality. Docx-sourced images (often PNG/print-sized)
  * are forced into a web-friendly JPEG before HAXCMSFile stores them.
@@ -74,6 +105,15 @@ function fileNameBaseFromPageTitle(pageTitle) {
  * On failure, returns the original buffer + extension unchanged.
  */
 async function optimizeInlineImageBuffer(buffer, extension) {
+  // Security (PR8-2 / PHP MaterializeInlineImages parity): only hand bytes to
+  // sharp/libvips when they carry a PNG, JPEG, GIF or WebP signature. PHP only
+  // decodes via getimagesize + the gif/jpeg/png/webp GD decoders; anything
+  // else (SVG/XML, HEIF/AVIF, TIFF, PDF, ...) must never reach a decoder.
+  // Rejected payloads are returned unchanged here, and saveImage() never
+  // saves them (the image becomes a placeholder).
+  if (!detectInlineRasterType(buffer)) {
+    return { buffer: buffer, extension: extension };
+  }
   try {
     // flatten alpha onto white so PNG/WebP/GIF transparency becomes a real JPG
     let pipeline = sharp(buffer, { failOn: 'none' })
@@ -193,6 +233,12 @@ async function saveImage(src, site, nameBase) {
   }
   const base = nameBase || 'page';
   let buffer = Buffer.from(match[2], 'base64');
+  // Security (PR8-2): bytes that are not a PNG/JPEG/GIF/WebP raster are never
+  // saved (HAXCMSFile.save accepts e.g. SVG, which could carry <script>);
+  // returning null renders the image place-holder instead.
+  if (!detectInlineRasterType(buffer)) {
+    return null;
+  }
   // Always convert allowed non-JPG rasters (png/gif/webp) to jpg and apply
   // the xl resize + 90% compression rules for web-friendly docx imports.
   const optimized = await optimizeInlineImageBuffer(buffer, extension);
@@ -258,6 +304,7 @@ module.exports = {
   materializeInlineImages,
   fileNameBaseFromPageTitle,
   optimizeInlineImageBuffer,
+  detectInlineRasterType,
   MAX_INLINE_IMAGE_WIDTH,
   MAX_INLINE_IMAGE_HEIGHT,
   INLINE_IMAGE_QUALITY,
