@@ -129,6 +129,9 @@
   "resolutions": {
     "image-size": "^2.0.4"
   },
+  "overrides": {
+    "image-size": "^2.0.4"
+  },
   "lint-staged": {
     "*.{js,cjs}": [
       "eslint --fix",
