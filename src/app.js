@@ -37,6 +37,7 @@ const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
 const { resolveContainedPath } = require('./lib/pathConfinement.js');
 const loginRateLimiter = require('./lib/loginRateLimiter.js');
 const { haxcmsErrorHandler } = require('./lib/requestErrorHandler.js');
+const { apiMessageCodesMiddleware } = require('./lib/apiMessageCodes.js');
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
 // colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
 // the plain `open: <url>` line when color is disabled (CI / non-TTY / NO_COLOR).
@@ -942,6 +943,8 @@ app.use(helmet(helmetPolicies));
 app.use(cspNonceMiddleware);
 app.use(cookieParser());
 app.use(compression());
+// translatable API messages: add a `code` next to response messages (issues#3157)
+app.use(apiMessageCodesMiddleware);
 app.use((req, res, next) => {
   if (
     isSystemAdminApiRequest(req) ||

@@ -241,7 +241,7 @@ test('unauthenticated multipart POST to a system action keeps the 401 envelope a
   assert.equal(result.status, 401, result.bodyText)
   assert.deepEqual(JSON.parse(result.bodyText), {
     status: 401,
-    data: { message: 'Authentication required' },
+    data: { message: 'Authentication required', code: 'AUTH_REQUIRED' },
   })
   assert.deepEqual(listUploadTempFiles(), [])
 })
@@ -256,7 +256,7 @@ test('invalid bearer multipart POST to a system action keeps the 403 envelope an
   assert.equal(result.status, 403, result.bodyText)
   assert.deepEqual(JSON.parse(result.bodyText), {
     status: 403,
-    data: { message: 'Invalid bearer token' },
+    data: { message: 'Invalid bearer token', code: 'AUTH_TOKEN_INVALID' },
   })
   assert.deepEqual(listUploadTempFiles(), [])
 })
@@ -270,7 +270,7 @@ test('unauthenticated multipart POST to the site-scoped system import route writ
   assert.equal(result.status, 401, result.bodyText)
   assert.deepEqual(JSON.parse(result.bodyText), {
     status: 401,
-    data: { message: 'Authentication required' },
+    data: { message: 'Authentication required', code: 'AUTH_REQUIRED' },
   })
   assert.deepEqual(listUploadTempFiles(), [])
 })
@@ -286,6 +286,7 @@ test('unauthenticated multipart POST to the site files route keeps the 401 envel
     status: 401,
     data: {
       message: 'Authorization bearer token or basic credentials are required for this endpoint',
+      code: 'AUTH_REQUIRED',
     },
   })
   assert.deepEqual(listUploadTempFiles(), [])
@@ -301,7 +302,7 @@ test('site files multipart upload with bad basic credentials or missing site tok
   assert.equal(badBasic.status, 401, badBasic.bodyText)
   assert.deepEqual(JSON.parse(badBasic.bodyText), {
     status: 401,
-    data: { message: 'Invalid basic authorization credentials' },
+    data: { message: 'Invalid basic authorization credentials', code: 'AUTH_INVALID_CREDENTIALS' },
   })
   assert.deepEqual(listUploadTempFiles(), [])
   const missingSiteToken = await postMultipart(
@@ -312,7 +313,7 @@ test('site files multipart upload with bad basic credentials or missing site tok
   assert.equal(missingSiteToken.status, 403, missingSiteToken.bodyText)
   assert.deepEqual(JSON.parse(missingSiteToken.bodyText), {
     status: 403,
-    data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint' },
+    data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', code: 'SITE_TOKEN_REQUIRED' },
   })
   assert.deepEqual(listUploadTempFiles(), [])
   // a wrong site token is denied too (the site name comes from the path so
@@ -325,7 +326,7 @@ test('site files multipart upload with bad basic credentials or missing site tok
   assert.equal(badSiteToken.status, 403, badSiteToken.bodyText)
   assert.deepEqual(JSON.parse(badSiteToken.bodyText), {
     status: 403,
-    data: { message: 'Invalid X-HAXCMS-Site-Token header' },
+    data: { message: 'Invalid X-HAXCMS-Site-Token header', code: 'SITE_TOKEN_INVALID' },
   })
   assert.deepEqual(listUploadTempFiles(), [])
 })
@@ -340,7 +341,7 @@ test('non-multipart unauthenticated requests to upload routes are unchanged', as
   assert.equal(response.status, 401, bodyText)
   assert.deepEqual(JSON.parse(bodyText), {
     status: 401,
-    data: { message: 'Authentication required' },
+    data: { message: 'Authentication required', code: 'AUTH_REQUIRED' },
   })
 })
 
