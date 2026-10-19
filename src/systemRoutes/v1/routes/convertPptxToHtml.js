@@ -1,3 +1,5 @@
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 /**
  * POST /system/api/v1/actions/pptx-to-html
  * Convert an uploaded PPTX file to HTML.
@@ -11,7 +13,12 @@ async function convertPptxToHtml(req, res) {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         status: 400,
-        data: { error: 'No file uploaded', contents: '', filename: null, files: {} },
+        data: {
+          error: "No file uploaded",
+          contents: "",
+          filename: null,
+          files: {},
+        },
       });
     }
 
@@ -22,14 +29,14 @@ async function convertPptxToHtml(req, res) {
         status: 400,
         data: {
           error: `Invalid file type. Expected .pptx, got: ${originalname}`,
-          contents: '',
+          contents: "",
           filename: originalname,
           files: {},
         },
       });
     }
 
-    const fs = require('fs-extra');
+    const fs = require("fs-extra");
     let buffer;
     try {
       buffer = fs.readFileSync(file.path);
@@ -37,8 +44,8 @@ async function convertPptxToHtml(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unable to read uploaded file: ${e.message}`,
-          contents: '',
+          error: `Unable to read uploaded file: ${clientSafeErrorDetail(e)}`,
+          contents: "",
           filename: originalname,
           files: {},
         },
@@ -48,8 +55,8 @@ async function convertPptxToHtml(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'Uploaded file is empty',
-          contents: '',
+          error: "Uploaded file is empty",
+          contents: "",
           filename: originalname,
           files: {},
         },
@@ -57,26 +64,35 @@ async function convertPptxToHtml(req, res) {
     }
 
     // Validate ZIP magic number (PPTX files are ZIP archives)
-    if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
+    if (
+      buffer.length < 4 ||
+      buffer[0] !== 0x50 ||
+      buffer[1] !== 0x4b ||
+      buffer[2] !== 0x03 ||
+      buffer[3] !== 0x04
+    ) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'Uploaded file is not a valid .pptx file (missing ZIP signature).',
-          contents: '',
+          error:
+            "Uploaded file is not a valid .pptx file (missing ZIP signature).",
+          contents: "",
           filename: originalname,
           files: {},
         },
       });
     }
 
-    const { PPTXInHTMLOut } = await import('../../../lib/vendor/pptx-in-html-out/src/index.js');
+    const { PPTXInHTMLOut } = await import(
+      "../../../lib/vendor/pptx-in-html-out/src/index.js"
+    );
     const converter = new PPTXInHTMLOut(buffer);
     const html = await converter.toHTML({
       includeStyles: false,
       inlineImages: false,
       fullDocument: false,
     });
-    const files = await converter.getExtractedFiles() || {};
+    const files = (await converter.getExtractedFiles()) || {};
 
     return res.json({
       status: 200,
@@ -87,12 +103,12 @@ async function convertPptxToHtml(req, res) {
       },
     });
   } catch (error) {
-    console.error('pptxToHtml: Error processing file:', error.message);
+    console.error("pptxToHtml: Error processing file:", error.message);
     return res.status(400).json({
       status: 400,
       data: {
-        error: `Error processing PPTX: ${error.message}`,
-        contents: '',
+        error: `Error processing PPTX: ${clientSafeErrorDetail(error)}`,
+        contents: "",
         filename: originalname,
         files: {},
       },

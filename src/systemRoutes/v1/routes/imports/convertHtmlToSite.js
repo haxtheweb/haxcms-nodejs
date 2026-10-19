@@ -1,9 +1,15 @@
-const { sanitizeUntrustedHtml } = require('../../../../lib/convertUtils.js')
-const { importHtmlToItems } = require('../../../../siteRoutes/v1/importUtils.js')
-const { safeFetch } = require('../../../../lib/safeFetch.js')
+const { sanitizeUntrustedHtml } = require("../../../../lib/convertUtils.js");
+const {
+  importHtmlToItems,
+} = require("../../../../siteRoutes/v1/importUtils.js");
+const { safeFetch } = require("../../../../lib/safeFetch.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const {
+  clientSafeErrorDetail,
+} = require("../../../../lib/clientErrorMessage.js");
 
 // D37: canonical upload field-name allowlist (parity with PHP importHtml.php).
-const UPLOAD_FIELD_ALLOWLIST = ['upload', 'file', 'file-upload']
+const UPLOAD_FIELD_ALLOWLIST = ["upload", "file", "file-upload"];
 
 /**
  * POST /system/api/v1/site/import/:platform
@@ -14,37 +20,37 @@ const UPLOAD_FIELD_ALLOWLIST = ['upload', 'file', 'file-upload']
  * Returns { status: 200, data: { items: [...], filename: string } }.
  */
 async function convertHtmlToSite(req, res) {
-  let html = ''
-  let filename = null
+  let html = "";
+  let filename = null;
   const contentType =
-    req && req.headers && req.headers['content-type']
-      ? req.headers['content-type']
-      : ''
+    req && req.headers && req.headers["content-type"]
+      ? req.headers["content-type"]
+      : "";
 
-  if (contentType.indexOf('multipart/form-data') !== -1) {
+  if (contentType.indexOf("multipart/form-data") !== -1) {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'No file uploaded',
+          error: "No file uploaded",
           items: [],
           filename: null,
         },
-      })
+      });
     }
-    const file = req.files[0]
+    const file = req.files[0];
     // D37: validate upload field name against the canonical allowlist.
     if (UPLOAD_FIELD_ALLOWLIST.indexOf(file.fieldname) === -1) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unexpected upload field name \`${file.fieldname}\`; expected one of: ${UPLOAD_FIELD_ALLOWLIST.join(', ')}`,
+          error: `Unexpected upload field name \`${file.fieldname}\`; expected one of: ${UPLOAD_FIELD_ALLOWLIST.join(", ")}`,
           items: [],
           filename: file.originalname || null,
         },
-      })
+      });
     }
-    filename = file.originalname
+    filename = file.originalname;
     if (!/\.(html|htm)$/i.test(filename)) {
       return res.status(400).json({
         status: 400,
@@ -53,88 +59,86 @@ async function convertHtmlToSite(req, res) {
           items: [],
           filename: filename,
         },
-      })
+      });
     }
-    const fs = require('fs-extra')
+    const fs = require("fs-extra");
     try {
-      html = fs.readFileSync(file.path, 'utf8')
+      html = fs.readFileSync(file.path, "utf8");
     } catch (e) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unable to read uploaded file: ${e.message}`,
+          error: `Unable to read uploaded file: ${clientSafeErrorDetail(e)}`,
           items: [],
           filename: filename,
         },
-      })
+      });
     }
   } else {
-    let body = {}
+    let body = {};
     if (
       req &&
       req.body &&
-      typeof req.body === 'object' &&
+      typeof req.body === "object" &&
       !Array.isArray(req.body)
     ) {
-      body = req.body
+      body = req.body;
     }
     if (!body || !body.repoUrl) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'missing `repoUrl` param',
+          error: "missing `repoUrl` param",
           items: [],
           filename: null,
         },
-      })
+      });
     }
     try {
-      const response = await safeFetch(body.repoUrl)
+      const response = await safeFetch(body.repoUrl);
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+        throw new Error(`HTTP ${response.status}`);
       }
-      html = await response.text()
-      filename = body.repoUrl.split('/').pop() || 'import.html'
+      html = await response.text();
+      filename = body.repoUrl.split("/").pop() || "import.html";
     } catch (e) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unable to fetch URL: ${e.message}`,
+          error: `Unable to fetch URL: ${clientSafeErrorDetail(e)}`,
           items: [],
           filename: null,
         },
-      })
+      });
     }
   }
 
-  if (!html || html.trim() === '') {
+  if (!html || html.trim() === "") {
     return res.status(400).json({
       status: 400,
       data: {
-        error: 'Empty HTML content',
+        error: "Empty HTML content",
         items: [],
         filename: filename,
       },
-    })
+    });
   }
 
-  html = sanitizeUntrustedHtml(html)
+  html = sanitizeUntrustedHtml(html);
 
-  const method = req.body && req.body.method ? req.body.method : 'site'
-  const type = req.body && req.body.type ? req.body.type : ''
+  const method = req.body && req.body.method ? req.body.method : "site";
+  const type = req.body && req.body.type ? req.body.type : "";
   const parentId =
-    req.body && req.body.parentId && req.body.parentId !== 'null'
+    req.body && req.body.parentId && req.body.parentId !== "null"
       ? req.body.parentId
-      : null
+      : null;
 
   const items = await importHtmlToItems(html, {
-    titleValue: filename
-      ? filename.replace(/\.(html|htm)$/i, '')
-      : 'import',
+    titleValue: filename ? filename.replace(/\.(html|htm)$/i, "") : "import",
     method: method,
     type: type,
     parentId: parentId,
-  })
+  });
 
   return res.json({
     status: 200,
@@ -142,7 +146,7 @@ async function convertHtmlToSite(req, res) {
       items: items,
       filename: filename,
     },
-  })
+  });
 }
 
-module.exports = { convertHtmlToSite }
+module.exports = { convertHtmlToSite };

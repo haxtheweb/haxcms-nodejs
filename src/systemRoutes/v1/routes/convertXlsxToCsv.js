@@ -2,6 +2,8 @@
 // replaces xlsx@0.18.5 (npm) which has prototype pollution + ReDoS with NO npm fix
 const XLSX = require("../../../lib/vendor/xlsx/xlsx.js");
 const fs = require("fs-extra");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 function parseMultipartData(buffer, boundary) {
   const data = buffer.toString("binary");
@@ -146,7 +148,7 @@ async function convertXlsxToCsv(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unable to read uploaded file: ${e.message}`,
+          error: `Unable to read uploaded file: ${clientSafeErrorDetail(e)}`,
           contents: "",
           filename: originalname,
         },
@@ -210,7 +212,7 @@ async function convertXlsxToCsv(req, res) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: `Excel to CSV conversion failed: ${error.message}`,
+        error: `Excel to CSV conversion failed: ${clientSafeErrorDetail(error)}`,
         contents: "",
         filename: null,
       },

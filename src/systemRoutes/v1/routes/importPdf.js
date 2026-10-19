@@ -1,5 +1,7 @@
-const { convertPdfBufferToHtml } = require('../../../lib/pdfToSemanticHtml.js')
-const { importHtmlToItems } = require('../../../siteRoutes/v1/importUtils.js')
+const { convertPdfBufferToHtml } = require("../../../lib/pdfToSemanticHtml.js");
+const { importHtmlToItems } = require("../../../siteRoutes/v1/importUtils.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/actions/import-pdf
@@ -10,21 +12,21 @@ const { importHtmlToItems } = require('../../../siteRoutes/v1/importUtils.js')
  * Returns { status: 200, data: { items: [...], filename: string } }.
  */
 async function importPdf(req, res) {
-  let filename = null
+  let filename = null;
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'No file uploaded',
+          error: "No file uploaded",
           items: [],
           filename: null,
         },
-      })
+      });
     }
 
-    const file = req.files[0]
-    filename = file.originalname
+    const file = req.files[0];
+    filename = file.originalname;
     if (!/\.pdf$/i.test(filename)) {
       return res.status(400).json({
         status: 400,
@@ -33,52 +35,55 @@ async function importPdf(req, res) {
           items: [],
           filename: filename,
         },
-      })
+      });
     }
 
-    const fs = require('fs-extra')
-    let buffer
+    const fs = require("fs-extra");
+    let buffer;
     try {
-      buffer = fs.readFileSync(file.path)
+      buffer = fs.readFileSync(file.path);
     } catch (e) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unable to read uploaded file: ${e.message}`,
+          error: `Unable to read uploaded file: ${clientSafeErrorDetail(e)}`,
           items: [],
           filename: filename,
         },
-      })
+      });
     }
     if (!buffer || buffer.length === 0) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'Uploaded file is empty',
+          error: "Uploaded file is empty",
           items: [],
           filename: filename,
         },
-      })
+      });
     }
 
-    if (buffer.length < 4 || buffer.toString('ascii', 0, 4) !== '%PDF') {
+    if (buffer.length < 4 || buffer.toString("ascii", 0, 4) !== "%PDF") {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'Uploaded file is not a valid PDF.',
+          error: "Uploaded file is not a valid PDF.",
           items: [],
           filename: filename,
         },
-      })
+      });
     }
 
-    const html = await convertPdfBufferToHtml(buffer)
+    const html = await convertPdfBufferToHtml(buffer);
     const items = await importHtmlToItems(html, {
-      titleValue: filename.replace(/\.pdf$/i, ''),
-      method: req.body && req.body.method ? req.body.method : 'site',
-      type: req.body && req.body.type ? req.body.type : '',
-      parentId: req.body && req.body.parentId && req.body.parentId !== 'null' ? req.body.parentId : null,
-    })
+      titleValue: filename.replace(/\.pdf$/i, ""),
+      method: req.body && req.body.method ? req.body.method : "site",
+      type: req.body && req.body.type ? req.body.type : "",
+      parentId:
+        req.body && req.body.parentId && req.body.parentId !== "null"
+          ? req.body.parentId
+          : null,
+    });
 
     return res.json({
       status: 200,
@@ -86,18 +91,18 @@ async function importPdf(req, res) {
         items: items,
         filename: filename,
       },
-    })
+    });
   } catch (error) {
-    console.error('pdfToSite: Error processing file:', error.message)
+    console.error("pdfToSite: Error processing file:", error.message);
     return res.status(400).json({
       status: 400,
       data: {
-        error: `Error processing PDF import: ${error.message}`,
+        error: `Error processing PDF import: ${clientSafeErrorDetail(error)}`,
         items: [],
         filename: filename,
       },
-    })
+    });
   }
 }
 
-module.exports = { importPdf }
+module.exports = { importPdf };

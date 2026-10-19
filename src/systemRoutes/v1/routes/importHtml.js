@@ -1,8 +1,10 @@
-const { sanitizeUntrustedHtml } = require('../../../lib/convertUtils.js')
-const { importHtmlToItems } = require('../../../siteRoutes/v1/importUtils.js')
+const { sanitizeUntrustedHtml } = require("../../../lib/convertUtils.js");
+const { importHtmlToItems } = require("../../../siteRoutes/v1/importUtils.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 // D37: canonical upload field-name allowlist (parity with PHP importHtml.php).
-const UPLOAD_FIELD_ALLOWLIST = ['upload', 'file', 'file-upload']
+const UPLOAD_FIELD_ALLOWLIST = ["upload", "file", "file-upload"];
 
 /**
  * POST /system/api/v1/actions/import-html
@@ -13,32 +15,32 @@ const UPLOAD_FIELD_ALLOWLIST = ['upload', 'file', 'file-upload']
  * Returns { status: 200, data: { items: [...], filename: string } }.
  */
 async function importHtml(req, res) {
-  let filename = null
+  let filename = null;
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'No file uploaded',
+          error: "No file uploaded",
           items: [],
           filename: null,
         },
-      })
+      });
     }
 
-    const file = req.files[0]
+    const file = req.files[0];
     // D37: validate upload field name against the canonical allowlist.
     if (UPLOAD_FIELD_ALLOWLIST.indexOf(file.fieldname) === -1) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unexpected upload field name \`${file.fieldname}\`; expected one of: ${UPLOAD_FIELD_ALLOWLIST.join(', ')}`,
+          error: `Unexpected upload field name \`${file.fieldname}\`; expected one of: ${UPLOAD_FIELD_ALLOWLIST.join(", ")}`,
           items: [],
           filename: file.originalname || null,
         },
-      })
+      });
     }
-    filename = file.originalname
+    filename = file.originalname;
     if (!/\.(html|htm)$/i.test(filename)) {
       return res.status(400).json({
         status: 400,
@@ -47,42 +49,45 @@ async function importHtml(req, res) {
           items: [],
           filename: filename,
         },
-      })
+      });
     }
 
-    const fs = require('fs-extra')
-    let html
+    const fs = require("fs-extra");
+    let html;
     try {
-      html = fs.readFileSync(file.path, 'utf8')
+      html = fs.readFileSync(file.path, "utf8");
     } catch (e) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unable to read uploaded file: ${e.message}`,
+          error: `Unable to read uploaded file: ${clientSafeErrorDetail(e)}`,
           items: [],
           filename: filename,
         },
-      })
+      });
     }
-    if (!html || html.trim() === '') {
+    if (!html || html.trim() === "") {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'Uploaded file is empty',
+          error: "Uploaded file is empty",
           items: [],
           filename: filename,
         },
-      })
+      });
     }
 
-    html = sanitizeUntrustedHtml(html)
+    html = sanitizeUntrustedHtml(html);
 
     const items = await importHtmlToItems(html, {
-      titleValue: filename.replace(/\.(html|htm)$/i, ''),
-      method: req.body && req.body.method ? req.body.method : 'site',
-      type: req.body && req.body.type ? req.body.type : '',
-      parentId: req.body && req.body.parentId && req.body.parentId !== 'null' ? req.body.parentId : null,
-    })
+      titleValue: filename.replace(/\.(html|htm)$/i, ""),
+      method: req.body && req.body.method ? req.body.method : "site",
+      type: req.body && req.body.type ? req.body.type : "",
+      parentId:
+        req.body && req.body.parentId && req.body.parentId !== "null"
+          ? req.body.parentId
+          : null,
+    });
 
     return res.json({
       status: 200,
@@ -90,18 +95,18 @@ async function importHtml(req, res) {
         items: items,
         filename: filename,
       },
-    })
+    });
   } catch (error) {
-    console.error('htmlToSite: Error processing file:', error.message)
+    console.error("htmlToSite: Error processing file:", error.message);
     return res.status(400).json({
       status: 400,
       data: {
-        error: `Error processing HTML import: ${error.message}`,
+        error: `Error processing HTML import: ${clientSafeErrorDetail(error)}`,
         items: [],
         filename: filename,
       },
-    })
+    });
   }
 }
 
-module.exports = { importHtml }
+module.exports = { importHtml };

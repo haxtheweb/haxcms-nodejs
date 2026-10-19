@@ -1,14 +1,14 @@
-const path = require('path');
-const fs = require('fs-extra');
-const mime = require('mime');
-const sharp = require('sharp');
-const { HAXCMS } = require('../../lib/HAXCMS.js');
-const HAXCMSFile = require('../../lib/HAXCMSFile.js');
-const { readMediaSettings } = require('../../lib/mediaSettings.js');
+const path = require("path");
+const fs = require("fs-extra");
+const mime = require("mime");
+const sharp = require("sharp");
+const { HAXCMS } = require("../../lib/HAXCMS.js");
+const HAXCMSFile = require("../../lib/HAXCMSFile.js");
+const { readMediaSettings } = require("../../lib/mediaSettings.js");
 const {
   platformAllows,
   featureDisabledResponse,
-} = require('../../lib/platformFeatures.js');
+} = require("../../lib/platformFeatures.js");
 const {
   getApiBasePath,
   getCsvQuery,
@@ -26,16 +26,14 @@ const {
   decodePathToken,
   normalizeOperationName,
   isSiteApiRequestAuthenticated,
-} = require('./siteRouteUtils.js');
-const { buildFilePublicUrl } = require('../../lib/siteFileUrl.js');
-const {
-  getDeterministicFileUuid,
-} = require('../../lib/siteFileUuid.js');
-const fileOpsRateLimiter = require('../../lib/fileOpsRateLimiter.js');
-const FilesDataStore = require('../../lib/FilesDataStore.js');
-const FileStorage = require('../../lib/FileStorage.js');
-const EntityRegistry = require('../../lib/EntityRegistry.js');
-const { convertPptxToDeck } = require('../../lib/pptxDeckHelper.js');
+} = require("./siteRouteUtils.js");
+const { buildFilePublicUrl } = require("../../lib/siteFileUrl.js");
+const { getDeterministicFileUuid } = require("../../lib/siteFileUuid.js");
+const fileOpsRateLimiter = require("../../lib/fileOpsRateLimiter.js");
+const FilesDataStore = require("../../lib/FilesDataStore.js");
+const FileStorage = require("../../lib/FileStorage.js");
+const EntityRegistry = require("../../lib/EntityRegistry.js");
+const { convertPptxToDeck } = require("../../lib/pptxDeckHelper.js");
 
 const IMAGE_SCALE_PRESETS = {
   xs: { width: 150, height: 150 },
@@ -44,7 +42,7 @@ const IMAGE_SCALE_PRESETS = {
   lg: { width: 1200, height: 1200 },
   xl: { width: 1920, height: 1920 },
 };
-const DEFAULT_SCALE_PRESET = 'md';
+const DEFAULT_SCALE_PRESET = "md";
 const DEFAULT_JPEG_QUALITY = 90;
 const MIN_JPEG_QUALITY = 1;
 const MAX_JPEG_QUALITY = 100;
@@ -54,54 +52,52 @@ const COMPRESS_QUALITY_BY_LEVEL = {
   heavy: 50,
   maximum: 30,
 };
-const DEFAULT_COMPRESS_LEVEL = 'medium';
+const DEFAULT_COMPRESS_LEVEL = "medium";
 const ALLOWED_RENAME_EXTENSIONS = [
-  'jpg',
-  'jpeg',
-  'png',
-  'gif',
-  'webm',
-  'webp',
-  'mp4',
-  'mp3',
-  'mov',
-  'csv',
-  'ppt',
-  'pptx',
-  'xlsx',
-  'doc',
-  'xls',
-  'docx',
-  'pdf',
-  'rtf',
-  'txt',
-  'vtt',
-  'html',
-  'md',
-  'xml',
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webm",
+  "webp",
+  "mp4",
+  "mp3",
+  "mov",
+  "csv",
+  "ppt",
+  "pptx",
+  "xlsx",
+  "doc",
+  "xls",
+  "docx",
+  "pdf",
+  "rtf",
+  "txt",
+  "vtt",
+  "html",
+  "md",
+  "xml",
 ];
 
 function getDateCreatedValue(entryStats) {
-  if (!entryStats || typeof entryStats !== 'object') {
+  if (!entryStats || typeof entryStats !== "object") {
     return 0;
   }
   let createdMs = 0;
   if (
-    typeof entryStats.mtimeMs === 'number' &&
+    typeof entryStats.mtimeMs === "number" &&
     Number.isFinite(entryStats.mtimeMs) &&
     entryStats.mtimeMs > 0
   ) {
     createdMs = entryStats.mtimeMs;
-  }
-  else if (
-    typeof entryStats.ctimeMs === 'number' &&
+  } else if (
+    typeof entryStats.ctimeMs === "number" &&
     Number.isFinite(entryStats.ctimeMs) &&
     entryStats.ctimeMs > 0
   ) {
     createdMs = entryStats.ctimeMs;
-  }
-  else if (
-    typeof entryStats.birthtimeMs === 'number' &&
+  } else if (
+    typeof entryStats.birthtimeMs === "number" &&
     Number.isFinite(entryStats.birthtimeMs) &&
     entryStats.birthtimeMs > 0
   ) {
@@ -118,7 +114,7 @@ function toFileRecord(site, file) {
   const apiPath = `files/${file.relativePath}`;
   const dateCreated = getDateCreatedValue(file.stats);
   const fileSize =
-    file && file.stats && typeof file.stats.size === 'number'
+    file && file.stats && typeof file.stats.size === "number"
       ? file.stats.size
       : 0;
   const baseFileUrl = buildFilePublicUrl(site, apiPath);
@@ -127,10 +123,10 @@ function toFileRecord(site, file) {
     fullUrl:
       baseFileUrl +
       (dateCreated
-        ? (baseFileUrl.indexOf('?') === -1 ? '?t=' : '&t=') + dateCreated
-        : ''),
+        ? (baseFileUrl.indexOf("?") === -1 ? "?t=" : "&t=") + dateCreated
+        : ""),
     url: apiPath,
-    mimetype: mime.getType(file.absolutePath) || '',
+    mimetype: mime.getType(file.absolutePath) || "",
     name: path.basename(apiPath),
     uuid: getDeterministicFileUuid(site, apiPath, fileSize),
     size: fileSize,
@@ -139,39 +135,39 @@ function toFileRecord(site, file) {
 }
 
 function applyFileFilters(records, req) {
-  const filterType = String(getQueryValue(req, 'filter.type', '') || '')
+  const filterType = String(getQueryValue(req, "filter.type", "") || "")
     .trim()
     .toLowerCase();
   const filterExtension = String(
-    getQueryValue(req, 'filter.extension', '') || '',
+    getQueryValue(req, "filter.extension", "") || "",
   )
     .trim()
-    .replace(/^\./, '')
+    .replace(/^\./, "")
     .toLowerCase();
   const filterStartsWith = String(
-    getQueryValue(req, 'filter.startsWith', '') || '',
+    getQueryValue(req, "filter.startsWith", "") || "",
   )
     .trim()
     .toLowerCase();
   const filterNameContains = String(
-    getQueryValue(req, 'filter.nameContains', '') || '',
+    getQueryValue(req, "filter.nameContains", "") || "",
   )
     .trim()
     .toLowerCase();
   return records.filter((record) => {
-    const mimetype = String(record.mimetype || '').toLowerCase();
-    const name = String(record.name || '').toLowerCase();
-    const recordPath = String(record.path || '').toLowerCase();
-    if (filterType !== '' && mimetype.indexOf(filterType) !== 0) {
+    const mimetype = String(record.mimetype || "").toLowerCase();
+    const name = String(record.name || "").toLowerCase();
+    const recordPath = String(record.path || "").toLowerCase();
+    if (filterType !== "" && mimetype.indexOf(filterType) !== 0) {
       return false;
     }
-    if (filterExtension !== '' && !name.endsWith(`.${filterExtension}`)) {
+    if (filterExtension !== "" && !name.endsWith(`.${filterExtension}`)) {
       return false;
     }
-    if (filterStartsWith !== '' && recordPath.indexOf(filterStartsWith) !== 0) {
+    if (filterStartsWith !== "" && recordPath.indexOf(filterStartsWith) !== 0) {
       return false;
     }
-    if (filterNameContains !== '' && name.indexOf(filterNameContains) === -1) {
+    if (filterNameContains !== "" && name.indexOf(filterNameContains) === -1) {
       return false;
     }
     return true;
@@ -182,7 +178,7 @@ function resolveUploadedFile(req) {
     return req.file;
   }
   if (req && Array.isArray(req.files) && req.files.length > 0) {
-    const preferredFields = ['file-upload', 'upload', 'file', 'files[]'];
+    const preferredFields = ["file-upload", "upload", "file", "files[]"];
     for (let i = 0; i < preferredFields.length; i++) {
       const matched = req.files.find(
         (item) => item && item.path && item.fieldname === preferredFields[i],
@@ -213,12 +209,10 @@ function createStatusError(message, status) {
 // internals) have no .status and their .message may disclose internal
 // paths/structure, so they get the generic fallback. Used by every file
 // mutation/detail catch block so clients never receive raw internals.
-function resolveClientFacingErrorMessage(err, fallback) {
-  if (err && err.status && err.message) {
-    return err.message;
-  }
-  return fallback;
-}
+// (L1, 2026-10-19: shared implementation in lib/clientErrorMessage.js.)
+const {
+  resolveClientFacingErrorMessage,
+} = require("../../lib/clientErrorMessage.js");
 
 // Security (F3): count-window rate limit for authenticated file-mutation
 // ops, keyed by the validated auth context's userName:siteName (set by
@@ -240,11 +234,13 @@ function checkFileOpsRateLimit(req, res) {
   if (fileOpsRateLimiter.isBlocked(entry, now)) {
     const retryAfter = fileOpsRateLimiter.getRetryAfterSeconds(entry, now);
     if (retryAfter > 0) {
-      res.set('Retry-After', String(retryAfter));
+      res.set("Retry-After", String(retryAfter));
     }
     res.status(429).json({
       status: 429,
-      data: { message: fileOpsRateLimiter.buildRateLimitMessage(settings, retryAfter) },
+      data: {
+        message: fileOpsRateLimiter.buildRateLimitMessage(settings, retryAfter),
+      },
     });
     return false;
   }
@@ -252,11 +248,13 @@ function checkFileOpsRateLimit(req, res) {
   if (blockedNow) {
     const retryAfter = fileOpsRateLimiter.getRetryAfterSeconds(entry, now);
     if (retryAfter > 0) {
-      res.set('Retry-After', String(retryAfter));
+      res.set("Retry-After", String(retryAfter));
     }
     res.status(429).json({
       status: 429,
-      data: { message: fileOpsRateLimiter.buildRateLimitMessage(settings, retryAfter) },
+      data: {
+        message: fileOpsRateLimiter.buildRateLimitMessage(settings, retryAfter),
+      },
     });
     return false;
   }
@@ -281,7 +279,7 @@ function resolveJpegQualityFromSettings(mediaSettings = {}) {
   let configuredQuality = null;
   if (
     mediaSettings &&
-    typeof mediaSettings === 'object' &&
+    typeof mediaSettings === "object" &&
     !Array.isArray(mediaSettings)
   ) {
     configuredQuality = normalizeJpegQualityValue(mediaSettings.jpegQuality);
@@ -303,28 +301,31 @@ function isPathInsideDirectory(basePath, candidatePath) {
 }
 
 function resolveSiteFilesRootPath(site) {
-  let siteRootPath = '';
+  let siteRootPath = "";
   try {
     siteRootPath = fs.realpathSync(path.resolve(site.siteDirectory));
   } catch (e) {
-    throw createStatusError('Unable to resolve site path', 500);
+    throw createStatusError("Unable to resolve site path", 500);
   }
-  const filesRootCandidate = path.join(siteRootPath, 'files');
+  const filesRootCandidate = path.join(siteRootPath, "files");
   if (!fs.pathExistsSync(filesRootCandidate)) {
-    throw createStatusError('Files directory was not found', 404);
+    throw createStatusError("Files directory was not found", 404);
   }
   const filesRootStats = fs.lstatSync(filesRootCandidate);
   if (filesRootStats.isSymbolicLink() || !filesRootStats.isDirectory()) {
-    throw createStatusError('Files directory was not found', 404);
+    throw createStatusError("Files directory was not found", 404);
   }
-  let filesRootPath = '';
+  let filesRootPath = "";
   try {
     filesRootPath = fs.realpathSync(filesRootCandidate);
   } catch (e) {
-    throw createStatusError('Files directory was not found', 404);
+    throw createStatusError("Files directory was not found", 404);
   }
   if (!isPathInsideDirectory(siteRootPath, filesRootPath)) {
-    throw createStatusError('Files directory is outside of allowed site path', 403);
+    throw createStatusError(
+      "Files directory is outside of allowed site path",
+      403,
+    );
   }
   return {
     siteRootPath,
@@ -332,30 +333,33 @@ function resolveSiteFilesRootPath(site) {
   };
 }
 
-function normalizeRequestedFilePath(inputPath = '') {
+function normalizeRequestedFilePath(inputPath = "") {
   let normalizedPath = decodePathToken(inputPath);
   if (
-    normalizedPath === '' ||
-    normalizedPath.indexOf('\0') !== -1 ||
-    normalizedPath.indexOf('..') !== -1
+    normalizedPath === "" ||
+    normalizedPath.indexOf("\0") !== -1 ||
+    normalizedPath.indexOf("..") !== -1
   ) {
-    return '';
+    return "";
   }
-  if (normalizedPath.indexOf('files/') !== 0) {
-    return '';
+  if (normalizedPath.indexOf("files/") !== 0) {
+    return "";
   }
   return normalizedPath;
 }
 
 function resolveSiteFilePath(site, requestedPath) {
   const normalizedPath = normalizeRequestedFilePath(requestedPath);
-  if (normalizedPath === '') {
-    throw createStatusError('Invalid file path', 400);
+  if (normalizedPath === "") {
+    throw createStatusError("Invalid file path", 400);
   }
   const siteRoots = resolveSiteFilesRootPath(site);
   const resolvedPath = path.resolve(siteRoots.siteRootPath, normalizedPath);
   if (!isPathInsideDirectory(siteRoots.filesRootPath, resolvedPath)) {
-    throw createStatusError('File path is outside of allowed files directory', 403);
+    throw createStatusError(
+      "File path is outside of allowed files directory",
+      403,
+    );
   }
   return {
     normalizedPath,
@@ -364,71 +368,71 @@ function resolveSiteFilePath(site, requestedPath) {
   };
 }
 
-function sanitizeFileRenameBaseName(inputValue = '') {
-  let value = String(inputValue || '').trim();
-  if (value === '') {
-    return '';
+function sanitizeFileRenameBaseName(inputValue = "") {
+  let value = String(inputValue || "").trim();
+  if (value === "") {
+    return "";
   }
   try {
     value = decodeURIComponent(value);
   } catch (e) {}
   value = value
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '');
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
   return value;
 }
 
-function getAllowedExtension(extensionValue = '') {
-  const normalizedExtension = String(extensionValue || '')
+function getAllowedExtension(extensionValue = "") {
+  const normalizedExtension = String(extensionValue || "")
     .trim()
     .toLowerCase()
-    .replace(/^\.+/, '');
+    .replace(/^\.+/, "");
   if (
-    normalizedExtension === '' ||
+    normalizedExtension === "" ||
     !/^[a-z0-9]+$/.test(normalizedExtension) ||
     !ALLOWED_RENAME_EXTENSIONS.includes(normalizedExtension)
   ) {
-    return '';
+    return "";
   }
   return normalizedExtension;
 }
 
 function parseRenameRequestName(requestedName, sourceExtension) {
-  let normalizedInput = String(requestedName || '').trim();
-  if (normalizedInput === '') {
-    throw createStatusError('New file name is required', 400);
+  let normalizedInput = String(requestedName || "").trim();
+  if (normalizedInput === "") {
+    throw createStatusError("New file name is required", 400);
   }
   try {
     normalizedInput = decodeURIComponent(normalizedInput);
   } catch (e) {}
-  const segments = normalizedInput.split('.');
+  const segments = normalizedInput.split(".");
   if (segments.length > 2) {
-    throw createStatusError('File name can only include one extension', 400);
+    throw createStatusError("File name can only include one extension", 400);
   }
   let baseInput = normalizedInput;
-  let extensionInput = '';
+  let extensionInput = "";
   if (segments.length === 2) {
     baseInput = segments[0];
     extensionInput = segments[1];
   }
   const safeBaseName = sanitizeFileRenameBaseName(baseInput);
-  if (safeBaseName === '') {
+  if (safeBaseName === "") {
     throw createStatusError(
-      'New file name must include at least one alphanumeric character',
+      "New file name must include at least one alphanumeric character",
       400,
     );
   }
-  if (extensionInput !== '') {
+  if (extensionInput !== "") {
     const allowedInputExtension = getAllowedExtension(extensionInput);
-    if (allowedInputExtension === '') {
-      throw createStatusError('Requested extension is not allowed', 400);
+    if (allowedInputExtension === "") {
+      throw createStatusError("Requested extension is not allowed", 400);
     }
     if (allowedInputExtension !== sourceExtension) {
       throw createStatusError(
-        'Extension cannot be changed during rename and must remain .' +
+        "Extension cannot be changed during rename and must remain ." +
           sourceExtension,
         400,
       );
@@ -443,12 +447,12 @@ function getDuplicateFileInfo(fileInfo) {
   const sourceBaseName = path.basename(sourceFileName, sourceExtension);
   const sourceDirectory = path.dirname(fileInfo.normalizedPath);
   let attempt = 0;
-  let outputFileName = '';
-  let outputPath = '';
-  let normalizedOutputPath = '';
+  let outputFileName = "";
+  let outputPath = "";
+  let normalizedOutputPath = "";
   do {
     attempt++;
-    const suffix = attempt === 1 ? '-copy' : '-copy-' + attempt;
+    const suffix = attempt === 1 ? "-copy" : "-copy-" + attempt;
     outputFileName = sourceBaseName + suffix + sourceExtension;
     outputPath = path.resolve(
       path.dirname(fileInfo.resolvedPath),
@@ -456,17 +460,17 @@ function getDuplicateFileInfo(fileInfo) {
     );
     normalizedOutputPath = normalizePathForResponse(
       path.join(sourceDirectory, outputFileName),
-    ).replace(/^\/+/, '');
+    ).replace(/^\/+/, "");
   } while (fs.pathExistsSync(outputPath) && attempt < 1000);
   if (fs.pathExistsSync(outputPath)) {
     throw createStatusError(
-      'Unable to generate a unique duplicate file name',
+      "Unable to generate a unique duplicate file name",
       400,
     );
   }
   if (!isPathInsideDirectory(fileInfo.filesRootPath, outputPath)) {
     throw createStatusError(
-      'Duplicated file path is outside of allowed files directory',
+      "Duplicated file path is outside of allowed files directory",
       403,
     );
   }
@@ -490,14 +494,14 @@ function getUniqueJpgOutputPaths(fileInfo) {
   const sourceDir = path.dirname(fileInfo.normalizedPath);
   const absoluteDir = path.dirname(fileInfo.resolvedPath);
   // jpeg/jpg source: in-place re-encode (same path the caller already owns)
-  if (sourceExtension === '.jpg' || sourceExtension === '.jpeg') {
+  if (sourceExtension === ".jpg" || sourceExtension === ".jpeg") {
     return {
       outputRelativePath: fileInfo.normalizedPath,
       outputAbsolutePath: fileInfo.resolvedPath,
     };
   }
   let counter = 0;
-  let outputFileName = sourceBasename + '.jpg';
+  let outputFileName = sourceBasename + ".jpg";
   let outputAbsolutePath = path.join(absoluteDir, outputFileName);
   while (
     fs.pathExistsSync(outputAbsolutePath) &&
@@ -505,7 +509,7 @@ function getUniqueJpgOutputPaths(fileInfo) {
     counter < 1000
   ) {
     counter++;
-    outputFileName = sourceBasename + '_' + counter + '.jpg';
+    outputFileName = sourceBasename + "_" + counter + ".jpg";
     outputAbsolutePath = path.join(absoluteDir, outputFileName);
   }
   if (
@@ -513,13 +517,13 @@ function getUniqueJpgOutputPaths(fileInfo) {
     path.resolve(outputAbsolutePath) !== path.resolve(fileInfo.resolvedPath)
   ) {
     throw createStatusError(
-      'Unable to generate a unique JPG output file name',
+      "Unable to generate a unique JPG output file name",
       400,
     );
   }
   const outputRelativePath = normalizePathForResponse(
     path.join(sourceDir, outputFileName),
-  ).replace(/^\/+/, '');
+  ).replace(/^\/+/, "");
   return {
     outputRelativePath: outputRelativePath,
     outputAbsolutePath: outputAbsolutePath,
@@ -530,27 +534,36 @@ function getRenamedFileInfo(fileInfo, requestedName) {
   const sourceFileName = path.basename(fileInfo.normalizedPath);
   const sourceRawExtension = path.extname(sourceFileName);
   const sourceExtension = getAllowedExtension(sourceRawExtension);
-  if (sourceExtension === '') {
-    throw createStatusError('Current file extension is not allowed for rename', 400);
+  if (sourceExtension === "") {
+    throw createStatusError(
+      "Current file extension is not allowed for rename",
+      400,
+    );
   }
   const sourceDirectory = path.dirname(fileInfo.normalizedPath);
   const safeBaseName = parseRenameRequestName(requestedName, sourceExtension);
-  const outputFileName = safeBaseName + '.' + sourceExtension;
-  const outputPath = path.resolve(path.dirname(fileInfo.resolvedPath), outputFileName);
+  const outputFileName = safeBaseName + "." + sourceExtension;
+  const outputPath = path.resolve(
+    path.dirname(fileInfo.resolvedPath),
+    outputFileName,
+  );
   if (!isPathInsideDirectory(fileInfo.filesRootPath, outputPath)) {
     throw createStatusError(
-      'Renamed file path is outside of allowed files directory',
+      "Renamed file path is outside of allowed files directory",
       403,
     );
   }
   const normalizedOutputPath = normalizePathForResponse(
     path.join(sourceDirectory, outputFileName),
-  ).replace(/^\/+/, '');
+  ).replace(/^\/+/, "");
   if (normalizedOutputPath === fileInfo.normalizedPath) {
-    throw createStatusError('New file name must be different from current name', 400);
+    throw createStatusError(
+      "New file name must be different from current name",
+      400,
+    );
   }
   if (fs.pathExistsSync(outputPath)) {
-    throw createStatusError('A file with this name already exists', 400);
+    throw createStatusError("A file with this name already exists", 400);
   }
   return {
     outputPath,
@@ -560,20 +573,23 @@ function getRenamedFileInfo(fileInfo, requestedName) {
 
 function ensureExistingRegularFile(filePath, filesRootPath) {
   if (!fs.pathExistsSync(filePath)) {
-    throw createStatusError('Requested file was not found', 404);
+    throw createStatusError("Requested file was not found", 404);
   }
   const stats = fs.lstatSync(filePath);
   if (stats.isSymbolicLink() || !stats.isFile()) {
-    throw createStatusError('Requested file path is not a valid file', 404);
+    throw createStatusError("Requested file path is not a valid file", 404);
   }
-  let realFilePath = '';
+  let realFilePath = "";
   try {
     realFilePath = fs.realpathSync(filePath);
   } catch (e) {
-    throw createStatusError('Requested file was not found', 404);
+    throw createStatusError("Requested file was not found", 404);
   }
   if (!isPathInsideDirectory(filesRootPath, realFilePath)) {
-    throw createStatusError('File path is outside of allowed files directory', 403);
+    throw createStatusError(
+      "File path is outside of allowed files directory",
+      403,
+    );
   }
   return realFilePath;
 }
@@ -582,7 +598,7 @@ function buildFileRecord(site, absolutePath, siteRelativePath = null) {
   const normalizedRelativePath = siteRelativePath
     ? normalizePathForResponse(siteRelativePath)
     : normalizePathForResponse(path.relative(site.siteDirectory, absolutePath));
-  const safeRelativePath = normalizedRelativePath.replace(/^\/+/, '');
+  const safeRelativePath = normalizedRelativePath.replace(/^\/+/, "");
   const stats = fs.statSync(absolutePath);
   const dateCreated = getDateCreatedValue(stats);
   const baseFileUrl = buildFilePublicUrl(site, safeRelativePath);
@@ -592,9 +608,9 @@ function buildFileRecord(site, absolutePath, siteRelativePath = null) {
     fullUrl:
       baseFileUrl +
       (dateCreated
-        ? (baseFileUrl.indexOf('?') === -1 ? '?t=' : '&t=') + dateCreated
-        : ''),
-    mimetype: mime.getType(absolutePath) || '',
+        ? (baseFileUrl.indexOf("?") === -1 ? "?t=" : "&t=") + dateCreated
+        : ""),
+    mimetype: mime.getType(absolutePath) || "",
     name: path.basename(safeRelativePath),
     uuid: getDeterministicFileUuid(site, safeRelativePath, stats.size || 0),
     size: stats.size || 0,
@@ -605,64 +621,76 @@ function buildFileRecord(site, absolutePath, siteRelativePath = null) {
 function getSafeOutputBasename(relativePath) {
   let safeName = path
     .basename(relativePath, path.extname(relativePath))
-    .replace(/[^a-zA-Z0-9._-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^\.+/, '')
-    .replace(/\.+$/, '');
-  if (safeName === '') {
-    safeName = 'image';
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^\.+/, "")
+    .replace(/\.+$/, "");
+  if (safeName === "") {
+    safeName = "image";
   }
   return safeName;
 }
 
 function getImgOpsOutputPath(filesRootPath, sourceRelativePath, width, height) {
-  const outputDirectory = path.resolve(filesRootPath, 'imgops');
+  const outputDirectory = path.resolve(filesRootPath, "imgops");
   if (fs.pathExistsSync(outputDirectory)) {
     const outputDirectoryStats = fs.lstatSync(outputDirectory);
-    if (outputDirectoryStats.isSymbolicLink() || !outputDirectoryStats.isDirectory()) {
-      throw createStatusError('Output path is not writable', 400);
+    if (
+      outputDirectoryStats.isSymbolicLink() ||
+      !outputDirectoryStats.isDirectory()
+    ) {
+      throw createStatusError("Output path is not writable", 400);
     }
   } else {
     try {
       fs.ensureDirSync(outputDirectory);
     } catch (e) {
-      throw createStatusError('Unable to prepare image operations directory', 500);
+      throw createStatusError(
+        "Unable to prepare image operations directory",
+        500,
+      );
     }
   }
-  let resolvedOutputDirectory = '';
+  let resolvedOutputDirectory = "";
   try {
     resolvedOutputDirectory = fs.realpathSync(outputDirectory);
   } catch (e) {
-    throw createStatusError('Unable to prepare image operations directory', 500);
+    throw createStatusError(
+      "Unable to prepare image operations directory",
+      500,
+    );
   }
   if (!isPathInsideDirectory(filesRootPath, resolvedOutputDirectory)) {
-    throw createStatusError('Invalid output file path', 403);
+    throw createStatusError("Invalid output file path", 403);
   }
   const outputFileName =
     getSafeOutputBasename(sourceRelativePath) +
-    '-' +
+    "-" +
     String(width) +
-    'x' +
+    "x" +
     String(height) +
-    '.jpg';
-  const resolvedOutputPath = path.resolve(resolvedOutputDirectory, outputFileName);
+    ".jpg";
+  const resolvedOutputPath = path.resolve(
+    resolvedOutputDirectory,
+    outputFileName,
+  );
   if (!isPathInsideDirectory(filesRootPath, resolvedOutputPath)) {
-    throw createStatusError('Invalid output file path', 403);
+    throw createStatusError("Invalid output file path", 403);
   }
   if (fs.pathExistsSync(resolvedOutputPath)) {
     const outputStats = fs.lstatSync(resolvedOutputPath);
     if (outputStats.isSymbolicLink() || !outputStats.isFile()) {
-      throw createStatusError('Output path is not writable', 400);
+      throw createStatusError("Output path is not writable", 400);
     }
   }
   return {
     outputPath: resolvedOutputPath,
-    relativePath: 'files/imgops/' + outputFileName,
+    relativePath: "files/imgops/" + outputFileName,
   };
 }
 
 function getScalePreset(sizeKey) {
-  const requestedKey = typeof sizeKey === 'string' ? sizeKey.toLowerCase() : '';
+  const requestedKey = typeof sizeKey === "string" ? sizeKey.toLowerCase() : "";
   if (requestedKey && IMAGE_SCALE_PRESETS[requestedKey]) {
     return {
       key: requestedKey,
@@ -676,7 +704,8 @@ function getScalePreset(sizeKey) {
 }
 
 function getCompressLevel(levelKey) {
-  const requestedKey = typeof levelKey === 'string' ? levelKey.toLowerCase() : '';
+  const requestedKey =
+    typeof levelKey === "string" ? levelKey.toLowerCase() : "";
   if (requestedKey && COMPRESS_QUALITY_BY_LEVEL[requestedKey]) {
     return {
       key: requestedKey,
@@ -689,31 +718,34 @@ function getCompressLevel(levelKey) {
   };
 }
 
-function getTemporaryImagePath(sourcePath, operationLabel = 'tmp') {
+function getTemporaryImagePath(sourcePath, operationLabel = "tmp") {
   const sourceDirectory = path.dirname(sourcePath);
   const sourceExtension = path.extname(sourcePath);
   const sourceBaseName = path.basename(sourcePath, sourceExtension);
   return path.join(
     sourceDirectory,
-    sourceBaseName + '-' + operationLabel + '-' + Date.now() + sourceExtension,
+    sourceBaseName + "-" + operationLabel + "-" + Date.now() + sourceExtension,
   );
 }
 
 async function convertImageToJpg(
   sourcePath,
   outputPath,
-  transformMode = 'none',
+  transformMode = "none",
   jpegQuality = DEFAULT_JPEG_QUALITY,
 ) {
-  const metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
-  if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
-    throw createStatusError('Only raster images can be converted to JPG', 400);
+  const metadata = await sharp(sourcePath, { failOn: "none" }).metadata();
+  if (
+    !metadata ||
+    !metadata.format ||
+    String(metadata.format).indexOf("svg") === 0
+  ) {
+    throw createStatusError("Only raster images can be converted to JPG", 400);
   }
   let pipeline = sharp(sourcePath).rotate();
-  if (transformMode === 'black-and-white') {
+  if (transformMode === "black-and-white") {
     pipeline = pipeline.grayscale();
-  }
-  else if (transformMode === 'sepia') {
+  } else if (transformMode === "sepia") {
     pipeline = pipeline
       .grayscale()
       .linear(1.08, 0)
@@ -738,9 +770,13 @@ async function scaleImageToPreset(
   height,
   jpegQuality = DEFAULT_JPEG_QUALITY,
 ) {
-  const metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
-  if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
-    throw createStatusError('Only raster images can be scaled', 400);
+  const metadata = await sharp(sourcePath, { failOn: "none" }).metadata();
+  if (
+    !metadata ||
+    !metadata.format ||
+    String(metadata.format).indexOf("svg") === 0
+  ) {
+    throw createStatusError("Only raster images can be scaled", 400);
   }
   const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
   const outputQuality =
@@ -750,7 +786,7 @@ async function scaleImageToPreset(
     .resize({
       width: width,
       height: height,
-      fit: 'inside',
+      fit: "inside",
       withoutEnlargement: true,
     })
     .jpeg({ quality: outputQuality, mozjpeg: true })
@@ -765,148 +801,40 @@ async function scaleImageInPlace(
 ) {
   let metadata = null;
   try {
-    metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
+    metadata = await sharp(sourcePath, { failOn: "none" }).metadata();
   } catch (e) {
-    throw createStatusError('Only raster images can be scaled', 400);
+    throw createStatusError("Only raster images can be scaled", 400);
   }
-  if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
-    throw createStatusError('Only raster images can be scaled', 400);
+  if (
+    !metadata ||
+    !metadata.format ||
+    String(metadata.format).indexOf("svg") === 0
+  ) {
+    throw createStatusError("Only raster images can be scaled", 400);
   }
   const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
   const outputQuality =
     normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
-  const temporaryPath = getTemporaryImagePath(sourcePath, 'scale');
+  const temporaryPath = getTemporaryImagePath(sourcePath, "scale");
   try {
-    let pipeline = sharp(sourcePath)
-      .rotate()
-      .resize({
-        width: targetWidth,
-        height: targetHeight,
-        fit: 'inside',
-        withoutEnlargement: true,
-      });
+    let pipeline = sharp(sourcePath).rotate().resize({
+      width: targetWidth,
+      height: targetHeight,
+      fit: "inside",
+      withoutEnlargement: true,
+    });
     const format = String(metadata.format);
-    if (format === 'jpeg') {
+    if (format === "jpeg") {
       pipeline = pipeline.jpeg({ quality: outputQuality, mozjpeg: true });
-    } else if (format === 'png') {
+    } else if (format === "png") {
       pipeline = pipeline.png();
-    } else if (format === 'webp') {
+    } else if (format === "webp") {
       pipeline = pipeline.webp({ quality: outputQuality });
-    } else if (format === 'gif') {
-      pipeline = pipeline.gif();
-    } else {
-      throw createStatusError('Image format does not support in-place scaling', 400);
-    }
-    const buffer = await pipeline.toBuffer();
-    await fs.writeFile(temporaryPath, buffer);
-    fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
-    try {
-      const now = new Date();
-      fs.utimesSync(sourcePath, now, now);
-    } catch (mtimeError) {}
-  } catch (e) {
-    if (fs.pathExistsSync(temporaryPath)) {
-      fs.removeSync(temporaryPath);
-    }
-    throw createStatusError(
-      e && e.message ? e.message : 'Unable to scale image',
-      e && e.status ? e.status : 500,
-    );
-  }
-}
-
-async function compressImageInPlace(sourcePath, jpegQuality = DEFAULT_JPEG_QUALITY) {
-  let metadata = null;
-  try {
-    metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
-  } catch (e) {
-    throw createStatusError('Only raster images can be compressed', 400);
-  }
-  if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
-    throw createStatusError('Only raster images can be compressed', 400);
-  }
-  const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
-  const outputQuality =
-    normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
-  const temporaryPath = getTemporaryImagePath(sourcePath, 'compress');
-  try {
-    let pipeline = sharp(sourcePath).rotate();
-    const format = String(metadata.format);
-    if (format === 'jpeg') {
-      pipeline = pipeline.jpeg({ quality: outputQuality, mozjpeg: true });
-    } else if (format === 'png') {
-      pipeline = pipeline.png({ quality: outputQuality });
-    } else if (format === 'webp') {
-      pipeline = pipeline.webp({ quality: outputQuality });
-    } else if (format === 'gif') {
-      pipeline = pipeline.gif();
-    } else {
-      throw createStatusError('Image format does not support in-place compression', 400);
-    }
-    const buffer = await pipeline.toBuffer();
-    await fs.writeFile(temporaryPath, buffer);
-    fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
-    try {
-      const now = new Date();
-      fs.utimesSync(sourcePath, now, now);
-    } catch (mtimeError) {}
-  } catch (e) {
-    if (fs.pathExistsSync(temporaryPath)) {
-      fs.removeSync(temporaryPath);
-    }
-    throw createStatusError(
-      e && e.message ? e.message : 'Unable to compress image',
-      e && e.status ? e.status : 500,
-    );
-  }
-}
-
-async function transformImageInPlace(
-  sourcePath,
-  transformMode = 'none',
-  jpegQuality = DEFAULT_JPEG_QUALITY,
-) {
-  let metadata = null;
-  try {
-    metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
-  } catch (e) {
-    throw createStatusError('Only raster images can be transformed', 400);
-  }
-  if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
-    throw createStatusError('Only raster images can be transformed', 400);
-  }
-  const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
-  const outputQuality =
-    normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
-  const temporaryPath = getTemporaryImagePath(sourcePath, 'transform');
-  try {
-    let pipeline = sharp(sourcePath).rotate();
-    if (transformMode === 'black-and-white') {
-      pipeline = pipeline.grayscale();
-    } else if (transformMode === 'sepia') {
-      pipeline = pipeline
-        .grayscale()
-        .linear(1.08, 0)
-        .recomb([
-          [0.393, 0.769, 0.189],
-          [0.349, 0.686, 0.168],
-          [0.272, 0.534, 0.131],
-        ]);
-    } else {
-      throw createStatusError('Unsupported in-place transform: ' + transformMode, 400);
-    }
-    const format = String(metadata.format);
-    if (format === 'jpeg') {
-      pipeline = pipeline.jpeg({ quality: outputQuality, mozjpeg: true });
-    } else if (format === 'png') {
-      pipeline = pipeline.png({ quality: outputQuality });
-    } else if (format === 'webp') {
-      pipeline = pipeline.webp({ quality: outputQuality });
-    } else if (format === 'gif') {
+    } else if (format === "gif") {
       pipeline = pipeline.gif();
     } else {
       throw createStatusError(
-        'Image format does not support in-place transform',
+        "Image format does not support in-place scaling",
         400,
       );
     }
@@ -922,7 +850,140 @@ async function transformImageInPlace(
       fs.removeSync(temporaryPath);
     }
     throw createStatusError(
-      e && e.message ? e.message : 'Unable to transform image',
+      // Security (L1): don't promote raw sharp/fs messages to status errors
+      resolveClientFacingErrorMessage(e, "Unable to scale image"),
+      e && e.status ? e.status : 500,
+    );
+  }
+}
+
+async function compressImageInPlace(
+  sourcePath,
+  jpegQuality = DEFAULT_JPEG_QUALITY,
+) {
+  let metadata = null;
+  try {
+    metadata = await sharp(sourcePath, { failOn: "none" }).metadata();
+  } catch (e) {
+    throw createStatusError("Only raster images can be compressed", 400);
+  }
+  if (
+    !metadata ||
+    !metadata.format ||
+    String(metadata.format).indexOf("svg") === 0
+  ) {
+    throw createStatusError("Only raster images can be compressed", 400);
+  }
+  const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
+  const outputQuality =
+    normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
+  const temporaryPath = getTemporaryImagePath(sourcePath, "compress");
+  try {
+    let pipeline = sharp(sourcePath).rotate();
+    const format = String(metadata.format);
+    if (format === "jpeg") {
+      pipeline = pipeline.jpeg({ quality: outputQuality, mozjpeg: true });
+    } else if (format === "png") {
+      pipeline = pipeline.png({ quality: outputQuality });
+    } else if (format === "webp") {
+      pipeline = pipeline.webp({ quality: outputQuality });
+    } else if (format === "gif") {
+      pipeline = pipeline.gif();
+    } else {
+      throw createStatusError(
+        "Image format does not support in-place compression",
+        400,
+      );
+    }
+    const buffer = await pipeline.toBuffer();
+    await fs.writeFile(temporaryPath, buffer);
+    fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
+    try {
+      const now = new Date();
+      fs.utimesSync(sourcePath, now, now);
+    } catch (mtimeError) {}
+  } catch (e) {
+    if (fs.pathExistsSync(temporaryPath)) {
+      fs.removeSync(temporaryPath);
+    }
+    throw createStatusError(
+      // Security (L1): don't promote raw sharp/fs messages to status errors
+      resolveClientFacingErrorMessage(e, "Unable to compress image"),
+      e && e.status ? e.status : 500,
+    );
+  }
+}
+
+async function transformImageInPlace(
+  sourcePath,
+  transformMode = "none",
+  jpegQuality = DEFAULT_JPEG_QUALITY,
+) {
+  let metadata = null;
+  try {
+    metadata = await sharp(sourcePath, { failOn: "none" }).metadata();
+  } catch (e) {
+    throw createStatusError("Only raster images can be transformed", 400);
+  }
+  if (
+    !metadata ||
+    !metadata.format ||
+    String(metadata.format).indexOf("svg") === 0
+  ) {
+    throw createStatusError("Only raster images can be transformed", 400);
+  }
+  const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
+  const outputQuality =
+    normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
+  const temporaryPath = getTemporaryImagePath(sourcePath, "transform");
+  try {
+    let pipeline = sharp(sourcePath).rotate();
+    if (transformMode === "black-and-white") {
+      pipeline = pipeline.grayscale();
+    } else if (transformMode === "sepia") {
+      pipeline = pipeline
+        .grayscale()
+        .linear(1.08, 0)
+        .recomb([
+          [0.393, 0.769, 0.189],
+          [0.349, 0.686, 0.168],
+          [0.272, 0.534, 0.131],
+        ]);
+    } else {
+      throw createStatusError(
+        "Unsupported in-place transform: " + transformMode,
+        400,
+      );
+    }
+    const format = String(metadata.format);
+    if (format === "jpeg") {
+      pipeline = pipeline.jpeg({ quality: outputQuality, mozjpeg: true });
+    } else if (format === "png") {
+      pipeline = pipeline.png({ quality: outputQuality });
+    } else if (format === "webp") {
+      pipeline = pipeline.webp({ quality: outputQuality });
+    } else if (format === "gif") {
+      pipeline = pipeline.gif();
+    } else {
+      throw createStatusError(
+        "Image format does not support in-place transform",
+        400,
+      );
+    }
+    const buffer = await pipeline.toBuffer();
+    await fs.writeFile(temporaryPath, buffer);
+    fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
+    try {
+      const now = new Date();
+      fs.utimesSync(sourcePath, now, now);
+    } catch (mtimeError) {}
+  } catch (e) {
+    if (fs.pathExistsSync(temporaryPath)) {
+      fs.removeSync(temporaryPath);
+    }
+    throw createStatusError(
+      // Security (L1): don't promote raw sharp/fs messages to status errors
+      resolveClientFacingErrorMessage(e, "Unable to transform image"),
       e && e.status ? e.status : 500,
     );
   }
@@ -931,18 +992,26 @@ async function transformImageInPlace(
 async function rotateImageInPlace(sourcePath, rotation = 90) {
   let metadata = null;
   try {
-    metadata = await sharp(sourcePath, { failOn: 'none' }).metadata();
+    metadata = await sharp(sourcePath, { failOn: "none" }).metadata();
   } catch (e) {
-    throw createStatusError('Only raster images can be rotated', 400);
+    throw createStatusError("Only raster images can be rotated", 400);
   }
-  if (!metadata || !metadata.format || String(metadata.format).indexOf('svg') === 0) {
-    throw createStatusError('Only raster images can be rotated', 400);
+  if (
+    !metadata ||
+    !metadata.format ||
+    String(metadata.format).indexOf("svg") === 0
+  ) {
+    throw createStatusError("Only raster images can be rotated", 400);
   }
   const normalizedRotation = parseInt(rotation, 10);
-  const rotationValue = Number.isNaN(normalizedRotation) ? 90 : normalizedRotation;
-  const temporaryPath = getTemporaryImagePath(sourcePath, 'rotate');
+  const rotationValue = Number.isNaN(normalizedRotation)
+    ? 90
+    : normalizedRotation;
+  const temporaryPath = getTemporaryImagePath(sourcePath, "rotate");
   try {
-    const rotatedBuffer = await sharp(sourcePath).rotate(rotationValue).toBuffer();
+    const rotatedBuffer = await sharp(sourcePath)
+      .rotate(rotationValue)
+      .toBuffer();
     await fs.writeFile(temporaryPath, rotatedBuffer);
     fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
     try {
@@ -954,7 +1023,8 @@ async function rotateImageInPlace(sourcePath, rotation = 90) {
       fs.removeSync(temporaryPath);
     }
     throw createStatusError(
-      e && e.message ? e.message : 'Unable to rotate image',
+      // Security (L1): don't promote raw sharp/fs messages to status errors
+      resolveClientFacingErrorMessage(e, "Unable to rotate image"),
       e && e.status ? e.status : 500,
     );
   }
@@ -962,10 +1032,10 @@ async function rotateImageInPlace(sourcePath, rotation = 90) {
 
 function resolveRequestedFilePath(req, site) {
   const params =
-    req && req.params && typeof req.params === 'object' ? req.params : {};
-  const decodedPath = decodePathToken(params.fileUuid || '');
+    req && req.params && typeof req.params === "object" ? req.params : {};
+  const decodedPath = decodePathToken(params.fileUuid || "");
   if (!decodedPath || !site || !site.siteDirectory) {
-    return '';
+    return "";
   }
   const normalizedUuid = String(decodedPath).trim().toLowerCase();
   if (
@@ -974,7 +1044,7 @@ function resolveRequestedFilePath(req, site) {
     )
   ) {
     throw createStatusError(
-      'File uuid is required and must be a valid UUID',
+      "File uuid is required and must be a valid UUID",
       400,
     );
   }
@@ -988,7 +1058,7 @@ function resolveRequestedFilePath(req, site) {
   if (record && record.path) {
     return String(record.path);
   }
-  throw createStatusError('Requested file was not found', 404);
+  throw createStatusError("Requested file was not found", 404);
 }
 
 // #3043: After a file operation (compress, scale, sepia, black-and-white,
@@ -1002,15 +1072,20 @@ function resolveRequestedFilePath(req, site) {
 // the metadata updates. For new-path operations (convert-jpg to a new
 // filename, duplicate, rename) a new uuid is assigned from the new
 // path+size unless the old path's uuid is carried over (rename).
-async function upsertFileRecordInDataStore(site, normalizedPath, oldNormalizedPath) {
+async function upsertFileRecordInDataStore(
+  site,
+  normalizedPath,
+  oldNormalizedPath,
+) {
   const dataStore = new FilesDataStore(site);
   // Look up the existing uuid. For in-place ops this is the same path;
   // for rename, look up by the OLD path (the file moved).
-  const lookupPath = oldNormalizedPath !== undefined && oldNormalizedPath !== null
-    ? oldNormalizedPath
-    : normalizedPath;
+  const lookupPath =
+    oldNormalizedPath !== undefined && oldNormalizedPath !== null
+      ? oldNormalizedPath
+      : normalizedPath;
   const existing = dataStore.getByPath(lookupPath);
-  let existingUuid = '';
+  let existingUuid = "";
   if (existing && existing.uuid) {
     existingUuid = String(existing.uuid);
   }
@@ -1021,7 +1096,7 @@ async function upsertFileRecordInDataStore(site, normalizedPath, oldNormalizedPa
   }
   // Preserve the existing uuid for in-place transforms / rename (hybrid
   // model: files.json owns identity, uuid stable across content changes).
-  if (existingUuid !== '' && record.uuid) {
+  if (existingUuid !== "" && record.uuid) {
     record.uuid = existingUuid;
   }
   dataStore.upsertRecord(record);
@@ -1043,29 +1118,33 @@ async function upsertFileRecordInDataStore(site, normalizedPath, oldNormalizedPa
   return record;
 }
 
-function readOperationPayload(req, operationOverride = '') {
+function readOperationPayload(req, operationOverride = "") {
   const body = ensureRequestBodyObject(req);
   const operation = operationOverride
     ? normalizeOperationName(operationOverride)
-    : normalizeOperationName(body.operation || '');
+    : normalizeOperationName(body.operation || "");
   return {
     operation,
     size:
-      typeof body.size === 'string'
+      typeof body.size === "string"
         ? body.size.trim().toLowerCase()
-        : String(body.size || '').trim().toLowerCase(),
+        : String(body.size || "")
+            .trim()
+            .toLowerCase(),
     level:
-      typeof body.level === 'string'
+      typeof body.level === "string"
         ? body.level.trim().toLowerCase()
-        : String(body.level || '').trim().toLowerCase(),
+        : String(body.level || "")
+            .trim()
+            .toLowerCase(),
     newName:
-      typeof body.newName === 'string'
+      typeof body.newName === "string"
         ? body.newName
-        : typeof body.name === 'string'
+        : typeof body.name === "string"
           ? body.name
-          : typeof body.value === 'string'
+          : typeof body.value === "string"
             ? body.value
-            : '',
+            : "",
   };
 }
 
@@ -1073,29 +1152,29 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
   const operation = payload.operation;
   if (
     ![
-      'delete',
-      'rename',
-      'convert-jpg',
-      'scale',
-      'sepia',
-      'black-and-white',
-      'rotate-90',
-      'compress',
-      'duplicate',
-      'convert-pptx-deck',
+      "delete",
+      "rename",
+      "convert-jpg",
+      "scale",
+      "sepia",
+      "black-and-white",
+      "rotate-90",
+      "compress",
+      "duplicate",
+      "convert-pptx-deck",
     ].includes(operation)
   ) {
-    throw createStatusError('Unsupported file operation', 400);
+    throw createStatusError("Unsupported file operation", 400);
   }
   let fileInfo = resolveSiteFilePath(site, requestedPath);
   fileInfo.resolvedPath = ensureExistingRegularFile(
     fileInfo.resolvedPath,
     fileInfo.filesRootPath,
   );
-  if (operation === 'delete') {
+  if (operation === "delete") {
     fs.removeSync(fileInfo.resolvedPath);
     return {
-      commitMessage: 'File deleted: ' + fileInfo.normalizedPath,
+      commitMessage: "File deleted: " + fileInfo.normalizedPath,
       data: {
         operation: operation,
         path: fileInfo.normalizedPath,
@@ -1103,7 +1182,7 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       },
     };
   }
-  if (operation === 'rename') {
+  if (operation === "rename") {
     const renameInfo = getRenamedFileInfo(fileInfo, payload.newName);
     fs.moveSync(fileInfo.resolvedPath, renameInfo.outputPath, {
       overwrite: false,
@@ -1115,7 +1194,11 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     );
     // #3043: carry the uuid to the new path in files.json (uuid stable,
     // path/name/fullUrl updated; old path record scrubbed if stale).
-    const upsertedRecord = await upsertFileRecordInDataStore(site, renameInfo.normalizedOutputPath, fileInfo.normalizedPath);
+    const upsertedRecord = await upsertFileRecordInDataStore(
+      site,
+      renameInfo.normalizedOutputPath,
+      fileInfo.normalizedPath,
+    );
     // Sync the response uuid with the files.json uuid (the preserved uuid),
     // so the caller can immediately operate on the file via the response uuid.
     if (upsertedRecord && upsertedRecord.uuid) {
@@ -1123,9 +1206,9 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     }
     return {
       commitMessage:
-        'File renamed: ' +
+        "File renamed: " +
         fileInfo.normalizedPath +
-        ' -> ' +
+        " -> " +
         renameInfo.normalizedOutputPath,
       data: {
         operation: operation,
@@ -1135,7 +1218,7 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       },
     };
   }
-  if (operation === 'rotate-90') {
+  if (operation === "rotate-90") {
     await rotateImageInPlace(fileInfo.resolvedPath, 90);
     const rotatedFile = buildFileRecord(
       site,
@@ -1144,12 +1227,15 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     );
     // #3043: update the uuid's metadata in files.json (in-place transform —
     // uuid preserved, size/dimensions/mtime refreshed).
-    const upsertedRecord = await upsertFileRecordInDataStore(site, fileInfo.normalizedPath);
+    const upsertedRecord = await upsertFileRecordInDataStore(
+      site,
+      fileInfo.normalizedPath,
+    );
     if (upsertedRecord && upsertedRecord.uuid) {
       rotatedFile.uuid = upsertedRecord.uuid;
     }
     return {
-      commitMessage: 'File rotated (90deg): ' + fileInfo.normalizedPath,
+      commitMessage: "File rotated (90deg): " + fileInfo.normalizedPath,
       data: {
         operation: operation,
         path: fileInfo.normalizedPath,
@@ -1157,7 +1243,7 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       },
     };
   }
-  if (operation === 'convert-jpg') {
+  if (operation === "convert-jpg") {
     // #3043: write the converted JPG in the SAME directory as the source
     // file (files/<basename>.jpg), not under files/imgops/. The output
     // path is derived from the validated source path so it stays within
@@ -1171,12 +1257,12 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     const outputAbsolutePath = jpgOutput.outputAbsolutePath;
     // Security: verify the output path stays within the files root.
     if (!isPathInsideDirectory(fileInfo.filesRootPath, outputAbsolutePath)) {
-      throw createStatusError('Invalid output file path', 403);
+      throw createStatusError("Invalid output file path", 403);
     }
     await convertImageToJpg(
       fileInfo.resolvedPath,
       outputAbsolutePath,
-      'none',
+      "none",
       jpegQuality,
     );
     const convertedFile = buildFileRecord(
@@ -1187,15 +1273,18 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     // #3043: upsert the new/updated file's record into files.json. For a
     // new path (png -> jpg) this assigns a new uuid; for an in-place
     // re-encode (jpg -> jpg) the existing uuid is preserved.
-    const upsertedRecord = await upsertFileRecordInDataStore(site, outputRelativePath);
+    const upsertedRecord = await upsertFileRecordInDataStore(
+      site,
+      outputRelativePath,
+    );
     if (upsertedRecord && upsertedRecord.uuid) {
       convertedFile.uuid = upsertedRecord.uuid;
     }
     return {
       commitMessage:
-        'File converted to JPG: ' +
+        "File converted to JPG: " +
         fileInfo.normalizedPath +
-        ' -> ' +
+        " -> " +
         outputRelativePath,
       data: {
         operation: operation,
@@ -1204,14 +1293,10 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       },
     };
   }
-  if (operation === 'sepia' || operation === 'black-and-white') {
+  if (operation === "sepia" || operation === "black-and-white") {
     // Apply the transform in place (preserving the original format/filename)
     // so the operation does not create a new file in the site files list.
-    await transformImageInPlace(
-      fileInfo.resolvedPath,
-      operation,
-      jpegQuality,
-    );
+    await transformImageInPlace(fileInfo.resolvedPath, operation, jpegQuality);
     const transformedFile = buildFileRecord(
       site,
       fileInfo.resolvedPath,
@@ -1219,13 +1304,16 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     );
     // #3043: update the uuid's metadata in files.json (in-place transform —
     // uuid preserved, size/dimensions/mtime refreshed).
-    const upsertedRecord = await upsertFileRecordInDataStore(site, fileInfo.normalizedPath);
+    const upsertedRecord = await upsertFileRecordInDataStore(
+      site,
+      fileInfo.normalizedPath,
+    );
     if (upsertedRecord && upsertedRecord.uuid) {
       transformedFile.uuid = upsertedRecord.uuid;
     }
     return {
       commitMessage:
-        'File transformed (' + operation + '): ' + fileInfo.normalizedPath,
+        "File transformed (" + operation + "): " + fileInfo.normalizedPath,
       data: {
         operation: operation,
         path: fileInfo.normalizedPath,
@@ -1233,7 +1321,7 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       },
     };
   }
-  if (operation === 'duplicate') {
+  if (operation === "duplicate") {
     const duplicateInfo = getDuplicateFileInfo(fileInfo);
     fs.copySync(fileInfo.resolvedPath, duplicateInfo.outputPath);
     const duplicatedFile = buildFileRecord(
@@ -1243,15 +1331,18 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     );
     // #3043: upsert the new file's record into files.json (new path ->
     // new uuid from path+size).
-    const upsertedRecord = await upsertFileRecordInDataStore(site, duplicateInfo.normalizedOutputPath);
+    const upsertedRecord = await upsertFileRecordInDataStore(
+      site,
+      duplicateInfo.normalizedOutputPath,
+    );
     if (upsertedRecord && upsertedRecord.uuid) {
       duplicatedFile.uuid = upsertedRecord.uuid;
     }
     return {
       commitMessage:
-        'File duplicated: ' +
+        "File duplicated: " +
         fileInfo.normalizedPath +
-        ' -> ' +
+        " -> " +
         duplicateInfo.normalizedOutputPath,
       data: {
         operation: operation,
@@ -1261,7 +1352,7 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       },
     };
   }
-  if (operation === 'convert-pptx-deck') {
+  if (operation === "convert-pptx-deck") {
     // Convert an uploaded .pptx into a deck.json manifest + stored media.
     // The .pptx stays where it was uploaded in files/; the deck folder gets
     // only deck.json + extracted media. Not exposed in hax-file-actions
@@ -1273,7 +1364,7 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
       fileInfo.normalizedPath,
     );
   }
-  if (operation === 'compress') {
+  if (operation === "compress") {
     const compressLevel = getCompressLevel(payload.level);
     await compressImageInPlace(fileInfo.resolvedPath, compressLevel.quality);
     const compressedFile = buildFileRecord(
@@ -1283,13 +1374,19 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
     );
     // #3043: update the uuid's metadata in files.json after compression
     // (in-place transform — uuid preserved, new size/dimensions/mtime).
-    const upsertedRecord = await upsertFileRecordInDataStore(site, fileInfo.normalizedPath);
+    const upsertedRecord = await upsertFileRecordInDataStore(
+      site,
+      fileInfo.normalizedPath,
+    );
     if (upsertedRecord && upsertedRecord.uuid) {
       compressedFile.uuid = upsertedRecord.uuid;
     }
     return {
       commitMessage:
-        'File compressed (' + compressLevel.key + '): ' + fileInfo.normalizedPath,
+        "File compressed (" +
+        compressLevel.key +
+        "): " +
+        fileInfo.normalizedPath,
       data: {
         operation: operation,
         path: fileInfo.normalizedPath,
@@ -1311,13 +1408,16 @@ async function performFileOperation(site, requestedPath, payload, jpegQuality) {
   );
   // #3043: update the uuid's metadata in files.json after scaling
   // (in-place transform — uuid preserved, new size/dimensions/mtime).
-  const upsertedRecord = await upsertFileRecordInDataStore(site, fileInfo.normalizedPath);
+  const upsertedRecord = await upsertFileRecordInDataStore(
+    site,
+    fileInfo.normalizedPath,
+  );
   if (upsertedRecord && upsertedRecord.uuid) {
     scaledFile.uuid = upsertedRecord.uuid;
   }
   return {
     commitMessage:
-      'File scaled (' + presetData.key + '): ' + fileInfo.normalizedPath,
+      "File scaled (" + presetData.key + "): " + fileInfo.normalizedPath,
     data: {
       operation: operation,
       path: fileInfo.normalizedPath,
@@ -1332,12 +1432,12 @@ async function listFiles(req, res) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Unable to resolve site context for /x/api/v1/files',
+        message: "Unable to resolve site context for /x/api/v1/files",
       },
     });
   }
   const apiBasePath = getApiBasePath(req);
-  const fields = getCsvQuery(req, 'fields');
+  const fields = getCsvQuery(req, "fields");
   // #3043: list reads from files.json. Before returning, auto-index any
   // on-disk files missing from the index (reconcileMissingFromDisk) and
   // flag orphans (records whose disk file is gone) into a non-destructive
@@ -1351,29 +1451,39 @@ async function listFiles(req, res) {
   // list (orphans go only in the 'orphans' array, non-destructive).
   const orphanUuids = {};
   for (let i = 0; i < orphans.length; i++) {
-    const orphanUuid = orphans[i] && orphans[i].uuid ? String(orphans[i].uuid).toLowerCase() : '';
-    if (orphanUuid !== '') {
+    const orphanUuid =
+      orphans[i] && orphans[i].uuid
+        ? String(orphans[i].uuid).toLowerCase()
+        : "";
+    if (orphanUuid !== "") {
       orphanUuids[orphanUuid] = true;
     }
   }
   let records = dataStore.getRecords().filter((record) => {
-    const uuid = record && record.uuid ? String(record.uuid).toLowerCase() : '';
-    return uuid === '' || !Object.prototype.hasOwnProperty.call(orphanUuids, uuid);
+    const uuid = record && record.uuid ? String(record.uuid).toLowerCase() : "";
+    return (
+      uuid === "" || !Object.prototype.hasOwnProperty.call(orphanUuids, uuid)
+    );
   });
   // Apply the filename filter that collectSiteFiles used to handle.
-  const filterFilename = String(getQueryValue(req, 'filename', '') || '').toLowerCase();
-  if (filterFilename !== '') {
+  const filterFilename = String(
+    getQueryValue(req, "filename", "") || "",
+  ).toLowerCase();
+  if (filterFilename !== "") {
     records = records.filter((record) => {
-      const name = String(record.name || '').toLowerCase();
-      const recordPath = String(record.path || '').toLowerCase();
-      return recordPath.indexOf(filterFilename) !== -1 || name.indexOf(filterFilename) !== -1;
+      const name = String(record.name || "").toLowerCase();
+      const recordPath = String(record.path || "").toLowerCase();
+      return (
+        recordPath.indexOf(filterFilename) !== -1 ||
+        name.indexOf(filterFilename) !== -1
+      );
     });
   }
   let filteredRecords = applyFileFilters(records, req);
   filteredRecords = sortRecords(
     filteredRecords,
-    getQueryValue(req, 'sort', ''),
-    'path',
+    getQueryValue(req, "sort", ""),
+    "path",
   );
   const paged = paginateRecords(filteredRecords, req, 25, 500);
   const outputRecords = projectCollection(paged.records, fields);
@@ -1392,17 +1502,19 @@ async function listFiles(req, res) {
       },
     },
     {
-      allowedFormats: ['json', 'md', 'yaml', 'xml'],
-      defaultFormat: 'json',
+      allowedFormats: ["json", "md", "yaml", "xml"],
+      defaultFormat: "json",
     },
   );
 }
 
 async function createFile(req, res) {
-  if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
+  if (!isSiteApiRequestAuthenticated(req, "authenticated-site")) {
     return res.status(403).json({
       status: 403,
-      data: { message: 'Authenticated site access is required for this endpoint', }
+      data: {
+        message: "Authenticated site access is required for this endpoint",
+      },
     });
   }
   if (!checkFileOpsRateLimit(req, res)) {
@@ -1412,35 +1524,35 @@ async function createFile(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/files', }
+      data: { message: "Unable to resolve site context for /x/api/v1/files" },
     });
   }
-  if (!platformAllows(site, 'uploadMedia')) {
+  if (!platformAllows(site, "uploadMedia")) {
     return featureDisabledResponse(
       res,
-      'Uploading media is disabled for this site',
+      "Uploading media is disabled for this site",
     );
   }
   const upload = resolveUploadedFile(req);
   if (!upload) {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Missing file upload', }
+      data: { message: "Missing file upload" },
     });
   }
   const body = ensureRequestBodyObject(req);
   const query = ensureRequestQueryObject(req);
   const nodeId =
-    (body.node && typeof body.node === 'object' && body.node.id) ||
+    (body.node && typeof body.node === "object" && body.node.id) ||
     body.nodeId ||
     query.nodeId ||
-    '';
+    "";
   let page = null;
-  if (nodeId && typeof site.loadNode === 'function') {
+  if (nodeId && typeof site.loadNode === "function") {
     page = site.loadNode(String(nodeId));
   }
-  upload.name = upload.originalname || upload.name || '';
-  upload.tmp_name = path.join('./', upload.path);
+  upload.name = upload.originalname || upload.name || "";
+  upload.tmp_name = path.join("./", upload.path);
   const file = new HAXCMSFile();
   let fileResult = null;
   try {
@@ -1448,7 +1560,9 @@ async function createFile(req, res) {
   } catch (e) {
     return res.status(500).json({
       status: 500,
-      data: { message: resolveClientFacingErrorMessage(e, 'Unable to save file'), }
+      data: {
+        message: resolveClientFacingErrorMessage(e, "Unable to save file"),
+      },
     });
   }
   if (!fileResult || Number(fileResult.status) !== 200) {
@@ -1457,9 +1571,12 @@ async function createFile(req, res) {
     return res.status(500).json({
       status: 500,
       data: {
-        message: fileResult && fileResult.data && typeof fileResult.data.message === 'string'
-          ? fileResult.data.message
-          : 'Unable to save file',
+        message:
+          fileResult &&
+          fileResult.data &&
+          typeof fileResult.data.message === "string"
+            ? fileResult.data.message
+            : "Unable to save file",
       },
     });
   }
@@ -1467,8 +1584,13 @@ async function createFile(req, res) {
     // Security (HAX-SEC-006): use the server-generated sanitized filename from
     // the save result, not the attacker-controlled upload.originalname, so user
     // input never reaches the git commit message (argument-injection defense).
-    var savedFileName = (fileResult && fileResult.data && fileResult.data.file && fileResult.data.file.name) || 'file';
-    await site.gitCommit('File added: ' + savedFileName);
+    var savedFileName =
+      (fileResult &&
+        fileResult.data &&
+        fileResult.data.file &&
+        fileResult.data.file.name) ||
+      "file";
+    await site.gitCommit("File added: " + savedFileName);
   } catch (e) {}
   return res.status(200).json(fileResult);
 }
@@ -1479,19 +1601,21 @@ async function fileDetail(req, res) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Unable to resolve site context for /x/api/v1/files/:fileUuid',
+        message: "Unable to resolve site context for /x/api/v1/files/:fileUuid",
       },
     });
   }
-  const fields = getCsvQuery(req, 'fields');
+  const fields = getCsvQuery(req, "fields");
   try {
     // #3043: O(1) uuid load via the files.json datastore. The record is
     // already the full FileRecord shape, so no directory walk or hash
     // recompute is needed.
     const params =
-      req && req.params && typeof req.params === 'object' ? req.params : {};
-    const decodedUuid = decodePathToken(params.fileUuid || '');
-    const normalizedUuid = String(decodedUuid || '').trim().toLowerCase();
+      req && req.params && typeof req.params === "object" ? req.params : {};
+    const decodedUuid = decodePathToken(params.fileUuid || "");
+    const normalizedUuid = String(decodedUuid || "")
+      .trim()
+      .toLowerCase();
     if (
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         normalizedUuid,
@@ -1500,7 +1624,7 @@ async function fileDetail(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          message: 'File uuid is required and must be a valid UUID',
+          message: "File uuid is required and must be a valid UUID",
         },
       });
     }
@@ -1510,29 +1634,31 @@ async function fileDetail(req, res) {
       return res.status(404).json({
         status: 404,
         data: {
-          message: 'Requested file was not found',
+          message: "Requested file was not found",
         },
       });
     }
     return sendFormattedResponse(req, res, projectRecord(record, fields), {
-      allowedFormats: ['json', 'md', 'yaml', 'xml'],
-      defaultFormat: 'json',
+      allowedFormats: ["json", "md", "yaml", "xml"],
+      defaultFormat: "json",
     });
   } catch (e) {
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
       data: {
-        message: resolveClientFacingErrorMessage(e, 'Unable to load file'),
+        message: resolveClientFacingErrorMessage(e, "Unable to load file"),
       },
     });
   }
 }
 
 async function updateFile(req, res) {
-  if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
+  if (!isSiteApiRequestAuthenticated(req, "authenticated-site")) {
     return res.status(403).json({
       status: 403,
-      data: { message: 'Authenticated site access is required for this endpoint', }
+      data: {
+        message: "Authenticated site access is required for this endpoint",
+      },
     });
   }
   if (!checkFileOpsRateLimit(req, res)) {
@@ -1542,26 +1668,31 @@ async function updateFile(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/files/{fileUuid}', }
+      data: {
+        message:
+          "Unable to resolve site context for /x/api/v1/files/{fileUuid}",
+      },
     });
   }
-  if (!platformAllows(site, 'uploadMedia')) {
+  if (!platformAllows(site, "uploadMedia")) {
     return featureDisabledResponse(
       res,
-      'File operations are disabled for this site',
+      "File operations are disabled for this site",
     );
   }
   const payload = readOperationPayload(req);
   if (!payload.operation) {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Operation is required', }
+      data: { message: "Operation is required" },
     });
   }
-  if (payload.operation === 'delete') {
+  if (payload.operation === "delete") {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Use DELETE /x/api/v1/files/{fileUuid} for file deletion', }
+      data: {
+        message: "Use DELETE /x/api/v1/files/{fileUuid} for file deletion",
+      },
     });
   }
   let mediaSettings = {};
@@ -1578,7 +1709,7 @@ async function updateFile(req, res) {
     if (!requestedPath) {
       return res.status(400).json({
         status: 400,
-        data: { message: 'File uuid is required', }
+        data: { message: "File uuid is required" },
       });
     }
     const result = await performFileOperation(
@@ -1595,16 +1726,23 @@ async function updateFile(req, res) {
   } catch (e) {
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
-      data: { message: resolveClientFacingErrorMessage(e, 'Unable to complete file operation'), }
+      data: {
+        message: resolveClientFacingErrorMessage(
+          e,
+          "Unable to complete file operation",
+        ),
+      },
     });
   }
 }
 
 async function deleteFile(req, res) {
-  if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
+  if (!isSiteApiRequestAuthenticated(req, "authenticated-site")) {
     return res.status(403).json({
       status: 403,
-      data: { message: 'Authenticated site access is required for this endpoint', }
+      data: {
+        message: "Authenticated site access is required for this endpoint",
+      },
     });
   }
   if (!checkFileOpsRateLimit(req, res)) {
@@ -1614,13 +1752,16 @@ async function deleteFile(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/files/{fileUuid}', }
+      data: {
+        message:
+          "Unable to resolve site context for /x/api/v1/files/{fileUuid}",
+      },
     });
   }
-  if (!platformAllows(site, 'uploadMedia')) {
+  if (!platformAllows(site, "uploadMedia")) {
     return featureDisabledResponse(
       res,
-      'File operations are disabled for this site',
+      "File operations are disabled for this site",
     );
   }
   let mediaSettings = {};
@@ -1630,8 +1771,10 @@ async function deleteFile(req, res) {
   const jpegQuality = resolveJpegQualityFromSettings(mediaSettings);
   // #3043: resolve the file uuid for post-delete data-layer cleanup.
   const params =
-    req && req.params && typeof req.params === 'object' ? req.params : {};
-  const deleteFileUuid = String(decodePathToken(params.fileUuid || '') || '').trim().toLowerCase();
+    req && req.params && typeof req.params === "object" ? req.params : {};
+  const deleteFileUuid = String(decodePathToken(params.fileUuid || "") || "")
+    .trim()
+    .toLowerCase();
   try {
     // resolveRequestedFilePath can throw createStatusError (404 when the uuid
     // no longer matches a file on disk, e.g. after a rename changed the uuid;
@@ -1641,13 +1784,13 @@ async function deleteFile(req, res) {
     if (!requestedPath) {
       return res.status(400).json({
         status: 400,
-        data: { message: 'File uuid is required', }
+        data: { message: "File uuid is required" },
       });
     }
     const result = await performFileOperation(
       site,
       requestedPath,
-      readOperationPayload(req, 'delete'),
+      readOperationPayload(req, "delete"),
       jpegQuality,
     );
     await site.gitCommit(result.commitMessage);
@@ -1657,7 +1800,9 @@ async function deleteFile(req, res) {
     // handles the data-layer cleanup so 'used in' references stay clean.
     if (
       deleteFileUuid &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(deleteFileUuid)
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        deleteFileUuid,
+      )
     ) {
       try {
         const registry = new EntityRegistry(site);
@@ -1674,7 +1819,12 @@ async function deleteFile(req, res) {
   } catch (e) {
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
-      data: { message: resolveClientFacingErrorMessage(e, 'Unable to complete file operation'), }
+      data: {
+        message: resolveClientFacingErrorMessage(
+          e,
+          "Unable to complete file operation",
+        ),
+      },
     });
   }
 }

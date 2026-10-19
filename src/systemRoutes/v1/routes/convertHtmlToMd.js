@@ -1,6 +1,8 @@
-const TurndownService = require('turndown');
+const TurndownService = require("turndown");
 const turndownService = new TurndownService();
-const { safeFetch } = require('../../../lib/safeFetch.js');
+const { safeFetch } = require("../../../lib/safeFetch.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/actions/html-to-md
@@ -14,28 +16,28 @@ async function convertHtmlToMd(req, res) {
     let body = {};
     if (req && req.query && req.query.html) {
       body = req.query;
-    } else if (req.body && typeof req.body === 'object') {
+    } else if (req.body && typeof req.body === "object") {
       body = req.body;
     }
 
     if (!body || !body.html) {
       return res.status(400).json({
         status: 400,
-        data: { error: 'missing `html` param', contents: '' },
+        data: { error: "missing `html` param", contents: "" },
       });
     }
 
-    let html = String(body.html || '');
-    if (body.type === 'link' && html) {
+    let html = String(body.html || "");
+    if (body.type === "link" && html) {
       try {
-        html = await safeFetch(html.trim()).then((d) => (d.ok ? d.text() : ''));
+        html = await safeFetch(html.trim()).then((d) => (d.ok ? d.text() : ""));
       } catch (e) {
-        html = '';
+        html = "";
       }
     }
 
-    if (typeof html !== 'string') {
-      html = String(html || '');
+    if (typeof html !== "string") {
+      html = String(html || "");
     }
 
     const markdown = turndownService.turndown(html);
@@ -46,10 +48,13 @@ async function convertHtmlToMd(req, res) {
       },
     });
   } catch (error) {
-    console.error('htmlToMd route error:', error.message);
+    console.error("htmlToMd route error:", error.message);
     return res.status(400).json({
       status: 400,
-      data: { error: `HTML to Markdown conversion failed: ${error.message}`, contents: '' },
+      data: {
+        error: `HTML to Markdown conversion failed: ${clientSafeErrorDetail(error)}`,
+        contents: "",
+      },
     });
   }
 }

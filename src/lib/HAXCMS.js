@@ -162,6 +162,8 @@ const {
 const { materializeInlineImages } = require("./materializeInlineImages.js");
 const { applyPageMetadata, toPlainText } = require("./sanitizePageMetadata.js");
 const exec = util.promisify(child_process.exec);
+// Security (I3, 2026-10-19 audit): argument-array git calls (no shell string)
+const execFile = util.promisify(child_process.execFile);
 const turndownService = new TurndownService();
 turndownService.keep(function (node) {
   return node && node.nodeName && String(node.nodeName).indexOf("-") !== -1;
@@ -737,7 +739,9 @@ class HAXCMSSite {
   async gitFallbackIdentity(dir) {
     const gitConfigValue = async (key) => {
       try {
-        const { stdout } = await exec("git config " + key, { cwd: dir });
+        // Security (I3): execFile with an argument array, matching
+        // revisions.js, so no shell ever parses the key.
+        const { stdout } = await execFile("git", ["config", key], { cwd: dir });
         return stdout.trim();
       } catch (e) {
         return "";

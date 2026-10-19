@@ -1,4 +1,4 @@
-const { parse } = require('node-html-parser');
+const { parse } = require("node-html-parser");
 const {
   getApiBasePath,
   getCsvQuery,
@@ -23,39 +23,42 @@ const {
   ensureRequestBodyObject,
   getRequestHeaderValue,
   getSiteNameFromResolvedSite,
-} = require('./siteRouteUtils.js');
+} = require("./siteRouteUtils.js");
 const {
   applyNodeDetailOperation,
-} = require('../../lib/nodeDetailOperations.js');
-const {
-  featureDisabledResponse,
-} = require('../../lib/platformFeatures.js');
-const createNodeRoute = require('./routes/createNode.js');
-const deleteNodeRoute = require('./routes/deleteNode.js');
-const { ITEM_EXPORT_FORMATS } = require('./exports.js');
+} = require("../../lib/nodeDetailOperations.js");
+const { featureDisabledResponse } = require("../../lib/platformFeatures.js");
+const createNodeRoute = require("./routes/createNode.js");
+const deleteNodeRoute = require("./routes/deleteNode.js");
+const { ITEM_EXPORT_FORMATS } = require("./exports.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../lib/clientErrorMessage.js");
 
 function ensureSiteTokenHeader(req) {
-  const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-  if (headerToken === '') {
+  const headerToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  if (headerToken === "") {
     return null;
   }
   return headerToken;
 }
 
-function ensureSiteRequestBody(req, siteName = '') {
+function ensureSiteRequestBody(req, siteName = "") {
   const body = ensureRequestBodyObject(req);
-  if (!body.site || typeof body.site !== 'object' || Array.isArray(body.site)) {
+  if (!body.site || typeof body.site !== "object" || Array.isArray(body.site)) {
     body.site = {};
   }
-  if ((!body.site.name || String(body.site.name).trim() === '') && siteName !== '') {
+  if (
+    (!body.site.name || String(body.site.name).trim() === "") &&
+    siteName !== ""
+  ) {
     body.site.name = siteName;
   }
   return body;
 }
 
 function getItemLookupValue(item) {
-  if (!item || typeof item !== 'object') {
-    return '';
+  if (!item || typeof item !== "object") {
+    return "";
   }
   if (item.slug) {
     return String(item.slug);
@@ -63,10 +66,10 @@ function getItemLookupValue(item) {
   if (item.id) {
     return String(item.id);
   }
-  return '';
+  return "";
 }
 
-function buildItemNavigationMap(orderedItems = [], apiBasePath = '/x/api') {
+function buildItemNavigationMap(orderedItems = [], apiBasePath = "/x/api") {
   const itemById = {};
   for (let i = 0; i < orderedItems.length; i++) {
     const item = orderedItems[i];
@@ -86,27 +89,26 @@ function buildItemNavigationMap(orderedItems = [], apiBasePath = '/x/api') {
     const nextItem = i + 1 < orderedItems.length ? orderedItems[i + 1] : null;
     const previousLookupValue = getItemLookupValue(previousItem);
     const nextLookupValue = getItemLookupValue(nextItem);
-    let parentLookupValue = '';
+    let parentLookupValue = "";
     if (item.parent) {
       const parentId = String(item.parent);
       if (Object.prototype.hasOwnProperty.call(itemById, parentId)) {
         parentLookupValue = getItemLookupValue(itemById[parentId]);
-      }
-      else {
+      } else {
         parentLookupValue = parentId;
       }
     }
     navigationMap[id] = {
       previous:
-        previousLookupValue !== ''
+        previousLookupValue !== ""
           ? `${apiBasePath}/v1/items/${encodeURIComponent(previousLookupValue)}`
           : null,
       next:
-        nextLookupValue !== ''
+        nextLookupValue !== ""
           ? `${apiBasePath}/v1/items/${encodeURIComponent(nextLookupValue)}`
           : null,
       parent:
-        parentLookupValue !== ''
+        parentLookupValue !== ""
           ? `${apiBasePath}/v1/items/${encodeURIComponent(parentLookupValue)}`
           : null,
       children: `${apiBasePath}/v1/items?filter.parent=${encodeURIComponent(id)}`,
@@ -125,30 +127,28 @@ function appendItemNavigationLinks(records = [], navigationMap = {}) {
       return record;
     }
     const links =
-      record.links && typeof record.links === 'object' ? { ...record.links } : {};
+      record.links && typeof record.links === "object"
+        ? { ...record.links }
+        : {};
     const nav = navigationMap[id];
-    if (typeof nav.previous === 'string' && nav.previous !== '') {
+    if (typeof nav.previous === "string" && nav.previous !== "") {
       links.previous = nav.previous;
-    }
-    else if (Object.prototype.hasOwnProperty.call(links, 'previous')) {
+    } else if (Object.prototype.hasOwnProperty.call(links, "previous")) {
       delete links.previous;
     }
-    if (typeof nav.next === 'string' && nav.next !== '') {
+    if (typeof nav.next === "string" && nav.next !== "") {
       links.next = nav.next;
-    }
-    else if (Object.prototype.hasOwnProperty.call(links, 'next')) {
+    } else if (Object.prototype.hasOwnProperty.call(links, "next")) {
       delete links.next;
     }
-    if (typeof nav.parent === 'string' && nav.parent !== '') {
+    if (typeof nav.parent === "string" && nav.parent !== "") {
       links.parent = nav.parent;
-    }
-    else if (Object.prototype.hasOwnProperty.call(links, 'parent')) {
+    } else if (Object.prototype.hasOwnProperty.call(links, "parent")) {
       delete links.parent;
     }
-    if (typeof nav.children === 'string' && nav.children !== '') {
+    if (typeof nav.children === "string" && nav.children !== "") {
       links.children = nav.children;
-    }
-    else if (Object.prototype.hasOwnProperty.call(links, 'children')) {
+    } else if (Object.prototype.hasOwnProperty.call(links, "children")) {
       delete links.children;
     }
     return {
@@ -158,43 +158,43 @@ function appendItemNavigationLinks(records = [], navigationMap = {}) {
   });
 }
 
-function normalizeBasePath(basePath = '/') {
-  let output = String(basePath || '/').trim();
-  if (output === '') {
-    output = '/';
+function normalizeBasePath(basePath = "/") {
+  let output = String(basePath || "/").trim();
+  if (output === "") {
+    output = "/";
   }
-  if (output.charAt(0) !== '/') {
-    output = '/' + output;
+  if (output.charAt(0) !== "/") {
+    output = "/" + output;
   }
-  if (output.charAt(output.length - 1) !== '/') {
-    output += '/';
+  if (output.charAt(output.length - 1) !== "/") {
+    output += "/";
   }
   return output;
 }
 
-function encodeSlugPath(slug = '') {
-  return String(slug || '')
-    .split('/')
-    .map((segment) => String(segment || '').trim())
-    .filter((segment) => segment !== '')
+function encodeSlugPath(slug = "") {
+  return String(slug || "")
+    .split("/")
+    .map((segment) => String(segment || "").trim())
+    .filter((segment) => segment !== "")
     .map((segment) => encodeURIComponent(segment))
-    .join('/');
+    .join("/");
 }
 
-function buildCanonicalPagePath(basePath = '/', slug = '') {
-  const normalizedBasePath = normalizeBasePath(basePath).replace(/\/+$/, '');
+function buildCanonicalPagePath(basePath = "/", slug = "") {
+  const normalizedBasePath = normalizeBasePath(basePath).replace(/\/+$/, "");
   const encodedSlugPath = encodeSlugPath(slug);
-  if (encodedSlugPath === '') {
-    return normalizedBasePath === '' ? '/' : normalizedBasePath;
+  if (encodedSlugPath === "") {
+    return normalizedBasePath === "" ? "/" : normalizedBasePath;
   }
-  if (normalizedBasePath === '' || normalizedBasePath === '/') {
+  if (normalizedBasePath === "" || normalizedBasePath === "/") {
     return `/${encodedSlugPath}`;
   }
   return `${normalizedBasePath}/${encodedSlugPath}`;
 }
 
-function buildItemEndpointLinks(apiBasePath = '/x/api', itemLookupValue = '') {
-  const encodedLookupValue = encodeURIComponent(String(itemLookupValue || ''));
+function buildItemEndpointLinks(apiBasePath = "/x/api", itemLookupValue = "") {
+  const encodedLookupValue = encodeURIComponent(String(itemLookupValue || ""));
   const exportBase = `${apiBasePath}/v1/items/${encodedLookupValue}/export`;
   const exports = {};
   for (let i = 0; i < ITEM_EXPORT_FORMATS.length; i++) {
@@ -210,12 +210,15 @@ function buildItemEndpointLinks(apiBasePath = '/x/api', itemLookupValue = '') {
   };
 }
 
-function buildItemJsonLd(record, siteBasePath = '/', siteLanguage = 'en') {
-  const itemSlug = record && record.slug ? String(record.slug) : '';
-  const itemId = record && record.id ? String(record.id) : '';
-  const canonicalPagePath = buildCanonicalPagePath(siteBasePath, itemSlug || itemId);
+function buildItemJsonLd(record, siteBasePath = "/", siteLanguage = "en") {
+  const itemSlug = record && record.slug ? String(record.slug) : "";
+  const itemId = record && record.id ? String(record.id) : "";
+  const canonicalPagePath = buildCanonicalPagePath(
+    siteBasePath,
+    itemSlug || itemId,
+  );
   const metadata =
-    record && record.metadata && typeof record.metadata === 'object'
+    record && record.metadata && typeof record.metadata === "object"
       ? record.metadata
       : {};
   const createdIso = toIsoDateFromUnixTime(metadata.created);
@@ -223,26 +226,26 @@ function buildItemJsonLd(record, siteBasePath = '/', siteLanguage = 'en') {
   const itemTitle =
     record && record.title
       ? String(record.title)
-      : itemSlug !== ''
+      : itemSlug !== ""
         ? itemSlug
         : itemId;
   const itemDescription =
-    record && record.description ? String(record.description) : '';
+    record && record.description ? String(record.description) : "";
   const itemSelfLink =
     record && record.links && record.links.self
       ? String(record.links.self)
       : canonicalPagePath;
   const jsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'WebPage',
-    '@id': `${itemSelfLink}#webpage`,
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "@id": `${itemSelfLink}#webpage`,
     url: itemSelfLink,
     mainEntityOfPage: canonicalPagePath,
     name: itemTitle,
     description: itemDescription,
     inLanguage: siteLanguage,
   };
-  if (itemId !== '') {
+  if (itemId !== "") {
     jsonLd.identifier = itemId;
   }
   if (Array.isArray(record && record.tags ? record.tags : [])) {
@@ -258,32 +261,33 @@ function buildItemJsonLd(record, siteBasePath = '/', siteLanguage = 'en') {
 }
 
 function buildHaxElementSchemaNode(node) {
-  const tagName = String(node && node.tagName ? node.tagName : '')
+  const tagName = String(node && node.tagName ? node.tagName : "")
     .trim()
     .toLowerCase();
   const properties = {};
-  if (node && node.attributes && typeof node.attributes === 'object') {
+  if (node && node.attributes && typeof node.attributes === "object") {
     const attributeNames = Object.keys(node.attributes);
     for (let i = 0; i < attributeNames.length; i++) {
       const attributeName = attributeNames[i];
       const attributeValue = node.getAttribute(attributeName);
-      properties[attributeName] = attributeValue === null ? true : attributeValue;
+      properties[attributeName] =
+        attributeValue === null ? true : attributeValue;
     }
   }
   return {
     tag: tagName,
     properties,
-    content: node && node.innerHTML ? String(node.innerHTML) : '',
+    content: node && node.innerHTML ? String(node.innerHTML) : "",
   };
 }
 
-function buildHaxElementSchemaFromHtml(html = '') {
-  const source = String(html || '').trim();
-  if (source === '') {
+function buildHaxElementSchemaFromHtml(html = "") {
+  const source = String(html || "").trim();
+  if (source === "") {
     return [];
   }
   const root = parse(`<div data-hax-element-schema-root>${source}</div>`);
-  const wrapper = root.querySelector('div[data-hax-element-schema-root]');
+  const wrapper = root.querySelector("div[data-hax-element-schema-root]");
   if (!wrapper || !Array.isArray(wrapper.childNodes)) {
     return [];
   }
@@ -294,7 +298,7 @@ function buildHaxElementSchemaFromHtml(html = '') {
       continue;
     }
     const nodeSchema = buildHaxElementSchemaNode(node);
-    if (nodeSchema.tag !== '') {
+    if (nodeSchema.tag !== "") {
       schema.push(nodeSchema);
     }
   }
@@ -303,21 +307,21 @@ function buildHaxElementSchemaFromHtml(html = '') {
 
 function appendItemEndpointLinks(
   record,
-  apiBasePath = '/x/api',
-  siteBasePath = '/',
-  siteLanguage = 'en',
+  apiBasePath = "/x/api",
+  siteBasePath = "/",
+  siteLanguage = "en",
   includeJsonLd = false,
 ) {
-  if (!record || typeof record !== 'object') {
+  if (!record || typeof record !== "object") {
     return record;
   }
   const itemLookupValue = getItemLookupValue(record);
-  if (itemLookupValue === '') {
+  if (itemLookupValue === "") {
     return record;
   }
   const endpointLinks = buildItemEndpointLinks(apiBasePath, itemLookupValue);
   const links =
-    record.links && typeof record.links === 'object' ? { ...record.links } : {};
+    record.links && typeof record.links === "object" ? { ...record.links } : {};
   links.exportDocx = endpointLinks.exportDocx;
   links.exportPdf = endpointLinks.exportPdf;
   links.haxElementSchema = endpointLinks.haxElementSchema;
@@ -341,11 +345,11 @@ async function appendRequestedItemIncludes(
   site,
   items,
   includes = [],
-  apiBasePath = '/x/api',
+  apiBasePath = "/x/api",
 ) {
-  const includeContent = includes.indexOf('content') !== -1;
-  const includeHaxElementSchema = includes.indexOf('haxElementSchema') !== -1;
-  const includeJsonLd = includes.indexOf('jsonld') !== -1;
+  const includeContent = includes.indexOf("content") !== -1;
+  const includeHaxElementSchema = includes.indexOf("haxElementSchema") !== -1;
+  const includeJsonLd = includes.indexOf("jsonld") !== -1;
   const siteBasePath = getSiteBasePath(site);
   const siteLanguage = getSiteLanguage(site);
   const hydrated = [];
@@ -365,7 +369,8 @@ async function appendRequestedItemIncludes(
         hydratedRecord.content = content;
       }
       if (includeHaxElementSchema) {
-        hydratedRecord.haxElementSchema = buildHaxElementSchemaFromHtml(content);
+        hydratedRecord.haxElementSchema =
+          buildHaxElementSchemaFromHtml(content);
       }
     }
     hydrated.push(hydratedRecord);
@@ -379,13 +384,13 @@ async function listItems(req, res) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Unable to resolve site context for /x/api/v1/items',
+        message: "Unable to resolve site context for /x/api/v1/items",
       },
     });
   }
   const apiBasePath = getApiBasePath(req);
-  const includes = getCsvQuery(req, 'include');
-  const fields = getCsvQuery(req, 'fields');
+  const includes = getCsvQuery(req, "include");
+  const fields = getCsvQuery(req, "fields");
   const orderedItems = getOrderedItems(site);
   const navigationMap = buildItemNavigationMap(orderedItems, apiBasePath);
   const filteredItems = applyItemFilters(orderedItems, req, site, {
@@ -393,8 +398,13 @@ async function listItems(req, res) {
   });
   let records = filteredItems.map((item) => itemToSummary(item, apiBasePath));
   records = appendItemNavigationLinks(records, navigationMap);
-  records = await appendRequestedItemIncludes(site, records, includes, apiBasePath);
-  records = sortRecords(records, getQueryValue(req, 'sort', ''), 'order');
+  records = await appendRequestedItemIncludes(
+    site,
+    records,
+    includes,
+    apiBasePath,
+  );
+  records = sortRecords(records, getQueryValue(req, "sort", ""), "order");
   const paged = paginateRecords(records, req, 25, 200);
   const outputRecords = projectCollection(paged.records, fields);
   return sendFormattedResponse(
@@ -410,8 +420,8 @@ async function listItems(req, res) {
       },
     },
     {
-      allowedFormats: ['json', 'md', 'yaml', 'xml', 'html'],
-      defaultFormat: 'json',
+      allowedFormats: ["json", "md", "yaml", "xml", "html"],
+      defaultFormat: "json",
     },
   );
 }
@@ -422,12 +432,12 @@ async function itemDetail(req, res) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug',
+        message: "Unable to resolve site context for /x/api/v1/items/:idOrSlug",
       },
     });
   }
   const idOrSlug =
-    req && req.params && req.params.idOrSlug ? req.params.idOrSlug : '';
+    req && req.params && req.params.idOrSlug ? req.params.idOrSlug : "";
   const item = findItemByIdOrSlug(site, idOrSlug);
   if (!item) {
     return res.status(404).json({
@@ -437,10 +447,7 @@ async function itemDetail(req, res) {
       },
     });
   }
-  if (
-    isAnonymousSiteApiRequest(req) &&
-    !isItemVisibleToAnonymous(item)
-  ) {
+  if (isAnonymousSiteApiRequest(req) && !isItemVisibleToAnonymous(item)) {
     return res.status(404).json({
       status: 404,
       data: {
@@ -449,13 +456,16 @@ async function itemDetail(req, res) {
     });
   }
   const apiBasePath = getApiBasePath(req);
-  const includes = getCsvQuery(req, 'include');
+  const includes = getCsvQuery(req, "include");
   const includesWithJsonLd = [...includes];
-  if (includesWithJsonLd.indexOf('jsonld') === -1) {
-    includesWithJsonLd.push('jsonld');
+  if (includesWithJsonLd.indexOf("jsonld") === -1) {
+    includesWithJsonLd.push("jsonld");
   }
-  const fields = getCsvQuery(req, 'fields');
-  const navigationMap = buildItemNavigationMap(getOrderedItems(site), apiBasePath);
+  const fields = getCsvQuery(req, "fields");
+  const navigationMap = buildItemNavigationMap(
+    getOrderedItems(site),
+    apiBasePath,
+  );
   let record = itemToSummary(item, apiBasePath);
   record = appendItemNavigationLinks([record], navigationMap)[0];
   record = (
@@ -468,63 +478,73 @@ async function itemDetail(req, res) {
   )[0];
   record = projectRecord(record, fields);
   return sendFormattedResponse(req, res, record, {
-    allowedFormats: ['json', 'md', 'yaml', 'xml', 'html'],
-    defaultFormat: 'json',
+    allowedFormats: ["json", "md", "yaml", "xml", "html"],
+    defaultFormat: "json",
   });
 }
 
 async function updateItem(req, res) {
-  if (!isSiteApiRequestAuthenticated(req, 'authenticated-site')) {
+  if (!isSiteApiRequestAuthenticated(req, "authenticated-site")) {
     return res.status(403).json({
       status: 403,
-      data: { message: 'Authenticated site access is required for this endpoint', }
+      data: {
+        message: "Authenticated site access is required for this endpoint",
+      },
     });
   }
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug', }
+      data: {
+        message: "Unable to resolve site context for /x/api/v1/items/:idOrSlug",
+      },
     });
   }
   const idOrSlug =
-    req && req.params && req.params.idOrSlug ? req.params.idOrSlug : '';
+    req && req.params && req.params.idOrSlug ? req.params.idOrSlug : "";
   const existingItem = findItemByIdOrSlug(site, idOrSlug);
   if (!existingItem) {
     return res.status(404).json({
       status: 404,
-      data: { message: `Item not found for idOrSlug "${idOrSlug}"`, }
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"` },
     });
   }
   const payload = ensureRequestBodyObject(req);
   const operation =
-    payload && typeof payload.operation === 'string'
+    payload && typeof payload.operation === "string"
       ? payload.operation.trim()
-      : '';
-  if (operation === '') {
+      : "";
+  if (operation === "") {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Operation is required', }
+      data: { message: "Operation is required" },
     });
   }
   try {
-    const result = await applyNodeDetailOperation(site, existingItem.id, payload);
+    const result = await applyNodeDetailOperation(
+      site,
+      existingItem.id,
+      payload,
+    );
     const apiBasePath = getApiBasePath(req);
-    const navigationMap = buildItemNavigationMap(getOrderedItems(site), apiBasePath);
+    const navigationMap = buildItemNavigationMap(
+      getOrderedItems(site),
+      apiBasePath,
+    );
     let record = itemToSummary(result.item, apiBasePath);
     record = appendItemNavigationLinks([record], navigationMap)[0];
     return res.status(200).json({
       status: 200,
       data: record,
     });
-  }
-  catch (e) {
+  } catch (e) {
     if (e && e.featureDisabled === true) {
       return featureDisabledResponse(res, e.message);
     }
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
-      data: { message: e && e.message ? e.message : 'Unable to update item', }
+      data: { message: clientSafeErrorDetail(e, "Unable to update item") },
     });
   }
 }
@@ -534,31 +554,35 @@ async function createItem(req, res, next) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/items', }
+      data: { message: "Unable to resolve site context for /x/api/v1/items" },
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
-  if (siteName === '') {
+  if (siteName === "") {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Unable to resolve site name for create item operation', }
+      data: {
+        message: "Unable to resolve site name for create item operation",
+      },
     });
   }
   const siteToken = ensureSiteTokenHeader(req);
   if (!siteToken) {
     return res.status(403).json({
       status: 403,
-      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
+      data: {
+        message: "X-HAXCMS-Site-Token header is required for this endpoint",
+      },
     });
   }
   const body = ensureSiteRequestBody(req, siteName);
   const hasItemsPayload = Array.isArray(body.items) && body.items.length > 0;
   const hasNodePayload =
-    body.node && typeof body.node === 'object' && !Array.isArray(body.node);
+    body.node && typeof body.node === "object" && !Array.isArray(body.node);
   if (!hasItemsPayload && !hasNodePayload) {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Node payload is required', }
+      data: { message: "Node payload is required" },
     });
   }
   return createNodeRoute(req, res, next);
@@ -569,34 +593,40 @@ async function deleteItem(req, res, next) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug', }
+      data: {
+        message: "Unable to resolve site context for /x/api/v1/items/:idOrSlug",
+      },
     });
   }
   const idOrSlug =
-    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : '';
+    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : "";
   const item = findItemByIdOrSlug(site, idOrSlug);
   if (!item || !item.id) {
     return res.status(404).json({
       status: 404,
-      data: { message: `Item not found for idOrSlug "${idOrSlug}"`, }
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"` },
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
-  if (siteName === '') {
+  if (siteName === "") {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Unable to resolve site name for delete item operation', }
+      data: {
+        message: "Unable to resolve site name for delete item operation",
+      },
     });
   }
   const siteToken = ensureSiteTokenHeader(req);
   if (!siteToken) {
     return res.status(403).json({
       status: 403,
-      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
+      data: {
+        message: "X-HAXCMS-Site-Token header is required for this endpoint",
+      },
     });
   }
   const body = ensureSiteRequestBody(req, siteName);
-  if (!body.node || typeof body.node !== 'object' || Array.isArray(body.node)) {
+  if (!body.node || typeof body.node !== "object" || Array.isArray(body.node)) {
     body.node = {};
   }
   body.node.id = String(item.id);

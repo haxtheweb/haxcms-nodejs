@@ -1,103 +1,163 @@
-const { HAXCMS } = require('../../lib/HAXCMS.js');
-const { readEffectiveApiKeys } = require('../../lib/apiKeys.js');
+const { HAXCMS } = require("../../lib/HAXCMS.js");
+const { readEffectiveApiKeys } = require("../../lib/apiKeys.js");
 
 const RESERVED_QUERY_PARAMS = [
-  'provider',
-  'site_token',
-  'siteName',
-  'jwt',
-  'token',
+  "provider",
+  "site_token",
+  "siteName",
+  "jwt",
+  "token",
 ];
 
-const BLOCKED_AUTH_PARAMS = [
-  'key',
-  'access_token',
-  'api_key',
-  'client_id',
-];
+const BLOCKED_AUTH_PARAMS = ["key", "access_token", "api_key", "client_id"];
 
+// Security (L2, 2026-10-19 audit): upper bound on how long an upstream
+// provider may hold a request open (EXPRESS-DOS-001).
+const UPSTREAM_TIMEOUT_MS = 15000;
+
+// Security (L2, 2026-10-19 audit): each provider only receives the params its
+// app-store definition uses (HAXAppStoreService: search fields + fixed data +
+// connection data + pagination keys). Forwarding arbitrary params let any
+// authenticated caller drive the provider API with the deployment's key
+// (e.g. Flickr `method` selects ANY Flickr REST method). `fixedParams` pin a
+// value whenever the caller supplies that key, so it cannot be repurposed.
 const PROVIDER_DEFINITIONS = {
   youtube: {
-    method: 'GET',
-    protocol: 'https',
-    host: 'www.googleapis.com/youtube/v3',
-    endPoint: 'search',
-    apiKeyProvider: 'youtube',
-    apiKeyParam: 'key',
+    method: "GET",
+    protocol: "https",
+    host: "www.googleapis.com/youtube/v3",
+    endPoint: "search",
+    apiKeyProvider: "youtube",
+    apiKeyParam: "key",
+    allowedParams: [
+      "q",
+      "part",
+      "type",
+      "maxResults",
+      "pageToken",
+      "order",
+      "safeSearch",
+      "videoEmbeddable",
+    ],
   },
   vimeo: {
-    method: 'GET',
-    protocol: 'https',
-    host: 'api.vimeo.com',
-    endPoint: 'videos',
-    apiKeyProvider: 'vimeo',
-    apiKeyParam: 'access_token',
+    method: "GET",
+    protocol: "https",
+    host: "api.vimeo.com",
+    endPoint: "videos",
+    apiKeyProvider: "vimeo",
+    apiKeyParam: "access_token",
+    allowedParams: ["query", "direction", "sort", "filter", "per_page", "page"],
   },
   giphy: {
-    method: 'GET',
-    protocol: 'https',
-    host: 'api.giphy.com',
-    endPoint: 'v1/gifs/search',
-    apiKeyProvider: 'giphy',
-    apiKeyParam: 'api_key',
+    method: "GET",
+    protocol: "https",
+    host: "api.giphy.com",
+    endPoint: "v1/gifs/search",
+    apiKeyProvider: "giphy",
+    apiKeyParam: "api_key",
+    allowedParams: ["q", "rating", "lang", "limit", "offset"],
   },
   unsplash: {
-    method: 'GET',
-    protocol: 'https',
-    host: 'api.unsplash.com',
-    endPoint: 'search/photos',
-    apiKeyProvider: 'unsplash',
-    apiKeyParam: 'client_id',
+    method: "GET",
+    protocol: "https",
+    host: "api.unsplash.com",
+    endPoint: "search/photos",
+    apiKeyProvider: "unsplash",
+    apiKeyParam: "client_id",
+    allowedParams: ["query", "page", "per_page"],
   },
   flickr: {
-    method: 'GET',
-    protocol: 'https',
-    host: 'api.flickr.com',
-    endPoint: 'services/rest',
-    apiKeyProvider: 'flickr',
-    apiKeyParam: 'api_key',
+    method: "GET",
+    protocol: "https",
+    host: "api.flickr.com",
+    endPoint: "services/rest",
+    apiKeyProvider: "flickr",
+    apiKeyParam: "api_key",
+    allowedParams: [
+      "text",
+      "safe_search",
+      "license",
+      "method",
+      "format",
+      "per_page",
+      "page",
+      "nojsoncallback",
+      "extras",
+    ],
+    fixedParams: { method: "flickr.photos.search", format: "json" },
   },
   nasa: {
-    method: 'GET',
-    protocol: 'https',
-    host: 'images-api.nasa.gov',
-    endPoint: 'search',
+    method: "GET",
+    protocol: "https",
+    host: "images-api.nasa.gov",
+    endPoint: "search",
+    allowedParams: ["q", "media_type", "page"],
   },
   sketchfab: {
-    method: 'GET',
-    protocol: 'https',
-    host: 'api.sketchfab.com',
-    endPoint: 'v3/search',
+    method: "GET",
+    protocol: "https",
+    host: "api.sketchfab.com",
+    endPoint: "v3/search",
+    allowedParams: ["q", "license", "type", "page", "per_page"],
   },
   dailymotion: {
-    method: 'GET',
-    protocol: 'https',
-    host: 'api.dailymotion.com',
-    endPoint: 'videos',
+    method: "GET",
+    protocol: "https",
+    host: "api.dailymotion.com",
+    endPoint: "videos",
+    allowedParams: [
+      "search",
+      "fields",
+      "no_live",
+      "ssl_assets",
+      "sort",
+      "limit",
+      "page",
+    ],
   },
   wikipedia: {
-    method: 'GET',
-    protocol: 'https',
-    host: 'en.wikipedia.org',
-    endPoint: 'w/api.php',
+    method: "GET",
+    protocol: "https",
+    host: "en.wikipedia.org",
+    endPoint: "w/api.php",
+    allowedParams: [
+      "srsearch",
+      "action",
+      "list",
+      "format",
+      "origin",
+      "sroffset",
+    ],
+    fixedParams: { action: "query", list: "search", format: "json" },
   },
   ccmixter: {
-    method: 'GET',
-    protocol: 'https',
-    host: 'ccmixter.org',
-    endPoint: 'api/query',
+    method: "GET",
+    protocol: "https",
+    host: "ccmixter.org",
+    endPoint: "api/query",
+    allowedParams: [
+      "tags",
+      "direction",
+      "sort",
+      "filter",
+      "per_page",
+      "format",
+      "limit",
+      "offset",
+    ],
   },
 };
 
 function mergeRequestParams(req) {
   const merged = {};
-  if (req && req.query && typeof req.query === 'object') {
+  if (req && req.query && typeof req.query === "object") {
     Object.assign(merged, req.query);
   }
   if (
     req &&
     req.body &&
-    typeof req.body === 'object' &&
+    typeof req.body === "object" &&
     !Array.isArray(req.body)
   ) {
     Object.assign(merged, req.body);
@@ -112,17 +172,24 @@ function appendSearchParam(params, key, value) {
     }
     return;
   }
-  if (value === null || typeof value === 'undefined') {
+  if (value === null || typeof value === "undefined") {
     return;
   }
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     return;
   }
   params.append(key, `${value}`);
 }
 
-function buildForwardedSearchParams(source = {}) {
+function buildForwardedSearchParams(source = {}, providerConfig = {}) {
   const searchParams = new URLSearchParams();
+  const allowedParams = Array.isArray(providerConfig.allowedParams)
+    ? providerConfig.allowedParams
+    : [];
+  const fixedParams =
+    providerConfig.fixedParams && typeof providerConfig.fixedParams === "object"
+      ? providerConfig.fixedParams
+      : {};
   const keys = Object.keys(source);
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
@@ -130,6 +197,16 @@ function buildForwardedSearchParams(source = {}) {
       continue;
     }
     if (BLOCKED_AUTH_PARAMS.indexOf(key) !== -1) {
+      continue;
+    }
+    // Security (L2): allowlist, not denylist (see PROVIDER_DEFINITIONS)
+    if (allowedParams.indexOf(key) === -1) {
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(fixedParams, key)) {
+      if (!searchParams.has(key)) {
+        searchParams.append(key, fixedParams[key]);
+      }
       continue;
     }
     appendSearchParam(searchParams, key, source[key]);
@@ -141,9 +218,11 @@ function getProviderFromRequest(req) {
   const provider =
     req &&
     req.params &&
-    Object.prototype.hasOwnProperty.call(req.params, 'provider')
-      ? String(req.params.provider || '').trim().toLowerCase()
-      : '';
+    Object.prototype.hasOwnProperty.call(req.params, "provider")
+      ? String(req.params.provider || "")
+          .trim()
+          .toLowerCase()
+      : "";
   return provider;
 }
 
@@ -156,20 +235,23 @@ async function appStoreProviderSearch(req, res) {
   ) {
     return res.status(400).json({
       status: 400,
-      message: 'Unsupported app store provider',
+      message: "Unsupported app store provider",
     });
   }
 
   const providerConfig = PROVIDER_DEFINITIONS[provider];
   const providerMethod = providerConfig.method
     ? `${providerConfig.method}`.toUpperCase()
-    : 'GET';
-  const forwardedSearchParams = buildForwardedSearchParams(requestParams);
+    : "GET";
+  const forwardedSearchParams = buildForwardedSearchParams(
+    requestParams,
+    providerConfig,
+  );
   if (providerConfig.apiKeyProvider && providerConfig.apiKeyParam) {
     const effectiveApiKeys = await readEffectiveApiKeys(HAXCMS);
     const apiKeyValue = effectiveApiKeys[providerConfig.apiKeyProvider]
       ? `${effectiveApiKeys[providerConfig.apiKeyProvider]}`.trim()
-      : '';
+      : "";
     if (!apiKeyValue) {
       return res.status(400).json({
         status: 400,
@@ -183,43 +265,42 @@ async function appStoreProviderSearch(req, res) {
   const requestOptions = {
     method: providerMethod,
     headers: {
-      Accept: 'application/json',
+      Accept: "application/json",
     },
+    // Security (L2): bound the upstream call; an abort lands in the 502 path
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   };
   const queryString = forwardedSearchParams.toString();
-  if (providerMethod === 'POST') {
-    requestOptions.headers['Content-Type'] = 'application/x-www-form-urlencoded;charset=UTF-8';
+  if (providerMethod === "POST") {
+    requestOptions.headers["Content-Type"] =
+      "application/x-www-form-urlencoded;charset=UTF-8";
     requestOptions.body = queryString;
-  }
-  else if (queryString !== '') {
+  } else if (queryString !== "") {
     requestUrl += `?${queryString}`;
   }
 
   let upstreamResponse = null;
   try {
     upstreamResponse = await fetch(requestUrl, requestOptions);
-  }
-  catch (e) {
+  } catch (e) {
     return res.status(502).json({
       status: 502,
-      message: 'Unable to reach upstream provider',
+      message: "Unable to reach upstream provider",
     });
   }
 
-  let upstreamText = '';
+  let upstreamText = "";
   try {
     upstreamText = await upstreamResponse.text();
-  }
-  catch (e) {
-    upstreamText = '';
+  } catch (e) {
+    upstreamText = "";
   }
 
   let upstreamJson = null;
-  if (upstreamText && upstreamText.trim() !== '') {
+  if (upstreamText && upstreamText.trim() !== "") {
     try {
       upstreamJson = JSON.parse(upstreamText);
-    }
-    catch (e) {
+    } catch (e) {
       upstreamJson = null;
     }
   }
@@ -228,19 +309,18 @@ async function appStoreProviderSearch(req, res) {
     let message = `Upstream provider request failed (${upstreamResponse.status})`;
     if (
       upstreamJson &&
-      typeof upstreamJson === 'object' &&
+      typeof upstreamJson === "object" &&
       upstreamJson.message &&
-      typeof upstreamJson.message === 'string'
+      typeof upstreamJson.message === "string"
     ) {
       message = upstreamJson.message;
-    }
-    else if (
+    } else if (
       upstreamJson &&
-      typeof upstreamJson === 'object' &&
+      typeof upstreamJson === "object" &&
       upstreamJson.error &&
-      typeof upstreamJson.error === 'object' &&
+      typeof upstreamJson.error === "object" &&
       upstreamJson.error.message &&
-      typeof upstreamJson.error.message === 'string'
+      typeof upstreamJson.error.message === "string"
     ) {
       message = upstreamJson.error.message;
     }
@@ -253,7 +333,7 @@ async function appStoreProviderSearch(req, res) {
   if (upstreamJson === null) {
     return res.status(502).json({
       status: 502,
-      message: 'Upstream provider response was not valid JSON',
+      message: "Upstream provider response was not valid JSON",
     });
   }
 

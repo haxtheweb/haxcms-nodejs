@@ -780,6 +780,32 @@ function mergeImportMapMarkup(existingMarkup = "", linkedDevMarkup = "") {
   return `<script type="importmap" data-haxcms-linked-dev-importmap>${JSON.stringify(merged)}</script>`;
 }
 
+// Security (M1, 2026-10-19 audit): the ONE pattern used both to stamp the
+// per-request nonce (injectNonce) and to pre-mark untrusted page-content
+// scripts (neutralizeUntrustedScriptNonces). Sharing it guarantees every tag
+// injectNonce could stamp was already marked when it came from page content.
+var INLINE_SCRIPT_OPEN_TAG_PATTERN = /<script((?:\s[^>]*)?)>/gi;
+
+// Security (M1, 2026-10-19 audit): page HTML is read from disk and spliced
+// into the served index BEFORE injectNonce runs. Without this, any literal
+// <script> in a page file (legacy content, git/filesystem-synced sites,
+// another backend's writes) would receive the real nonce and execute, so the
+// nonce CSP would give no stored-XSS protection. Mark every script open tag
+// in untrusted content with an empty nonce: it can never match the real
+// nonce, and injectNonce skips tags that already carry a nonce attribute.
+function neutralizeUntrustedScriptNonces(html = "") {
+  return String(html || "").replace(
+    INLINE_SCRIPT_OPEN_TAG_PATTERN,
+    function (match, attrs) {
+      var attrsStr = String(attrs || "");
+      if (/\snonce\s*=/i.test(attrsStr)) {
+        return match;
+      }
+      return "<script" + attrsStr + ' nonce="">';
+    },
+  );
+}
+
 // Security (EXPRESS-HEADERS-001 / M2): stamp every inline <script> (and
 // inline <script type="importmap">) in the served index.html with nonce="<n>"
 // so the per-request CSP (cspNonceMiddleware) allows them to execute while
@@ -805,22 +831,31 @@ function injectNonce(indexFile = "", nonce = "") {
   var output = String(indexFile || "");
   // Stamp nonce="<n>" on inline <script> tags (including importmap). External
   // scripts (with src) are covered by script-src 'self' and skipped. Tags that
-  // already have a nonce are left alone.
-  output = output.replace(/<script((?:\s[^>]*)?)>/gi, function (match, attrs) {
-    var attrsStr = String(attrs || "");
-    if (/\snonce\s*=/i.test(attrsStr)) {
-      return match;
-    }
-    if (/\ssrc\s*=/i.test(attrsStr)) {
-      return match;
-    }
-    return "<script" + attrsStr + ' nonce="' + cleanNonce + '">';
-  });
+  // already have a nonce are left alone (this includes page-content scripts
+  // pre-marked by neutralizeUntrustedScriptNonces).
+  output = output.replace(
+    INLINE_SCRIPT_OPEN_TAG_PATTERN,
+    function (match, attrs) {
+      var attrsStr = String(attrs || "");
+      if (/\snonce\s*=/i.test(attrsStr)) {
+        return match;
+      }
+      if (/\ssrc\s*=/i.test(attrsStr)) {
+        return match;
+      }
+      return "<script" + attrsStr + ' nonce="' + cleanNonce + '">';
+    },
+  );
   // Expose the nonce to frontend JS via a <meta> tag so dynamically-created
   // inline scripts (e.g. speculation rules) can pick it up. Idempotent: if the
   // meta is already present, don't add a second one.
   var nonceMetaTag = '<meta name="csp-nonce" content="' + cleanNonce + '">';
-  if (output.indexOf('name="csp-nonce"') === -1) {
+  // Security (M1): only look for an existing meta in the document head so
+  // page content in the body cannot suppress (or pre-empt) the real one.
+  var headEndIndex = output.search(/<\/head>/i);
+  var headRegion =
+    headEndIndex === -1 ? output : output.substring(0, headEndIndex);
+  if (headRegion.indexOf('name="csp-nonce"') === -1) {
     if (output.indexOf("<head") !== -1) {
       // inject immediately after the <head ...> opening tag
       output = output.replace(/<head([^>]*)>/i, function (m, attrs) {
@@ -3781,11 +3816,23 @@ function replaceSiteBuilderContent(indexFile = "", pageContent = "") {
   if (!builderPattern.test(indexFile)) {
     return indexFile;
   }
+  // Security (M1): page content is untrusted for CSP purposes; pre-mark its
+  // scripts so the later injectNonce pass never authorizes them.
+  const safeContent = neutralizeUntrustedScriptNonces(pageContent);
+  // Replacer function (not a replacement string) so `$&`, `$1`, `` $` `` or
+  // `$'` sequences inside page content are inserted literally instead of
+  // being expanded into other parts of the template.
   return String(indexFile || "").replace(
     builderPattern,
-    "<haxcms-site-builder$1>" +
-      String(pageContent || "") +
-      "</haxcms-site-builder>",
+    function (match, builderAttrs) {
+      return (
+        "<haxcms-site-builder" +
+        builderAttrs +
+        ">" +
+        safeContent +
+        "</haxcms-site-builder>"
+      );
+    },
   );
 }
 

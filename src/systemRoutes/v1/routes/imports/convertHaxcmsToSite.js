@@ -1,12 +1,19 @@
 const SITE_FILES_TO_IMPORT = [
-  'theme/theme.css',
-  'theme/theme.html',
-  'custom/build/custom.es6.js',
-]
-const BOILERPLATE_CUSTOM_ES6 = '// custom comment script here'
-const { safeFetch } = require('../../../../lib/safeFetch.js')
+  "theme/theme.css",
+  "theme/theme.html",
+  "custom/build/custom.es6.js",
+];
+const BOILERPLATE_CUSTOM_ES6 = "// custom comment script here";
+const { safeFetch } = require("../../../../lib/safeFetch.js");
 // files are staged locally so createSite can ingest them as file entities
-const { getBulkImportStagingRoot, stageRemoteFile } = require('../../../../lib/stageRemoteFile.js')
+const {
+  getBulkImportStagingRoot,
+  stageRemoteFile,
+} = require("../../../../lib/stageRemoteFile.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const {
+  clientSafeErrorDetail,
+} = require("../../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/site/import/:platform
@@ -16,102 +23,106 @@ const { getBulkImportStagingRoot, stageRemoteFile } = require('../../../../lib/s
  * Returns { status: 200, data: { items: [...], filename: string, files: {}, siteFiles: {} } }.
  */
 async function convertHaxcmsToSite(req, res) {
-  let body = {}
+  let body = {};
   if (
     req &&
     req.body &&
-    typeof req.body === 'object' &&
+    typeof req.body === "object" &&
     !Array.isArray(req.body)
   ) {
-    body = req.body
+    body = req.body;
   }
 
   if (!body || !body.repoUrl) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: 'missing `repoUrl` param',
+        error: "missing `repoUrl` param",
         items: [],
         filename: null,
       },
-    })
+    });
   }
 
-  let url = body.repoUrl.replace('/site.json', '')
-  if (url.endsWith('/')) {
-    url = url.slice(0, -1)
+  let url = body.repoUrl.replace("/site.json", "");
+  if (url.endsWith("/")) {
+    url = url.slice(0, -1);
   }
 
-  let parsedUrl
+  let parsedUrl;
   try {
-    parsedUrl = new URL(url)
+    parsedUrl = new URL(url);
   } catch (e) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: 'Invalid repoUrl',
+        error: "Invalid repoUrl",
         items: [],
         filename: null,
       },
-    })
+    });
   }
 
   if (!parsedUrl.pathname || !parsedUrl.host) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: 'Invalid repoUrl',
+        error: "Invalid repoUrl",
         items: [],
         filename: null,
       },
-    })
+    });
   }
 
-  parsedUrl.host = parsedUrl.host.replace('iam.', 'oer.')
-  const base = (`${parsedUrl.protocol}//${parsedUrl.host}${parsedUrl.pathname}`).replace(/\/+$/, '')
+  parsedUrl.host = parsedUrl.host.replace("iam.", "oer.");
+  const base =
+    `${parsedUrl.protocol}//${parsedUrl.host}${parsedUrl.pathname}`.replace(
+      /\/+$/,
+      "",
+    );
 
-  let site
+  let site;
   try {
-    const response = await safeFetch(`${base}/site.json`)
+    const response = await safeFetch(`${base}/site.json`);
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+      throw new Error(`HTTP ${response.status}`);
     }
-    site = await response.json()
+    site = await response.json();
   } catch (e) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: `Unable to fetch site.json: ${e.message}`,
+        error: `Unable to fetch site.json: ${clientSafeErrorDetail(e)}`,
         items: [],
         filename: null,
       },
-    })
+    });
   }
 
   if (!site || !Array.isArray(site.items)) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: 'Invalid site.json structure',
+        error: "Invalid site.json structure",
         items: [],
         filename: null,
       },
-    })
+    });
   }
 
-  const downloads = {}
-  const siteFiles = {}
-  const stagingRoot = getBulkImportStagingRoot()
-  let stagingIdx = 0
+  const downloads = {};
+  const siteFiles = {};
+  const stagingRoot = getBulkImportStagingRoot();
+  let stagingIdx = 0;
 
   for (let i = 0; i < site.items.length; i++) {
-    const item = site.items[i]
+    const item = site.items[i];
     if (item && item.location) {
       try {
-        const response = await safeFetch(`${base}/${item.location}`)
-        item.contents = response.ok ? await response.text() : ''
+        const response = await safeFetch(`${base}/${item.location}`);
+        item.contents = response.ok ? await response.text() : "";
       } catch (e) {
-        item.contents = ''
+        item.contents = "";
       }
     }
     if (
@@ -120,11 +131,16 @@ async function convertHaxcmsToSite(req, res) {
       Array.isArray(item.metadata.files)
     ) {
       for (let j = 0; j < item.metadata.files.length; j++) {
-        const file = item.metadata.files[j]
+        const file = item.metadata.files[j];
         if (file && file.url) {
-          const stagedPath = await stageRemoteFile(`${base}/${file.url}`, stagingRoot, stagingIdx++, file.url)
+          const stagedPath = await stageRemoteFile(
+            `${base}/${file.url}`,
+            stagingRoot,
+            stagingIdx++,
+            file.url,
+          );
           if (stagedPath) {
-            downloads[file.url] = stagedPath
+            downloads[file.url] = stagedPath;
           }
         }
       }
@@ -132,30 +148,28 @@ async function convertHaxcmsToSite(req, res) {
   }
 
   for (let i = 0; i < SITE_FILES_TO_IMPORT.length; i++) {
-    const filePath = SITE_FILES_TO_IMPORT[i]
+    const filePath = SITE_FILES_TO_IMPORT[i];
     try {
-      const resp = await safeFetch(`${base}/${filePath}`)
+      const resp = await safeFetch(`${base}/${filePath}`);
       if (resp.ok) {
-        const text = await resp.text()
-        if (text && text.trim() !== '') {
+        const text = await resp.text();
+        if (text && text.trim() !== "") {
           if (
-            filePath === 'custom/build/custom.es6.js' &&
+            filePath === "custom/build/custom.es6.js" &&
             text.trim() === BOILERPLATE_CUSTOM_ES6
           ) {
-            continue
+            continue;
           }
-          siteFiles[filePath] = `${base}/${filePath}`
+          siteFiles[filePath] = `${base}/${filePath}`;
         }
       }
     } catch (e) {}
   }
 
   const filename =
-    site.metadata &&
-    site.metadata.site &&
-    site.metadata.site.name
+    site.metadata && site.metadata.site && site.metadata.site.name
       ? site.metadata.site.name
-      : parsedUrl.pathname.split('/').pop()
+      : parsedUrl.pathname.split("/").pop();
 
   return res.json({
     status: 200,
@@ -165,7 +179,7 @@ async function convertHaxcmsToSite(req, res) {
       files: downloads,
       siteFiles: siteFiles,
     },
-  })
+  });
 }
 
-module.exports = { convertHaxcmsToSite }
+module.exports = { convertHaxcmsToSite };

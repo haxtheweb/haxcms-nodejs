@@ -1,20 +1,26 @@
-const { parse } = require('node-html-parser')
-const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
-const { HAXCMS } = require('../../../../lib/HAXCMS.js')
-const { importHtmlToItems } = require('../../../../siteRoutes/v1/importUtils.js')
-const { safeFetch } = require('../../../../lib/safeFetch.js')
+const { parse } = require("node-html-parser");
+const JSONOutlineSchemaItem = require("../../../../lib/JSONOutlineSchemaItem.js");
+const { HAXCMS } = require("../../../../lib/HAXCMS.js");
+const {
+  importHtmlToItems,
+} = require("../../../../siteRoutes/v1/importUtils.js");
+const { safeFetch } = require("../../../../lib/safeFetch.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const {
+  clientSafeErrorDetail,
+} = require("../../../../lib/clientErrorMessage.js");
 
 // D37: canonical upload field-name allowlist (parity with PHP importHtml.php).
-const UPLOAD_FIELD_ALLOWLIST = ['upload', 'file', 'file-upload']
+const UPLOAD_FIELD_ALLOWLIST = ["upload", "file", "file-upload"];
 
 const SUPPORTED_SITE_LICENSES = [
-  'by-nc-nd',
-  'by-nc-sa',
-  'by-nc',
-  'by-nd',
-  'by-sa',
-  'by',
-]
+  "by-nc-nd",
+  "by-nc-sa",
+  "by-nc",
+  "by-nd",
+  "by-sa",
+  "by",
+];
 
 /**
  * Fetch JSON from a URL.
@@ -23,21 +29,22 @@ async function fetchJSON(url) {
   try {
     const response = await safeFetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'application/json, */*;q=0.9',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        Connection: 'keep-alive',
+        "User-Agent":
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "application/json, */*;q=0.9",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        Connection: "keep-alive",
       },
-    })
+    });
     if (!response.ok) {
-      console.warn(`fetchJSON: ${url} returned ${response.status}`)
-      return null
+      console.warn(`fetchJSON: ${url} returned ${response.status}`);
+      return null;
     }
-    return await response.json()
+    return await response.json();
   } catch (e) {
-    console.warn(`fetchJSON: ${url} failed: ${e.message}`)
-    return null
+    console.warn(`fetchJSON: ${url} failed: ${e.message}`);
+    return null;
   }
 }
 
@@ -45,27 +52,28 @@ async function fetchJSON(url) {
  * Build candidate base URLs from an input URL, stopping at known segments.
  */
 function buildWordPressBaseCandidates(inputUrl, stopSegments) {
-  const candidates = []
+  const candidates = [];
   try {
-    const parsed = new URL(inputUrl)
-    const origin = `${parsed.protocol}//${parsed.host}`
-    let pathParts = parsed.pathname.split('/').filter(Boolean)
+    const parsed = new URL(inputUrl);
+    const origin = `${parsed.protocol}//${parsed.host}`;
+    let pathParts = parsed.pathname.split("/").filter(Boolean);
     for (let i = 0; i < pathParts.length; i += 1) {
       if (stopSegments.includes(pathParts[i])) {
-        pathParts = pathParts.slice(0, i)
-        break
+        pathParts = pathParts.slice(0, i);
+        break;
       }
     }
     for (let i = pathParts.length; i >= 0; i -= 1) {
-      const candidate = i > 0 ? `${origin}/${pathParts.slice(0, i).join('/')}` : origin
+      const candidate =
+        i > 0 ? `${origin}/${pathParts.slice(0, i).join("/")}` : origin;
       if (!candidates.includes(candidate)) {
-        candidates.push(candidate)
+        candidates.push(candidate);
       }
     }
   } catch (e) {
-    return []
+    return [];
   }
-  return candidates
+  return candidates;
 }
 
 /**
@@ -73,55 +81,69 @@ function buildWordPressBaseCandidates(inputUrl, stopSegments) {
  */
 async function discoverPressbooksBase(inputUrl) {
   const candidates = buildWordPressBaseCandidates(inputUrl, [
-    'wp-json',
-    'front-matter',
-    'chapter',
-    'back-matter',
-    'part',
-    'toc',
-  ])
-  console.log(`discoverPressbooksBase: candidates = ${JSON.stringify(candidates)}`)
+    "wp-json",
+    "front-matter",
+    "chapter",
+    "back-matter",
+    "part",
+    "toc",
+  ]);
+  console.log(
+    `discoverPressbooksBase: candidates = ${JSON.stringify(candidates)}`,
+  );
   for (let i = 0; i < candidates.length; i++) {
-    const candidate = candidates[i]
+    const candidate = candidates[i];
     // Try the standard WP REST API discovery endpoint
-    const payload = await fetchJSON(`${candidate}/wp-json/`)
-    if (payload && Array.isArray(payload.namespaces) && payload.namespaces.includes('pressbooks/v2')) {
-      console.log(`discoverPressbooksBase: found via /wp-json/ at ${candidate}`)
-      return candidate
+    const payload = await fetchJSON(`${candidate}/wp-json/`);
+    if (
+      payload &&
+      Array.isArray(payload.namespaces) &&
+      payload.namespaces.includes("pressbooks/v2")
+    ) {
+      console.log(
+        `discoverPressbooksBase: found via /wp-json/ at ${candidate}`,
+      );
+      return candidate;
     }
     // Fallback: try the Pressbooks TOC endpoint directly in case /wp-json/ is blocked
-    const toc = await fetchJSON(`${candidate}/wp-json/pressbooks/v2/toc`)
+    const toc = await fetchJSON(`${candidate}/wp-json/pressbooks/v2/toc`);
     if (
       toc &&
-      (Array.isArray(toc['front-matter']) || Array.isArray(toc.parts) || Array.isArray(toc['back-matter']))
+      (Array.isArray(toc["front-matter"]) ||
+        Array.isArray(toc.parts) ||
+        Array.isArray(toc["back-matter"]))
     ) {
-      console.log(`discoverPressbooksBase: found via /wp-json/pressbooks/v2/toc at ${candidate}`)
-      return candidate
+      console.log(
+        `discoverPressbooksBase: found via /wp-json/pressbooks/v2/toc at ${candidate}`,
+      );
+      return candidate;
     }
   }
-  console.warn(`discoverPressbooksBase: no Pressbooks API found for ${inputUrl}`)
-  return null
+  console.warn(
+    `discoverPressbooksBase: no Pressbooks API found for ${inputUrl}`,
+  );
+  return null;
 }
 
 /**
  * Convert root-relative URLs in content to absolute URLs using a base.
  */
 function absolutizeRootUrls(content, base) {
-  let origin = ''
+  let origin = "";
   try {
-    const parsed = new URL(base)
-    origin = `${parsed.protocol}//${parsed.host}`
+    const parsed = new URL(base);
+    origin = `${parsed.protocol}//${parsed.host}`;
   } catch (e) {
-    origin = ''
+    origin = "";
   }
-  if (origin === '') {
-    return content
+  if (origin === "") {
+    return content;
   }
   return content
     .replace(/href="\//g, `href="${origin}/`)
     .replace(/src="\//g, `src="${origin}/`)
     .replace(/poster="\//g, `poster="${origin}/`)
-    .replace(/srcset="\//g, `srcset="${origin}/`)
+    .replace(/srcset="\//g, `srcset="${origin}/`);
 }
 
 /**
@@ -133,105 +155,111 @@ function absolutizeRootUrls(content, base) {
  */
 async function convertPressbooksToSite(req, res) {
   const contentType =
-    req && req.headers && req.headers['content-type']
-      ? req.headers['content-type']
-      : ''
+    req && req.headers && req.headers["content-type"]
+      ? req.headers["content-type"]
+      : "";
 
-  if (contentType.indexOf('multipart/form-data') !== -1) {
-    return handleHtmlFileImport(req, res)
+  if (contentType.indexOf("multipart/form-data") !== -1) {
+    return handleHtmlFileImport(req, res);
   }
 
-  let body = {}
-  if (req && req.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
-    body = req.body
+  let body = {};
+  if (
+    req &&
+    req.body &&
+    typeof req.body === "object" &&
+    !Array.isArray(req.body)
+  ) {
+    body = req.body;
   }
 
   if (!body || !body.repoUrl) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: 'missing `repoUrl` param',
+        error: "missing `repoUrl` param",
         items: [],
         filename: null,
       },
-    })
+    });
   }
 
-  let parentId = null
-  if (body.parentId && body.parentId !== 'null') {
-    parentId = body.parentId
+  let parentId = null;
+  if (body.parentId && body.parentId !== "null") {
+    parentId = body.parentId;
   }
 
-  const discoveredBase = await discoverPressbooksBase(body.repoUrl)
+  const discoveredBase = await discoverPressbooksBase(body.repoUrl);
   if (!discoveredBase) {
     return res.status(422).json({
       status: 422,
       data: {
-        error: 'Unable to discover Pressbooks API from `repoUrl`; expected `/wp-json/pressbooks/v2/*`',
+        error:
+          "Unable to discover Pressbooks API from `repoUrl`; expected `/wp-json/pressbooks/v2/*`",
         items: [],
         filename: null,
       },
-    })
+    });
   }
 
-  const importedData = await importPressbooksSite(discoveredBase, parentId)
+  const importedData = await importPressbooksSite(discoveredBase, parentId);
   if (!importedData) {
     return res.status(422).json({
       status: 422,
       data: {
-        error: 'Pressbooks API discovered but import failed to produce content',
+        error: "Pressbooks API discovered but import failed to produce content",
         items: [],
         filename: null,
       },
-    })
+    });
   }
 
   const responseData = {
     items: importedData.items,
     filename: importedData.filename,
     files: importedData.files,
-  }
-  if (importedData.site && typeof importedData.site === 'object') {
-    responseData.site = importedData.site
+  };
+  if (importedData.site && typeof importedData.site === "object") {
+    responseData.site = importedData.site;
   }
 
   return res.json({
     status: 200,
     data: responseData,
-  })
+  });
 }
 
 async function handleHtmlFileImport(req, res) {
-  let html = ''
-  let filename = null
-  let method = 'site'
-  let type = ''
-  let parentId = null
+  let html = "";
+  let filename = null;
+  let method = "site";
+  let type = "";
+  let parentId = null;
 
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: 'No file uploaded',
+        error: "No file uploaded",
         items: [],
         filename: null,
       },
-    })
+    });
   }
 
-  const file = req.files[0]
+  const file = req.files[0];
   // D37: validate upload field name against the canonical allowlist.
   if (UPLOAD_FIELD_ALLOWLIST.indexOf(file.fieldname) === -1) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: `Unexpected upload field name \`${file.fieldname}\`; expected one of: ${UPLOAD_FIELD_ALLOWLIST.join(', ')}`,
+        error: `Unexpected upload field name \`${file.fieldname}\`; expected one of: ${UPLOAD_FIELD_ALLOWLIST.join(", ")}`,
         items: [],
         filename: file.originalname || null,
       },
-    })
+    });
   }
-  filename = file.originalname
+  filename = file.originalname;
   if (!/\.(html|htm)$/i.test(filename)) {
     return res.status(400).json({
       status: 400,
@@ -240,40 +268,40 @@ async function handleHtmlFileImport(req, res) {
         items: [],
         filename: filename,
       },
-    })
+    });
   }
 
-  const fs = require('fs-extra')
+  const fs = require("fs-extra");
   try {
-    html = fs.readFileSync(file.path, 'utf8')
+    html = fs.readFileSync(file.path, "utf8");
   } catch (e) {
     return res.status(400).json({
       status: 400,
       data: {
-        error: `Unable to read uploaded file: ${e.message}`,
+        error: `Unable to read uploaded file: ${clientSafeErrorDetail(e)}`,
         items: [],
         filename: filename,
       },
-    })
+    });
   }
 
   if (req.body && req.body.method) {
-    method = req.body.method
+    method = req.body.method;
   }
   if (req.body && req.body.type) {
-    type = req.body.type
+    type = req.body.type;
   }
-  if (req.body && req.body.parentId && req.body.parentId !== 'null') {
-    parentId = req.body.parentId
+  if (req.body && req.body.parentId && req.body.parentId !== "null") {
+    parentId = req.body.parentId;
   }
 
-  html = html || ''
+  html = html || "";
   const items = await importHtmlToItems(html, {
-    titleValue: filename ? filename.replace(/\.(html|htm)$/i, '') : 'import',
+    titleValue: filename ? filename.replace(/\.(html|htm)$/i, "") : "import",
     method: method,
     type: type,
     parentId: parentId,
-  })
+  });
 
   return res.json({
     status: 200,
@@ -281,35 +309,37 @@ async function handleHtmlFileImport(req, res) {
       items: items,
       filename: filename,
     },
-  })
+  });
 }
 
 async function importPressbooksSite(base, parentId = null) {
-  const toc = await fetchJSON(`${base}/wp-json/pressbooks/v2/toc`)
+  const toc = await fetchJSON(`${base}/wp-json/pressbooks/v2/toc`);
   if (
     !toc ||
-    !Array.isArray(toc['front-matter']) ||
+    !Array.isArray(toc["front-matter"]) ||
     !Array.isArray(toc.parts) ||
-    !Array.isArray(toc['back-matter'])
+    !Array.isArray(toc["back-matter"])
   ) {
-    return null
+    return null;
   }
-  const siteMetadata = await fetchJSON(`${base}/wp-json/pressbooks/v2/metadata`)
-  const normalizedSiteMetadata = getPressbooksSiteMetadata(siteMetadata)
+  const siteMetadata = await fetchJSON(
+    `${base}/wp-json/pressbooks/v2/metadata`,
+  );
+  const normalizedSiteMetadata = getPressbooksSiteMetadata(siteMetadata);
   const topLevelOrder = {
     value: 0,
-  }
-  const items = []
+  };
+  const items = [];
 
   const frontMatterItems = await buildTopLevelSectionItems(
     base,
-    toc['front-matter'],
-    'front-matter',
+    toc["front-matter"],
+    "front-matter",
     parentId,
     topLevelOrder,
-  )
+  );
   for (let i = 0; i < frontMatterItems.length; i++) {
-    items.push(frontMatterItems[i])
+    items.push(frontMatterItems[i]);
   }
 
   const partItems = await buildPartAndChapterItems(
@@ -317,303 +347,328 @@ async function importPressbooksSite(base, parentId = null) {
     toc.parts,
     parentId,
     topLevelOrder,
-  )
+  );
   for (let i = 0; i < partItems.length; i++) {
-    items.push(partItems[i])
+    items.push(partItems[i]);
   }
 
   const backMatterItems = await buildTopLevelSectionItems(
     base,
-    toc['back-matter'],
-    'back-matter',
+    toc["back-matter"],
+    "back-matter",
     parentId,
     topLevelOrder,
-  )
+  );
   for (let i = 0; i < backMatterItems.length; i++) {
-    items.push(backMatterItems[i])
+    items.push(backMatterItems[i]);
   }
 
   const importedSite = {
     items: items,
     files: {},
     filename: getSiteFilename(siteMetadata, base),
-  }
+  };
   if (Object.keys(normalizedSiteMetadata).length > 0) {
-    importedSite.site = normalizedSiteMetadata
+    importedSite.site = normalizedSiteMetadata;
   }
-  return importedSite
+  return importedSite;
 }
 
-async function buildTopLevelSectionItems(base, sectionItems, endpointType, parentId, orderRef) {
-  const items = []
-  const sorted = sortPressbooksItems(sectionItems)
+async function buildTopLevelSectionItems(
+  base,
+  sectionItems,
+  endpointType,
+  parentId,
+  orderRef,
+) {
+  const items = [];
+  const sorted = sortPressbooksItems(sectionItems);
   for (let i = 0; i < sorted.length; i++) {
-    const section = sorted[i]
+    const section = sorted[i];
     if (section && section.export === false) {
-      continue
+      continue;
     }
-    const fullData = await fetchPressbooksEntity(base, endpointType, section.id)
-    const item = new JSONOutlineSchemaItem()
-    item.title = getPressbooksItemTitle(section, fullData)
-    item.slug = HAXCMS.cleanTitle(item.title)
-    item.order = orderRef.value
-    orderRef.value += 1
-    item.parent = parentId
-    item.contents = getPressbooksItemContent(fullData, section, base)
-    item.metadata = getPressbooksMetadata(section, fullData, endpointType)
-    items.push(item)
+    const fullData = await fetchPressbooksEntity(
+      base,
+      endpointType,
+      section.id,
+    );
+    const item = new JSONOutlineSchemaItem();
+    item.title = getPressbooksItemTitle(section, fullData);
+    item.slug = HAXCMS.cleanTitle(item.title);
+    item.order = orderRef.value;
+    orderRef.value += 1;
+    item.parent = parentId;
+    item.contents = getPressbooksItemContent(fullData, section, base);
+    item.metadata = getPressbooksMetadata(section, fullData, endpointType);
+    items.push(item);
   }
-  return items
+  return items;
 }
 
 async function buildPartAndChapterItems(base, parts, parentId, orderRef) {
-  const items = []
-  const sortedParts = sortPressbooksItems(parts)
+  const items = [];
+  const sortedParts = sortPressbooksItems(parts);
   for (let i = 0; i < sortedParts.length; i++) {
-    const part = sortedParts[i]
+    const part = sortedParts[i];
     if (part && part.export === false) {
-      continue
+      continue;
     }
-    const partData = await fetchPressbooksEntity(base, 'parts', part.id)
-    const partItem = new JSONOutlineSchemaItem()
-    partItem.title = getPressbooksItemTitle(part, partData)
-    partItem.slug = HAXCMS.cleanTitle(partItem.title)
-    partItem.order = orderRef.value
-    orderRef.value += 1
-    partItem.parent = parentId
-    partItem.contents = getPressbooksItemContent(partData, part, base)
-    partItem.metadata = getPressbooksMetadata(part, partData, 'part')
-    items.push(partItem)
+    const partData = await fetchPressbooksEntity(base, "parts", part.id);
+    const partItem = new JSONOutlineSchemaItem();
+    partItem.title = getPressbooksItemTitle(part, partData);
+    partItem.slug = HAXCMS.cleanTitle(partItem.title);
+    partItem.order = orderRef.value;
+    orderRef.value += 1;
+    partItem.parent = parentId;
+    partItem.contents = getPressbooksItemContent(partData, part, base);
+    partItem.metadata = getPressbooksMetadata(part, partData, "part");
+    items.push(partItem);
 
     if (part && Array.isArray(part.chapters)) {
-      let chapterOrder = 0
-      const sortedChapters = sortPressbooksItems(part.chapters)
+      let chapterOrder = 0;
+      const sortedChapters = sortPressbooksItems(part.chapters);
       for (let j = 0; j < sortedChapters.length; j++) {
-        const chapter = sortedChapters[j]
+        const chapter = sortedChapters[j];
         if (chapter && chapter.export === false) {
-          continue
+          continue;
         }
-        const chapterData = await fetchPressbooksEntity(base, 'chapters', chapter.id)
-        const chapterItem = new JSONOutlineSchemaItem()
-        chapterItem.title = getPressbooksItemTitle(chapter, chapterData)
-        chapterItem.slug = `${partItem.slug}/${HAXCMS.cleanTitle(chapterItem.title)}`
-        chapterItem.order = chapterOrder
-        chapterOrder += 1
-        chapterItem.indent = 1
-        chapterItem.parent = partItem.id
-        chapterItem.contents = getPressbooksItemContent(chapterData, chapter, base)
-        chapterItem.metadata = getPressbooksMetadata(chapter, chapterData, 'chapter')
-        items.push(chapterItem)
+        const chapterData = await fetchPressbooksEntity(
+          base,
+          "chapters",
+          chapter.id,
+        );
+        const chapterItem = new JSONOutlineSchemaItem();
+        chapterItem.title = getPressbooksItemTitle(chapter, chapterData);
+        chapterItem.slug = `${partItem.slug}/${HAXCMS.cleanTitle(chapterItem.title)}`;
+        chapterItem.order = chapterOrder;
+        chapterOrder += 1;
+        chapterItem.indent = 1;
+        chapterItem.parent = partItem.id;
+        chapterItem.contents = getPressbooksItemContent(
+          chapterData,
+          chapter,
+          base,
+        );
+        chapterItem.metadata = getPressbooksMetadata(
+          chapter,
+          chapterData,
+          "chapter",
+        );
+        items.push(chapterItem);
       }
     }
   }
-  return items
+  return items;
 }
 
 async function fetchPressbooksEntity(base, endpointType, id) {
   if (!id) {
-    return null
+    return null;
   }
-  return fetchJSON(`${base}/wp-json/pressbooks/v2/${endpointType}/${id}`)
+  return fetchJSON(`${base}/wp-json/pressbooks/v2/${endpointType}/${id}`);
 }
 
 function sortPressbooksItems(items) {
-  const sorted = Array.isArray(items) ? [...items] : []
+  const sorted = Array.isArray(items) ? [...items] : [];
   sorted.sort((a, b) => {
-    const aOrder = a && a.menu_order !== undefined ? parseInt(a.menu_order) : 0
-    const bOrder = b && b.menu_order !== undefined ? parseInt(b.menu_order) : 0
-    return aOrder - bOrder
-  })
-  return sorted
+    const aOrder = a && a.menu_order !== undefined ? parseInt(a.menu_order) : 0;
+    const bOrder = b && b.menu_order !== undefined ? parseInt(b.menu_order) : 0;
+    return aOrder - bOrder;
+  });
+  return sorted;
 }
 
 function getPressbooksItemTitle(item, fullData) {
-  let title = ''
+  let title = "";
   if (fullData && fullData.title) {
-    if (typeof fullData.title === 'string') {
-      title = fullData.title
+    if (typeof fullData.title === "string") {
+      title = fullData.title;
     } else if (fullData.title.rendered) {
-      title = fullData.title.rendered
+      title = fullData.title.rendered;
     } else if (fullData.title.raw) {
-      title = fullData.title.raw
+      title = fullData.title.raw;
     }
   }
-  if (title === '' && item && item.title) {
-    if (typeof item.title === 'string') {
-      title = item.title
+  if (title === "" && item && item.title) {
+    if (typeof item.title === "string") {
+      title = item.title;
     } else if (item.title.rendered) {
-      title = item.title.rendered
+      title = item.title.rendered;
     } else if (item.title.raw) {
-      title = item.title.raw
+      title = item.title.raw;
     }
   }
-  if (title === '' && item && item.slug) {
-    title = item.slug
+  if (title === "" && item && item.slug) {
+    title = item.slug;
   }
-  return parse(`<div>${title}</div>`).text.trim()
+  return parse(`<div>${title}</div>`).text.trim();
 }
 
 function getPressbooksItemContent(fullData, fallbackItem, base) {
-  let content = ''
+  let content = "";
   if (fullData && fullData.content) {
-    if (typeof fullData.content === 'string') {
-      content = fullData.content
+    if (typeof fullData.content === "string") {
+      content = fullData.content;
     } else if (fullData.content.rendered) {
-      content = fullData.content.rendered
+      content = fullData.content.rendered;
     } else if (fullData.content.raw) {
-      content = fullData.content.raw
+      content = fullData.content.raw;
     }
   }
-  if (content === '') {
+  if (content === "") {
     if (fallbackItem && fallbackItem.has_post_content) {
-      return '<p></p>'
+      return "<p></p>";
     }
-    return '<p></p>'
+    return "<p></p>";
   }
-  return absolutizeRootUrls(content, base)
+  return absolutizeRootUrls(content, base);
 }
 
 function getPressbooksMetadata(item, fullData, sourceType) {
   const metadata = {
     sourceType: sourceType,
     pressbooks: {},
-  }
-  const source = fullData && fullData.link ? fullData.link : item && item.link ? item.link : null
+  };
+  const source =
+    fullData && fullData.link
+      ? fullData.link
+      : item && item.link
+        ? item.link
+        : null;
   if (source) {
-    metadata.source = source
+    metadata.source = source;
   }
-  const id = fullData && fullData.id ? fullData.id : item && item.id ? item.id : null
+  const id =
+    fullData && fullData.id ? fullData.id : item && item.id ? item.id : null;
   if (id) {
-    metadata.pressbooks.id = id
+    metadata.pressbooks.id = id;
   }
   if (item && item.slug) {
-    metadata.pressbooks.slug = item.slug
+    metadata.pressbooks.slug = item.slug;
   }
   if (item && item.menu_order !== undefined) {
-    metadata.pressbooks.menuOrder = item.menu_order
+    metadata.pressbooks.menuOrder = item.menu_order;
   }
   if (item && item.status) {
-    metadata.pressbooks.status = item.status
+    metadata.pressbooks.status = item.status;
   }
-  return metadata
+  return metadata;
 }
 
 function getSiteFilename(siteMetadata, base) {
   if (siteMetadata && siteMetadata.name) {
-    return HAXCMS.cleanTitle(siteMetadata.name)
+    return HAXCMS.cleanTitle(siteMetadata.name);
   }
-  let pathname = ''
+  let pathname = "";
   try {
-    pathname = new URL(base).pathname
+    pathname = new URL(base).pathname;
   } catch (e) {
-    pathname = ''
+    pathname = "";
   }
-  const parts = pathname.split('/').filter(Boolean)
+  const parts = pathname.split("/").filter(Boolean);
   if (parts.length > 0) {
-    return HAXCMS.cleanTitle(parts[parts.length - 1])
+    return HAXCMS.cleanTitle(parts[parts.length - 1]);
   }
-  return 'pressbooks-import'
+  return "pressbooks-import";
 }
 
 function normalizeSiteLicenseValue(rawValue) {
-  if (!rawValue || typeof rawValue !== 'string') {
-    return null
+  if (!rawValue || typeof rawValue !== "string") {
+    return null;
   }
-  const value = rawValue
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, '-')
-  if (value === '') {
-    return null
+  const value = rawValue.trim().toLowerCase().replace(/_/g, "-");
+  if (value === "") {
+    return null;
   }
   if (SUPPORTED_SITE_LICENSES.includes(value)) {
-    return value
+    return value;
   }
   for (let i = 0; i < SUPPORTED_SITE_LICENSES.length; i++) {
-    const code = SUPPORTED_SITE_LICENSES[i]
+    const code = SUPPORTED_SITE_LICENSES[i];
     if (
       value.indexOf(`/licenses/${code}`) !== -1 ||
       value.indexOf(`cc ${code}`) !== -1 ||
       value.indexOf(`cc-${code}`) !== -1 ||
       value.indexOf(`cc:${code}`) !== -1
     ) {
-      return code
+      return code;
     }
   }
-  const compactValue = value.replace(/[^a-z]/g, '')
-  const hasNonCommercial = compactValue.indexOf('noncommercial') !== -1
-  const hasNoDerivatives = compactValue.indexOf('noderivatives') !== -1
-  const hasShareAlike = compactValue.indexOf('sharealike') !== -1
+  const compactValue = value.replace(/[^a-z]/g, "");
+  const hasNonCommercial = compactValue.indexOf("noncommercial") !== -1;
+  const hasNoDerivatives = compactValue.indexOf("noderivatives") !== -1;
+  const hasShareAlike = compactValue.indexOf("sharealike") !== -1;
   const hasAttribution =
-    compactValue.indexOf('attribution') !== -1 ||
-    value.indexOf('/licenses/by/') !== -1 ||
-    value.indexOf('cc by') !== -1
+    compactValue.indexOf("attribution") !== -1 ||
+    value.indexOf("/licenses/by/") !== -1 ||
+    value.indexOf("cc by") !== -1;
   if (hasNonCommercial && hasNoDerivatives) {
-    return 'by-nc-nd'
+    return "by-nc-nd";
   }
   if (hasNonCommercial && hasShareAlike) {
-    return 'by-nc-sa'
+    return "by-nc-sa";
   }
   if (hasNonCommercial) {
-    return 'by-nc'
+    return "by-nc";
   }
   if (hasNoDerivatives) {
-    return 'by-nd'
+    return "by-nd";
   }
   if (hasShareAlike) {
-    return 'by-sa'
+    return "by-sa";
   }
   if (hasAttribution) {
-    return 'by'
+    return "by";
   }
-  return null
+  return null;
 }
 
 function collectLicenseCandidatesFromMetadata(metadata, candidates) {
   if (!candidates) {
-    candidates = []
+    candidates = [];
   }
-  if (!metadata || typeof metadata !== 'object') {
-    return candidates
+  if (!metadata || typeof metadata !== "object") {
+    return candidates;
   }
   if (Array.isArray(metadata)) {
     for (let i = 0; i < metadata.length; i++) {
-      collectLicenseCandidatesFromMetadata(metadata[i], candidates)
+      collectLicenseCandidatesFromMetadata(metadata[i], candidates);
     }
-    return candidates
+    return candidates;
   }
-  const keys = Object.keys(metadata)
+  const keys = Object.keys(metadata);
   for (let i = 0; i < keys.length; i++) {
-    const key = keys[i]
-    const value = metadata[key]
-    const normalizedKey = key.toLowerCase()
-    if (typeof value === 'string') {
+    const key = keys[i];
+    const value = metadata[key];
+    const normalizedKey = key.toLowerCase();
+    if (typeof value === "string") {
       if (
-        normalizedKey.indexOf('license') !== -1 ||
-        normalizedKey.indexOf('rights') !== -1 ||
-        normalizedKey.indexOf('copyright') !== -1
+        normalizedKey.indexOf("license") !== -1 ||
+        normalizedKey.indexOf("rights") !== -1 ||
+        normalizedKey.indexOf("copyright") !== -1
       ) {
-        candidates.push(value)
+        candidates.push(value);
       }
-    } else if (value && typeof value === 'object') {
-      collectLicenseCandidatesFromMetadata(value, candidates)
+    } else if (value && typeof value === "object") {
+      collectLicenseCandidatesFromMetadata(value, candidates);
     }
   }
-  return candidates
+  return candidates;
 }
 
 function getPressbooksSiteMetadata(siteMetadata) {
-  const metadata = {}
-  const licenseCandidates = collectLicenseCandidatesFromMetadata(siteMetadata)
+  const metadata = {};
+  const licenseCandidates = collectLicenseCandidatesFromMetadata(siteMetadata);
   for (let i = 0; i < licenseCandidates.length; i++) {
-    const candidate = licenseCandidates[i]
-    const normalizedLicense = normalizeSiteLicenseValue(candidate)
+    const candidate = licenseCandidates[i];
+    const normalizedLicense = normalizeSiteLicenseValue(candidate);
     if (normalizedLicense) {
-      metadata.license = normalizedLicense
-      break
+      metadata.license = normalizedLicense;
+      break;
     }
   }
-  return metadata
+  return metadata;
 }
 
-module.exports = { convertPressbooksToSite }
+module.exports = { convertPressbooksToSite };

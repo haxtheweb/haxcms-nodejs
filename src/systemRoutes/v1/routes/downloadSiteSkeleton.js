@@ -1,72 +1,72 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 const {
   generateSiteSkeleton,
   normalizeMachineName,
-} = require('./siteSkeletonHelpers.js');
+} = require("./siteSkeletonHelpers.js");
 
 /**
-   * @OA\Post(
-   *    path="/downloadSiteSkeleton",
-   *    tags={"cms","authenticated","site","meta"},
-   *    @OA\Parameter(
-   *         name="user_token",
-   *         description="User validation token",
-   *         in="query",
-   *         required=true,
-   *         @OA\Schema(type="string")
-   *    ),
-   *    @OA\RequestBody(
-   *        @OA\MediaType(
-   *             mediaType="application/json",
-   *             @OA\Schema(
-   *                 @OA\Property(
-   *                     property="site",
-   *                     type="object"
-   *                 ),
-   *                 required={"site"},
-   *                 example={
-   *                    "site": {
-   *                      "name": "mynewsite"
-   *                    },
-   *                 }
-   *             )
-   *         )
-   *    ),
-   *    @OA\Response(
-   *        response="200",
-   *        description="Generate and return the site skeleton JSON"
-   *   )
-   * )
-   */
+ * @OA\Post(
+ *    path="/downloadSiteSkeleton",
+ *    tags={"cms","authenticated","site","meta"},
+ *    @OA\Parameter(
+ *         name="user_token",
+ *         description="User validation token",
+ *         in="query",
+ *         required=true,
+ *         @OA\Schema(type="string")
+ *    ),
+ *    @OA\RequestBody(
+ *        @OA\MediaType(
+ *             mediaType="application/json",
+ *             @OA\Schema(
+ *                 @OA\Property(
+ *                     property="site",
+ *                     type="object"
+ *                 ),
+ *                 required={"site"},
+ *                 example={
+ *                    "site": {
+ *                      "name": "mynewsite"
+ *                    },
+ *                 }
+ *             )
+ *         )
+ *    ),
+ *    @OA\Response(
+ *        response="200",
+ *        description="Generate and return the site skeleton JSON"
+ *   )
+ * )
+ */
 async function downloadSiteSkeleton(req, res) {
   if (
     !req.body ||
     !req.body.site ||
-    typeof req.body.site.name !== 'string' ||
-    req.body.site.name.trim() === ''
+    typeof req.body.site.name !== "string" ||
+    req.body.site.name.trim() === ""
   ) {
     return res.status(400).json({
       status: 400,
-      data: { message: 'site.name is required' },
+      data: { message: "site.name is required" },
     });
   }
   const site = await HAXCMS.loadSite(req.body.site.name);
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Site not found' },
+      data: { message: "Site not found" },
     });
   }
   try {
     const skeleton = await generateSiteSkeleton(site);
     const machineName = normalizeMachineName(
-      skeleton &&
-        skeleton.meta &&
-        typeof skeleton.meta.machineName === 'string'
+      skeleton && skeleton.meta && typeof skeleton.meta.machineName === "string"
         ? skeleton.meta.machineName
         : req.body.site.name,
     );
-    if (!skeleton.meta || typeof skeleton.meta !== 'object') {
+    if (!skeleton.meta || typeof skeleton.meta !== "object") {
       skeleton.meta = {};
     }
     skeleton.meta.machineName = machineName;
@@ -78,11 +78,12 @@ async function downloadSiteSkeleton(req, res) {
         filename: `${machineName}.json`,
       },
     });
-  }
-  catch (e) {
+  } catch (e) {
     return res.status(500).json({
       status: 500,
-      data: { message: `Failed to generate site skeleton: ${e.message}` },
+      data: {
+        message: `Failed to generate site skeleton: ${clientSafeErrorDetail(e)}`,
+      },
     });
   }
 }

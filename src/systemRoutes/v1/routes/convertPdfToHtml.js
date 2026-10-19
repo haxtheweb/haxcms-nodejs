@@ -1,4 +1,6 @@
-const { convertPdfBufferToHtml } = require('../../../lib/pdfToSemanticHtml.js');
+const { convertPdfBufferToHtml } = require("../../../lib/pdfToSemanticHtml.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/actions/pdf-to-html
@@ -13,7 +15,7 @@ async function convertPdfToHtml(req, res) {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         status: 400,
-        data: { error: 'No file uploaded', contents: '', filename: null },
+        data: { error: "No file uploaded", contents: "", filename: null },
       });
     }
 
@@ -24,13 +26,13 @@ async function convertPdfToHtml(req, res) {
         status: 400,
         data: {
           error: `Invalid file type. Expected .pdf, got: ${originalname}`,
-          contents: '',
+          contents: "",
           filename: originalname,
         },
       });
     }
 
-    const fs = require('fs-extra');
+    const fs = require("fs-extra");
     let buffer;
     try {
       buffer = fs.readFileSync(file.path);
@@ -38,8 +40,8 @@ async function convertPdfToHtml(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unable to read uploaded file: ${e.message}`,
-          contents: '',
+          error: `Unable to read uploaded file: ${clientSafeErrorDetail(e)}`,
+          contents: "",
           filename: originalname,
         },
       });
@@ -48,20 +50,20 @@ async function convertPdfToHtml(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'Uploaded file is empty',
-          contents: '',
+          error: "Uploaded file is empty",
+          contents: "",
           filename: originalname,
         },
       });
     }
 
     // Validate PDF magic number
-    if (buffer.length < 4 || buffer.toString('ascii', 0, 4) !== '%PDF') {
+    if (buffer.length < 4 || buffer.toString("ascii", 0, 4) !== "%PDF") {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'Uploaded file is not a valid PDF (missing %PDF signature).',
-          contents: '',
+          error: "Uploaded file is not a valid PDF (missing %PDF signature).",
+          contents: "",
           filename: originalname,
         },
       });
@@ -76,12 +78,12 @@ async function convertPdfToHtml(req, res) {
       },
     });
   } catch (error) {
-    console.error('pdfToHtml: Error processing file:', error.message);
+    console.error("pdfToHtml: Error processing file:", error.message);
     return res.status(400).json({
       status: 400,
       data: {
-        error: `Error processing PDF: ${error.message}`,
-        contents: '',
+        error: `Error processing PDF: ${clientSafeErrorDetail(error)}`,
+        contents: "",
         filename: originalname,
       },
     });
