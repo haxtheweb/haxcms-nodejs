@@ -9,6 +9,7 @@ const { allRoutes } = require('./lib/allRoutes.js');
 // the server launcher (issue haxtheweb/issues#2973). Only human-facing error
 // lines are styled; structured route data is still printed verbatim.
 const cliTheme = require('./lib/cliTheme.js');
+const { annotateApiResponse } = require('./lib/apiMessageCodes.js');
 const systemRouteRegistry =
   allRoutes && allRoutes.system && allRoutes.system.map
     ? allRoutes.system.map
@@ -95,7 +96,8 @@ class Res {
     return this;
   }
   json(data) {
-    this.data = JSON.parse(JSON.stringify(data));
+    // same message codes the HTTP server adds (issues#3157)
+    this.data = annotateApiResponse(JSON.parse(JSON.stringify(data)), this.statusCode === null ? 200 : this.statusCode);
     return this;
   }
   sendStatus(status) {
