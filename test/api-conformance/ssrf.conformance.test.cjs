@@ -125,13 +125,15 @@ function parseConnectionSettingsScript(scriptSource) {
   return sandbox.window.appSettings
 }
 
-async function requestConnectionSettings(baseUrl) {
+async function requestConnectionSettings(baseUrl, jwt = '') {
   const settingsResponse = await sendHttpRequest({
     method: 'GET',
     url: `${baseUrl}/system/api/v1/session/connection-settings`,
-    headers: {
-      accept: 'application/javascript',
-    },
+    headers: Object.assign(
+      { accept: 'application/javascript' },
+      // Security (SEC-SESSION): request tokens are only returned to authenticated callers
+      jwt ? { authorization: 'Bearer ' + jwt } : {},
+    ),
   })
   assert.equal(
     settingsResponse.status,
@@ -193,7 +195,7 @@ async function setupRuntime() {
   runtime.port = await runtime.appModule.serverReady
   runtime.baseUrl = `http://127.0.0.1:${runtime.port}`
   runtime.jwt = await loginForJwt(runtime.baseUrl)
-  runtime.dashboardSettings = await requestConnectionSettings(runtime.baseUrl)
+  runtime.dashboardSettings = await requestConnectionSettings(runtime.baseUrl, runtime.jwt)
   runtime.userToken = runtime.dashboardSettings.userToken
   runtime.userTokenHeader =
     runtime.dashboardSettings.userTokenHeader || 'X-HAXCMS-User-Token'

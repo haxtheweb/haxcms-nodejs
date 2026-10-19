@@ -194,11 +194,16 @@ test.before(async () => {
   assert.equal(login.status, 200, login.bodyText)
   const loginBody = JSON.parse(login.bodyText)
   runtime.jwt = loginBody.jwt
+  // Security (SEC-SESSION): request tokens are only handed to authenticated
+  // callers, so fetch connection-settings with the login JWT
   const settings = await request(
     'GET',
     runtime.baseUrl + '/system/api/v1/session/connection-settings',
     {
-      headers: { accept: 'application/javascript' },
+      headers: {
+        accept: 'application/javascript',
+        authorization: 'Bearer ' + runtime.jwt,
+      },
     },
   )
   assert.equal(settings.status, 200, settings.bodyText)
@@ -210,6 +215,7 @@ test.before(async () => {
     {
       headers: {
         accept: 'application/javascript',
+        authorization: 'Bearer ' + runtime.jwt,
         referer: runtime.baseUrl + '/_sites/' + SITE_NAME + '/',
       },
     },
@@ -611,7 +617,9 @@ test('a registered route with the wrong method answers 405 with Allow', async ()
   assert.ok(body.data.methods.indexOf('GET') !== -1)
 })
 
-test('malformed JSON bodies reach the error middleware as a 500', async () => {
+// Security (PR8-4): body-parser failures are client errors answered with the
+// {status, message} JSON envelope (previously a 500 that logged err.body).
+test('malformed JSON bodies reach the error middleware as a 400 JSON envelope', async () => {
   const result = await request('POST', runtime.baseUrl + '/system/api/v1/session/login', {
     headers: {
       accept: 'application/json',
@@ -619,6 +627,6 @@ test('malformed JSON bodies reach the error middleware as a 500', async () => {
     },
     data: '{ this is not valid json',
   })
-  assert.equal(result.status, 500)
-  assert.equal(result.bodyText, 'Server error')
+  assert.equal(result.status, 400)
+  assert.deepEqual(JSON.parse(result.bodyText), { status: 400, message: 'Malformed request body' })
 })

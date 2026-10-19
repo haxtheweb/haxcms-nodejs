@@ -409,6 +409,48 @@ test('addPage creates pages with parent, template, order, indent, and metadata',
   assert.ok(unknownTemplatePage)
 })
 
+test('addPage sanitizes request-supplied metadata (SEC-SANITIZE)', async () => {
+  const site = await HAXCMS.loadSite('unit-site')
+  const page = await site.addPage(
+    null,
+    'Metadata Page',
+    'default',
+    'metadata-page',
+    null,
+    null,
+    '<p></p>',
+    null,
+    JSON.parse(
+      '{"linkUrl":"javascript:alert(1)","image":"files/ok.png","icon":"icons:check",' +
+        '"accentColor":"red\\" onmouseover=\\"x","theme":{"key":"not-installed","path":"https://evil.example/x.js"},' +
+        '"__proto__":{"polluted":true},"pageType":"<b>lesson</b>"}',
+    ),
+  )
+  assert.equal(page.metadata.linkUrl, undefined)
+  assert.equal(page.metadata.image, 'files/ok.png')
+  assert.equal(page.metadata.icon, 'icons:check')
+  assert.equal(page.metadata.accentColor, 'red&quot; onmouseover=&quot;x')
+  assert.equal(page.metadata.theme, undefined)
+  assert.equal(page.metadata.pageType, '&lt;b&gt;lesson&lt;/b&gt;')
+  assert.equal(page.metadata.polluted, undefined)
+  assert.equal({}.polluted, undefined)
+})
+
+test('addPage stores the title as plain text (SEC-SANITIZE)', async () => {
+  const site = await HAXCMS.loadSite('unit-site')
+  const page = await site.addPage(
+    null,
+    '&lt;img src=x onerror=alert(1)&gt;<b>Tom</b> &amp; Jerry',
+    'default',
+    'plain-title-page',
+  )
+  assert.equal(page.title, 'Tom & Jerry')
+  const empty = await site.addPage(null, '<b></b>', 'default', 'empty-title-page')
+  assert.equal(empty.title, 'New page')
+  const missing = await site.addPage(null, undefined, 'default', 'missing-title-page')
+  assert.equal(missing.title, 'New page')
+})
+
 test('addPage deduplicates a slug that collides with an existing page', async () => {
   const site = await HAXCMS.loadSite('unit-site')
   const duplicate = await site.addPage(null, 'Welcome', 'init', 'welcome')
@@ -1000,6 +1042,67 @@ test('rebuildManagedFiles re-renders the managed template set', async () => {
   assert.ok(indexHtml.indexOf('<') !== -1)
 })
 
+// Security (PR8-6): a malicious site title/description must not break the
+// managed JSON/XML files or inject keys/elements, and ordinary punctuation
+// must stay literal (no HTML entities in JSON / llms.txt).
+test('rebuildManagedFiles keeps manifest.json / package.json / imsmanifest.xml well-formed with a malicious title', async () => {
+  const site = await HAXCMS.createSite('unit-twig-evil')
+  site.manifest.title = 'Evil "title", "injected": "yes\n\r\tline2 \\ \u0001\u007f <b>&</b>'
+  site.manifest.description = 'Desc "}, "pwn": {"a": "\nnext\\"line'
+  await site.rebuildManagedFiles()
+  const manifest = JSON.parse(fs.readFileSync(path.join(site.siteDirectory, 'manifest.json'), 'utf8'))
+  assert.equal(Object.prototype.hasOwnProperty.call(manifest, 'injected'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(manifest, 'pwn'), false)
+  assert.equal(manifest.name, 'Evil "title", "injected": "yes   line2   <b>&</b>')
+  assert.equal(manifest.description, 'Desc "}, "pwn": {"a": " next"line')
+  const pkg = JSON.parse(fs.readFileSync(path.join(site.siteDirectory, 'package.json'), 'utf8'))
+  assert.equal(Object.prototype.hasOwnProperty.call(pkg, 'pwn'), false)
+  assert.equal(pkg.description, manifest.description)
+  const ims = fs.readFileSync(path.join(site.siteDirectory, 'imsmanifest.xml'), 'utf8')
+  assert.equal(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(ims), false, 'no XML-illegal control chars')
+  assert.ok(ims.indexOf('<b>') === -1, 'title markup is escaped in imsmanifest.xml')
+  assert.ok(ims.indexOf('&lt;b&gt;&amp;&lt;/b&gt;') !== -1)
+  assert.ok(ims.indexOf('Evil &quot;title&quot;') !== -1)
+})
+
+test('managed JSON / text keep ordinary punctuation literal (no html entities)', async () => {
+  const site = await HAXCMS.createSite('unit-twig-punct')
+  site.manifest.title = 'Tom\'s R&D "x"'
+  site.manifest.description = 'Q&A <intro> it\'s "fine"'
+  await site.rebuildManagedFiles()
+  const manifest = JSON.parse(fs.readFileSync(path.join(site.siteDirectory, 'manifest.json'), 'utf8'))
+  assert.equal(manifest.name, 'Tom\'s R&D "x"')
+  assert.equal(manifest.description, 'Q&A <intro> it\'s "fine"')
+  const pkg = JSON.parse(fs.readFileSync(path.join(site.siteDirectory, 'package.json'), 'utf8'))
+  assert.equal(pkg.description, 'Q&A <intro> it\'s "fine"')
+  const ims = fs.readFileSync(path.join(site.siteDirectory, 'imsmanifest.xml'), 'utf8')
+  assert.ok(ims.indexOf('<title>Tom&apos;s R&amp;D &quot;x&quot;</title>') !== -1)
+})
+
+test('managedTemplateVarsFor escapes title/description per managed format', () => {
+  const { managedTemplateVarsFor } = require('../../src/lib/HAXCMS.js')
+  const vars = { title: 'Tom\'s R&D "x"\n\\', description: undefined, other: '<keep>' }
+  const json = managedTemplateVarsFor('manifest.json', vars)
+  assert.equal(json.title, 'Tom\'s R&D \\"x\\" ')
+  assert.equal(json.description, '')
+  assert.equal(json.other, '<keep>')
+  assert.equal(managedTemplateVarsFor('package.json', vars).title, json.title)
+  assert.equal(managedTemplateVarsFor('imsmanifest.xml', vars).title, 'Tom&apos;s R&amp;D &quot;x&quot; ')
+  assert.equal(managedTemplateVarsFor('llms.txt', vars).title, 'Tom\'s R&D "x" ')
+  // other templates get the shared vars object untouched
+  assert.equal(managedTemplateVarsFor('index.html', vars), vars)
+})
+
+test('sanitizeManagedTemplateText follows the PHP parity rule', () => {
+  const { sanitizeManagedTemplateText } = require('../../src/lib/HAXCMS.js')
+  assert.equal(sanitizeManagedTemplateText('a\r\nb\tc'), 'a  b c')
+  assert.equal(sanitizeManagedTemplateText('x\u0000\u0001\u001f\u007fy'), 'xy')
+  assert.equal(sanitizeManagedTemplateText('back\\slash\\'), 'backslash')
+  assert.equal(sanitizeManagedTemplateText('keep "quotes" & <tags> é ☃'), 'keep "quotes" & <tags> é ☃')
+  assert.equal(sanitizeManagedTemplateText(undefined), undefined)
+  assert.equal(sanitizeManagedTemplateText(null), null)
+})
+
 test('maybeUpgradeLegacyBootstrap rebuilds managed files when a legacy bootstrap is detected', async () => {
   const legacy = await HAXCMS.createSite('unit-legacy')
   fs.writeFileSync(
@@ -1120,6 +1223,22 @@ test('handleStyleGuideSave validates body content and persists a valid style gui
       .readFileSync(path.join(site.siteDirectory, 'theme', 'style-guide.html'), 'utf8')
       .indexOf('style guide') !== -1,
   )
+})
+
+test('handleStyleGuideSave sanitizes the HTML before writing (SEC-SANITIZE)', async () => {
+  const site = await HAXCMS.loadSite('unit-blog')
+  const saved = await site.handleStyleGuideSave({
+    node: {
+      body:
+        '<div onclick="alert(1)">guide</div><script>alert(2)</script>' +
+        '<simple-cta link="javascript:alert(3)" label="go"></simple-cta>',
+    },
+  })
+  assert.equal(saved.status, 200)
+  const written = fs.readFileSync(path.join(site.siteDirectory, 'theme', 'style-guide.html'), 'utf8')
+  assert.ok(written.indexOf('guide') !== -1)
+  assert.ok(written.indexOf('label="go"') !== -1)
+  assert.ok(!/onclick|<script|javascript:/i.test(written), written)
 })
 
 test('handleStyleGuideSave rejects an externally configured style guide', async () => {

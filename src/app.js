@@ -34,7 +34,9 @@ const PAGE_VARIANT_CONTENT_TYPES = {
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
+const { resolveContainedPath } = require('./lib/pathConfinement.js');
 const loginRateLimiter = require('./lib/loginRateLimiter.js');
+const { haxcmsErrorHandler } = require('./lib/requestErrorHandler.js');
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
 // colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
 // the plain `open: <url>` line when color is disabled (CI / non-TTY / NO_COLOR).
@@ -184,13 +186,41 @@ const { crossOriginOpenerPolicy } = require('helmet');
 // net; the reverse proxy should also cap client_max_body_size.
 const MAX_UPLOAD_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
 const MAX_UPLOAD_FILE_COUNT = 10;
+const UPLOAD_TEMP_DIRECTORY = path.join(HAXCMS.configDirectory, 'tmp/');
 const upload = multer({
-  dest: path.join(HAXCMS.configDirectory, 'tmp/'),
+  dest: UPLOAD_TEMP_DIRECTORY,
   limits: {
     fileSize: MAX_UPLOAD_FILE_SIZE_BYTES,
     files: MAX_UPLOAD_FILE_COUNT,
   },
 })
+// Security (SEC-UPLOAD): upload temp-file lifecycle helpers (per-request
+// cleanup, stale temp sweeper, conversion cap, files/ force-download guard).
+const uploadSecurity = require('./lib/uploadSecurity.js');
+const uploadTempCleanup = uploadSecurity.createUploadTempCleanupMiddleware(UPLOAD_TEMP_DIRECTORY);
+// Security (SEC-UPLOAD): conversion actions/* routes accept a single document,
+// so they use a lower per-file cap (default 50 MB, config.json
+// security.conversionMaxUploadMb or HAXCMS_CONVERSION_MAX_UPLOAD_MB). Built
+// lazily so the value is read after config.json has been loaded.
+let conversionUploadAnyParser = null;
+function getConversionUploadAnyParser() {
+  if (!conversionUploadAnyParser) {
+    conversionUploadAnyParser = multer({
+      dest: UPLOAD_TEMP_DIRECTORY,
+      limits: {
+        fileSize: uploadSecurity.getConversionUploadMaxBytes(HAXCMS.config),
+        files: MAX_UPLOAD_FILE_COUNT,
+      },
+    }).any();
+  }
+  return conversionUploadAnyParser;
+}
+function isMultipartRequest(req) {
+  const contentType = req && req.headers && typeof req.headers['content-type'] === 'string'
+    ? req.headers['content-type'].toLowerCase()
+    : '';
+  return contentType.indexOf('multipart/form-data') === 0;
+}
 const jsonRequestParser = express.json({
   type: ['application/json', 'application/*+json'],
   limit: '10mb'
@@ -213,13 +243,25 @@ function formBodyParser(req, res, next) {
     urlencodedParser(req, res, next);
   });
 }
-const uploadAnyParser = upload.any();
+const multerUploadAnyParser = upload.any();
+// Security (SEC-UPLOAD): every multipart parse registers temp-file cleanup
+// first, so files multer writes to <config>/tmp are unlinked when the
+// response finishes or the connection closes, whatever the outcome.
+function uploadAnyParser(req, res, next) {
+  uploadTempCleanup(req, res, () => multerUploadAnyParser(req, res, next));
+}
+function conversionUploadParser(req, res, next) {
+  uploadTempCleanup(req, res, () => getConversionUploadAnyParser()(req, res, next));
+}
 function parseSchemaFileOperationBody(req, res, next) {
-  const contentType = req && req.headers && typeof req.headers['content-type'] === 'string'
-    ? req.headers['content-type'].toLowerCase()
-    : '';
-  if (contentType.indexOf('multipart/form-data') === 0) {
+  if (isMultipartRequest(req)) {
     return uploadAnyParser(req, res, next);
+  }
+  return formBodyParser(req, res, next);
+}
+function parseConversionActionBody(req, res, next) {
+  if (isMultipartRequest(req)) {
+    return conversionUploadParser(req, res, next);
   }
   return formBodyParser(req, res, next);
 }
@@ -245,12 +287,11 @@ function getSiteApiRouteParser(method = 'get', route = '') {
 function getSystemV1RouteParser(method = 'get', route = '') {
   const normalizedMethod = String(method || 'get').toLowerCase();
   const normalizedRoute = String(route || '');
+  // Security (SEC-UPLOAD): single-document conversion/import actions get the
+  // lower conversion upload cap.
   if (
     normalizedMethod === 'post' &&
     (
-      normalizedRoute === 'configuration/schema-files/operations' ||
-      normalizedRoute === 'configuration/skeletons' ||
-      normalizedRoute === 'skeletons' ||
       normalizedRoute === 'actions/docx-to-html' ||
       normalizedRoute === 'actions/html-to-docx' ||
       normalizedRoute === 'actions/html-to-pdf' ||
@@ -262,7 +303,17 @@ function getSystemV1RouteParser(method = 'get', route = '') {
       normalizedRoute === 'actions/xlsx-to-csv' ||
       normalizedRoute === 'actions/pdf-to-html' ||
       normalizedRoute === 'actions/pptx-to-html' ||
-      normalizedRoute === 'actions/docx-to-pdf' ||
+      normalizedRoute === 'actions/docx-to-pdf'
+    )
+  ) {
+    return parseConversionActionBody;
+  }
+  if (
+    normalizedMethod === 'post' &&
+    (
+      normalizedRoute === 'configuration/schema-files/operations' ||
+      normalizedRoute === 'configuration/skeletons' ||
+      normalizedRoute === 'skeletons' ||
       normalizedRoute === 'site/import/:platform'
     )
   ) {
@@ -902,8 +953,13 @@ app.use((req, res, next) => {
 });
 
 // Security: Force download of HTML files in sites' files directories to prevent XSS
+// Security (SEC-UPLOAD): decided on the DECODED path (the raw req.url let
+// /files/x%2ehtml through, since send decodes it before reading the disk) and
+// extended to every active-content type in the PHP parity contract:
+// html, htm, xhtml, xml, svg (uploadSecurity.FORCE_DOWNLOAD_FILES_EXTENSIONS).
+// X-Content-Type-Options: nosniff is set on every response by helmet.
 app.use((req, res, next) => {
-  if (req.url.includes('/files/') && /\.html?$/i.test(req.url.split('?')[0])) {
+  if (uploadSecurity.shouldForceDownloadFilesRequest(req.url)) {
     res.setHeader('Content-Disposition', 'attachment');
   }
   next();
@@ -1458,25 +1514,14 @@ systemStructureContext().then((site) => {
       const systemRouteHandler = async (req, res, next) => {
         const op = req.route.path.replace(systemApiV1BasePath, '');
         const rMethod = req.method.toLowerCase();
-        if (!validateSystemV1RouteAccess(req, op)) {
-          return res.status(403).json({
-            status: 403,
-            data: { message: 'system admin route requires system dashboard access' },
-          });
-        }
-        let isAuthenticated = systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res);
-        let basicAuth = null;
-        if (!isAuthenticated) {
-          basicAuth = authenticateBasicAuthorizationRequest(req);
-          if (basicAuth.blocked) {
-            return res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
-              status: 429,
-              data: { message: 'Too many failed login attempts. Please try again later.' },
-            });
-          }
-          isAuthenticated = basicAuth.authenticated;
-        }
-        if (isAuthenticated) {
+        // Security (SEC-UPLOAD): auth decision shared with the multipart
+        // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
+        // result when it already ran for this request so basic credentials
+        // are only checked once.
+        const auth = getSystemV1PreAuthResult(req, op) ||
+          evaluateSystemV1RouteAuthentication(req, res, op, systemV1OpenRouteRegistry);
+        if (auth.authenticated) {
+          const basicAuth = auth.basicAuth;
           if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
             return;
           }
@@ -1488,20 +1533,7 @@ systemStructureContext().then((site) => {
           }
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
-        // D1b status-code parity (matches site API + PHP SystemApiSecurity):
-        // 401 for no creds or failed basic (fresh credential rejection);
-        // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
-        // Message strings mirror PHP SystemApiSecurity so outputs are identical.
-        if (getBearerJwtFromRequest(req) !== '') {
-          return res.status(403).json({
-            status: 403,
-            data: { message: 'Invalid bearer token' },
-          });
-        }
-        return res.status(401).json({
-          status: 401,
-          data: { message: 'Authentication required' },
-        });
+        return sendSystemV1AuthFailure(res, auth);
       };
       const siteScopedSystemRouteHandler = async (req, res, next) => {
         const op = req.route.path.replace(
@@ -1509,25 +1541,14 @@ systemStructureContext().then((site) => {
           '',
         );
         const rMethod = req.method.toLowerCase();
-        if (!validateSystemV1RouteAccess(req, op)) {
-          return res.status(403).json({
-            status: 403,
-            data: { message: 'system admin route requires system dashboard access' },
-          });
-        }
-        let isAuthenticated = systemV1OpenRouteRegistry.includes(op) || HAXCMS.validateJWT(req, res);
-        let basicAuth = null;
-        if (!isAuthenticated) {
-          basicAuth = authenticateBasicAuthorizationRequest(req);
-          if (basicAuth.blocked) {
-            return res.status(429).set('Retry-After', String(basicAuth.retryAfterSeconds || 0)).json({
-              status: 429,
-              data: { message: 'Too many failed login attempts. Please try again later.' },
-            });
-          }
-          isAuthenticated = basicAuth.authenticated;
-        }
-        if (isAuthenticated) {
+        // Security (SEC-UPLOAD): auth decision shared with the multipart
+        // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
+        // result when it already ran for this request so basic credentials
+        // are only checked once.
+        const auth = getSystemV1PreAuthResult(req, op) ||
+          evaluateSystemV1RouteAuthentication(req, res, op, systemV1OpenRouteRegistry);
+        if (auth.authenticated) {
+          const basicAuth = auth.basicAuth;
           if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
             return;
           }
@@ -1539,22 +1560,30 @@ systemStructureContext().then((site) => {
           }
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
-        // D1b status-code parity (matches site API + PHP SystemApiSecurity):
-        // 401 for no creds or failed basic (fresh credential rejection);
-        // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
-        // Message strings mirror PHP SystemApiSecurity so outputs are identical.
-        if (getBearerJwtFromRequest(req) !== '') {
-          return res.status(403).json({
-            status: 403,
-            data: { message: 'Invalid bearer token' },
-          });
-        }
-        return res.status(401).json({
-          status: 401,
-          data: { message: 'Authentication required' },
-        });
+        return sendSystemV1AuthFailure(res, auth);
       };
-      if (systemRouteParser) {
+      if (systemRouteParser && isMultipartCapableSystemRouteParser(systemRouteParser)) {
+        // Security (SEC-UPLOAD): multipart routes authenticate BEFORE multer
+        // writes anything to <config>/tmp; failures short-circuit with the
+        // exact status/envelope the handler would have returned.
+        const systemUploadPreAuth = createSystemV1UploadPreAuthMiddleware(
+          systemRoute,
+          systemV1OpenRouteRegistry,
+        );
+        app[systemMethod](
+          systemRoutePath,
+          systemUploadPreAuth,
+          systemRouteParser,
+          systemRouteHandler,
+        );
+        app[systemMethod](
+          `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
+          systemUploadPreAuth,
+          systemRouteParser,
+          siteScopedSystemRouteHandler,
+        );
+      }
+      else if (systemRouteParser) {
         app[systemMethod](
           systemRoutePath,
           systemRouteParser,
@@ -1602,7 +1631,18 @@ systemStructureContext().then((site) => {
             });
         }
       };
-      if (siteRouteParser) {
+      if (siteRouteParser && siteRouteParser === uploadAnyParser) {
+        // Security (SEC-UPLOAD): authenticate before multer writes the upload
+        // to <config>/tmp (see createSiteApiUploadPreAuthMiddleware).
+        const siteUploadPreAuth = createSiteApiUploadPreAuthMiddleware(siteRoute, siteMethod);
+        app[siteMethod](siteRoutePath, siteUploadPreAuth, siteRouteParser, siteRouteHandler);
+        app[siteMethod](
+          `/${HAXCMS.sitesDirectory}/*${siteRoutePath}`,
+          siteUploadPreAuth,
+          siteRouteParser,
+          siteRouteHandler,
+        );
+      } else if (siteRouteParser) {
         app[siteMethod](siteRoutePath, siteRouteParser, siteRouteHandler);
         app[siteMethod](
           `/${HAXCMS.sitesDirectory}/*${siteRoutePath}`,
@@ -1692,20 +1732,9 @@ systemStructureContext().then((site) => {
       }
     });
   }
-  app.use((err, req, res, next) => {
-    if (err && err.code === 'ENOENT') {
-      res.status(404).end();
-      return;
-    }
-    // Security (HAX-SEC-004): return 413 for multer file-size/count limit errors
-    // so the client gets a meaningful status instead of a generic 500.
-    if (err && (err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_FILE_COUNT')) {
-      res.status(413).json({ status: 413, message: 'File too large or too many files' });
-      return;
-    }
-    console.error(err);
-    res.status(500).send('Server error');
-  });
+  // Security (PR8-4): ENOENT -> 404, multer limits -> 413 (HAX-SEC-004), and
+  // body-parser failures -> 400/413/415 JSON without logging err.body.
+  app.use(haxcmsErrorHandler);
 });
 // Security (SEC-DEPLOY): resolved once at first listen so port-retry attempts
 // keep binding the same interface.
@@ -1713,6 +1742,11 @@ var listenHost = null
 var listenHostResolved = false
 server.on('listening', onServerListening);
 server.on('error', handleServerError);
+// Security (SEC-UPLOAD): sweep stale multer temp files (>1h) and abandoned
+// tmp/imports staging entries (>24h) at startup and every 15 minutes. The
+// timer is unref'd and stopped when the server closes.
+const stopUploadTempSweeper = uploadSecurity.startUploadTempSweeper(UPLOAD_TEMP_DIRECTORY);
+server.on('close', stopUploadTempSweeper);
 startServer(currentPort);
 
 function startServer(portToTry) {
@@ -1871,6 +1905,158 @@ function validateSystemV1RouteAccess(req, op = '') {
     return false;
   }
   return true;
+}
+// Security (SEC-UPLOAD): the system API authentication decision, extracted
+// from the route handlers so the multipart pre-auth middleware makes exactly
+// the same decision (and returns exactly the same status/envelope) before
+// multer runs. Order and messages are unchanged from the inline handler code.
+function evaluateSystemV1RouteAuthentication(req, res, op = '', openRoutes = []) {
+  if (!validateSystemV1RouteAccess(req, op)) {
+    return {
+      authenticated: false,
+      status: 403,
+      message: 'system admin route requires system dashboard access',
+    };
+  }
+  let isAuthenticated = openRoutes.includes(op) || HAXCMS.validateJWT(req, res);
+  let basicAuth = null;
+  if (!isAuthenticated) {
+    basicAuth = authenticateBasicAuthorizationRequest(req);
+    if (basicAuth.blocked) {
+      return {
+        authenticated: false,
+        status: 429,
+        message: 'Too many failed login attempts. Please try again later.',
+        retryAfterSeconds: basicAuth.retryAfterSeconds || 0,
+      };
+    }
+    isAuthenticated = basicAuth.authenticated;
+  }
+  if (isAuthenticated) {
+    return {
+      authenticated: true,
+      basicAuth: basicAuth,
+    };
+  }
+  // D1b status-code parity (matches site API + PHP SystemApiSecurity):
+  // 401 for no creds or failed basic (fresh credential rejection);
+  // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
+  // Message strings mirror PHP SystemApiSecurity so outputs are identical.
+  if (getBearerJwtFromRequest(req) !== '') {
+    return {
+      authenticated: false,
+      status: 403,
+      message: 'Invalid bearer token',
+    };
+  }
+  return {
+    authenticated: false,
+    status: 401,
+    message: 'Authentication required',
+  };
+}
+function sendSystemV1AuthFailure(res, auth) {
+  if (auth.status === 429) {
+    res.set('Retry-After', String(auth.retryAfterSeconds || 0));
+  }
+  return res.status(auth.status).json({
+    status: auth.status,
+    data: { message: auth.message },
+  });
+}
+function getSystemV1PreAuthResult(req, op = '') {
+  if (
+    req &&
+    req.haxcmsSystemV1PreAuth &&
+    req.haxcmsSystemV1PreAuth.op === op &&
+    req.haxcmsSystemV1PreAuth.result &&
+    req.haxcmsSystemV1PreAuth.result.authenticated === true
+  ) {
+    return req.haxcmsSystemV1PreAuth.result;
+  }
+  return null;
+}
+function isMultipartCapableSystemRouteParser(parser) {
+  return parser === parseConversionActionBody || parser === parseSchemaFileOperationBody;
+}
+// Security (SEC-UPLOAD): runs before the multipart parser on system routes
+// that accept uploads. Unauthenticated multipart requests are rejected here so
+// multer never writes their file parts to disk. Non-multipart requests pass
+// through untouched (the handler performs the check as before).
+function createSystemV1UploadPreAuthMiddleware(op = '', openRoutes = []) {
+  return function systemV1UploadPreAuth(req, res, next) {
+    if (!isMultipartRequest(req)) {
+      next();
+      return;
+    }
+    const auth = evaluateSystemV1RouteAuthentication(req, res, op, openRoutes);
+    if (!auth.authenticated) {
+      sendSystemV1AuthFailure(res, auth);
+      return;
+    }
+    req.haxcmsSystemV1PreAuth = { op: op, result: auth };
+    next();
+  };
+}
+// Site API denials that are decided before the site name is resolved and so
+// cannot change once the multipart body (which may carry a siteName field) is
+// parsed. Any other denial is only final when the site name comes from the
+// request path.
+const SITE_API_UPLOAD_PRE_AUTH_FINAL_403_MESSAGES = [
+  'Invalid bearer token',
+  'Unable to resolve authenticated user context',
+  'X-HAXCMS-Site-Token header is required for this endpoint',
+  'X-HAXCMS-User-Token header is required for this endpoint',
+  'Invalid X-HAXCMS-User-Token header',
+];
+function isSiteApiUploadPreAuthDenialFinal(req, access) {
+  if (!access || access.allowed) {
+    return false;
+  }
+  if (access.status === 401 || access.status === 429) {
+    return true;
+  }
+  if (
+    access.status === 403 &&
+    SITE_API_UPLOAD_PRE_AUTH_FINAL_403_MESSAGES.indexOf(access.message) !== -1
+  ) {
+    return true;
+  }
+  return getSiteNameFromSiteApiRequestPath(
+    req && req.originalUrl ? req.originalUrl : req && req.url ? req.url : '',
+  ) !== '';
+}
+// Security (SEC-UPLOAD): site API pre-auth for multipart upload routes
+// (POST v1/files). Uses validateSiteApiRouteAccess and short-circuits with the
+// same envelope as siteRouteHandler when the denial cannot depend on the
+// not-yet-parsed multipart body; otherwise defers to the handler (whose temp
+// file is still removed by the upload cleanup middleware).
+function createSiteApiUploadPreAuthMiddleware(route = '', method = 'post') {
+  return async function siteApiUploadPreAuth(req, res, next) {
+    if (!isMultipartRequest(req)) {
+      next();
+      return;
+    }
+    let access = null;
+    try {
+      access = await validateSiteApiRouteAccess(req, route, method);
+    } catch (e) {
+      // let the route handler produce its own 500 envelope
+      next();
+      return;
+    }
+    if (!isSiteApiUploadPreAuthDenialFinal(req, access)) {
+      next();
+      return;
+    }
+    if (access.retryAfterSeconds && access.retryAfterSeconds > 0) {
+      res.set('Retry-After', String(access.retryAfterSeconds));
+    }
+    res.status(access.status).json({
+      status: access.status,
+      data: { message: access.message },
+    });
+  };
 }
 function convertOpenApiPathToSiteRoute(openApiPath = '') {
   let route = String(openApiPath || '');
@@ -2469,7 +2655,7 @@ function normalizeIamAuthorizationResult(iamAuthorization = null) {
     message: '',
   };
 }
-function validateHaxiamManagedUserIdentityForRequest() {
+function validateHaxiamManagedUserIdentityForRequest(req = null) {
   if (
     typeof HAXCMS.getDeploymentProfile !== 'function' ||
     HAXCMS.getDeploymentProfile() !== 'haxiam-managed'
@@ -2489,7 +2675,7 @@ function validateHaxiamManagedUserIdentityForRequest() {
   }
   try {
     return normalizeIamAuthorizationResult(
-      HAXCMS.validateIAMRouteAuthorization(true),
+      HAXCMS.validateIAMRouteAuthorization(true, req),
     );
   } catch (e) {
     return {
@@ -2634,7 +2820,7 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
         message: 'Invalid X-HAXCMS-Site-Token header',
       };
     }
-    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
+    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest(req);
     if (!iamAuthorization.allowed) {
       return {
         allowed: false,
@@ -2662,7 +2848,7 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
         message: 'Invalid X-HAXCMS-User-Token header',
       };
     }
-    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest();
+    const iamAuthorization = validateHaxiamManagedUserIdentityForRequest(req);
     if (!iamAuthorization.allowed) {
       return {
         allowed: false,
@@ -2762,16 +2948,25 @@ const STATIC_CHARSET_EXTENSIONS = /\.(txt|md|json|ya?ml|xml)$/i;
 // pre-set Content-Type (it does not override), so this header wins.
 function setStaticContentTypeWithCharset(res, requestPath = '', fallback = 'text/html') {
   const cleanPath = getRequestPathWithoutQuery(requestPath);
-  const mimeType = mime.getType(cleanPath);
+  // Security (SEC-UPLOAD): resolve the type from the decoded path (what send
+  // actually reads from disk), so an encoded extension such as x%2ehtml is not
+  // mistaken for an extensionless file.
+  const decodedPath = uploadSecurity.decodeRequestPathForFilesGuard(cleanPath);
+  const mimeType = mime.getType(decodedPath);
   if (!mimeType) {
-    if (fallback !== null) {
+    // Security (SEC-UPLOAD): never fall back to text/html for user uploads
+    // under a files/ directory; unknown types are served as opaque bytes.
+    if (fallback !== null && uploadSecurity.isFilesDirectoryRequestPath(decodedPath)) {
+      res.setHeader('Content-Type', 'application/octet-stream');
+    }
+    else if (fallback !== null) {
       res.setHeader('Content-Type', fallback);
     }
     return;
   }
   // Don't charset-tag user uploads in /files/ (encoding not guaranteed),
   // matching the RemoveCharset in system/boilerplate/site/files/.htaccess.
-  if (STATIC_CHARSET_EXTENSIONS.test(cleanPath) && cleanPath.indexOf('/files/') === -1) {
+  if (STATIC_CHARSET_EXTENSIONS.test(decodedPath) && decodedPath.indexOf('/files/') === -1) {
     res.setHeader('Content-Type', mimeType + '; charset=utf-8');
   } else {
     res.setHeader('Content-Type', mimeType);
@@ -3041,7 +3236,12 @@ function resolveVariantFilePath(site, item, format = 'json') {
   if (!variantLocation || !site || !site.siteDirectory) {
     return null;
   }
-  const absolutePath = path.join(site.siteDirectory, variantLocation);
+  // Security (N1/N5 parity): the sidecar path derives from the manifest
+  // location, so prove it resolves inside the site before serving it.
+  const absolutePath = resolveContainedPath(site.siteDirectory, variantLocation);
+  if (absolutePath === false) {
+    return null;
+  }
   if (fs.existsSync(absolutePath) && fs.lstatSync(absolutePath).isFile()) {
     return absolutePath;
   }

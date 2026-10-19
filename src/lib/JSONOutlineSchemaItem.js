@@ -1,6 +1,7 @@
 const fs = require('fs-extra');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { resolveContainedPath } = require('./pathConfinement.js');
 /**
  * JSONOutlineSchemaItem - a single item without an outline of items.
  */
@@ -25,8 +26,16 @@ class JSONOutlineSchemaItem
    * Load data from the location specified
    */
   async readLocation(basePath = '') {
-    if (fs.lstatSync(path.join(basePath, this.location)).isFile()) {
-      return await fs.readFileSync(path.join(basePath, this.location),
+    // Security (N1/N5 parity): the location must resolve inside basePath.
+    // Rejects NUL bytes and `..` segments, then proves realpath containment
+    // (mirrors PHP JSONOutlineSchemaItem::readLocation).
+    const resolved = resolveContainedPath(basePath, this.location);
+    if (resolved === false) {
+      return false;
+    }
+    // a missing file returns false (PHP parity) rather than throwing
+    if (fs.existsSync(resolved) && fs.lstatSync(resolved).isFile()) {
+      return await fs.readFileSync(resolved,
         {encoding:'utf8', flag:'r'});
     }
     return false;
@@ -40,8 +49,14 @@ class JSONOutlineSchemaItem
       body = '<p></p>';
     }
     try {
-      if (fs.lstatSync(path.join(basePath, this.location)).isFile()) {
-        fs.writeFileSync(path.join(basePath, this.location), body);
+      // Security (N1/N5 parity): the destination must stay inside basePath
+      // (mirrors PHP JSONOutlineSchemaItem::writeLocation).
+      const resolved = resolveContainedPath(basePath, this.location);
+      if (resolved === false) {
+        return false;
+      }
+      if (fs.lstatSync(resolved).isFile()) {
+        fs.writeFileSync(resolved, body);
       }
       return true;
     }

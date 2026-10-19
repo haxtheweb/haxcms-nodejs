@@ -127,6 +127,37 @@ function applySiteNameFromParams(req) {
   body.site.name = siteName;
 }
 
+// Security (SEC-SESSION, PHP F2/IDOR-001 parity): object-level authorization
+// on the named site before clone / archive / download / download-skeleton /
+// save-as-template. Port of PHP lifecycle.php userCanAccessSite gating. Only
+// enforced in HAXiam (config.iam) mode: in self-hosted / single-site mode any
+// authenticated user may act on any site (PHP userCanAccessSite returns true
+// there too), so default behaviour (including existing 404s for unknown
+// sites) is unchanged.
+async function enforceSiteAccess(req, res) {
+  if (typeof HAXCMS.isIAMEnabled !== 'function' || !HAXCMS.isIAMEnabled()) {
+    return true;
+  }
+  const siteName = getSiteNameFromPayload(req);
+  let allowed = false;
+  if (siteName !== '') {
+    try {
+      allowed = await HAXCMS.userCanAccessSite(siteName, req);
+    }
+    catch (e) {
+      allowed = false;
+    }
+  }
+  if (!allowed) {
+    res.status(403).json({
+      status: 403,
+      data: { message: 'Access denied to site' },
+    });
+    return false;
+  }
+  return true;
+}
+
 async function listSites(req, res, next) {
   return listSitesRoute(req, res, next);
 }
@@ -137,11 +168,17 @@ async function createSite(req, res, next) {
 
 async function cloneSite(req, res, next) {
   applySiteNameFromParams(req);
+  if (!(await enforceSiteAccess(req, res))) {
+    return;
+  }
   return cloneSiteRoute(req, res, next);
 }
 
 async function archiveSite(req, res, next) {
   applySiteNameFromParams(req);
+  if (!(await enforceSiteAccess(req, res))) {
+    return;
+  }
   try {
     return await archiveSiteRoute(req, res, next);
   }
@@ -152,16 +189,25 @@ async function archiveSite(req, res, next) {
 
 async function downloadSite(req, res, next) {
   applySiteNameFromParams(req);
+  if (!(await enforceSiteAccess(req, res))) {
+    return;
+  }
   return downloadSiteRoute(req, res, next);
 }
 
 async function downloadSiteSkeleton(req, res, next) {
   applySiteNameFromParams(req);
+  if (!(await enforceSiteAccess(req, res))) {
+    return;
+  }
   return downloadSiteSkeletonRoute(req, res, next);
 }
 
 async function saveSiteAsTemplate(req, res, next) {
   applySiteNameFromParams(req);
+  if (!(await enforceSiteAccess(req, res))) {
+    return;
+  }
   return saveSiteAsTemplateRoute(req, res, next);
 }
 

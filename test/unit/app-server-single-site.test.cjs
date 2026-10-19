@@ -134,12 +134,30 @@ fs.writeFileSync(
           description: 'about page',
           metadata: { created: 1700000001, updated: 1700000001 },
         },
+        // Security (N1/N5 parity): a poisoned manifest location pointing
+        // outside the site; its sidecars must never be served
+        {
+          id: 'poisoned',
+          indent: 0,
+          location: '../outside/secret.html',
+          slug: 'poisoned',
+          order: 2,
+          parent: '',
+          title: 'Poisoned',
+          description: 'poisoned page',
+          metadata: { created: 1700000002, updated: 1700000002 },
+        },
       ],
     },
     null,
     2,
   ),
 )
+// files OUTSIDE the site dir that the poisoned item's location points at
+fs.ensureDirSync(path.join(tempRoot, 'outside'))
+for (const ext of ['html', 'md', 'json', 'yaml', 'xml']) {
+  fs.writeFileSync(path.join(tempRoot, 'outside', 'secret.' + ext), 'OUTSIDE-SECRET')
+}
 fs.ensureDirSync(path.join(runtimeRoot, '.well-known'))
 fs.writeFileSync(
   path.join(runtimeRoot, '.well-known', 'api-catalog'),
@@ -266,6 +284,24 @@ test('page variants serve sidecars from the site directory', async () => {
   assert.equal(xml.status, 200)
 })
 
+test('page variants never serve files outside the site for a poisoned location', async () => {
+  const baseUrl = await baseUrlPromise
+  for (const ext of ['md', 'json', 'yaml', 'xml']) {
+    const result = await request('GET', baseUrl + '/poisoned.' + ext, {})
+    assert.equal(result.status, 404, ext)
+    assert.equal(result.bodyText.indexOf('OUTSIDE-SECRET'), -1, ext)
+  }
+  const negotiated = await request('GET', baseUrl + '/poisoned', {
+    headers: { accept: 'text/markdown' },
+  })
+  assert.equal(negotiated.bodyText.indexOf('OUTSIDE-SECRET'), -1)
+  // and nothing was written next to the outside file
+  assert.deepEqual(
+    fs.readdirSync(path.join(tempRoot, 'outside')).sort(),
+    ['secret.html', 'secret.json', 'secret.md', 'secret.xml', 'secret.yaml'],
+  )
+})
+
 test('a missing single-site page renders the page-miss shell at 404', async () => {
   const baseUrl = await baseUrlPromise
   const result = await request('GET', baseUrl + '/definitely-not-here', {
@@ -311,4 +347,36 @@ test('site API paths pass through to the site routes', async () => {
   const result = await request('GET', baseUrl + '/x/api/v1/files', {})
   // unauthenticated access to the files route rejects before the handler
   assert.equal(result.status, 401)
+})
+
+// Security (PR8-4): malformed / oversized JSON bodies answer 400/413 JSON and
+// the raw request body never reaches the logs.
+test('malformed JSON body returns 400 envelope and does not log the raw body', async (t) => {
+  const baseUrl = await baseUrlPromise
+  const logged = []
+  const capture = function () {
+    logged.push(Array.prototype.map.call(arguments, function (a) {
+      if (a && typeof a === 'object') {
+        try { return JSON.stringify(a) + ' ' + String(a.body || '') } catch (e) { return String(a) }
+      }
+      return String(a)
+    }).join(' '))
+  }
+  t.mock.method(console, 'error', capture)
+  t.mock.method(console, 'warn', capture)
+  t.mock.method(console, 'log', capture)
+  const secret = 'SUPERSECRETBODYMARKER'
+  const response = await axios({
+    method: 'POST',
+    url: baseUrl + '/system/api/v1/session/login',
+    headers: { 'Content-Type': 'application/json' },
+    data: '{"password":"' + secret + '", broken' + 'x'.repeat(500),
+    transformRequest: [function (d) { return d }],
+    validateStatus: function () { return true },
+  })
+  assert.equal(response.status, 400)
+  assert.deepEqual(response.data, { status: 400, message: 'Malformed request body' })
+  const all = logged.join('\n')
+  assert.equal(all.indexOf(secret), -1, 'raw body must not be logged')
+  assert.equal(all.indexOf('x'.repeat(200)), -1, 'log output is truncated')
 })
