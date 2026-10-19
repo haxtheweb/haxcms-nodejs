@@ -1,5 +1,6 @@
 const path = require("path");
 const fs = require("fs-extra");
+const crypto = require("crypto");
 const { HAXCMS } = require("./HAXCMS.js");
 const { buildFilePublicUrl } = require("./siteFileUrl.js");
 const { getDeterministicFileUuid } = require("./siteFileUuid.js");
@@ -1058,10 +1059,7 @@ class HAXCMSFile {
         remoteDownloadPath = path.join(
           HAXCMS.configDirectory,
           "tmp",
-          "haxcms-upload-" +
-            Date.now() +
-            "-" +
-            Math.floor(Math.random() * 1000000),
+          "haxcms-upload-" + Date.now() + "-" + crypto.randomUUID(),
         );
         // Security (SEC-SSRF): enforce maxUploadSizeMb while streaming (the
         // download is aborted as soon as it crosses the cap) rather than only
