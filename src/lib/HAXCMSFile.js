@@ -1,93 +1,120 @@
-const path = require('path');
-const fs = require('fs-extra');
-const { HAXCMS } = require('./HAXCMS.js');
-const { buildFilePublicUrl } = require('./siteFileUrl.js');
-const { getDeterministicFileUuid } = require('./siteFileUuid.js');
-const { readMediaSettings } = require('./mediaSettings.js');
-const FilesDataStore = require('./FilesDataStore.js');
-const sharp = require('sharp');
-const dns = require('dns');
+const path = require("path");
+const fs = require("fs-extra");
+const { HAXCMS } = require("./HAXCMS.js");
+const { buildFilePublicUrl } = require("./siteFileUrl.js");
+const { getDeterministicFileUuid } = require("./siteFileUuid.js");
+const { readMediaSettings } = require("./mediaSettings.js");
+const FilesDataStore = require("./FilesDataStore.js");
+const sharp = require("sharp");
+const dns = require("dns");
 
-const ALLOWED_UPLOAD_EXTENSION_PATTERN = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf)$/i;
+const ALLOWED_UPLOAD_EXTENSION_PATTERN =
+  /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf)$/i;
 const ALLOWED_MIME_BY_EXTENSION = {
-  'jpg': ['image/jpeg'],
-  'jpeg': ['image/jpeg'],
-  'png': ['image/png'],
-  'gif': ['image/gif'],
-  'webp': ['image/webp'],
-  'webm': ['video/webm', 'audio/webm'],
-  'mp4': ['video/mp4'],
-  'mp3': ['audio/mpeg', 'audio/mp3'],
-  'mov': ['video/quicktime'],
-  'csv': ['text/csv', 'text/plain'],
-  'ppt': ['application/vnd.ms-powerpoint', 'application/x-ole-storage', 'application/octet-stream'],
-  'pptx': ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/zip'],
-  'xlsx': ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip'],
-  'doc': ['application/msword', 'application/x-ole-storage', 'application/octet-stream'],
-  'xls': ['application/vnd.ms-excel', 'application/x-ole-storage', 'application/octet-stream'],
-  'docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'],
-  'pdf': ['application/pdf'],
-  'rtf': ['application/rtf', 'text/rtf', 'text/plain'],
-  'txt': ['text/plain'],
-  'vtt': ['text/vtt', 'text/plain'],
-  'html': ['text/html', 'application/xhtml+xml'],
-  'md': ['text/markdown', 'text/plain'],
-  'xml': ['application/xml', 'text/xml'],
+  jpg: ["image/jpeg"],
+  jpeg: ["image/jpeg"],
+  png: ["image/png"],
+  gif: ["image/gif"],
+  webp: ["image/webp"],
+  webm: ["video/webm", "audio/webm"],
+  mp4: ["video/mp4"],
+  mp3: ["audio/mpeg", "audio/mp3"],
+  mov: ["video/quicktime"],
+  csv: ["text/csv", "text/plain"],
+  ppt: [
+    "application/vnd.ms-powerpoint",
+    "application/x-ole-storage",
+    "application/octet-stream",
+  ],
+  pptx: [
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/zip",
+  ],
+  xlsx: [
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/zip",
+  ],
+  doc: [
+    "application/msword",
+    "application/x-ole-storage",
+    "application/octet-stream",
+  ],
+  xls: [
+    "application/vnd.ms-excel",
+    "application/x-ole-storage",
+    "application/octet-stream",
+  ],
+  docx: [
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/zip",
+  ],
+  pdf: ["application/pdf"],
+  rtf: ["application/rtf", "text/rtf", "text/plain"],
+  txt: ["text/plain"],
+  vtt: ["text/vtt", "text/plain"],
+  html: ["text/html", "application/xhtml+xml"],
+  md: ["text/markdown", "text/plain"],
+  xml: ["application/xml", "text/xml"],
   // calendars and contact cards are plain text, so the content
   // sniffer reports text/plain for them; libmagic on the PHP side
   // reports the registered types, and both backends accept the same
   // set. text/html is deliberately absent: a file carrying markup is
   // detected as text/html and rejected rather than stored and served
-  'ics': ['text/calendar', 'text/x-vcalendar', 'text/plain'],
-  'vcf': ['text/vcard', 'text/x-vcard', 'text/directory', 'text/plain'],
-  'css': ['text/css'],
-  'js': ['text/javascript', 'application/javascript', 'application/x-javascript', 'text/ecmascript'],
-  'svg': ['image/svg+xml'],
-  'woff': ['font/woff', 'application/font-woff'],
-  'woff2': ['font/woff2', 'application/font-woff2'],
-  'ttf': ['font/ttf', 'application/font-sfnt', 'application/x-font-ttf'],
-  'eot': ['application/vnd.ms-fontobject', 'application/octet-stream']
+  ics: ["text/calendar", "text/x-vcalendar", "text/plain"],
+  vcf: ["text/vcard", "text/x-vcard", "text/directory", "text/plain"],
+  css: ["text/css"],
+  js: [
+    "text/javascript",
+    "application/javascript",
+    "application/x-javascript",
+    "text/ecmascript",
+  ],
+  svg: ["image/svg+xml"],
+  woff: ["font/woff", "application/font-woff"],
+  woff2: ["font/woff2", "application/font-woff2"],
+  ttf: ["font/ttf", "application/font-sfnt", "application/x-font-ttf"],
+  eot: ["application/vnd.ms-fontobject", "application/octet-stream"],
 };
-const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp"];
 const MIN_JPEG_QUALITY = 1;
 const MAX_JPEG_QUALITY = 100;
 const EXECUTABLE_FILE_EXTENSIONS = [
-  'php',
-  'php3',
-  'php4',
-  'php5',
-  'php7',
-  'php8',
-  'phtml',
-  'phar',
-  'phpt',
-  'cgi',
-  'pl',
-  'py',
-  'rb',
-  'sh',
-  'bash',
-  'zsh',
-  'ksh',
-  'csh',
-  'tcsh',
-  'asp',
-  'aspx',
-  'jsp',
-  'exe',
-  'dll',
-  'com',
-  'bat',
-  'cmd',
-  'msi'
+  "php",
+  "php3",
+  "php4",
+  "php5",
+  "php7",
+  "php8",
+  "phtml",
+  "phar",
+  "phpt",
+  "cgi",
+  "pl",
+  "py",
+  "rb",
+  "sh",
+  "bash",
+  "zsh",
+  "ksh",
+  "csh",
+  "tcsh",
+  "asp",
+  "aspx",
+  "jsp",
+  "exe",
+  "dll",
+  "com",
+  "bat",
+  "cmd",
+  "msi",
 ];
 
 function stripExecutableExtensionPatterns(fileName) {
-  if (!fileName || typeof fileName !== 'string') {
-    return '';
+  if (!fileName || typeof fileName !== "string") {
+    return "";
   }
   const parsedName = path.parse(fileName);
-  const parts = parsedName.base.split('.');
+  const parts = parsedName.base.split(".");
   if (parts.length <= 1) {
     return parsedName.base;
   }
@@ -98,7 +125,7 @@ function stripExecutableExtensionPatterns(fileName) {
       continue;
     }
     if (i > 0) {
-      const normalizedPart = part.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const normalizedPart = part.toLowerCase().replace(/[^a-z0-9]/g, "");
       if (EXECUTABLE_FILE_EXTENSIONS.includes(normalizedPart)) {
         continue;
       }
@@ -106,25 +133,25 @@ function stripExecutableExtensionPatterns(fileName) {
     safeParts.push(part);
   }
   if (!safeParts.length) {
-    return '';
+    return "";
   }
-  const sanitizedBaseName = safeParts.join('.');
-  if (parsedName.dir && parsedName.dir !== '.') {
+  const sanitizedBaseName = safeParts.join(".");
+  if (parsedName.dir && parsedName.dir !== ".") {
     return path.join(parsedName.dir, sanitizedBaseName);
   }
   return sanitizedBaseName;
 }
 
 function normalizeFilenameExtensionCasing(fileName) {
-  if (!fileName || typeof fileName !== 'string') {
-    return '';
+  if (!fileName || typeof fileName !== "string") {
+    return "";
   }
   const parsedName = path.parse(fileName);
   if (!parsedName.ext) {
     return fileName;
   }
   const normalizedBaseName = parsedName.name + parsedName.ext.toLowerCase();
-  if (parsedName.dir && parsedName.dir !== '.') {
+  if (parsedName.dir && parsedName.dir !== ".") {
     return path.join(parsedName.dir, normalizedBaseName);
   }
   return normalizedBaseName;
@@ -150,7 +177,7 @@ function getTemporaryJpegPath(sourcePath) {
   const sourceBaseName = path.basename(sourcePath, sourceExtension);
   return path.join(
     sourceDirectory,
-    sourceBaseName + '-jpeg-quality-' + Date.now() + sourceExtension,
+    sourceBaseName + "-jpeg-quality-" + Date.now() + sourceExtension,
   );
 }
 
@@ -158,18 +185,19 @@ async function applyConfiguredJpegUploadQuality(filePath) {
   let mediaSettings = {};
   try {
     mediaSettings = await readMediaSettings(HAXCMS);
-  }
-  catch (e) {
+  } catch (e) {
     return;
   }
   if (
     !mediaSettings ||
-    typeof mediaSettings !== 'object' ||
+    typeof mediaSettings !== "object" ||
     Array.isArray(mediaSettings)
   ) {
     return;
   }
-  const configuredQuality = normalizeJpegQualityValue(mediaSettings.jpegQuality);
+  const configuredQuality = normalizeJpegQualityValue(
+    mediaSettings.jpegQuality,
+  );
   if (configuredQuality === null) {
     return;
   }
@@ -180,8 +208,7 @@ async function applyConfiguredJpegUploadQuality(filePath) {
       .jpeg({ quality: configuredQuality, mozjpeg: true })
       .toFile(temporaryPath);
     fs.moveSync(temporaryPath, filePath, { overwrite: true });
-  }
-  catch (e) {
+  } catch (e) {
     if (fs.pathExistsSync(temporaryPath)) {
       fs.removeSync(temporaryPath);
     }
@@ -195,32 +222,30 @@ async function applyConfiguredJpegUploadQuality(filePath) {
 // resize without an extra round-trip.
 async function readImageDimensions(filePath) {
   try {
-    const metadata = await sharp(filePath, { failOn: 'none' }).metadata();
+    const metadata = await sharp(filePath, { failOn: "none" }).metadata();
     if (
       metadata &&
       metadata.format &&
-      String(metadata.format).indexOf('svg') !== 0
+      String(metadata.format).indexOf("svg") !== 0
     ) {
       return {
-        width: typeof metadata.width === 'number' ? metadata.width : 0,
-        height: typeof metadata.height === 'number' ? metadata.height : 0,
+        width: typeof metadata.width === "number" ? metadata.width : 0,
+        height: typeof metadata.height === "number" ? metadata.height : 0,
       };
     }
-  }
-  catch (e) {}
+  } catch (e) {}
   return { width: 0, height: 0 };
 }
 
 function mimeMatchesAllowed(actualMime, allowedMimes) {
   for (let i = 0; i < allowedMimes.length; i++) {
     const allowedMime = String(allowedMimes[i]).toLowerCase();
-    if (allowedMime.endsWith('/*')) {
+    if (allowedMime.endsWith("/*")) {
       const prefix = allowedMime.slice(0, -1);
       if (actualMime.startsWith(prefix)) {
         return true;
       }
-    }
-    else if (actualMime === allowedMime) {
+    } else if (actualMime === allowedMime) {
       return true;
     }
   }
@@ -231,13 +256,12 @@ function readFileSample(filePath, sampleSize = 8192) {
   if (!filePath || !fs.existsSync(filePath)) {
     return Buffer.alloc(0);
   }
-  const fileDescriptor = fs.openSync(filePath, 'r');
+  const fileDescriptor = fs.openSync(filePath, "r");
   const sample = Buffer.alloc(sampleSize);
   let bytesRead = 0;
   try {
     bytesRead = fs.readSync(fileDescriptor, sample, 0, sampleSize, 0);
-  }
-  finally {
+  } finally {
     fs.closeSync(fileDescriptor);
   }
   return sample.slice(0, bytesRead);
@@ -263,10 +287,15 @@ function isLikelyTextContent(buffer) {
 function detectMimeTypeFromContent(filePath) {
   const sample = readFileSample(filePath);
   if (!sample.length) {
-    return 'application/octet-stream';
+    return "application/octet-stream";
   }
-  if (sample.length >= 3 && sample[0] === 0xff && sample[1] === 0xd8 && sample[2] === 0xff) {
-    return 'image/jpeg';
+  if (
+    sample.length >= 3 &&
+    sample[0] === 0xff &&
+    sample[1] === 0xd8 &&
+    sample[2] === 0xff
+  ) {
+    return "image/jpeg";
   }
   if (
     sample.length >= 8 &&
@@ -279,21 +308,22 @@ function detectMimeTypeFromContent(filePath) {
     sample[6] === 0x1a &&
     sample[7] === 0x0a
   ) {
-    return 'image/png';
+    return "image/png";
   }
   if (
     sample.length >= 6 &&
-    sample.toString('ascii', 0, 3) === 'GIF' &&
-    (sample.toString('ascii', 3, 6) === '87a' || sample.toString('ascii', 3, 6) === '89a')
+    sample.toString("ascii", 0, 3) === "GIF" &&
+    (sample.toString("ascii", 3, 6) === "87a" ||
+      sample.toString("ascii", 3, 6) === "89a")
   ) {
-    return 'image/gif';
+    return "image/gif";
   }
   if (
     sample.length >= 12 &&
-    sample.toString('ascii', 0, 4) === 'RIFF' &&
-    sample.toString('ascii', 8, 12) === 'WEBP'
+    sample.toString("ascii", 0, 4) === "RIFF" &&
+    sample.toString("ascii", 8, 12) === "WEBP"
   ) {
-    return 'image/webp';
+    return "image/webp";
   }
   if (
     sample.length >= 4 &&
@@ -301,29 +331,25 @@ function detectMimeTypeFromContent(filePath) {
     sample[1] === 0x45 &&
     sample[2] === 0xdf &&
     sample[3] === 0xa3 &&
-    sample.toString('utf8').toLowerCase().indexOf('webm') !== -1
+    sample.toString("utf8").toLowerCase().indexOf("webm") !== -1
   ) {
-    return 'video/webm';
+    return "video/webm";
   }
-  if (sample.length >= 12 && sample.toString('ascii', 4, 8) === 'ftyp') {
-    const majorBrand = sample.toString('ascii', 8, 12);
-    if (majorBrand === 'qt  ') {
-      return 'video/quicktime';
+  if (sample.length >= 12 && sample.toString("ascii", 4, 8) === "ftyp") {
+    const majorBrand = sample.toString("ascii", 8, 12);
+    if (majorBrand === "qt  ") {
+      return "video/quicktime";
     }
-    return 'video/mp4';
+    return "video/mp4";
   }
-  if (
-    sample.length >= 2 &&
-    sample[0] === 0xff &&
-    (sample[1] & 0xe0) === 0xe0
-  ) {
-    return 'audio/mpeg';
+  if (sample.length >= 2 && sample[0] === 0xff && (sample[1] & 0xe0) === 0xe0) {
+    return "audio/mpeg";
   }
-  if (sample.length >= 3 && sample.toString('ascii', 0, 3) === 'ID3') {
-    return 'audio/mpeg';
+  if (sample.length >= 3 && sample.toString("ascii", 0, 3) === "ID3") {
+    return "audio/mpeg";
   }
-  if (sample.length >= 5 && sample.toString('ascii', 0, 5) === '%PDF-') {
-    return 'application/pdf';
+  if (sample.length >= 5 && sample.toString("ascii", 0, 5) === "%PDF-") {
+    return "application/pdf";
   }
   if (
     sample.length >= 4 &&
@@ -332,7 +358,7 @@ function detectMimeTypeFromContent(filePath) {
     (sample[2] === 0x03 || sample[2] === 0x05 || sample[2] === 0x07) &&
     (sample[3] === 0x04 || sample[3] === 0x06 || sample[3] === 0x08)
   ) {
-    return 'application/zip';
+    return "application/zip";
   }
   if (
     sample.length >= 8 &&
@@ -345,26 +371,26 @@ function detectMimeTypeFromContent(filePath) {
     sample[6] === 0x1a &&
     sample[7] === 0xe1
   ) {
-    return 'application/x-ole-storage';
+    return "application/x-ole-storage";
   }
-  const lowerText = sample.toString('utf8').toLowerCase();
-  if (lowerText.indexOf('{\\rtf') === 0 || lowerText.indexOf('{\\rtf') === 1) {
-    return 'application/rtf';
+  const lowerText = sample.toString("utf8").toLowerCase();
+  if (lowerText.indexOf("{\\rtf") === 0 || lowerText.indexOf("{\\rtf") === 1) {
+    return "application/rtf";
   }
-  if (lowerText.indexOf('<?xml') === 0) {
-    return 'application/xml';
+  if (lowerText.indexOf("<?xml") === 0) {
+    return "application/xml";
   }
   if (
-    lowerText.indexOf('<!doctype html') !== -1 ||
-    lowerText.indexOf('<html') !== -1 ||
-    lowerText.indexOf('<body') !== -1
+    lowerText.indexOf("<!doctype html") !== -1 ||
+    lowerText.indexOf("<html") !== -1 ||
+    lowerText.indexOf("<body") !== -1
   ) {
-    return 'text/html';
+    return "text/html";
   }
   if (isLikelyTextContent(sample)) {
-    return 'text/plain';
+    return "text/plain";
   }
-  return 'application/octet-stream';
+  return "application/octet-stream";
 }
 
 async function verifyImageContent(filePath) {
@@ -374,8 +400,7 @@ async function verifyImageContent(filePath) {
       return false;
     }
     return true;
-  }
-  catch (e) {
+  } catch (e) {
     return false;
   }
 }
@@ -384,27 +409,36 @@ async function validateUploadMimeAndContent(filePath, fileName) {
   if (!filePath || !fs.existsSync(filePath)) {
     return {
       valid: false,
-      message: 'Uploaded file is missing'
+      message: "Uploaded file is missing",
     };
   }
-  const extension = path.extname(fileName).replace('.', '').toLowerCase();
+  const extension = path.extname(fileName).replace(".", "").toLowerCase();
   if (!extension || !ALLOWED_MIME_BY_EXTENSION[extension]) {
     return {
       valid: false,
-      message: 'File type not allowed'
+      message: "File type not allowed",
     };
   }
   const detectedMime = detectMimeTypeFromContent(filePath);
   if (!detectedMime) {
     return {
       valid: false,
-      message: 'Unable to determine uploaded file MIME type'
+      message: "Unable to determine uploaded file MIME type",
     };
   }
-  if (!mimeMatchesAllowed(detectedMime.toLowerCase(), ALLOWED_MIME_BY_EXTENSION[extension])) {
+  if (
+    !mimeMatchesAllowed(
+      detectedMime.toLowerCase(),
+      ALLOWED_MIME_BY_EXTENSION[extension],
+    )
+  ) {
     return {
       valid: false,
-      message: 'Detected MIME type ' + detectedMime + ' does not match allowed type for .' + extension
+      message:
+        "Detected MIME type " +
+        detectedMime +
+        " does not match allowed type for ." +
+        extension,
     };
   }
   if (IMAGE_EXTENSIONS.includes(extension)) {
@@ -412,17 +446,17 @@ async function validateUploadMimeAndContent(filePath, fileName) {
     if (!isValidImage) {
       return {
         valid: false,
-        message: 'Invalid image file content'
+        message: "Invalid image file content",
       };
     }
   }
   return {
     valid: true,
-    detectedMime: detectedMime.toLowerCase()
+    detectedMime: detectedMime.toLowerCase(),
   };
 }
 function getBulkImportStagingRootPath() {
-  const stagingRoot = path.join(HAXCMS.configDirectory, 'tmp', 'imports');
+  const stagingRoot = path.join(HAXCMS.configDirectory, "tmp", "imports");
   if (!fs.pathExistsSync(stagingRoot)) {
     return null;
   }
@@ -432,8 +466,7 @@ function getBulkImportStagingRootPath() {
       return null;
     }
     return resolvedRoot;
-  }
-  catch (e) {
+  } catch (e) {
     return null;
   }
 }
@@ -449,14 +482,17 @@ function isPathWithinRoot(resolvedPath, resolvedRoot) {
 }
 
 function isValidBulkImportStagedPath(inputPath) {
-  if (typeof inputPath !== 'string') {
+  if (typeof inputPath !== "string") {
     return false;
   }
   const normalizedSource = inputPath.trim();
-  if (normalizedSource === '' || normalizedSource.indexOf('\0') !== -1) {
+  if (normalizedSource === "" || normalizedSource.indexOf("\0") !== -1) {
     return false;
   }
-  if (/^[a-zA-Z][a-zA-Z0-9+\.\-]*:/.test(normalizedSource) && !/^[a-zA-Z]:[\\/]/.test(normalizedSource)) {
+  if (
+    /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(normalizedSource) &&
+    !/^[a-zA-Z]:[\\/]/.test(normalizedSource)
+  ) {
     return false;
   }
   if (!path.isAbsolute(normalizedSource)) {
@@ -471,15 +507,13 @@ function isValidBulkImportStagedPath(inputPath) {
     if (lstats.isSymbolicLink()) {
       return false;
     }
-  }
-  catch (e) {
+  } catch (e) {
     return false;
   }
   let resolvedSource = null;
   try {
     resolvedSource = fs.realpathSync(normalizedSource);
-  }
-  catch (e) {
+  } catch (e) {
     return false;
   }
   if (!resolvedSource) {
@@ -488,8 +522,7 @@ function isValidBulkImportStagedPath(inputPath) {
   let sourceStats = null;
   try {
     sourceStats = fs.statSync(resolvedSource);
-  }
-  catch (e) {
+  } catch (e) {
     return false;
   }
   if (!sourceStats || !sourceStats.isFile()) {
@@ -514,20 +547,20 @@ function isValidBulkImportStagedPath(inputPath) {
  * 255.255.255.255). Keep this list in parity with PHP SsrfGuard.
  */
 const BLOCKED_IPV4_CIDRS = [
-  ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['100.64.0.0', 10],
-  ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
-  ['192.0.0.0', 24],
-  ['192.0.2.0', 24],
-  ['192.168.0.0', 16],
-  ['198.18.0.0', 15],
-  ['198.51.100.0', 24],
-  ['203.0.113.0', 24],
-  ['224.0.0.0', 4],
-  ['240.0.0.0', 4],
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
 ];
 
 /**
@@ -536,10 +569,10 @@ const BLOCKED_IPV4_CIDRS = [
  * (no leading zeros, so octal-looking spellings are not silently accepted).
  */
 function ipv4ToInt(ip) {
-  if (typeof ip !== 'string') {
+  if (typeof ip !== "string") {
     return null;
   }
-  var parts = ip.split('.');
+  var parts = ip.split(".");
   if (parts.length !== 4) {
     return null;
   }
@@ -553,7 +586,7 @@ function ipv4ToInt(ip) {
     if (octet > 255) {
       return null;
     }
-    value = (value * 256) + octet;
+    value = value * 256 + octet;
   }
   return value >>> 0;
 }
@@ -564,7 +597,7 @@ function ipv4InCidr(ipInt, network, prefixLength) {
     return true;
   }
   var mask = (0xffffffff << (32 - prefixLength)) >>> 0;
-  return ((ipInt & mask) >>> 0) === ((networkInt & mask) >>> 0);
+  return (ipInt & mask) >>> 0 === (networkInt & mask) >>> 0;
 }
 
 /**
@@ -580,7 +613,7 @@ function ipv4InCidr(ipInt, network, prefixLength) {
  * canonical address, so this branch only matters for direct callers.
  */
 function isPrivateOrReservedIPv4(ip) {
-  if (!ip || typeof ip !== 'string') {
+  if (!ip || typeof ip !== "string") {
     return true;
   }
   var ipInt = ipv4ToInt(ip);
@@ -607,26 +640,27 @@ function isPrivateOrReservedIPv4(ip) {
  * embedded IPv4 is written as a dotted-quad or as hex groups.
  */
 function ipv6ToBuffer(ip) {
-  if (!ip || typeof ip !== 'string' || ip.indexOf(':') === -1) {
+  if (!ip || typeof ip !== "string" || ip.indexOf(":") === -1) {
     return null;
   }
-  var idx = ip.indexOf('::');
-  var leftPart = '';
-  var rightPart = '';
+  var idx = ip.indexOf("::");
+  var leftPart = "";
+  var rightPart = "";
   if (idx === -1) {
     leftPart = ip;
   } else {
     // at most one '::' is allowed
-    if (ip.indexOf('::', idx + 1) !== -1) {
+    if (ip.indexOf("::", idx + 1) !== -1) {
       return null;
     }
     leftPart = ip.slice(0, idx);
     rightPart = ip.slice(idx + 2);
   }
-  var left = leftPart === '' ? [] : leftPart.split(':');
-  var right = rightPart === '' ? [] : rightPart.split(':');
+  var left = leftPart === "" ? [] : leftPart.split(":");
+  var right = rightPart === "" ? [] : rightPart.split(":");
   // a trailing dotted-quad group occupies 2 group slots but is 1 array element
-  var hasDotted = right.length > 0 && right[right.length - 1].indexOf('.') !== -1;
+  var hasDotted =
+    right.length > 0 && right[right.length - 1].indexOf(".") !== -1;
   var groupCount = left.length + right.length + (hasDotted ? 1 : 0);
   if (idx === -1) {
     if (groupCount !== 8) {
@@ -639,7 +673,7 @@ function ipv6ToBuffer(ip) {
   if (idx !== -1) {
     var fill = 8 - groupCount;
     for (var f = 0; f < fill; f++) {
-      groups.push('0');
+      groups.push("0");
     }
   }
   for (var r = 0; r < right.length; r++) {
@@ -649,15 +683,15 @@ function ipv6ToBuffer(ip) {
   var bytePos = 0;
   for (var i = 0; i < groups.length; i++) {
     var g = groups[i];
-    if (g === '') {
+    if (g === "") {
       return null;
     }
-    if (g.indexOf('.') !== -1) {
+    if (g.indexOf(".") !== -1) {
       // dotted-quad must be the last 4 bytes (groups 6+7)
       if (bytePos !== 12) {
         return null;
       }
-      var octets = g.split('.');
+      var octets = g.split(".");
       if (octets.length !== 4) {
         return null;
       }
@@ -711,16 +745,16 @@ function ipv6InCidr(packed, prefix, prefixLength) {
 // parity with PHP SsrfGuard. ::/128 and ::1/128 are matched separately above
 // the table in isPrivateOrReservedIP.
 const BLOCKED_IPV6_CIDRS = [
-  [ipv6ToBuffer('fc00::'), 7],
-  [ipv6ToBuffer('fe80::'), 10],
-  [ipv6ToBuffer('ff00::'), 8],
-  [ipv6ToBuffer('100::'), 64],
-  [ipv6ToBuffer('64:ff9b:1::'), 48],
+  [ipv6ToBuffer("fc00::"), 7],
+  [ipv6ToBuffer("fe80::"), 10],
+  [ipv6ToBuffer("ff00::"), 8],
+  [ipv6ToBuffer("100::"), 64],
+  [ipv6ToBuffer("64:ff9b:1::"), 48],
 ];
-const IPV6_MAPPED_PREFIX = ipv6ToBuffer('::ffff:0:0');
-const IPV6_COMPAT_PREFIX = ipv6ToBuffer('::');
-const IPV6_NAT64_PREFIX = ipv6ToBuffer('64:ff9b::');
-const IPV6_6TO4_PREFIX = ipv6ToBuffer('2002::');
+const IPV6_MAPPED_PREFIX = ipv6ToBuffer("::ffff:0:0");
+const IPV6_COMPAT_PREFIX = ipv6ToBuffer("::");
+const IPV6_NAT64_PREFIX = ipv6ToBuffer("64:ff9b::");
+const IPV6_6TO4_PREFIX = ipv6ToBuffer("2002::");
 
 /**
  * Check if an IP address is in a private, reserved, loopback, link-local,
@@ -746,28 +780,36 @@ const IPV6_6TO4_PREFIX = ipv6ToBuffer('2002::');
  * same posture.
  */
 function isPrivateOrReservedIP(ip) {
-  if (!ip || typeof ip !== 'string') {
+  if (!ip || typeof ip !== "string") {
     return true;
   }
   // Security (SEC-SSRF): drop an RFC 4007 zone index (fe80::1%eth0) before
   // packing so scoped link-local addresses cannot fall through to the IPv4
   // branch unrecognised.
-  var zoneIndex = ip.indexOf('%');
-  var packed = ipv6ToBuffer(zoneIndex > 0 && ip.indexOf(':') !== -1 ? ip.slice(0, zoneIndex) : ip);
+  var zoneIndex = ip.indexOf("%");
+  var packed = ipv6ToBuffer(
+    zoneIndex > 0 && ip.indexOf(":") !== -1 ? ip.slice(0, zoneIndex) : ip,
+  );
   if (packed) {
     // IPv6 unspecified (::) and loopback (::1) — matched on packed bytes so
     // every equivalent spelling (::, ::0001, 0:0:0:0:0:0:0:1, ::0.0.0.1) is
     // caught, not just the canonical text forms.
     var allZero = true;
     for (var z = 0; z < 16; z++) {
-      if (packed[z] !== 0) { allZero = false; break; }
+      if (packed[z] !== 0) {
+        allZero = false;
+        break;
+      }
     }
     if (allZero) {
       return true;
     }
     var isLoopback = true;
     for (var l = 0; l < 15; l++) {
-      if (packed[l] !== 0) { isLoopback = false; break; }
+      if (packed[l] !== 0) {
+        isLoopback = false;
+        break;
+      }
     }
     if (isLoopback && packed[15] === 1) {
       return true;
@@ -780,7 +822,9 @@ function isPrivateOrReservedIP(ip) {
     // NAT64 (RFC 8215; not globally routable and its IPv4 position depends on
     // the operator's prefix length, so the whole /48 is refused).
     for (var b = 0; b < BLOCKED_IPV6_CIDRS.length; b++) {
-      if (ipv6InCidr(packed, BLOCKED_IPV6_CIDRS[b][0], BLOCKED_IPV6_CIDRS[b][1])) {
+      if (
+        ipv6InCidr(packed, BLOCKED_IPV6_CIDRS[b][0], BLOCKED_IPV6_CIDRS[b][1])
+      ) {
         return true;
       }
     }
@@ -796,10 +840,14 @@ function isPrivateOrReservedIP(ip) {
       ipv6InCidr(packed, IPV6_COMPAT_PREFIX, 96) ||
       ipv6InCidr(packed, IPV6_NAT64_PREFIX, 96)
     ) {
-      return isPrivateOrReservedIPv4(packed[12] + '.' + packed[13] + '.' + packed[14] + '.' + packed[15]);
+      return isPrivateOrReservedIPv4(
+        packed[12] + "." + packed[13] + "." + packed[14] + "." + packed[15],
+      );
     }
     if (ipv6InCidr(packed, IPV6_6TO4_PREFIX, 16)) {
-      return isPrivateOrReservedIPv4(packed[2] + '.' + packed[3] + '.' + packed[4] + '.' + packed[5]);
+      return isPrivateOrReservedIPv4(
+        packed[2] + "." + packed[3] + "." + packed[4] + "." + packed[5],
+      );
     }
     // any other IPv6 is treated as a public v6 address
     return false;
@@ -821,12 +869,11 @@ async function validateUrlNotSSRF(urlString) {
   var parsed;
   try {
     parsed = new URL(urlString);
-  }
-  catch (e) {
+  } catch (e) {
     return false;
   }
   var protocol = parsed.protocol.toLowerCase();
-  if (protocol !== 'http:' && protocol !== 'https:') {
+  if (protocol !== "http:" && protocol !== "https:") {
     return false;
   }
   var hostname = parsed.hostname;
@@ -843,60 +890,59 @@ async function validateUrlNotSSRF(urlString) {
         return false;
       }
     }
-  }
-  catch (e) {
+  } catch (e) {
     return false;
   }
   return true;
 }
 
 // a site object
-class HAXCMSFile
-{
+class HAXCMSFile {
   /**
    * Save file into this site, optionally updating reference inside the page
    */
-  async save(tmpFile, site, page = null, imageOps = null, subfolder = '')
-  { 
+  async save(tmpFile, site, page = null, imageOps = null, subfolder = "") {
     var returnData = {};
     // check for a file upload
-    if (tmpFile['path']) {
+    if (tmpFile["path"]) {
       // get contents of the file if it was uploaded into a variable
-      let filedata = tmpFile['path'];
-      const isBulkImport = !!tmpFile['bulk-import'];
+      let filedata = tmpFile["path"];
+      const isBulkImport = !!tmpFile["bulk-import"];
       // optional subfolder under files/ (e.g. 'decks/mydeck') so callers like
       // importPptxDeck can target a nested collection while still getting
       // extension/MIME validation, sanitization, and collision-safe renaming.
       // strip leading/trailing slashes so the join is predictable.
-      var subfolderPart = '';
-      if (subfolder && typeof subfolder === 'string') {
-        subfolderPart = subfolder.replace(/^\/+|\/+$/g, '');
+      var subfolderPart = "";
+      if (subfolder && typeof subfolder === "string") {
+        subfolderPart = subfolder.replace(/^\/+|\/+$/g, "");
         if (subfolderPart) {
-          subfolderPart = subfolderPart + '/';
+          subfolderPart = subfolderPart + "/";
         }
       }
-      let pathPart = site.siteDirectory + '/files/' + subfolderPart;
+      let pathPart = site.siteDirectory + "/files/" + subfolderPart;
       // ensure this path exists (recursive handles nested subfolders)
       if (!fs.existsSync(pathPart)) {
         fs.mkdirSync(pathPart, { recursive: true });
       }
-      let incomingName = '';
+      let incomingName = "";
       if (tmpFile.originalname) {
         incomingName = tmpFile.originalname;
-      }
-      else if (tmpFile.name) {
+      } else if (tmpFile.name) {
         incomingName = tmpFile.name;
       }
       let sanitizedIncomingName = normalizeFilenameExtensionCasing(
-        stripExecutableExtensionPatterns(incomingName)
+        stripExecutableExtensionPatterns(incomingName),
       );
       // ensure file is an image, video, docx, pdf, etc. of safe file types to allow uploading
-      if (!sanitizedIncomingName || !ALLOWED_UPLOAD_EXTENSION_PATTERN.test(sanitizedIncomingName)) {
+      if (
+        !sanitizedIncomingName ||
+        !ALLOWED_UPLOAD_EXTENSION_PATTERN.test(sanitizedIncomingName)
+      ) {
         return {
-          'status' : 500,
-          'data' : {
-            'message' : 'File type not allowed',
-          }
+          status: 500,
+          data: {
+            message: "File type not allowed",
+          },
         };
       }
       // Security (HAX-SEC-004): enforce the configured maxUploadSizeMb as an
@@ -904,22 +950,28 @@ class HAXCMSFile
       // hard cap; this enforces the site's configured limit (if smaller) using
       // the multer-reported tmpFile.size. The remote-download path is checked
       // separately after the download completes.
-      if (typeof tmpFile['size'] === 'number' && tmpFile['size'] > 0) {
+      if (typeof tmpFile["size"] === "number" && tmpFile["size"] > 0) {
         try {
           var sizeSettings = await readMediaSettings(HAXCMS);
-          if (sizeSettings && typeof sizeSettings.maxUploadSizeMb === 'number' && sizeSettings.maxUploadSizeMb > 0) {
+          if (
+            sizeSettings &&
+            typeof sizeSettings.maxUploadSizeMb === "number" &&
+            sizeSettings.maxUploadSizeMb > 0
+          ) {
             var maxBytes = sizeSettings.maxUploadSizeMb * 1024 * 1024;
-            if (tmpFile['size'] > maxBytes) {
+            if (tmpFile["size"] > maxBytes) {
               return {
-                'status': 500,
-                'data': {
-                  'message': 'File exceeds the maximum upload size of ' + sizeSettings.maxUploadSizeMb + 'MB',
-                }
+                status: 500,
+                data: {
+                  message:
+                    "File exceeds the maximum upload size of " +
+                    sizeSettings.maxUploadSizeMb +
+                    "MB",
+                },
               };
             }
           }
-        }
-        catch (e) {}
+        } catch (e) {}
       }
       // Bulk import: preserve the directory tree encoded in the incoming name
       // (e.g. 'files/assets/x.png' or 'assets/x.png'), mirroring PHP HAXCMSFile
@@ -928,24 +980,26 @@ class HAXCMSFile
       // Security (SEC-18): reject traversal/null-byte/absolute dirnames so a
       // crafted upload name cannot write outside the site files dir. Non-bulk
       // imports keep the legacy flatten-slashes sanitization below.
-      var importDirnamePart = '';
+      var importDirnamePart = "";
       if (isBulkImport) {
-        var importNameRelative = String(incomingName).replace(/files\//g, '');
+        var importNameRelative = String(incomingName).replace(/files\//g, "");
         var importParsed = path.parse(importNameRelative);
         var importDir = importParsed.dir;
-        var importDirNorm = String(importDir).replace(/\\/g, '/');
+        var importDirNorm = String(importDir).replace(/\\/g, "/");
         if (
-          String(importDir).indexOf('\0') !== -1 ||
-          importDirNorm.indexOf('..') !== -1 ||
-          (importDir !== '' && importDir !== '.' && importDirNorm.charAt(0) === '/')
+          String(importDir).indexOf("\0") !== -1 ||
+          importDirNorm.indexOf("..") !== -1 ||
+          (importDir !== "" &&
+            importDir !== "." &&
+            importDirNorm.charAt(0) === "/")
         ) {
           return {
-            'status': 500,
-            'data': { 'message': 'Invalid bulk import path' },
+            status: 500,
+            data: { message: "Invalid bulk import path" },
           };
         }
-        if (importDir !== '' && importDir !== '.') {
-          importDirnamePart = importDirNorm + '/';
+        if (importDir !== "" && importDir !== ".") {
+          importDirnamePart = importDirNorm + "/";
           var nestedDir = path.join(pathPart, importDirnamePart);
           if (!fs.existsSync(nestedDir)) {
             fs.mkdirSync(nestedDir, { recursive: true });
@@ -955,46 +1009,59 @@ class HAXCMSFile
       // For bulk import the directory tree is preserved via importDirnamePart
       // above; sanitize only the basename. For non-bulk imports, keep the
       // legacy flatten-slashes sanitization of the full incoming name.
-      var sanitizeBaseName = isBulkImport ? path.basename(sanitizedIncomingName) : sanitizedIncomingName;
-      let newFilename = sanitizeBaseName.replace(/[\/\\?%*:|"<>]/g, '-').replace(/\s+/g, '-');
+      var sanitizeBaseName = isBulkImport
+        ? path.basename(sanitizedIncomingName)
+        : sanitizedIncomingName;
+      let newFilename = sanitizeBaseName
+        .replace(/[/\\?%*:|"<>]/g, "-")
+        .replace(/\s+/g, "-");
       // The write directory for the sanitized basename: the nested bulk-import
       // dir when present, otherwise the flat files/ (subfolderPart) dir.
-      var collisionDir = importDirnamePart ? path.join(pathPart, importDirnamePart) : pathPart;
+      var collisionDir = importDirnamePart
+        ? path.join(pathPart, importDirnamePart)
+        : pathPart;
       const { name, ext } = path.parse(newFilename);
       let counter = 1;
       while (fs.existsSync(path.join(collisionDir, newFilename))) {
         newFilename = `${name}_${counter}${ext}`;
-        counter++
+        counter++;
       }
       // relative path (from site root) used in the response file object and the
       // uuid/datastore records so callers learn the exact location, including
       // any subfolder / bulk-import nested dir / collision suffix
-      var fileRelativePath = 'files/' + subfolderPart + importDirnamePart + newFilename;
+      var fileRelativePath =
+        "files/" + subfolderPart + importDirnamePart + newFilename;
       let sourcePath = filedata;
       let remoteDownloadPath = null;
       if (isBulkImport && !isValidBulkImportStagedPath(filedata)) {
         return {
-          'status' : 500,
-          'data' : {
-            'message' : 'Invalid bulk import source',
-          }
+          status: 500,
+          data: {
+            message: "Invalid bulk import source",
+          },
         };
       }
-      if (!isBulkImport && (filedata.startsWith('https://') || filedata.startsWith('http://'))) {
+      if (
+        !isBulkImport &&
+        (filedata.startsWith("https://") || filedata.startsWith("http://"))
+      ) {
         // SSRF guard: block requests to internal/private/metadata IPs
         var isUrlSafe = await validateUrlNotSSRF(filedata);
         if (!isUrlSafe) {
           return {
-            'status' : 500,
-            'data' : {
-              'message' : 'URL target is not allowed',
-            }
+            status: 500,
+            data: {
+              message: "URL target is not allowed",
+            },
           };
         }
         remoteDownloadPath = path.join(
           HAXCMS.configDirectory,
-          'tmp',
-          'haxcms-upload-' + Date.now() + '-' + Math.floor(Math.random() * 1000000)
+          "tmp",
+          "haxcms-upload-" +
+            Date.now() +
+            "-" +
+            Math.floor(Math.random() * 1000000),
         );
         // Security (SEC-SSRF): enforce maxUploadSizeMb while streaming (the
         // download is aborted as soon as it crosses the cap) rather than only
@@ -1002,26 +1069,30 @@ class HAXCMSFile
         var dlStreamCapMb = null;
         try {
           var dlCapSettings = await readMediaSettings(HAXCMS);
-          if (dlCapSettings && typeof dlCapSettings.maxUploadSizeMb === 'number' && dlCapSettings.maxUploadSizeMb > 0) {
+          if (
+            dlCapSettings &&
+            typeof dlCapSettings.maxUploadSizeMb === "number" &&
+            dlCapSettings.maxUploadSizeMb > 0
+          ) {
             dlStreamCapMb = dlCapSettings.maxUploadSizeMb;
           }
-        }
-        catch (capErr) {}
+        } catch (capErr) {}
         try {
           try {
             await downloadAndSaveFile(filedata, remoteDownloadPath, {
               maxBytes: dlStreamCapMb ? dlStreamCapMb * 1024 * 1024 : undefined,
             });
-          }
-          catch (dlErr) {
-            if (dlErr && dlErr.code === 'SSRF_TOO_LARGE') {
+          } catch (dlErr) {
+            if (dlErr && dlErr.code === "SSRF_TOO_LARGE") {
               return {
-                'status': 500,
-                'data': {
-                  'message': dlStreamCapMb
-                    ? 'Downloaded file exceeds the maximum upload size of ' + dlStreamCapMb + 'MB'
-                    : 'Downloaded file exceeds the maximum allowed size',
-                }
+                status: 500,
+                data: {
+                  message: dlStreamCapMb
+                    ? "Downloaded file exceeds the maximum upload size of " +
+                      dlStreamCapMb +
+                      "MB"
+                    : "Downloaded file exceeds the maximum allowed size",
+                },
               };
             }
             throw dlErr;
@@ -1032,41 +1103,49 @@ class HAXCMSFile
           try {
             var dlStats = fs.statSync(remoteDownloadPath);
             var dlSizeSettings = await readMediaSettings(HAXCMS);
-            if (dlSizeSettings && typeof dlSizeSettings.maxUploadSizeMb === 'number' && dlSizeSettings.maxUploadSizeMb > 0) {
+            if (
+              dlSizeSettings &&
+              typeof dlSizeSettings.maxUploadSizeMb === "number" &&
+              dlSizeSettings.maxUploadSizeMb > 0
+            ) {
               var dlMaxBytes = dlSizeSettings.maxUploadSizeMb * 1024 * 1024;
               if (dlStats.size > dlMaxBytes) {
                 fs.removeSync(remoteDownloadPath);
                 return {
-                  'status': 500,
-                  'data': {
-                    'message': 'Downloaded file exceeds the maximum upload size of ' + dlSizeSettings.maxUploadSizeMb + 'MB',
-                  }
+                  status: 500,
+                  data: {
+                    message:
+                      "Downloaded file exceeds the maximum upload size of " +
+                      dlSizeSettings.maxUploadSizeMb +
+                      "MB",
+                  },
                 };
               }
             }
-          }
-          catch (sizeErr) {}
-        }
-        catch (err) {
+          } catch (sizeErr) {}
+        } catch (err) {
           console.warn(err);
           return {
-            'status' : 500,
-            'data' : {
-              'message' : 'Failed to download remote file source',
-            }
+            status: 500,
+            data: {
+              message: "Failed to download remote file source",
+            },
           };
         }
       }
-      const mimeValidation = await validateUploadMimeAndContent(sourcePath, newFilename);
+      const mimeValidation = await validateUploadMimeAndContent(
+        sourcePath,
+        newFilename,
+      );
       if (!mimeValidation.valid) {
         if (remoteDownloadPath && fs.existsSync(remoteDownloadPath)) {
           fs.removeSync(remoteDownloadPath);
         }
         return {
-          'status' : 500,
-          'data' : {
-            'message' : mimeValidation.message,
-          }
+          status: 500,
+          data: {
+            message: mimeValidation.message,
+          },
         };
       }
       const detectedMimeType = mimeValidation.detectedMime;
@@ -1077,49 +1156,45 @@ class HAXCMSFile
           var preMoveStats = fs.lstatSync(sourcePath);
           if (preMoveStats.isSymbolicLink()) {
             return {
-              'status': 500,
-              'data': {
-                'message': 'Bulk import source replaced with symlink',
-              }
+              status: 500,
+              data: {
+                message: "Bulk import source replaced with symlink",
+              },
             };
           }
-        }
-        catch (e) {
+        } catch (e) {
           return {
-            'status': 500,
-            'data': {
-              'message': 'Unable to verify bulk import source',
-            }
+            status: 500,
+            data: {
+              message: "Unable to verify bulk import source",
+            },
           };
         }
       }
       try {
         fs.moveSync(sourcePath, fullpath);
-      }
-      catch(err) {
+      } catch (err) {
         console.warn(err);
         return {
           status: 500,
           data: {
-            message: 'Unable to save file to target location',
-          }
+            message: "Unable to save file to target location",
+          },
         };
       }
-      if (detectedMimeType === 'image/jpeg') {
+      if (detectedMimeType === "image/jpeg") {
         try {
           await applyConfiguredJpegUploadQuality(fullpath);
-        }
-        catch (e) {
+        } catch (e) {
           console.warn(e);
         }
       }
       //@todo make a way of defining these as returns as well as number to take
       // specialized support for images to do scale and crop stuff automatically
-      if (['image/png',
-        'image/jpeg',
-        'image/gif',
-        'image/webp'
-        ].includes(detectedMimeType)
+      if (
+        ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+          detectedMimeType,
+        )
       ) {
         // ensure folders exist
         // @todo comment this all in once we have a better way of doing it
@@ -1140,27 +1215,26 @@ class HAXCMSFile
             .save(path + 'crop-sm/' + upload['name']);*/
         // fake the file object creation stuff from CMS land
         returnData = {
-          'file': {
-            'path': fileRelativePath,
-            'fullUrl': buildFilePublicUrl(site, fileRelativePath),
-            'url' : fileRelativePath,
-            'type' : detectedMimeType,
-            'name' : newFilename,
-            'size' : tmpFile['size']
-          }
+          file: {
+            path: fileRelativePath,
+            fullUrl: buildFilePublicUrl(site, fileRelativePath),
+            url: fileRelativePath,
+            type: detectedMimeType,
+            name: newFilename,
+            size: tmpFile["size"],
+          },
         };
-      }
-      else {
+      } else {
         // fake the file object creation stuff from CMS land
         returnData = {
-            'file':{
-                'path': fileRelativePath,
-                'fullUrl' : buildFilePublicUrl(site, fileRelativePath),
-                'url': fileRelativePath,
-                'type': detectedMimeType,
-                'name': newFilename,
-                'size': tmpFile['size']
-            }
+          file: {
+            path: fileRelativePath,
+            fullUrl: buildFilePublicUrl(site, fileRelativePath),
+            url: fileRelativePath,
+            type: detectedMimeType,
+            name: newFilename,
+            size: tmpFile["size"],
+          },
         };
       }
       // #3043: page.metadata.files is now rebuilt by page save from a
@@ -1170,19 +1244,20 @@ class HAXCMSFile
       // perform scale / crop operations if requested
       if (imageOps != null) {
         switch (imageOps) {
-          case 'thumbnail':
+          case "thumbnail":
             const image = await sharp(fullpath)
-            .metadata()
-            .then(({ width }) => sharp(fullpath)
-              .resize({
-                width: 250,
-                height: 250,
-                fit: sharp.fit.cover,
-                position: sharp.strategy.entropy
-              })
-              .toFile(fullpath)
-            );
-          break;
+              .metadata()
+              .then(({ width }) =>
+                sharp(fullpath)
+                  .resize({
+                    width: 250,
+                    height: 250,
+                    fit: sharp.fit.cover,
+                    position: sharp.strategy.entropy,
+                  })
+                  .toFile(fullpath),
+              );
+            break;
         }
       }
       // Enrich the file record with a deterministic uuid (matches the v1
@@ -1193,10 +1268,10 @@ class HAXCMSFile
       // uuid even after jpeg quality re-encoding or an in-place imageOps
       // transform changed the byte count.
       try {
-        let onDiskSize = tmpFile['size'] || 0;
+        let onDiskSize = tmpFile["size"] || 0;
         if (fs.existsSync(fullpath)) {
           const onDiskStats = fs.statSync(fullpath);
-          if (onDiskStats && typeof onDiskStats.size === 'number') {
+          if (onDiskStats && typeof onDiskStats.size === "number") {
             onDiskSize = onDiskStats.size;
           }
         }
@@ -1208,8 +1283,7 @@ class HAXCMSFile
         const dims = await readImageDimensions(fullpath);
         returnData.file.width = dims.width;
         returnData.file.height = dims.height;
-      }
-      catch (enrichErr) {
+      } catch (enrichErr) {
         // best-effort enrichment; never block an otherwise-successful upload
       }
       // #3043: upsert the file record into the per-site files.json datastore
@@ -1219,18 +1293,18 @@ class HAXCMSFile
         try {
           const fileApiPath = fileRelativePath;
           const dataStore = new FilesDataStore(site);
-          const storeRecord = await dataStore.buildFileRecordFromDisk(fileApiPath);
+          const storeRecord =
+            await dataStore.buildFileRecordFromDisk(fileApiPath);
           if (storeRecord) {
             dataStore.upsertRecord(storeRecord);
           }
-        }
-        catch (dataStoreErr) {
+        } catch (dataStoreErr) {
           // best-effort; never block an otherwise-successful upload
         }
       }
       return {
-          'status': 200,
-          'data': returnData
+        status: 200,
+        data: returnData,
       };
     }
   }
@@ -1255,7 +1329,7 @@ const REMOTE_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
  */
 async function downloadAndSaveFile(url, filepath, options) {
   // lazy require: safeFetch.js requires this module (isPrivateOrReservedIP)
-  const { safeFetchToFile } = require('./safeFetch.js');
+  const { safeFetchToFile } = require("./safeFetch.js");
   const opts = options || {};
   fs.ensureDirSync(path.dirname(filepath));
   return await safeFetchToFile(url, filepath, {

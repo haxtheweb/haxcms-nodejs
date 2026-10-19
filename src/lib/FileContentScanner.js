@@ -1,6 +1,6 @@
-'use strict';
+"use strict";
 
-const FilesDataStore = require('./FilesDataStore.js');
+const FilesDataStore = require("./FilesDataStore.js");
 
 // Extract file references from saved page HTML (Phase 2, issue #3043).
 //
@@ -26,21 +26,23 @@ class FileContentScanner {
   // fragments are stripped so the same file referenced with different
   // cache-busters dedupes to one path.
   static extractFileReferences(html) {
-    const htmlStr = String(html || '');
-    if (htmlStr === '') {
+    const htmlStr = String(html || "");
+    if (htmlStr === "") {
       return [];
     }
     // Collect every src="...", href="...", source="...", and poster="..."
     // value. Match single and double-quoted attribute values
     // (case-insensitive tag/attr names). source= covers media-image and
     // video-player; poster= covers video-player poster frames.
-    const regex = /\b(?:src|href|source|poster)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+    const regex =
+      /\b(?:src|href|source|poster)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
     const paths = [];
     let match;
     while ((match = regex.exec(htmlStr)) !== null) {
-      const value = match[1] !== undefined && match[1] !== '' ? match[1] : (match[2] || '');
+      const value =
+        match[1] !== undefined && match[1] !== "" ? match[1] : match[2] || "";
       const normalized = FileContentScanner.normalizeFileReference(value);
-      if (normalized !== '') {
+      if (normalized !== "") {
         paths.push(normalized);
       }
     }
@@ -61,52 +63,52 @@ class FileContentScanner {
   // segments so that absolute-ish site URLs still resolve to the files/
   // relative path. Returns '' for external URLs and non-files paths.
   static normalizeFileReference(value) {
-    let v = String(value || '');
-    if (v === '') {
-      return '';
+    let v = String(value || "");
+    if (v === "") {
+      return "";
     }
     // Strip query string and fragment.
-    const qIndex = v.indexOf('?');
+    const qIndex = v.indexOf("?");
     if (qIndex !== -1) {
       v = v.substring(0, qIndex);
     }
-    const hashIndex = v.indexOf('#');
+    const hashIndex = v.indexOf("#");
     if (hashIndex !== -1) {
       v = v.substring(0, hashIndex);
     }
-    if (v === '') {
-      return '';
+    if (v === "") {
+      return "";
     }
     // Reject external URLs: anything with a scheme, or protocol-relative
     // (//), or data: URIs.
-    if (/^[a-z][a-z0-9+.\-]*:/i.test(v) || v.indexOf('//') === 0) {
-      return '';
+    if (/^[a-z][a-z0-9+.-]*:/i.test(v) || v.indexOf("//") === 0) {
+      return "";
     }
     // Normalize backslashes and trim.
-    v = v.split('\\').join('/');
-    v = v.replace(/^\/+/, '');
+    v = v.split("\\").join("/");
+    v = v.replace(/^\/+/, "");
     // Strip leading './' segments.
-    while (v.indexOf('./') === 0) {
+    while (v.indexOf("./") === 0) {
       v = v.substring(2);
     }
     // If the path contains a sitesDirectory/<siteName>/files/ prefix
     // (e.g. _sites/mysite/files/banner.jpg), reduce to files/banner.jpg.
-    const filesPos = v.indexOf('files/');
+    const filesPos = v.indexOf("files/");
     if (filesPos > 0) {
       const before = v.substring(0, filesPos);
       // Only strip if the preceding segment chain looks like a site
       // path (no other 'files/' in before).
-      if (before.indexOf('files/') === -1) {
+      if (before.indexOf("files/") === -1) {
         v = v.substring(filesPos);
       }
     }
     // Must start with 'files/'.
-    if (v.indexOf('files/') !== 0) {
-      return '';
+    if (v.indexOf("files/") !== 0) {
+      return "";
     }
     // Reject traversal attempts.
-    if (v.indexOf('..') !== -1 || v.indexOf('\0') !== -1) {
-      return '';
+    if (v.indexOf("..") !== -1 || v.indexOf("\0") !== -1) {
+      return "";
     }
     return v;
   }
@@ -124,15 +126,15 @@ class FileContentScanner {
       const dataStore = new FilesDataStore(site);
       for (let i = 0; i < paths.length; i++) {
         const uuid = await dataStore.resolveUuidByPath(paths[i]);
-        if (uuid !== '' && uuids.indexOf(uuid) === -1) {
+        if (uuid !== "" && uuids.indexOf(uuid) === -1) {
           uuids.push(uuid);
         }
       }
     }
-    if (!page || typeof page !== 'object') {
+    if (!page || typeof page !== "object") {
       return uuids;
     }
-    if (!page.metadata || typeof page.metadata !== 'object') {
+    if (!page.metadata || typeof page.metadata !== "object") {
       page.metadata = {};
     }
     page.metadata.files = uuids;

@@ -1,10 +1,10 @@
-const { parse } = require('node-html-parser');
-const HTMLtoDOCX = require('html-to-docx');
+const { parse } = require("node-html-parser");
+const HTMLtoDOCX = require("html-to-docx");
 const {
   resolveExportImages,
   finalizeExportHtml,
   installPdfRequestFilter,
-} = require('./exportImageResolver.js');
+} = require("./exportImageResolver.js");
 
 /**
  * Convert HTML string to a DOCX Buffer.
@@ -15,16 +15,16 @@ const {
  * only remote http(s) images are fetched and relative ones are dropped).
  */
 async function convertHtmlToDocxBuffer(html, imageOptions) {
-  let sanitized = String(html || '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\x00/g, '')
+  let sanitized = String(html || "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/\x00/g, "")
     .trim();
 
   if (!sanitized) {
-    sanitized = '<p>No content available</p>';
+    sanitized = "<p>No content available</p>";
   }
 
   // Security (SEC-SSRF): html-to-docx downloads every http(s) <img src> with
@@ -35,13 +35,19 @@ async function convertHtmlToDocxBuffer(html, imageOptions) {
   // so one broken reference cannot abort the whole conversion. Fail closed:
   // if the pass itself throws, strip all images rather than pass them on.
   try {
-    sanitized = await resolveExportImages(sanitized, Object.assign({}, imageOptions || {}, { output: 'data-uri', allowSvg: false }));
+    sanitized = await resolveExportImages(
+      sanitized,
+      Object.assign({}, imageOptions || {}, {
+        output: "data-uri",
+        allowSvg: false,
+      }),
+    );
   } catch (e) {
-    sanitized = sanitized.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, '');
+    sanitized = sanitized.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, "");
   }
   // Security (SEC-SSRF): fail-closed final pass on the exact string handed to
   // html-to-docx, parsed with html-to-vdom's own htmlparser2 build.
-  sanitized = finalizeExportHtml(sanitized, { consumer: 'docx' });
+  sanitized = finalizeExportHtml(sanitized, { consumer: "docx" });
 
   const options = {
     table: { row: { cantSplit: true } },
@@ -52,9 +58,9 @@ async function convertHtmlToDocxBuffer(html, imageOptions) {
   try {
     return await HTMLtoDOCX(sanitized, null, options);
   } catch (error) {
-    console.error('HTMLtoDOCX conversion error:', error.message);
+    console.error("HTMLtoDOCX conversion error:", error.message);
     const fallbackHtml =
-      '<div><h1>Document Export</h1><p>The original document could not be fully converted. Please try exporting individual pages instead of the entire site.</p></div>';
+      "<div><h1>Document Export</h1><p>The original document could not be fully converted. Please try exporting individual pages instead of the entire site.</p></div>";
     return await HTMLtoDOCX(fallbackHtml, null, {
       table: { row: { cantSplit: true } },
     });
@@ -69,7 +75,7 @@ async function convertHtmlToDocxBuffer(html, imageOptions) {
  * unterminated openers untouched).
  */
 function stripDelimitedSpans(input, open, close) {
-  let result = '';
+  let result = "";
   let pos = 0;
   while (pos < input.length) {
     const start = input.indexOf(open, pos);
@@ -114,7 +120,9 @@ function lazySequenceReplace(input, openRe, steps, replacer) {
   // forward-only caches: { from, start, end } is the first occurrence at or
   // after `from`; it answers any later query whose origin lies in
   // [from, start] (start === Infinity means no occurrence after `from`).
-  const cache = steps.map(function () { return null; });
+  const cache = steps.map(function () {
+    return null;
+  });
   let terminatorCache = null;
   function cachedFor(entry, from) {
     return entry !== null && entry.from <= from && entry.start >= from;
@@ -140,7 +148,7 @@ function lazySequenceReplace(input, openRe, steps, replacer) {
     terminatorCache = { from: from, start: m ? m.index : Infinity };
     return terminatorCache.start;
   }
-  let result = '';
+  let result = "";
   let copied = 0;
   let searchFrom = 0;
   while (searchFrom <= input.length) {
@@ -186,34 +194,34 @@ function lazySequenceReplace(input, openRe, steps, replacer) {
  * Based on the open-apis htmlScrubbers.js utility.
  */
 function dropMatch() {
-  return '';
+  return "";
 }
 function keepQuote() {
   return '"';
 }
 function stripMSWord(input) {
-  if (typeof input !== 'string') {
-    return '';
+  if (typeof input !== "string") {
+    return "";
   }
   let output = input
-    .split('\n\r')
-    .join('\n')
-    .split('\r')
-    .join('\n')
-    .split('\n\n')
-    .join('\n')
-    .split('\n\n')
-    .join('\n')
-    .split('\n\n')
-    .join('\n')
-    .split('\n')
-    .join(' ')
-    .replace(/( class=\")?Mso[a-zA-Z]+(\")?/g, '');
+    .split("\n\r")
+    .join("\n")
+    .split("\r")
+    .join("\n")
+    .split("\n\n")
+    .join("\n")
+    .split("\n\n")
+    .join("\n")
+    .split("\n\n")
+    .join("\n")
+    .split("\n")
+    .join(" ")
+    .replace(/( class=")?Mso[a-zA-Z]+(")?/g, "");
   // Security (PR8-5): the previous /<!--(\s|.)*?-->/ and /<!\?(\s|.)*?>/
   // regexes were O(n^2) on many unterminated openers (180 KB of `<!--` took
   // ~60 s, blocking the event loop). Same semantics, linear time.
-  output = stripDelimitedSpans(output, '<!--', '-->');
-  output = stripDelimitedSpans(output, '<!?', '>');
+  output = stripDelimitedSpans(output, "<!--", "-->");
+  output = stripDelimitedSpans(output, "<!?", ">");
   // Security (PR8-5): every lazy "opener ... closer" pattern below that can
   // see many openers without a closer is routed through lazySequenceReplace
   // (linear) instead of a backtracking regex. Comments name the original.
@@ -233,98 +241,168 @@ function stripMSWord(input) {
       return str.substring(spans[1].end, spans[2].start);
     },
   );
-  const badTags = ['style', 'script', 'applet', 'embed', 'noframes', 'noscript'];
+  const badTags = [
+    "style",
+    "script",
+    "applet",
+    "embed",
+    "noframes",
+    "noscript",
+  ];
   for (let i in badTags) {
     // was: new RegExp('<' + tag + '(s|.)*?' + tag + '(.*?)>', 'gim') -> ''
     // ((s|.) and . both stop at line terminators)
     output = lazySequenceReplace(
       output,
-      new RegExp('<' + badTags[i], 'gi'),
+      new RegExp("<" + badTags[i], "gi"),
       [
-        { re: new RegExp(badTags[i], 'gi'), lineBounded: true },
+        { re: new RegExp(badTags[i], "gi"), lineBounded: true },
         { re: />/g, lineBounded: true },
       ],
       dropMatch,
     );
   }
-  output = output.replace(/ style='(\s|.)*?'/gim, '');
-  output = output.replace(/ style=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ face=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ align=.*? /g, '');
-  output = output.replace(/ start='.*?'/g, '');
+  output = output.replace(/ style='(\s|.)*?'/gim, "");
+  output = output.replace(/ style="(\s|.)*?"/gim, "");
+  output = output.replace(/ face="(\s|.)*?"/gim, "");
+  output = output.replace(/ align=.*? /g, "");
+  output = output.replace(/ start='.*?'/g, "");
   // was: /line-height:.*?\"/g -> '"' and /line-height:.*?;/g -> ''
-  output = lazySequenceReplace(output, /line-height:/g, [{ re: /"/g, lineBounded: true }], keepQuote);
-  output = lazySequenceReplace(output, /line-height:/g, [{ re: /;/g, lineBounded: true }], dropMatch);
-  output = output.replace(/font-weight:normal;/g, '');
-  output = output.replace(/text-decoration:none;/g, '');
+  output = lazySequenceReplace(
+    output,
+    /line-height:/g,
+    [{ re: /"/g, lineBounded: true }],
+    keepQuote,
+  );
+  output = lazySequenceReplace(
+    output,
+    /line-height:/g,
+    [{ re: /;/g, lineBounded: true }],
+    dropMatch,
+  );
+  output = output.replace(/font-weight:normal;/g, "");
+  output = output.replace(/text-decoration:none;/g, "");
   // was: /margin-.*?:.*?\"/g -> '"' and /margin-.*?:.*?;/g -> ''
   output = lazySequenceReplace(
     output,
     /margin-/g,
-    [{ re: /:/g, lineBounded: true }, { re: /"/g, lineBounded: true }],
+    [
+      { re: /:/g, lineBounded: true },
+      { re: /"/g, lineBounded: true },
+    ],
     keepQuote,
   );
   output = lazySequenceReplace(
     output,
     /margin-/g,
-    [{ re: /:/g, lineBounded: true }, { re: /;/g, lineBounded: true }],
+    [
+      { re: /:/g, lineBounded: true },
+      { re: /;/g, lineBounded: true },
+    ],
     dropMatch,
   );
-  output = output.replace(/ style=\"\"/g, '');
-  output = output.replace(/ id=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ dir=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ role=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ contenteditable=\"(\s|.)*?\"/gim, '');
+  output = output.replace(/ style=""/g, "");
+  output = output.replace(/ id="(\s|.)*?"/gim, "");
+  output = output.replace(/ dir="(\s|.)*?"/gim, "");
+  output = output.replace(/ role="(\s|.)*?"/gim, "");
+  output = output.replace(/ contenteditable="(\s|.)*?"/gim, "");
   // was: / data-(\s|.)*?\"(\s|.)*?\"/gim -> ''
-  output = lazySequenceReplace(output, / data-/gi, [{ re: /"/g }, { re: /"/g }], dropMatch);
-  output = output.replace(/ class=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/<pstyle/gm, '<p style');
-  output = output.replace(/<a name=\"_GoBack\"><\/a>/gm, '');
-  output = output.replace(/&nbsp;/gm, ' ');
-  output = output.replace(/<section>/gm, '<p>');
-  output = output.replace(/<\/section>/gm, '</p>');
-  output = output.replace(/<p><p>/gm, '<p>');
-  output = output.replace(/<p><p>/gm, '<p>');
-  output = output.replace(/<\/p><\/p>/gm, '</p>');
-  output = output.replace(/<\/p><\/p>/gm, '</p>');
-  output = output.replace(/<br \/>/gm, '<br/>');
-  output = output.replace(/<p><br \/><b>/gm, '<p><b>');
-  output = output.replace(/<\/p><br \/><\/b>/gm, '</p></b>');
-  output = output.replace(/<b><p>/gm, '<p>');
-  output = output.replace(/<\/p><\/b>/gm, '</p>');
-  output = output.replace(/<b>/gm, '<strong>');
-  output = output.replace(/<\/b>/gm, '</strong>');
-  output = lazySequenceReplace(output, /<p style="/g, [{ re: /">/g, lineBounded: true }], function () { return '<p>'; });
-  output = lazySequenceReplace(output, /<ul style="/g, [{ re: /">/g, lineBounded: true }], function () { return '<ul>'; });
-  output = lazySequenceReplace(output, /<ol style="/g, [{ re: /">/g, lineBounded: true }], function () { return '<ol>'; });
-  output = lazySequenceReplace(output, /<li style="/g, [{ re: /">/g, lineBounded: true }], function () { return '<li>'; });
-  output = lazySequenceReplace(output, /<td style="/g, [{ re: /">/g, lineBounded: true }], function () { return '<td>'; });
-  output = lazySequenceReplace(output, /<tr style="/g, [{ re: /">/g, lineBounded: true }], function () { return '<tr>'; });
-  output = output.replace(/<li><p>/gm, '<li>');
-  output = output.replace(/<\/p><\/li>/gm, '</li>');
-  output = output.replace(/<b><ul>/gm, '<ul>');
-  output = output.replace(/<\/ul><\/b>/gm, '</ul>');
-  output = output.replace(/<b><ol>/gm, '<ol>');
-  output = output.replace(/<\/ol><\/b>/gm, '</ol>');
-  output = output.replace(/<span><p>/gm, '<p>');
-  output = output.replace(/<\/p><\/span>/gm, '</p>');
-  output = output.replace(/<p>(\s*)<\/p>/gm, ' ');
-  output = output.replace(/<p><\/p>/gm, '');
-  output = output.replace(/<p>&nbsp;<\/p>/gm, ' ');
-  output = output.replace(/<p><br\/><\/p>/gm, '');
-  output = output.replace(/<p><br><\/p>/gm, '');
-  output = output.replace(/<\/p>(\s*)<p>/gm, '</p><p>');
-  output = output.replace(/ data-hax-ray=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ class=\"\"/gim, '');
-  output = output.replace(/ class=\"hax-active\"/gim, '');
-  output = output.replace(/ contenteditable=\"(\s|.)*?\"/gim, '');
-  output = output.replace(/ t=\"(\s|.)*?\"/gim, '');
+  output = lazySequenceReplace(
+    output,
+    / data-/gi,
+    [{ re: /"/g }, { re: /"/g }],
+    dropMatch,
+  );
+  output = output.replace(/ class="(\s|.)*?"/gim, "");
+  output = output.replace(/<pstyle/gm, "<p style");
+  output = output.replace(/<a name="_GoBack"><\/a>/gm, "");
+  output = output.replace(/&nbsp;/gm, " ");
+  output = output.replace(/<section>/gm, "<p>");
+  output = output.replace(/<\/section>/gm, "</p>");
+  output = output.replace(/<p><p>/gm, "<p>");
+  output = output.replace(/<p><p>/gm, "<p>");
+  output = output.replace(/<\/p><\/p>/gm, "</p>");
+  output = output.replace(/<\/p><\/p>/gm, "</p>");
+  output = output.replace(/<br \/>/gm, "<br/>");
+  output = output.replace(/<p><br \/><b>/gm, "<p><b>");
+  output = output.replace(/<\/p><br \/><\/b>/gm, "</p></b>");
+  output = output.replace(/<b><p>/gm, "<p>");
+  output = output.replace(/<\/p><\/b>/gm, "</p>");
+  output = output.replace(/<b>/gm, "<strong>");
+  output = output.replace(/<\/b>/gm, "</strong>");
+  output = lazySequenceReplace(
+    output,
+    /<p style="/g,
+    [{ re: /">/g, lineBounded: true }],
+    function () {
+      return "<p>";
+    },
+  );
+  output = lazySequenceReplace(
+    output,
+    /<ul style="/g,
+    [{ re: /">/g, lineBounded: true }],
+    function () {
+      return "<ul>";
+    },
+  );
+  output = lazySequenceReplace(
+    output,
+    /<ol style="/g,
+    [{ re: /">/g, lineBounded: true }],
+    function () {
+      return "<ol>";
+    },
+  );
+  output = lazySequenceReplace(
+    output,
+    /<li style="/g,
+    [{ re: /">/g, lineBounded: true }],
+    function () {
+      return "<li>";
+    },
+  );
+  output = lazySequenceReplace(
+    output,
+    /<td style="/g,
+    [{ re: /">/g, lineBounded: true }],
+    function () {
+      return "<td>";
+    },
+  );
+  output = lazySequenceReplace(
+    output,
+    /<tr style="/g,
+    [{ re: /">/g, lineBounded: true }],
+    function () {
+      return "<tr>";
+    },
+  );
+  output = output.replace(/<li><p>/gm, "<li>");
+  output = output.replace(/<\/p><\/li>/gm, "</li>");
+  output = output.replace(/<b><ul>/gm, "<ul>");
+  output = output.replace(/<\/ul><\/b>/gm, "</ul>");
+  output = output.replace(/<b><ol>/gm, "<ol>");
+  output = output.replace(/<\/ol><\/b>/gm, "</ol>");
+  output = output.replace(/<span><p>/gm, "<p>");
+  output = output.replace(/<\/p><\/span>/gm, "</p>");
+  output = output.replace(/<p>(\s*)<\/p>/gm, " ");
+  output = output.replace(/<p><\/p>/gm, "");
+  output = output.replace(/<p>&nbsp;<\/p>/gm, " ");
+  output = output.replace(/<p><br\/><\/p>/gm, "");
+  output = output.replace(/<p><br><\/p>/gm, "");
+  output = output.replace(/<\/p>(\s*)<p>/gm, "</p><p>");
+  output = output.replace(/ data-hax-ray="(\s|.)*?"/gim, "");
+  output = output.replace(/ class=""/gim, "");
+  output = output.replace(/ class="hax-active"/gim, "");
+  output = output.replace(/ contenteditable="(\s|.)*?"/gim, "");
+  output = output.replace(/ t="(\s|.)*?"/gim, "");
   for (let j in badTags) {
     let emptyTagRemove = new RegExp(
-      '<' + badTags[j] + '></' + badTags[j] + '>',
-      'gi',
+      "<" + badTags[j] + "></" + badTags[j] + ">",
+      "gi",
     );
-    output = output.replace(emptyTagRemove, '');
+    output = output.replace(emptyTagRemove, "");
   }
   output = output.trim();
   return output;
@@ -340,7 +418,7 @@ function validURL(str) {
   } catch (_) {
     return false;
   }
-  return url.protocol === 'http:' || url.protocol === 'https:';
+  return url.protocol === "http:" || url.protocol === "https:";
 }
 
 /**
@@ -352,27 +430,22 @@ function htmlFromEl(el) {
   let textValue = el.innerText.trim();
   if (
     validURL(textValue) &&
-    (textValue.includes('youtube.com') ||
-      textValue.includes('youtu.be') ||
-      textValue.includes('youtube-nocookie.com') ||
-      textValue.includes('vimeo.com') ||
-      textValue.toLowerCase().includes('.mp4'))
+    (textValue.includes("youtube.com") ||
+      textValue.includes("youtu.be") ||
+      textValue.includes("youtube-nocookie.com") ||
+      textValue.includes("vimeo.com") ||
+      textValue.toLowerCase().includes(".mp4"))
   ) {
     return `<video-player source="${textValue}"></video-player>`;
-  }
-  else if (
+  } else if (
     validURL(textValue) &&
-    (textValue.toLowerCase().includes('.jpg') ||
-      textValue.toLowerCase().includes('.jpeg') ||
-      textValue.toLowerCase().includes('.png') ||
-      textValue.toLowerCase().includes('.webp'))
+    (textValue.toLowerCase().includes(".jpg") ||
+      textValue.toLowerCase().includes(".jpeg") ||
+      textValue.toLowerCase().includes(".png") ||
+      textValue.toLowerCase().includes(".webp"))
   ) {
     return `<img src="${textValue}" loading="lazy" decoding="async" fetchpriority="high" alt="" />`;
-  }
-  else if (
-    validURL(textValue) &&
-    textValue.toLowerCase().includes('.gif')
-  ) {
+  } else if (validURL(textValue) && textValue.toLowerCase().includes(".gif")) {
     return `<a11y-gif-player src="${textValue}" style="width: 300px;">
       <simple-img width="300" src="${textValue}"></simple-img>
     </a11y-gif-player>`;
@@ -380,65 +453,59 @@ function htmlFromEl(el) {
   // audio (mp3 / wav / ogg / m4a / flac / aac / mid / midi)
   else if (
     validURL(textValue) &&
-    (textValue.toLowerCase().includes('.mp3') ||
-      textValue.toLowerCase().includes('.wav') ||
-      textValue.toLowerCase().includes('.ogg') ||
-      textValue.toLowerCase().includes('.m4a') ||
-      textValue.toLowerCase().includes('.flac') ||
-      textValue.toLowerCase().includes('.aac') ||
-      textValue.toLowerCase().includes('.mid') ||
-      textValue.toLowerCase().includes('.midi'))
+    (textValue.toLowerCase().includes(".mp3") ||
+      textValue.toLowerCase().includes(".wav") ||
+      textValue.toLowerCase().includes(".ogg") ||
+      textValue.toLowerCase().includes(".m4a") ||
+      textValue.toLowerCase().includes(".flac") ||
+      textValue.toLowerCase().includes(".aac") ||
+      textValue.toLowerCase().includes(".mid") ||
+      textValue.toLowerCase().includes(".midi"))
   ) {
     return `<audio-player source="${textValue}"></audio-player>`;
   }
   // pdf
-  else if (
-    validURL(textValue) &&
-    textValue.toLowerCase().includes('.pdf')
-  ) {
+  else if (validURL(textValue) && textValue.toLowerCase().includes(".pdf")) {
     return `<pdf-browser-viewer file="${textValue}" width="100%"></pdf-browser-viewer>`;
-  }
-  else if (textValue.startsWith('[') && textValue.endsWith(']')) {
-    let tmp = textValue.split(':');
+  } else if (textValue.startsWith("[") && textValue.endsWith("]")) {
+    let tmp = textValue.split(":");
     if (tmp.length > 1) {
-      let type = tmp.shift().replace('[', '');
-      let text = tmp.join(':').replace(']', '').trim();
+      let type = tmp.shift().replace("[", "");
+      let text = tmp.join(":").replace("]", "").trim();
       switch (type) {
-        case 'math':
-        case 'mathjax':
+        case "math":
+        case "mathjax":
           return `<lrn-math>${text}</lrn-math>`;
-        case 'video':
-        case 'audio':
-        case 'document':
-        case 'text':
-        case 'image':
+        case "video":
+        case "audio":
+        case "document":
+        case "text":
+        case "image":
           return `<place-holder type="${type}" text="${text}"></place-holder>`;
       }
     }
-    textValue = textValue.replace('[', '').replace(']', '').trim();
+    textValue = textValue.replace("[", "").replace("]", "").trim();
     if (
       validURL(textValue) &&
-      (textValue.includes('youtube.com') ||
-        textValue.includes('youtu.be') ||
-        textValue.includes('youtube-nocookie.com') ||
-        textValue.includes('vimeo.com') ||
-        textValue.includes('twitch.tv') ||
-        textValue.toLowerCase().includes('.mp4'))
+      (textValue.includes("youtube.com") ||
+        textValue.includes("youtu.be") ||
+        textValue.includes("youtube-nocookie.com") ||
+        textValue.includes("vimeo.com") ||
+        textValue.includes("twitch.tv") ||
+        textValue.toLowerCase().includes(".mp4"))
     ) {
       return `<video-player source="${textValue}"></video-player>`;
-    }
-    else if (
+    } else if (
       validURL(textValue) &&
-      (textValue.toLowerCase().includes('.jpg') ||
-        textValue.toLowerCase().includes('.jpeg') ||
-        textValue.toLowerCase().includes('.png') ||
-        textValue.toLowerCase().includes('.webp'))
+      (textValue.toLowerCase().includes(".jpg") ||
+        textValue.toLowerCase().includes(".jpeg") ||
+        textValue.toLowerCase().includes(".png") ||
+        textValue.toLowerCase().includes(".webp"))
     ) {
       return `<img src="${textValue}" loading="lazy" decoding="async" fetchpriority="high" alt="" />`;
-    }
-    else if (
+    } else if (
       validURL(textValue) &&
-      textValue.toLowerCase().includes('.gif')
+      textValue.toLowerCase().includes(".gif")
     ) {
       return `<a11y-gif-player src="${textValue}" style="width: 300px;">
         <simple-img width="300" src="${textValue}"></simple-img>
@@ -447,36 +514,31 @@ function htmlFromEl(el) {
     // audio (mp3 / wav / ogg / m4a / flac / aac / mid / midi)
     else if (
       validURL(textValue) &&
-      (textValue.toLowerCase().includes('.mp3') ||
-        textValue.toLowerCase().includes('.wav') ||
-        textValue.toLowerCase().includes('.ogg') ||
-        textValue.toLowerCase().includes('.m4a') ||
-        textValue.toLowerCase().includes('.flac') ||
-        textValue.toLowerCase().includes('.aac') ||
-        textValue.toLowerCase().includes('.mid') ||
-        textValue.toLowerCase().includes('.midi'))
+      (textValue.toLowerCase().includes(".mp3") ||
+        textValue.toLowerCase().includes(".wav") ||
+        textValue.toLowerCase().includes(".ogg") ||
+        textValue.toLowerCase().includes(".m4a") ||
+        textValue.toLowerCase().includes(".flac") ||
+        textValue.toLowerCase().includes(".aac") ||
+        textValue.toLowerCase().includes(".mid") ||
+        textValue.toLowerCase().includes(".midi"))
     ) {
       return `<audio-player source="${textValue}"></audio-player>`;
     }
     // pdf
-    else if (
-      validURL(textValue) &&
-      textValue.toLowerCase().includes('.pdf')
-    ) {
+    else if (validURL(textValue) && textValue.toLowerCase().includes(".pdf")) {
       return `<pdf-browser-viewer file="${textValue}" width="100%"></pdf-browser-viewer>`;
-    }
-    else {
+    } else {
       return `<place-holder type="text" text="${textValue}"></place-holder>`;
     }
-  }
-  else if (textValue.startsWith('!') && textValue.includes('-')) {
-    let tag = textValue.replace('!', '').trim();
+  } else if (textValue.startsWith("!") && textValue.includes("-")) {
+    let tag = textValue.replace("!", "").trim();
     return `<${tag}></${tag}>`;
   }
   let content = el.outerHTML
-    .replace(/\t/g, '')
+    .replace(/\t/g, "")
     .trim()
-    .replace(/\[math:(.*?)\]/g, '<lrn-math>$1</lrn-math>');
+    .replace(/\[math:(.*?)\]/g, "<lrn-math>$1</lrn-math>");
   return content;
 }
 
@@ -486,20 +548,20 @@ function htmlFromEl(el) {
  */
 function processDocxHtml(html) {
   const doc = parse(`<div id="docx-import-wrapper">${html}</div>`);
-  const wrapper = doc.querySelector('#docx-import-wrapper');
+  const wrapper = doc.querySelector("#docx-import-wrapper");
   if (!wrapper) {
     return html;
   }
-  let content = '';
+  let content = "";
   for (const child of wrapper.childNodes) {
     if (child && child.tagName) {
       content += htmlFromEl(child);
     }
   }
-  return content !== '' ? content : html;
+  return content !== "" ? content : html;
 }
 
-const fs = require('fs');
+const fs = require("fs");
 
 function findChromeExecutable() {
   const envPath = process.env.PUPPETEER_EXECUTABLE_PATH;
@@ -507,14 +569,14 @@ function findChromeExecutable() {
     return envPath;
   }
   const candidates = [
-    '/usr/bin/google-chrome',
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/snap/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/microsoft-edge',
-    '/usr/bin/microsoft-edge-stable',
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/microsoft-edge",
+    "/usr/bin/microsoft-edge-stable",
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
@@ -528,23 +590,23 @@ function findChromeExecutable() {
  * Convert HTML string to a PDF Buffer using puppeteer-core.
  * Requires Chrome/Chromium to be installed on the host.
  */
-async function htmlToPdfBuffer(html, base = '/', imageOptions) {
-  const puppeteer = require('puppeteer-core');
+async function htmlToPdfBuffer(html, base = "/", imageOptions) {
+  const puppeteer = require("puppeteer-core");
   const executablePath = findChromeExecutable();
   if (!executablePath) {
     throw new Error(
-      'No Chrome/Chromium executable found. Install Chrome or set PUPPETEER_EXECUTABLE_PATH.',
+      "No Chrome/Chromium executable found. Install Chrome or set PUPPETEER_EXECUTABLE_PATH.",
     );
   }
-  let sanitized = String(html || '')
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\x00/g, '')
+  let sanitized = String(html || "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/\x00/g, "")
     .trim();
   if (!sanitized) {
-    sanitized = '<p>No content available</p>';
+    sanitized = "<p>No content available</p>";
   }
   // Security (SEC-SSRF): inline every image before Chrome sees the document
   // (local site files / safeFetch with a byte cap / dropped). Without site
@@ -552,14 +614,18 @@ async function htmlToPdfBuffer(html, base = '/', imageOptions) {
   // http(s) base and go through safeFetch too.
   const resolvedImageOptions = imageOptions
     ? Object.assign({}, imageOptions)
-    : { remoteBaseUrl: /^https?:\/\//i.test(String(base || '')) ? String(base) : null };
-  resolvedImageOptions.output = 'data-uri';
+    : {
+        remoteBaseUrl: /^https?:\/\//i.test(String(base || ""))
+          ? String(base)
+          : null,
+      };
+  resolvedImageOptions.output = "data-uri";
   // Chrome renders <img> SVG without script execution; DOCX/EPUB drop SVG
   resolvedImageOptions.allowSvg = true;
   try {
     sanitized = await resolveExportImages(sanitized, resolvedImageOptions);
   } catch (e) {
-    sanitized = sanitized.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, '');
+    sanitized = sanitized.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, "");
   }
   let browser = null;
   try {
@@ -569,8 +635,8 @@ async function htmlToPdfBuffer(html, base = '/', imageOptions) {
     // a non-root user so the sandbox is active. Keeping the root branch
     // preserves existing CI/E2E behavior unchanged.
     var launchArgs = [];
-    if (typeof process.getuid === 'function' && process.getuid() === 0) {
-      launchArgs.push('--no-sandbox', '--disable-setuid-sandbox');
+    if (typeof process.getuid === "function" && process.getuid() === 0) {
+      launchArgs.push("--no-sandbox", "--disable-setuid-sandbox");
     }
     browser = await puppeteer.launch({
       executablePath,
@@ -582,23 +648,30 @@ async function htmlToPdfBuffer(html, base = '/', imageOptions) {
     // abort every request that is not data:/about: (CSS url(), <link>,
     // <object>, fonts, anything the inlining pass did not cover).
     await installPdfRequestFilter(page);
-    if (base && base !== '/') {
+    if (base && base !== "/") {
       // Security (L4): full HTML-attribute escape as defense-in-depth even
       // though the route validates base as a URL. Escaping &, ", <, > ensures
       // the value can never break out of the double-quoted href attribute.
-      var escapedBase = base.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      var escapedBase = base
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
       const baseTag = `<base href="${escapedBase}" />`;
       sanitized = sanitized.replace(/<head>/i, `<head>${baseTag}`);
-      if (!sanitized.includes('<head>')) {
+      if (!sanitized.includes("<head>")) {
         sanitized = `<head>${baseTag}</head>${sanitized}`;
       }
     }
     // Wait for network to be idle (inlined images decoded) before printing.
-    await page.setContent(sanitized, { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.setContent(sanitized, {
+      waitUntil: "networkidle0",
+      timeout: 30000,
+    });
     const pdfBuffer = await page.pdf({
-      format: 'A4',
+      format: "A4",
       printBackground: true,
-      margin: { top: '40px', right: '40px', bottom: '40px', left: '40px' },
+      margin: { top: "40px", right: "40px", bottom: "40px", left: "40px" },
     });
     return Buffer.from(pdfBuffer);
   } finally {
@@ -612,15 +685,15 @@ async function htmlToPdfBuffer(html, base = '/', imageOptions) {
  * Strip scripts, styles, and other dangerous content from untrusted HTML.
  */
 function sanitizeUntrustedHtml(html) {
-  if (typeof html !== 'string') {
-    return '';
+  if (typeof html !== "string") {
+    return "";
   }
   return html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\x00/g, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/\x00/g, "")
     .trim();
 }
 

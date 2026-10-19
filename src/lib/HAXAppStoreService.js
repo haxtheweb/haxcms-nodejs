@@ -1,20 +1,17 @@
-class HAXAppStoreService
-{
-    /**
-     * returns an array of app store definitions based
-     * on passing in the apikeys for the ones we have
-     * baked in support for.
-     * @param  array apikeys  array of API keys per service
-     * @return array           HAX appstore specification
-     */
-    loadBaseAppStore(apikeys = [])
-    {
-        let jsonData = [];
-        let jsonstring, tmp;
-        // youtube
-        if (apikeys['youtube']) {
-            jsonstring =
-                `{
+class HAXAppStoreService {
+  /**
+   * returns an array of app store definitions based
+   * on passing in the apikeys for the ones we have
+   * baked in support for.
+   * @param  array apikeys  array of API keys per service
+   * @return array           HAX appstore specification
+   */
+  loadBaseAppStore(apikeys = []) {
+    let jsonData = [];
+    let jsonstring, tmp;
+    // youtube
+    if (apikeys["youtube"]) {
+      jsonstring = `{
         "details": {
           "title": "Youtube",
           "icon": "mdi-action:youtube-play",
@@ -38,7 +35,7 @@ class HAXAppStoreService
             "protocol": "https",
             "url": "www.googleapis.com/youtube/v3",
             "data": {
-              "key": "${apikeys['youtube']}"
+              "key": "${apikeys["youtube"]}"
             },
             "operations": {
               "browse": {
@@ -88,12 +85,12 @@ class HAXAppStoreService
             }
         }
       }`;
-            tmp = JSON.parse(jsonstring);
-            jsonData.push(tmp);
-        }
-        // vimeo
-        if (apikeys['vimeo']) {
-            jsonstring =`{
+      tmp = JSON.parse(jsonstring);
+      jsonData.push(tmp);
+    }
+    // vimeo
+    if (apikeys["vimeo"]) {
+      jsonstring = `{
         "details": {
           "title": "Vimeo",
           "icon": "av:play-circle-filled",
@@ -107,7 +104,7 @@ class HAXAppStoreService
           "protocol": "https",
           "url": "api.vimeo.com",
           "data": {
-            "access_token": "${apikeys['vimeo']}"
+            "access_token": "${apikeys["vimeo"]}"
           },
           "operations": {
             "browse": {
@@ -156,12 +153,12 @@ class HAXAppStoreService
           }
         }
       }`;
-            tmp = JSON.parse(jsonstring);
-            jsonData.push(tmp);
-        }
-        // giphy
-        if (apikeys['giphy']) {
-            jsonstring =`{
+      tmp = JSON.parse(jsonstring);
+      jsonData.push(tmp);
+    }
+    // giphy
+    if (apikeys["giphy"]) {
+      jsonstring = `{
         "details": {
           "title": "Giphy",
           "icon": "gif",
@@ -175,7 +172,7 @@ class HAXAppStoreService
           "protocol": "https",
           "url": "api.giphy.com",
           "data": {
-            "api_key": "${apikeys['giphy']}"
+            "api_key": "${apikeys["giphy"]}"
           },
           "operations": {
             "browse": {
@@ -199,7 +196,7 @@ class HAXAppStoreService
                   "type": "string",
                   "component": {
                     "name": "dropdown-select",
-                    "slot": "<paper-item value=\'Y\'>Y</paper-item><paper-item value=\'G\'>G</paper-item><paper-item value=\'PG\'>PG</paper-item><paper-item value=\'PG-13\'>PG-13</paper-item><paper-item value=\'R\'>R</paper-item>"
+                    "slot": "<paper-item value='Y'>Y</paper-item><paper-item value='G'>G</paper-item><paper-item value='PG'>PG</paper-item><paper-item value='PG-13'>PG-13</paper-item><paper-item value='R'>R</paper-item>"
                   }
                 },
                 "lang": {
@@ -207,7 +204,7 @@ class HAXAppStoreService
                   "type": "string",
                   "component": {
                     "name": "dropdown-select",
-                    "slot": "<paper-item value=\'en\'>en</paper-item><paper-item value=\'es\'>es</paper-item><paper-item value=\'pt\'>pt</paper-item><paper-item value=\'id\'>id</paper-item><paper-item value=\'fr\'>fr</paper-item><paper-item value=\'ar\'>ar</paper-item><paper-item value=\'tr\'>tr</paper-item><paper-item value=\'th\'>th</paper-item><paper-item value=\'vi\'>vi</paper-item><paper-item value=\'de\'>de</paper-item><paper-item value=\'it\'>it</paper-item><paper-item value=\'ja\'>ja</paper-item><paper-item value=\'zh-CN\'>zh-CN</paper-item><paper-item value=\'zh-TW\'>zh-TW</paper-item><paper-item value=\'ru\'>ru</paper-item><paper-item value=\'ko\'>ko</paper-item><paper-item value=\'pl\'>pl</paper-item><paper-item value=\'nl\'>nl</paper-item><paper-item value=\'ro\'>ro</paper-item><paper-item value=\'hu\'>hu</paper-item><paper-item value=\'sv\'>sv</paper-item><paper-item value=\'cs\'>cs</paper-item><paper-item value=\'hi\'>hi</paper-item><paper-item value=\'bn\'>bn</paper-item><paper-item value=\'da\'>da</paper-item><paper-item value=\'fa\'>fa</paper-item><paper-item value=\'tl\'>tl</paper-item><paper-item value=\'fi\'>fi</paper-item><paper-item value=\'iw\'>iw</paper-item><paper-item value=\'ms\'>ms</paper-item><paper-item value=\'no\'>no</paper-item><paper-item value=\'uk\'>uk</paper-item>"
+                    "slot": "<paper-item value='en'>en</paper-item><paper-item value='es'>es</paper-item><paper-item value='pt'>pt</paper-item><paper-item value='id'>id</paper-item><paper-item value='fr'>fr</paper-item><paper-item value='ar'>ar</paper-item><paper-item value='tr'>tr</paper-item><paper-item value='th'>th</paper-item><paper-item value='vi'>vi</paper-item><paper-item value='de'>de</paper-item><paper-item value='it'>it</paper-item><paper-item value='ja'>ja</paper-item><paper-item value='zh-CN'>zh-CN</paper-item><paper-item value='zh-TW'>zh-TW</paper-item><paper-item value='ru'>ru</paper-item><paper-item value='ko'>ko</paper-item><paper-item value='pl'>pl</paper-item><paper-item value='nl'>nl</paper-item><paper-item value='ro'>ro</paper-item><paper-item value='hu'>hu</paper-item><paper-item value='sv'>sv</paper-item><paper-item value='cs'>cs</paper-item><paper-item value='hi'>hi</paper-item><paper-item value='bn'>bn</paper-item><paper-item value='da'>da</paper-item><paper-item value='fa'>fa</paper-item><paper-item value='tl'>tl</paper-item><paper-item value='fi'>fi</paper-item><paper-item value='iw'>iw</paper-item><paper-item value='ms'>ms</paper-item><paper-item value='no'>no</paper-item><paper-item value='uk'>uk</paper-item>"
                   }
                 }
               },
@@ -238,12 +235,12 @@ class HAXAppStoreService
           }
         }
       }`;
-            tmp = JSON.parse(jsonstring);
-            jsonData.push(tmp);
-        }
-        // unsplash
-        if (apikeys['unsplash']) {
-            jsonstring =`{
+      tmp = JSON.parse(jsonstring);
+      jsonData.push(tmp);
+    }
+    // unsplash
+    if (apikeys["unsplash"]) {
+      jsonstring = `{
         "details": {
           "title": "Unsplash",
           "icon": "image:collections",
@@ -257,7 +254,7 @@ class HAXAppStoreService
           "protocol": "https",
           "url": "api.unsplash.com",
           "data": {
-            "client_id": "${apikeys['unsplash']}"
+            "client_id": "${apikeys["unsplash"]}"
           },
           "operations": {
             "browse": {
@@ -301,12 +298,12 @@ class HAXAppStoreService
           }
         }
       }`;
-            tmp = JSON.parse(jsonstring);
-            jsonData.push(tmp);
-        }
-        // flickr
-        if (apikeys['flickr']) {
-            jsonstring =`{
+      tmp = JSON.parse(jsonstring);
+      jsonData.push(tmp);
+    }
+    // flickr
+    if (apikeys["flickr"]) {
+      jsonstring = `{
         "details": {
           "title": "Flickr",
           "icon": "image:collections",
@@ -321,7 +318,7 @@ class HAXAppStoreService
           "protocol": "https",
           "url": "api.flickr.com",
           "data": {
-            "api_key": "${apikeys['flickr']}"
+            "api_key": "${apikeys["flickr"]}"
           },
           "operations": {
             "browse": {
@@ -347,7 +344,7 @@ class HAXAppStoreService
                   "component": {
                     "name": "dropdown-select",
                     "valueProperty": "value",
-                    "slot": "<paper-item value=\'1\'>Safe</paper-item><paper-item value=\'2\'>Moderate</paper-item><paper-item value=\'3\'>Restricted</paper-item>"
+                    "slot": "<paper-item value='1'>Safe</paper-item><paper-item value='2'>Moderate</paper-item><paper-item value='3'>Restricted</paper-item>"
                   }
                 },
                 "license": {
@@ -357,7 +354,7 @@ class HAXAppStoreService
                   "component": {
                     "name": "dropdown-select",
                     "valueProperty": "value",
-                    "slot": "<paper-item value=\'\'>Any</paper-item><paper-item value=\'0\'>All Rights Reserved</paper-item><paper-item value=\'4\'>Attribution License</paper-item><paper-item value=\'6\'>Attribution-NoDerivs License</paper-item><paper-item value=\'3\'>Attribution-NonCommercial-NoDerivs License</paper-item><paper-item value=\'2\'>Attribution-NonCommercial License</paper-item><paper-item value=\'1\'>Attribution-NonCommercial-ShareAlike License</paper-item><paper-item value=\'5\'>Attribution-ShareAlike License</paper-item><paper-item value=\'7\'>No known copyright restrictions</paper-item><paper-item value=\'8\'>United States Government Work</paper-item><paper-item value=\'9\'>Public Domain Dedication (CC0)</paper-item><paper-item value=\'10\'>Public Domain Mark</paper-item>"
+                    "slot": "<paper-item value=''>Any</paper-item><paper-item value='0'>All Rights Reserved</paper-item><paper-item value='4'>Attribution License</paper-item><paper-item value='6'>Attribution-NoDerivs License</paper-item><paper-item value='3'>Attribution-NonCommercial-NoDerivs License</paper-item><paper-item value='2'>Attribution-NonCommercial License</paper-item><paper-item value='1'>Attribution-NonCommercial-ShareAlike License</paper-item><paper-item value='5'>Attribution-ShareAlike License</paper-item><paper-item value='7'>No known copyright restrictions</paper-item><paper-item value='8'>United States Government Work</paper-item><paper-item value='9'>Public Domain Dedication (CC0)</paper-item><paper-item value='10'>Public Domain Mark</paper-item>"
                   }
                 }
               },
@@ -388,11 +385,11 @@ class HAXAppStoreService
           }
         }
       }`;
-            tmp = JSON.parse(jsonstring);
-            jsonData.push(tmp);
-        }
-        // nasa
-        jsonstring = `{
+      tmp = JSON.parse(jsonstring);
+      jsonData.push(tmp);
+    }
+    // nasa
+    jsonstring = `{
       "details": {
         "title": "NASA",
         "icon": "places:all-inclusive",
@@ -447,10 +444,10 @@ class HAXAppStoreService
         }
       }
     }`;
-        tmp = JSON.parse(jsonstring);
-        jsonData.push(tmp);
-        // sketchfab
-        jsonstring = `{
+    tmp = JSON.parse(jsonstring);
+    jsonData.push(tmp);
+    // sketchfab
+    jsonstring = `{
       "details": {
         "title": "Sketchfab",
         "icon": "icons:3d-rotation",
@@ -491,7 +488,7 @@ class HAXAppStoreService
                 "component": {
                   "name": "dropdown-select",
                   "valueProperty": "value",
-                  "slot": "<paper-item value=\'\'>Any</paper-item><paper-item value=\'by\'>Attribution</paper-item><paper-item value=\'by-sa\'>Attribution ShareAlike</paper-item><paper-item value=\'by-nd\'>Attribution NoDerivatives</paper-item><paper-item value=\'by-nc\'>Attribution-NonCommercial</paper-item><paper-item value=\'by-nc-sa\'>Attribution NonCommercial ShareAlike</paper-item><paper-item value=\'by-nc-nd\'>Attribution NonCommercial NoDerivatives</paper-item><paper-item value=\'cc0\'>Public Domain Dedication (CC0)</paper-item>"
+                  "slot": "<paper-item value=''>Any</paper-item><paper-item value='by'>Attribution</paper-item><paper-item value='by-sa'>Attribution ShareAlike</paper-item><paper-item value='by-nd'>Attribution NoDerivatives</paper-item><paper-item value='by-nc'>Attribution-NonCommercial</paper-item><paper-item value='by-nc-sa'>Attribution NonCommercial ShareAlike</paper-item><paper-item value='by-nc-nd'>Attribution NonCommercial NoDerivatives</paper-item><paper-item value='cc0'>Public Domain Dedication (CC0)</paper-item>"
                 }
               }
             },
@@ -514,10 +511,10 @@ class HAXAppStoreService
         }
       }
     }`;
-        tmp = JSON.parse(jsonstring);
-        jsonData.push(tmp);
-        // dailymotion
-        jsonstring = `{
+    tmp = JSON.parse(jsonstring);
+    jsonData.push(tmp);
+    // dailymotion
+    jsonstring = `{
       "details": {
         "title": "Dailymotion",
         "icon": "av:play-circle-filled",
@@ -576,10 +573,10 @@ class HAXAppStoreService
         }
       }
     }`;
-        tmp = JSON.parse(jsonstring);
-        jsonData.push(tmp);
-        // wikipedia
-        jsonstring = `{
+    tmp = JSON.parse(jsonstring);
+    jsonData.push(tmp);
+    // wikipedia
+    jsonstring = `{
       "details": {
         "title": "Wikipedia",
         "icon": "account-balance",
@@ -601,7 +598,7 @@ class HAXAppStoreService
         "operations": {
           "browse": {
             "method": "GET",
-            "endPoint": "w\/api.php",
+            "endPoint": "w/api.php",
             "pagination": {
               "style": "offset",
               "props": {
@@ -636,10 +633,10 @@ class HAXAppStoreService
         }
       }
     }`;
-        tmp = JSON.parse(jsonstring);
-        jsonData.push(tmp);
-        // cc-mixter
-        jsonstring = `{
+    tmp = JSON.parse(jsonstring);
+    jsonData.push(tmp);
+    // cc-mixter
+    jsonstring = `{
       "details": {
         "title": "CC Mixter",
         "icon": "av:library-music",
@@ -704,22 +701,20 @@ class HAXAppStoreService
         }
       }
     }`;
-        tmp = JSON.parse(jsonstring);
-        jsonData.push(tmp);
+    tmp = JSON.parse(jsonstring);
+    jsonData.push(tmp);
 
-        return jsonData;
-    }
+    return jsonData;
+  }
 
-
-    /**
-     * Returns some example STAX definitions, which are
-     * predefined sets of items which can be broken apart
-     * after the fact. This is like a template in traditional WYSIWYGs.
-     * @return array           HAX stax specification
-     */
-    loadBaseStax()
-    {
-      let jsonstring = `[{
+  /**
+   * Returns some example STAX definitions, which are
+   * predefined sets of items which can be broken apart
+   * after the fact. This is like a template in traditional WYSIWYGs.
+   * @return array           HAX stax specification
+   */
+  loadBaseStax() {
+    let jsonstring = `[{
       "details": {
         "title": "Example Lesson",
         "author": "ELMS:LN",
@@ -737,7 +732,7 @@ class HAXAppStoreService
         {
           "tag": "p",
           "properties": {},
-          "content": "What is ELMS: Learning Network? How is it fundamentally different from other learning technologies? Why is it your reading this when it\'s example text that you\'ve just added to see how to make a really solid introduction to a new unit of instruction? Let\'s keep reading to find out!"
+          "content": "What is ELMS: Learning Network? How is it fundamentally different from other learning technologies? Why is it your reading this when it's example text that you've just added to see how to make a really solid introduction to a new unit of instruction? Let's keep reading to find out!"
         },
         {
           "tag": "video-player",
@@ -750,7 +745,7 @@ class HAXAppStoreService
             "width": "560",
             "height": "315",
             "responsive": true,
-            "caption": "What is ELMS:LN? Why is it fundamentally different from any other educational technology that\'s ever existed? What is sustainable innovation? Why is this so ...",
+            "caption": "What is ELMS:LN? Why is it fundamentally different from any other educational technology that's ever existed? What is sustainable innovation? Why is this so ...",
             "secondaryColor": "#fff9c4",
             "textColor": "#000000",
             "secondaryColorClass": "yellow lighten-4",
@@ -768,40 +763,38 @@ class HAXAppStoreService
         }
       ]
     }]`;
-        return JSON.parse(jsonstring);
-    }
+    return JSON.parse(jsonstring);
+  }
 
-    /**
-     * Return an array of the base app keys we support. This
-     * can reduce the time to integrate with other solutions.
-     * @return array  service names keyed by their key name
-     */
-    baseSupportedApps()
-    {
-        return {
-            'youtube' : {
-                'name' :'YouTube',
-                'docs' :
-                    'https://developers.google.com/youtube/v3/getting-started'
-            },
-            'vimeo' : {
-                'name' :'Vimeo',
-                'docs' :'https://developer.vimeo.com/'
-              },
-            'giphy' : {
-                'name' :'Giphy',
-                'docs' :'https://developers.giphy.com/docs/'
-              },
-            'unsplash' : {
-                'name' :'Unsplash',
-                'docs' :'https://unsplash.com/developers'
-              },
-            'flickr' : {
-                'name' :'Flickr',
-                'docs' :'https://www.flickr.com/services/developer/api/'
-              },
-            };
-    }
+  /**
+   * Return an array of the base app keys we support. This
+   * can reduce the time to integrate with other solutions.
+   * @return array  service names keyed by their key name
+   */
+  baseSupportedApps() {
+    return {
+      youtube: {
+        name: "YouTube",
+        docs: "https://developers.google.com/youtube/v3/getting-started",
+      },
+      vimeo: {
+        name: "Vimeo",
+        docs: "https://developer.vimeo.com/",
+      },
+      giphy: {
+        name: "Giphy",
+        docs: "https://developers.giphy.com/docs/",
+      },
+      unsplash: {
+        name: "Unsplash",
+        docs: "https://unsplash.com/developers",
+      },
+      flickr: {
+        name: "Flickr",
+        docs: "https://www.flickr.com/services/developer/api/",
+      },
+    };
+  }
 }
 
 module.exports = HAXAppStoreService;
