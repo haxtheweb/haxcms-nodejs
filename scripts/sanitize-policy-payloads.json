@@ -80,5 +80,156 @@
       "data-selected=\"feedback\""
     ],
     "mustNotContain": []
+  },
+  {
+    "name": "custom-element-link-javascript-removed",
+    "input": "<simple-cta link=\"javascript:alert(1)\" label=\"go\"></simple-cta>",
+    "mustContain": [
+      "label=\"go\""
+    ],
+    "mustNotContain": [
+      "javascript",
+      "link="
+    ]
+  },
+  {
+    "name": "custom-element-file-javascript-removed",
+    "input": "<pdf-browser-viewer file=\"javascript:alert(1)\"></pdf-browser-viewer>",
+    "mustContain": [
+      "<pdf-browser-viewer>"
+    ],
+    "mustNotContain": [
+      "javascript",
+      "file="
+    ]
+  },
+  {
+    "name": "custom-element-media-image-link-removed-source-kept",
+    "input": "<media-image link=\"javascript:alert(1)\" source=\"x.png\"></media-image>",
+    "mustContain": [
+      "source=\"x.png\""
+    ],
+    "mustNotContain": [
+      "javascript",
+      "link="
+    ]
+  },
+  {
+    "name": "custom-element-source-javascript-removed",
+    "input": "<h5p-element source=\"javascript:1\"></h5p-element>",
+    "mustContain": [
+      "<h5p-element>"
+    ],
+    "mustNotContain": [
+      "javascript",
+      "source="
+    ]
+  },
+  {
+    "name": "custom-element-scheme-case-obfuscation",
+    "input": "<simple-cta link=\"JaVaScRiPt:alert(1)\"></simple-cta>",
+    "mustContain": [],
+    "mustNotContain": [
+      "javascript",
+      "link="
+    ]
+  },
+  {
+    "name": "custom-element-scheme-whitespace-obfuscation",
+    "input": "<simple-cta link=\"java\tscr\nipt:alert(1)\" label=\"a\"></simple-cta><simple-cta link=\"  \t javascript:alert(1)\" label=\"b\"></simple-cta>",
+    "mustContain": [
+      "label=\"a\"",
+      "label=\"b\""
+    ],
+    "mustNotContain": [
+      "script:",
+      "link="
+    ]
+  },
+  {
+    "name": "custom-element-scheme-entity-obfuscation",
+    "input": "<simple-cta link=\"&#106;avascript:alert(1)\"></simple-cta><simple-cta link=\"javascript&colon;alert(1)\"></simple-cta><simple-cta link=\"&#x6A;avascript&#58;alert(1)\"></simple-cta>",
+    "mustContain": [],
+    "mustNotContain": [
+      "javascript",
+      "link="
+    ]
+  },
+  {
+    "name": "custom-element-vbscript-mocha-livescript-and-data-html-removed",
+    "input": "<simple-cta link=\"vbscript:msgbox(1)\"></simple-cta><simple-cta link=\"data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;\"></simple-cta><simple-cta link=\"mocha:alert(1)\"></simple-cta><my-element some-prop=\" MO&#99;ha&colon;alert(1)\" keep=\"yes\"></my-element><simple-cta link=\"livescript:alert(1)\"></simple-cta>",
+    "mustContain": [
+      "keep=\"yes\""
+    ],
+    "mustNotContain": [
+      "vbscript",
+      "data:",
+      "link=",
+      "mocha",
+      "MO",
+      "livescript",
+      "some-prop="
+    ]
+  },
+  {
+    "name": "arbitrary-attribute-script-scheme-removed",
+    "input": "<my-element some-prop=\"javascript:alert(1)\" other=\"  j&#x61;vascript&colon;alert(1)\" third=\"&amp;#106;avascript:alert(1)\" keep=\"yes\"></my-element>",
+    "mustContain": [
+      "keep=\"yes\""
+    ],
+    "mustNotContain": [
+      "javascript",
+      "avascript",
+      "some-prop=",
+      "other=",
+      "third="
+    ]
+  },
+  {
+    "name": "scheme-shaped-plain-text-attributes-preserved",
+    "input": "<my-element icon=\"icons:check\" title=\"Note: hi\" label=\"Chapter 1: Intro\"></my-element><simple-cta link=\"https://example.com/a\" label=\"go\"></simple-cta><media-image source=\"files/x.png\" link=\"#top\"></media-image><simple-cta link=\"mailto:a@example.com\"></simple-cta><simple-cta link=\"tel:+15555550100\"></simple-cta>",
+    "mustContain": [
+      "icon=\"icons:check\"",
+      "title=\"Note: hi\"",
+      "label=\"Chapter 1: Intro\"",
+      "link=\"https://example.com/a\"",
+      "source=\"files/x.png\"",
+      "link=\"#top\"",
+      "link=\"mailto:a@example.com\"",
+      "link=\"tel:+15555550100\""
+    ],
+    "mustNotContain": []
+  },
+  {
+    "name": "text-attributes-and-raster-data-preserved",
+    "input": "<img alt=\"Data: 2024 results\" title=\"JavaScript: the good parts\" src=\"files/a.png\"><media-image source=\"data:image/png;base64,iVBORw0KGgo=\" alt=\"JavaScript: the good parts\" caption=\"Data: 2024 results\"></media-image><my-element aria-label=\"javascript: notes\" some-prop=\"data:image/jpeg;base64,AAAA\" note=\"java script: two words\"></my-element>",
+    "mustContain": [
+      "alt=\"Data: 2024 results\"",
+      "title=\"JavaScript: the good parts\"",
+      "source=\"data:image/png;base64,iVBORw0KGgo=\"",
+      "caption=\"Data: 2024 results\"",
+      "aria-label=\"javascript: notes\"",
+      "some-prop=\"data:image/jpeg;base64,AAAA\"",
+      "note=\"java script: two words\""
+    ],
+    "mustNotContain": []
+  },
+  {
+    "name": "unsafe-data-media-types-and-newline-obfuscation-removed",
+    "input": "<my-element a=\"data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;\" b=\"data:image/svg+xml;base64,PHN2Zz4=\" c=\"java\tscript:alert(1)\" d2=\"&#10;javascript:alert(1)\" keep=\"yes\"></my-element><media-image source=\"data:image/svg+xml;base64,PHN2Zz4=\" alt=\"x\"></media-image>",
+    "mustContain": [
+      "keep=\"yes\"",
+      "alt=\"x\""
+    ],
+    "mustNotContain": [
+      "data:text/html",
+      "svg+xml",
+      " a=",
+      " b=",
+      " c=",
+      " d2=",
+      "script:",
+      "source="
+    ]
   }
 ]

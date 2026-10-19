@@ -7,6 +7,7 @@ const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
 const FileContentScanner = require('../../../lib/FileContentScanner.js');
 const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
+const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMetadata.js');
 /**
    * @OA\Post(
    *    path="/saveOutline",
@@ -50,6 +51,8 @@ const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
       let itemMap = Object.create(null);
       let pageAlternateContentMap = {};
       var page, bytes, cleanTitle;
+      // Security (SEC-SANITIZE): incoming theme metadata is validated against this
+      const themes = HAXCMS.getThemes();
       // items from the POST
       for (var key in items) {
         let item = items[key];
@@ -62,7 +65,11 @@ const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
         }
         // set a title if we have one
         if (item.title != '' && item.title) {
-          page.title = item.title;
+          // Security (SEC-SANITIZE): titles are plain text, same as saveNode
+          const plainTitle = toPlainText(item.title);
+          if (plainTitle !== '') {
+            page.title = plainTitle;
+          }
         }
         // description belongs to the JSON Outline Schema item; same handling
         // as the setDescription node operation
@@ -179,9 +186,9 @@ const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
         }
         safeLocationMap[page.id] = page.location;
         // check for any metadata keys that did come over
-        for (let pageKey in item.metadata) {
-            page.metadata[pageKey] = item.metadata[pageKey];
-        }
+        // Security (SEC-SANITIZE): per-field sanitisation (same rules as
+        // saveNode) instead of copying every client-supplied key verbatim
+        applyPageMetadata(page, item.metadata, { themes: themes });
         // safety check for new things
         if (typeof page.metadata.created === 'undefined') {
             page.metadata.created = Math.floor(Date.now() / 1000);

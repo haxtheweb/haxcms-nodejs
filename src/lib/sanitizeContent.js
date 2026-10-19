@@ -26,7 +26,53 @@ const URL_ATTRIBUTE_NAMES = new Set([
   'poster',
   'srcset',
   'xlink:href',
+  // Security (SEC-SANITIZE): HAX custom elements carry URLs in these
+  // non-standard attribute names (simple-cta link, media-image source,
+  // pdf-browser-viewer file, video-player sources/tracks). Keep in parity
+  // with PHP SanitizeContent::URL_ATTRIBUTE_NAMES.
+  'link',
+  'source',
+  'file',
+  'sources',
+  'tracks',
 ])
+// Security (SEC-SANITIZE): schemes that can execute script. Checked on
+// attributes regardless of name (DOMPurify's CUSTOM_ELEMENT_HANDLING lets any
+// attribute on a custom element through without a URI check). This is a
+// denylist on purpose: HAX attribute values are routinely scheme-shaped
+// (icon="icons:check", title="Note: hi") so the http/https/mailto/tel
+// allowlist can only apply to URL-named attributes. data: is handled
+// separately (only non-raster media types are removed).
+const SCRIPT_CAPABLE_SCHEMES = new Set(['javascript', 'vbscript', 'livescript', 'mocha'])
+// raster image media types allowed in data: URIs
+const SAFE_DATA_IMAGE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/bmp',
+])
+const DATA_MEDIA_TYPE_RE = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+)/
+// human-readable text attributes: never treated as URLs
+const TEXT_ATTRIBUTE_NAMES = new Set(['alt', 'title', 'label', 'caption', 'placeholder', 'summary'])
+// URL names added for SEC-SANITIZE; unchecked on main, where HAX content
+// relies on raster data: URIs (media-image source="data:image/png;...")
+const DATA_IMAGE_URL_ATTRIBUTE_NAMES = new Set(['link', 'source', 'file', 'sources', 'tracks'])
+const SCHEME_PREFIX_RE = /^([a-z][a-z0-9+.-]*):/
+// browsers' URL parser removes TAB/LF/CR anywhere and C0/space at the start
+const SCHEME_TAB_NEWLINE_RE = /[\t\n\r]+/g
+const SCHEME_LEADING_RE = /^[\u0000-\u0020]+/
+const SCHEME_ENTITY_RE = /&#[xX]([0-9a-fA-F]+);?|&#([0-9]+);?|&(colon|Tab|NewLine|plus|period);/g
+const SCHEME_NAMED_ENTITIES = {
+  colon: ':',
+  Tab: '\t',
+  NewLine: '\n',
+  plus: '+',
+  period: '.',
+}
+const EXISTING_ENTITY_SAFE_AMP_RE = /&(?![a-zA-Z][a-zA-Z0-9]*;|#[0-9]+;|#[xX][0-9a-fA-F]+;)/g
+const XML_ILLEGAL_CHARS_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g
 const ALLOWED_PROTOCOLS = new Set(['http', 'https', 'mailto', 'tel'])
 const TEXT_TEMPLATE_HOSTS = new Set(['code-sample', 'runkit-embed', 'web-container'])
 const IFRAME_ALLOWED_ATTRIBUTES = new Set([
@@ -88,13 +134,11 @@ function getDOMPurify() {
       data.keepAttr = false
       return
     }
-    if (isURLLikeAttribute(attributeName)) {
-      const safeValue = sanitizeURLValue(data.attrValue, '')
-      if (safeValue === '') {
-        data.keepAttr = false
-      } else {
-        data.attrValue = safeValue
-      }
+    const safeValue = sanitizeAttributeValue(attributeName, data.attrValue)
+    if (safeValue === null) {
+      data.keepAttr = false
+    } else {
+      data.attrValue = safeValue
     }
   })
 
@@ -127,16 +171,109 @@ function sanitizeURLValue(value, fallback = '') {
   return fallback
 }
 
-function sanitizeMetadataValue(value) {
+// Security (SEC-SANITIZE): single-pass decode of the entity forms that can
+// spell a scheme (numeric with or without ';', plus &colon; &Tab; &NewLine;
+// &plus; &period;). Invalid code points decode to ''. Parity contract with PHP
+// SanitizeContent::decodeSchemeEntities.
+function decodeSchemeEntities(value) {
+  return String(value).replace(SCHEME_ENTITY_RE, function (match, hex, dec, named) {
+    if (named) {
+      return SCHEME_NAMED_ENTITIES[named]
+    }
+    const codePoint = hex ? parseInt(hex, 16) : parseInt(dec, 10)
+    if (
+      !Number.isFinite(codePoint) ||
+      codePoint <= 0 ||
+      codePoint > 0x10ffff ||
+      (codePoint >= 0xd800 && codePoint <= 0xdfff)
+    ) {
+      return ''
+    }
+    return String.fromCodePoint(codePoint)
+  })
+}
+
+// Security (SEC-SANITIZE): normalised attribute value for scheme
+// detection: decodeSchemeEntities -> remove TAB/LF/CR anywhere -> strip
+// leading [\x00-\x20] -> lowercase. Interior spaces are kept, as in browsers.
+function normalizeSchemeValue(value) {
   if (value === null || value === undefined) {
     return ''
   }
-  return escapeHTMLAttribute(value)
+  return decodeSchemeEntities(value)
+    .replace(SCHEME_TAB_NEWLINE_RE, '')
+    .replace(SCHEME_LEADING_RE, '')
+    .toLowerCase()
 }
 
-function escapeHTMLAttribute(value) {
+// leading scheme of the normalised value, '' when there is none
+function getNormalizedScheme(value) {
+  const match = normalizeSchemeValue(value).match(SCHEME_PREFIX_RE)
+  return match ? match[1] : ''
+}
+
+function hasScriptCapableScheme(value) {
+  return SCRIPT_CAPABLE_SCHEMES.has(getNormalizedScheme(value))
+}
+
+// data: URI with an explicit media type that is not a safe raster image
+// (data:text/html, data:image/svg+xml, ...). "Data: 2024 results" and
+// data:image/png survive.
+function hasUnsafeDataMediaType(value) {
+  const match = normalizeSchemeValue(value).match(DATA_MEDIA_TYPE_RE)
+  return match !== null && !SAFE_DATA_IMAGE_TYPES.has(match[1])
+}
+
+function isSafeRasterDataURI(value) {
+  const match = normalizeSchemeValue(value).match(DATA_MEDIA_TYPE_RE)
+  return match !== null && SAFE_DATA_IMAGE_TYPES.has(match[1])
+}
+
+function isTextAttribute(attributeName) {
+  return TEXT_ATTRIBUTE_NAMES.has(attributeName) || attributeName.indexOf('aria-') === 0
+}
+
+// Security (SEC-SANITIZE): returns the value to keep, or null when the
+// attribute must be removed (empty boolean attributes stay '').
+//  - URL-named attributes: sanitizeURLValue allowlist (link/source/file/
+//    sources/tracks additionally accept raster data:image URIs, as on main),
+//    then the script-scheme / unsafe-data check.
+//  - text attributes (alt, title, label, caption, placeholder, summary,
+//    aria-*): kept as-is.
+//  - everything else: removed when the scheme is javascript/vbscript/
+//    livescript/mocha or a data: URI with a non-raster media type.
+function sanitizeAttributeValue(attributeName, value) {
+  let safeValue = value === null || value === undefined ? '' : String(value)
+  if (isURLLikeAttribute(attributeName)) {
+    if (!(DATA_IMAGE_URL_ATTRIBUTE_NAMES.has(attributeName) && isSafeRasterDataURI(safeValue))) {
+      safeValue = sanitizeURLValue(safeValue, '')
+      if (safeValue === '') {
+        return null
+      }
+    }
+  } else if (isTextAttribute(attributeName)) {
+    return safeValue
+  }
+  if (hasScriptCapableScheme(safeValue) || hasUnsafeDataMediaType(safeValue)) {
+    return null
+  }
+  return safeValue
+}
+
+// doubleEncode=false mirrors PHP htmlspecialchars(..., double_encode: false):
+// an '&' that already starts an entity is left alone, so values that
+// round-trip through the editor (saveOutline sends every item's metadata
+// back) do not accumulate &amp;amp;... on every save.
+function sanitizeMetadataValue(value, doubleEncode = true) {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  return escapeHTMLAttribute(value, doubleEncode)
+}
+
+function escapeHTMLAttribute(value, doubleEncode = true) {
   return String(value === null || value === undefined ? '' : value)
-    .replace(/&/g, '&amp;')
+    .replace(doubleEncode === false ? EXISTING_ENTITY_SAFE_AMP_RE : /&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/\"/g, '&quot;')
@@ -145,6 +282,10 @@ function escapeHTMLAttribute(value) {
 
 function escapeXMLValue(value) {
   return String(value === null || value === undefined ? '' : value)
+    // Security (SEC-SANITIZE): drop code points not allowed in XML 1.0
+    // (allowed: #x9 #xA #xD [#x20-#xD7FF] [#xE000-#xFFFD] [#x10000-#x10FFFF]);
+    // lone surrogates are dropped, valid surrogate pairs are kept.
+    .replace(XML_ILLEGAL_CHARS_RE, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -290,13 +431,11 @@ function sanitizeElementAttributes(element) {
       element.removeAttribute(attribute.name)
       return
     }
-    if (isURLLikeAttribute(attributeName)) {
-      const safeValue = sanitizeURLValue(attribute.value, '')
-      if (safeValue === '') {
-        element.removeAttribute(attribute.name)
-      } else if (safeValue !== attribute.value) {
-        element.setAttribute(attribute.name, safeValue)
-      }
+    const safeValue = sanitizeAttributeValue(attributeName, attribute.value)
+    if (safeValue === null) {
+      element.removeAttribute(attribute.name)
+    } else if (safeValue !== attribute.value) {
+      element.setAttribute(attribute.name, safeValue)
     }
   })
 
@@ -386,6 +525,9 @@ function sanitizeHTMLForStorage(html) {
 
 module.exports = {
   sanitizeHTMLForStorage,
+  sanitizeAttributeValue,
+  hasScriptCapableScheme,
+  hasUnsafeDataMediaType,
   sanitizeURLValue,
   sanitizeMetadataValue,
   escapeHTMLAttribute,

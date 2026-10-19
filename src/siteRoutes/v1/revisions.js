@@ -5,7 +5,7 @@ const child_process = require('node:child_process');
 const execFile = util.promisify(child_process.execFile);
 const stripTagsImport = require('locutus/php/strings/strip_tags');
 const strip_tags = stripTagsImport.strip_tags || stripTagsImport;
-const { sanitizeURLValue } = require('../../lib/sanitizeContent.js');
+const { sanitizeURLValue, sanitizeHTMLForStorage } = require('../../lib/sanitizeContent.js');
 const {
   getApiBasePath,
   getQueryValue,
@@ -585,10 +585,17 @@ async function restoreItemRevision(req, res) {
     });
   }
   try {
-    const revisionContent = await gitOutput(
-      site.siteDirectory,
-      ['show', revisionHash + ':' + fileData.location],
-      false,
+    // Security (SEC-SANITIZE): old revisions may predate the current
+    // sanitizer policy; restore goes through the same storage sanitizer as
+    // saveNode before it is written back
+    const revisionContent = sanitizeHTMLForStorage(
+      String(
+        await gitOutput(
+          site.siteDirectory,
+          ['show', revisionHash + ':' + fileData.location],
+          false,
+        ),
+      ),
     );
     const bytes = await page.writeLocation(revisionContent, site.siteDirectory);
     if (bytes === false) {
