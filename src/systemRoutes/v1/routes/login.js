@@ -1,12 +1,12 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const {
   getAttemptKey,
   getTrackerEntry,
   clearTrackerEntry,
   isBlocked,
   registerFailedAttempt,
-} = require('../../../lib/loginRateLimiter.js');
-async function loginRoute(req, res)  {
+} = require("../../../lib/loginRateLimiter.js");
+async function loginRoute(req, res) {
   // primary branch: username / password login
   if (req.body && req.body.username && req.body.password) {
     const u = req.body.username;
@@ -18,14 +18,13 @@ async function loginRoute(req, res)  {
     if (settings.enabled && isBlocked(entry, now)) {
       const retryAfterSeconds = Math.ceil((entry.blockedUntil - now) / 1000);
       if (retryAfterSeconds > 0) {
-        res.set('Retry-After', String(retryAfterSeconds));
+        res.set("Retry-After", String(retryAfterSeconds));
       }
       // D2: JSON D1 envelope (was sendStatus plain-text)
       return res.status(429).json({
         status: 429,
         data: {
-          message:
-            'Too many failed login attempts. Please try again later.',
+          message: "Too many failed login attempts. Please try again later.",
         },
       });
     }
@@ -37,14 +36,18 @@ async function loginRoute(req, res)  {
       // D2/Q8: login failure returns 401 (was 403) with JSON D1 envelope
       return res.status(401).json({
         status: 401,
-        data: { message: 'Invalid username or password' },
+        data: { message: "Invalid username or password" },
       });
     }
     clearTrackerEntry(attemptKey);
     // set a refresh_token COOKIE that will ship w/ all calls automatically
     // Security (HAX-SEC / PHP [M3] parity): use the centralized helper so
     // Secure/SameSite/HttpOnly/path flags are consistent at every call site.
-    HAXCMS.setRefreshTokenCookie(res, HAXCMS.getRefreshToken(u), 24 * 60 * 60 * 1000);
+    HAXCMS.setRefreshTokenCookie(
+      res,
+      HAXCMS.getRefreshToken(u),
+      24 * 60 * 60 * 1000,
+    );
     // Security (SEC-SESSION): connection-settings omits request tokens for
     // anonymous callers and the editor loads it once per page, so hand the
     // request tokens back with the JWT for an in-page login: userToken always,
@@ -53,25 +56,29 @@ async function loginRoute(req, res)  {
     let sessionTokens = {};
     try {
       sessionTokens = await HAXCMS.getSessionRequestTokens(req);
-    }
-    catch (e) {
+    } catch (e) {
       sessionTokens = {};
     }
-    if (!sessionTokens || typeof sessionTokens.userToken !== 'string') {
+    if (!sessionTokens || typeof sessionTokens.userToken !== "string") {
       sessionTokens = Object.assign({}, sessionTokens, {
         userToken: HAXCMS.getRequestToken(HAXCMS.getActiveUserName()),
       });
     }
-    return res.json(Object.assign({
-      status: 200,
-      jwt: HAXCMS.getJWT(u),
-    }, sessionTokens));
+    return res.json(
+      Object.assign(
+        {
+          status: 200,
+          jwt: HAXCMS.getJWT(u),
+        },
+        sessionTokens,
+      ),
+    );
   }
   // login end point requested yet a jwt already exists
   // this is something of a revalidate case
   else if (
-    (req.body && Object.keys(req.body).length && req.body['jwt']) ||
-    (req.query && Object.keys(req.query).length && req.query['jwt'])
+    (req.body && Object.keys(req.body).length && req.body["jwt"]) ||
+    (req.query && Object.keys(req.query).length && req.query["jwt"])
   ) {
     const valid = HAXCMS.validateJWT(req, res);
     if (valid) {
@@ -83,14 +90,13 @@ async function loginRoute(req, res)  {
     // D2/Q8: JWT revalidate failure returns 401 (was 403) with JSON envelope
     return res.status(401).json({
       status: 401,
-      data: { message: 'Invalid or expired token' },
+      data: { message: "Invalid or expired token" },
     });
-  }
-  else {
+  } else {
     // D2/Q8: no credentials supplied returns 401 (was 403) with JSON envelope
     res.status(401).json({
       status: 401,
-      data: { message: 'Authentication required' },
+      data: { message: "Authentication required" },
     });
   }
 }

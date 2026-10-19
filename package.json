@@ -135,9 +135,9 @@
   "lint-staged": {
     "*.{js,cjs}": [
       "eslint --fix",
-      "prettier --write"
+      "prettier --write --no-error-on-unmatched-pattern"
     ],
-    "*.{json,md,yml,yaml}": "prettier --write"
+    "*.{json,md,yml,yaml}": "prettier --write --no-error-on-unmatched-pattern"
   },
   "husky": {
     "hooks": {

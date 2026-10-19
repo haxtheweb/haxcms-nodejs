@@ -1,444 +1,530 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const filter_var = require('../../../lib/filter_var.js');
-const path = require('path');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const filter_var = require("../../../lib/filter_var.js");
+const path = require("path");
 const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
-const { toPlainText } = require('../../../lib/sanitizePageMetadata.js');
+const { toPlainText } = require("../../../lib/sanitizePageMetadata.js");
 const {
   sanitizeHTMLForStorage,
   sanitizeURLValue,
   sanitizeMetadataValue,
-} = require('../../../lib/sanitizeContent.js');
-const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
-const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
-const FileContentScanner = require('../../../lib/FileContentScanner.js');
+} = require("../../../lib/sanitizeContent.js");
+const {
+  getRequestHeaderValue,
+  assertSiteFeature,
+} = require("../siteRouteUtils.js");
+const { isPathautoEnabled } = require("../../../lib/nodeDetailOperations.js");
+const FileContentScanner = require("../../../lib/FileContentScanner.js");
 /**
-   * @OA\Post(
-   *    path="/saveNode",
-   *    tags={"cms","authenticated","node"},
-   *    @OA\Parameter(
-   *         name="jwt",
-   *         description="JSON Web token, obtain by using  /login",
-   *         in="query",
-   *         required=true,
-   *         @OA\Schema(type="string")
-   *    ),
-   *    @OA\Response(
-   *        response="200",
-   *        description="Save a node"
-   *   )
-   * )
-   */
-  async function saveNode(req, res) {
-    const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+ * @OA\Post(
+ *    path="/saveNode",
+ *    tags={"cms","authenticated","node"},
+ *    @OA\Parameter(
+ *         name="jwt",
+ *         description="JSON Web token, obtain by using  /login",
+ *         in="query",
+ *         required=true,
+ *         @OA\Schema(type="string")
+ *    ),
+ *    @OA\Response(
+ *        response="200",
+ *        description="Save a node"
+ *   )
+ * )
+ */
+async function saveNode(req, res) {
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  if (
+    siteToken &&
+    req.body &&
+    req.body.site &&
+    req.body.site.name &&
+    HAXCMS.validateRequestToken(
+      siteToken,
+      HAXCMS.getActiveUserName() + ":" + req.body.site.name,
+    )
+  ) {
+    let bodyParams = req.body;
+    let site = await HAXCMS.loadSite(req.body["site"]["name"]);
+
+    // Special handling for style guide endpoint through saveNode
     if (
-      siteToken &&
-      req.body &&
-      req.body.site &&
-      req.body.site.name &&
-      HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + req.body.site.name)
+      bodyParams["node"]["id"] &&
+      bodyParams["node"]["id"] === "x/theme/style-guide"
     ) {
-      let bodyParams = req.body;
-      let site = await HAXCMS.loadSite(req.body['site']['name']);
-      
-      // Special handling for style guide endpoint through saveNode
-      if (bodyParams['node']['id'] && bodyParams['node']['id'] === 'x/theme/style-guide') {
-        const result = await site.handleStyleGuideSave(bodyParams);
-        return res.send(result);
-      }
-      let schema = [];
-      let body;
-      if (bodyParams['node']['body']) {
-        body = bodyParams['node']['body'];
-        // we ship the schema with the body
-        if (bodyParams['node']['schema']) {
-          schema = bodyParams['node']['schema'];
-        }
-      }
-      let details = {};
-      // if we have details object then merge configure and advanced
-      if (bodyParams['node']['details']) {
-        if (bodyParams['node']['details']['node'] && bodyParams['node']['details']['node']['configure']) {
-          for (var key in bodyParams['node']['details']['node']['configure']) {
-            details[key] = bodyParams['node']['details']['node']['configure'][key];
-          }
-        }
-        if (bodyParams['node']['details']['node'] && bodyParams['node']['details']['node']['advanced']) {
-          for (var key in bodyParams['node']['details']['node']['advanced']) {
-            details[key] = bodyParams['node']['details']['node']['advanced'][key];
-          }
-        }
-      }
-      // update the page's content, using manifest to find it
-      // this ensures that writing is always to what the file system
-      // determines to be the correct page
-      // @todo review this step by step
-      let page = site.loadNode(bodyParams['node']['id'])
-      if (page) {
-        // convert web location for loading into file location for writing
-        if (body) {
-          let bytes = 0;
-          // see if we have multiple pages / this page has been told to split into multiple
-          let pageData = HAXCMS.pageBreakParser(body);
-          // only content after a <page-break> is written; without one nothing
-          // would be saved, so say so instead of answering 200
-          if (pageData.length === 0) {
-            return res.status(400).json({
-              status: 400,
-              data: { message: 'body must contain a <page-break> element; only content after it is saved' },
-            });
-          }
-          for (var i in pageData) {
-            let data = pageData[i];
-            // trap to ensure if front-end didnt send a UUID for id then we make it
-            if (!(data["attributes"]["title"])) {
-              data["attributes"]["title"] = 'New page';
-            }
-            // to avoid critical error in parsing, we defer to the POST's ID always
-            // this also blocks multiple page breaks if it doesn't exist as we don't allow
-            // the front end to dictate what gets created here
-            if (!(data["attributes"]["item-id"])) {
-              data["attributes"]["item-id"] = bodyParams['node']['id'];
-            }
-            if (!(data["attributes"]["path"]) || data["attributes"]["path"] == '#') {
-              data["attributes"]["path"] = data["attributes"]["title"];
-            }
-            // verify this pages does not exist; this is only possible if we parse multiple page-break
-            // a capability that is not supported currently beyond experiments
-            page = site.loadNode(data["attributes"]["item-id"]);
-            if (!page) {
-              if (!assertSiteFeature(site, res, 'addPage', 'Adding pages is disabled for this site')) {
-                return;
-              }
-              // generate a new item based on the site
-              let nodeParams = {
-                "node" : {
-                  "title" : data["attributes"]["title"],
-                  "id" : data["attributes"]["item-id"],
-                  "location" : data["attributes"]["path"],
-                }
-              };
-              item = site.itemFromParams(nodeParams);
-              // generate the boilerplate to fill this page
-              // Security (N1/N5 parity): the copy must land inside this site's
-              // directory; refuse rather than writing anywhere else.
-              const copied = await HAXCMS.recurseCopy(
-                HAXCMS.boilerplatePath + 'page/default',
-                path.join(site.siteDirectory, item.location.replace('/index.html', '')),
-                [],
-                site.siteDirectory
-              );
-              if (copied === false) {
-                return res.status(400).json({
-                  status: 400,
-                  data: { message: 'Invalid node location' },
-                });
-              }
-              // add the item back into the outline schema
-              site.manifest.addItem(item);
-              site.manifest.save();
-              await site.gitCommit('Page added:' + item.title + ' (' + item.id + ')');
-              // possible the item-id had to be made by back end
-              data["attributes"]["item-id"] = item.id;
-            }
-            // now this should exist if it didn't a minute ago
-            page = site.loadNode(data["attributes"]["item-id"]);
-            let sanitizedContent = sanitizeHTMLForStorage(data['content']);
-            // @todo make sure that we stripped off page-break
-            // and now save WITHOUT the top level page-break
-            // to avoid duplication issues
-            bytes = await page.writeLocation(
-              sanitizedContent,
-              site.siteDirectory
-            );
-            if (bytes === false) {
-              return res.status(500).json({
-                status: 500,
-                data: { message: 'failed to write' },
-              });
-            } else {
-                // sanity check
-                if (!(page.metadata)) {
-                  page.metadata = {};
-                }
-                // update attributes in the page
-                if (data["attributes"]["title"]) {
-                  // Security (SEC-SANITIZE): decode entities THEN strip tags so
-                  // `&lt;img onerror&gt;` can't decode into markup after the strip
-                  page.title = toPlainText(data["attributes"]["title"]);
-                }
-                if (Object.prototype.hasOwnProperty.call(data["attributes"], 'override-pathauto')) {
-                  const val = data["attributes"]['override-pathauto'];
-                  page.metadata.overridePathauto = val !== false && val !== 'false';
-                }
-                else {
-                  // attribute absent means the user unchecked the override toggle
-                  // (Lit reflect removes the attribute when the Boolean is false).
-                  // Clear it so the page returns to automatic slug behavior.
-                  page.metadata.overridePathauto = false;
-                }
-                if ((data["attributes"]["slug"])) {
-                  // account for x being the only front end reserved route
-                  if (data["attributes"]["slug"] == "x") {
-                    data["attributes"]["slug"] = "x-x";
-                  }
-                  // same but trying to force a sub-route; paths cannot conflict with front end
-                  if (data["attributes"]["slug"].substring(0, 2) == "x/") {
-                    data["attributes"]["slug"] = data["attributes"]["slug"].replace('x/', 'x-x/')
-                  }
-                  // machine name should more aggressively scrub the slug than clean title
-                  // @todo need to verify this doesn't already exist
-                  page.slug = HAXCMS.generateSlugName(data["attributes"]["slug"]);
-                }
-                if ((data["attributes"]["parent"])) {
-                  page.parent = data["attributes"]["parent"];
-                }
-                else {
-                  page.parent = null;
-                }
-                // allow setting theme via page break
-                if ((data["attributes"]["developer-theme"]) && data["attributes"]["developer-theme"] != '') {
-                  let themes = HAXCMS.getThemes();
-                  let value = filter_var(data["attributes"]["developer-theme"], "FILTER_SANITIZE_STRING");
-                  // support for removing the custom theme or applying none
-                  if (value == '_none_' || value == '' || !value || !themes[value]) {
-                    delete page.metadata.theme;
-                  }
-                  // ensure it exists
-                  else if (themes[value]) {
-                    page.metadata.theme = themes[value];
-                    page.metadata.theme.key = value;
-                  }
-                }
-                else if ((page.metadata.theme)) {
-                  delete page.metadata.theme;
-                }
-                if ((data["attributes"]["depth"])) {
-                  page.indent = parseInt(data["attributes"]["depth"]);
-                }
-                if ((data["attributes"]["order"])) {
-                  page.order = parseInt(data["attributes"]["order"]);
-                }
-                // If pathauto is enabled and overridePathauto is not set, regenerate the slug from the title
-                const pathautoEnabled = isPathautoEnabled(site);
-                if (pathautoEnabled && !page.metadata.overridePathauto) {
-                  const cleanTitle = HAXCMS.cleanTitle(page.title);
-                  page.slug = site.getUniqueSlugName(cleanTitle, page, true);
-                }
-                // boolean so these are either there or not
-                // historically we are published if this value is not set
-                // and that will remain true however as we save / update pages
-                // this will ensure that we set things to published
-                if ((data["attributes"]["published"])) {
-                  page.metadata.published = true;
-                }
-                else {
-                  page.metadata.published = false;
-                }
-                // support for defining and updating page type
-                if ((data["attributes"]["page-type"]) && data["attributes"]["page-type"] != '') {
-                  page.metadata.pageType = data["attributes"]["page-type"];
-                }
-                // they sent across nothing but we had something previously
-                else if ((page.metadata.pageType)) {
-                  delete page.metadata.pageType;
-                }
-                // support for defining and updating hideInMenu which behaves strangely on DOM side for whatever reason
-                if (typeof data["attributes"]["hide-in-menu"] !== 'undefined') {
-                  page.metadata.hideInMenu = true;
-                }
-                else {
-                  page.metadata.hideInMenu = false;
-                }
-                // support for defining and updating related-items
-                if ((data["attributes"]["related-items"]) && data["attributes"]["related-items"] != '') {
-                  page.metadata.relatedItems = sanitizeMetadataValue(
-                    data["attributes"]["related-items"]
-                  );
-                }
-                // they sent across nothing but we had something previously
-                else if ((page.metadata.relatedItems)) {
-                  delete page.metadata.relatedItems;
-                }
-                // support for defining and updating image
-                if ((data["attributes"]["image"]) && data["attributes"]["image"] != '') {
-                  page.metadata.image = sanitizeURLValue(
-                    data["attributes"]["image"],
-                    ''
-                  );
-                }
-                // they sent across nothing but we had something previously
-                else if ((page.metadata.image)) {
-                  delete page.metadata.image;
-                }
-                // support for defining and updating page type
-                if ((data["attributes"]["tags"]) && data["attributes"]["tags"] != '') {
-                  page.metadata.tags = sanitizeMetadataValue(
-                    data["attributes"]["tags"]
-                  );
-                }
-                // they sent across nothing but we had something previously
-                else if ((page.metadata.tags)) {
-                  delete page.metadata.tags;
-                }
-                // support for defining and updating page accentColor
-                if ((data["attributes"]["accent-color"]) && data["attributes"]["accent-color"] != '') {
-                  page.metadata.accentColor = sanitizeMetadataValue(
-                    data["attributes"]["accent-color"]
-                  );
-                }
-                // they sent across nothing but we had something previously
-                else if ((page.metadata.accentColor)) {
-                  delete page.metadata.accentColor;
-                }
-                // support for defining and updating page type
-                if ((data["attributes"]["icon"]) && data["attributes"]["icon"] != '') {
-                  page.metadata.icon = sanitizeMetadataValue(
-                    data["attributes"]["icon"]
-                  );
-                }
-                // they sent across nothing but we had something previously
-                else if ((page.metadata.icon)) {
-                  delete page.metadata.icon;
-                }
-                // support for defining an image to represent the page
-                if ((data["attributes"]["image"]) && data["attributes"]["image"] != '') {
-                  page.metadata.image = sanitizeURLValue(
-                    data["attributes"]["image"],
-                    ''
-                  );
-                }
-                // they sent across nothing but we had something previously
-                else if ((page.metadata.image)) {
-                  delete page.metadata.image;
-                }
-                // support for defining and updating linkUrl (page redirect)
-                if ((data["attributes"]["link-url"]) && data["attributes"]["link-url"] != '') {
-                  page.metadata.linkUrl = sanitizeURLValue(
-                    data["attributes"]["link-url"],
-                    ''
-                  );
-                }
-                // they sent across nothing but we had something previously
-                else if ((page.metadata.linkUrl)) {
-                  delete page.metadata.linkUrl;
-                }
-                // support for defining and updating linkTarget (redirect window target)
-                if ((data["attributes"]["link-target"]) && data["attributes"]["link-target"] != '') {
-                  page.metadata.linkTarget = sanitizeMetadataValue(
-                    data["attributes"]["link-target"]
-                  );
-                }
-                // they sent across nothing but we had something previously
-                else if ((page.metadata.linkTarget)) {
-                  delete page.metadata.linkTarget;
-                }
-                if (!(data["attributes"]["locked"])) {
-                  page.metadata.locked = false;
-                }
-                else {
-                  page.metadata.locked = true;
-                }
-                // update the updated timestamp
-                page.metadata.updated = Math.floor(Date.now() / 1000);
-                let clean = strip_tags(body);
-                // auto generate a text only description from first 200 chars
-                // unless we were sent one to use
-                if ((data["attributes"]["description"]) && data["attributes"]["description"] != '') {
-                  // Security (SEC-SANITIZE): decode then strip (see title)
-                  page.description = toPlainText(data["attributes"]["description"]);
-                }
-                else {
-                  // Security (SEC-SANITIZE): decode then strip (see title)
-                  const decodedClean = toPlainText(body);
-                  page.description = decodedClean.substring(0, 200).replace("\n", '');
-                }
-                let readtime = Math.round(countWords(clean) / 200);
-                // account for uber small body
-                if (readtime == 0) {
-                  readtime = 1;
-                }
-                page.metadata.readtime = readtime;
-                // reset because we rebuild this each page save
-                page.metadata.videos = [];
-                page.metadata.images = [];
-                // pull schema apart and see if we have any media
-                // that other things could use for metadata / theming purposes
-                let schemaElements = [];
-                if (Array.isArray(schema)) {
-                  schemaElements = schema;
-                }
-                else if (schema && typeof schema === 'object') {
-                  for (var schemaKey in schema) {
-                    if (schema[schemaKey]) {
-                      schemaElements.push(schema[schemaKey]);
-                    }
-                  }
-                }
-                for (var elementKey in schemaElements) {
-                  let element = schemaElements[elementKey];
-                  if (!(element) || !(element['tag'])) {
-                    continue;
-                  }
-                  if (!(element['properties'])) {
-                    element['properties'] = {};
-                  }
-                  switch (element['tag']) {
-                    case 'img':
-                      if (element['properties']['src']) {
-                        page.metadata.images.push(element['properties']['src']);
-                      }
-                    break;
-                    case 'a11y-gif-player':
-                      if (element['properties']['src']) {
-                        page.metadata.images.push(element['properties']['src']);
-                      }
-                    break;
-                    case 'media-image':
-                      if (element['properties']['source']) {
-                        page.metadata.images.push(element['properties']['source']);
-                      }
-                    break;
-                    case 'video-player':
-                      if (element['properties']['source']) {
-                        page.metadata.videos.push(element['properties']['source']);
-                      }
-                    break;
-                  }
-                }
-                // #3043: rebuild page.metadata.files as a deduped uuid-string
-                // array from a content path-scan. A file removed from the
-                // content drops out of the set automatically.
-                await FileContentScanner.rebuildPageFilesUuids(site, page, sanitizedContent);
-                await site.updateNode(page);
-                await site.writePageAlternateFormats(page, sanitizedContent);
-                site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
-                await site.manifest.save();
-                await site.gitCommit(
-                  'Page details updated: ' + page.title + ' (' + page.id + ')'
-                );
-            }
-          }
-          return res.send({
-            status: 200,
-            data: page
-          });
-        } else {
-          // Mirror PHP behavior: if body is missing, treat as failed write instead of hanging
-          return res.status(500).json({
-            status: 500,
-            data: { message: 'failed to write' },
-          });
-        }
-      }
-      else {
-        return res.status(500).json({ status: 500, data: { message: 'Server error' } });
+      const result = await site.handleStyleGuideSave(bodyParams);
+      return res.send(result);
+    }
+    let schema = [];
+    let body;
+    if (bodyParams["node"]["body"]) {
+      body = bodyParams["node"]["body"];
+      // we ship the schema with the body
+      if (bodyParams["node"]["schema"]) {
+        schema = bodyParams["node"]["schema"];
       }
     }
-    else {
-      res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
-    } 
+    let details = {};
+    // if we have details object then merge configure and advanced
+    if (bodyParams["node"]["details"]) {
+      if (
+        bodyParams["node"]["details"]["node"] &&
+        bodyParams["node"]["details"]["node"]["configure"]
+      ) {
+        for (var key in bodyParams["node"]["details"]["node"]["configure"]) {
+          details[key] =
+            bodyParams["node"]["details"]["node"]["configure"][key];
+        }
+      }
+      if (
+        bodyParams["node"]["details"]["node"] &&
+        bodyParams["node"]["details"]["node"]["advanced"]
+      ) {
+        for (var key in bodyParams["node"]["details"]["node"]["advanced"]) {
+          details[key] = bodyParams["node"]["details"]["node"]["advanced"][key];
+        }
+      }
+    }
+    // update the page's content, using manifest to find it
+    // this ensures that writing is always to what the file system
+    // determines to be the correct page
+    // @todo review this step by step
+    let page = site.loadNode(bodyParams["node"]["id"]);
+    if (page) {
+      // convert web location for loading into file location for writing
+      if (body) {
+        let bytes = 0;
+        // see if we have multiple pages / this page has been told to split into multiple
+        let pageData = HAXCMS.pageBreakParser(body);
+        // only content after a <page-break> is written; without one nothing
+        // would be saved, so say so instead of answering 200
+        if (pageData.length === 0) {
+          return res.status(400).json({
+            status: 400,
+            data: {
+              message:
+                "body must contain a <page-break> element; only content after it is saved",
+            },
+          });
+        }
+        for (var i in pageData) {
+          let data = pageData[i];
+          // trap to ensure if front-end didnt send a UUID for id then we make it
+          if (!data["attributes"]["title"]) {
+            data["attributes"]["title"] = "New page";
+          }
+          // to avoid critical error in parsing, we defer to the POST's ID always
+          // this also blocks multiple page breaks if it doesn't exist as we don't allow
+          // the front end to dictate what gets created here
+          if (!data["attributes"]["item-id"]) {
+            data["attributes"]["item-id"] = bodyParams["node"]["id"];
+          }
+          if (
+            !data["attributes"]["path"] ||
+            data["attributes"]["path"] == "#"
+          ) {
+            data["attributes"]["path"] = data["attributes"]["title"];
+          }
+          // verify this pages does not exist; this is only possible if we parse multiple page-break
+          // a capability that is not supported currently beyond experiments
+          page = site.loadNode(data["attributes"]["item-id"]);
+          if (!page) {
+            if (
+              !assertSiteFeature(
+                site,
+                res,
+                "addPage",
+                "Adding pages is disabled for this site",
+              )
+            ) {
+              return;
+            }
+            // generate a new item based on the site
+            let nodeParams = {
+              node: {
+                title: data["attributes"]["title"],
+                id: data["attributes"]["item-id"],
+                location: data["attributes"]["path"],
+              },
+            };
+            // strict-mode fix: `item` was an undeclared (implicit global)
+            // assignment — a ReferenceError in the babel-built dist/ and a
+            // shared global across concurrent requests in src/
+            const item = site.itemFromParams(nodeParams);
+            // generate the boilerplate to fill this page
+            // Security (N1/N5 parity): the copy must land inside this site's
+            // directory; refuse rather than writing anywhere else.
+            const copied = await HAXCMS.recurseCopy(
+              HAXCMS.boilerplatePath + "page/default",
+              path.join(
+                site.siteDirectory,
+                item.location.replace("/index.html", ""),
+              ),
+              [],
+              site.siteDirectory,
+            );
+            if (copied === false) {
+              return res.status(400).json({
+                status: 400,
+                data: { message: "Invalid node location" },
+              });
+            }
+            // add the item back into the outline schema
+            site.manifest.addItem(item);
+            site.manifest.save();
+            await site.gitCommit(
+              "Page added:" + item.title + " (" + item.id + ")",
+            );
+            // possible the item-id had to be made by back end
+            data["attributes"]["item-id"] = item.id;
+          }
+          // now this should exist if it didn't a minute ago
+          page = site.loadNode(data["attributes"]["item-id"]);
+          let sanitizedContent = sanitizeHTMLForStorage(data["content"]);
+          // @todo make sure that we stripped off page-break
+          // and now save WITHOUT the top level page-break
+          // to avoid duplication issues
+          bytes = await page.writeLocation(
+            sanitizedContent,
+            site.siteDirectory,
+          );
+          if (bytes === false) {
+            return res.status(500).json({
+              status: 500,
+              data: { message: "failed to write" },
+            });
+          } else {
+            // sanity check
+            if (!page.metadata) {
+              page.metadata = {};
+            }
+            // update attributes in the page
+            if (data["attributes"]["title"]) {
+              // Security (SEC-SANITIZE): decode entities THEN strip tags so
+              // `&lt;img onerror&gt;` can't decode into markup after the strip
+              page.title = toPlainText(data["attributes"]["title"]);
+            }
+            if (
+              Object.prototype.hasOwnProperty.call(
+                data["attributes"],
+                "override-pathauto",
+              )
+            ) {
+              const val = data["attributes"]["override-pathauto"];
+              page.metadata.overridePathauto = val !== false && val !== "false";
+            } else {
+              // attribute absent means the user unchecked the override toggle
+              // (Lit reflect removes the attribute when the Boolean is false).
+              // Clear it so the page returns to automatic slug behavior.
+              page.metadata.overridePathauto = false;
+            }
+            if (data["attributes"]["slug"]) {
+              // account for x being the only front end reserved route
+              if (data["attributes"]["slug"] == "x") {
+                data["attributes"]["slug"] = "x-x";
+              }
+              // same but trying to force a sub-route; paths cannot conflict with front end
+              if (data["attributes"]["slug"].substring(0, 2) == "x/") {
+                data["attributes"]["slug"] = data["attributes"]["slug"].replace(
+                  "x/",
+                  "x-x/",
+                );
+              }
+              // machine name should more aggressively scrub the slug than clean title
+              // @todo need to verify this doesn't already exist
+              page.slug = HAXCMS.generateSlugName(data["attributes"]["slug"]);
+            }
+            if (data["attributes"]["parent"]) {
+              page.parent = data["attributes"]["parent"];
+            } else {
+              page.parent = null;
+            }
+            // allow setting theme via page break
+            if (
+              data["attributes"]["developer-theme"] &&
+              data["attributes"]["developer-theme"] != ""
+            ) {
+              let themes = HAXCMS.getThemes();
+              let value = filter_var(
+                data["attributes"]["developer-theme"],
+                "FILTER_SANITIZE_STRING",
+              );
+              // support for removing the custom theme or applying none
+              if (
+                value == "_none_" ||
+                value == "" ||
+                !value ||
+                !themes[value]
+              ) {
+                delete page.metadata.theme;
+              }
+              // ensure it exists
+              else if (themes[value]) {
+                page.metadata.theme = themes[value];
+                page.metadata.theme.key = value;
+              }
+            } else if (page.metadata.theme) {
+              delete page.metadata.theme;
+            }
+            if (data["attributes"]["depth"]) {
+              page.indent = parseInt(data["attributes"]["depth"]);
+            }
+            if (data["attributes"]["order"]) {
+              page.order = parseInt(data["attributes"]["order"]);
+            }
+            // If pathauto is enabled and overridePathauto is not set, regenerate the slug from the title
+            const pathautoEnabled = isPathautoEnabled(site);
+            if (pathautoEnabled && !page.metadata.overridePathauto) {
+              const cleanTitle = HAXCMS.cleanTitle(page.title);
+              page.slug = site.getUniqueSlugName(cleanTitle, page, true);
+            }
+            // boolean so these are either there or not
+            // historically we are published if this value is not set
+            // and that will remain true however as we save / update pages
+            // this will ensure that we set things to published
+            if (data["attributes"]["published"]) {
+              page.metadata.published = true;
+            } else {
+              page.metadata.published = false;
+            }
+            // support for defining and updating page type
+            if (
+              data["attributes"]["page-type"] &&
+              data["attributes"]["page-type"] != ""
+            ) {
+              page.metadata.pageType = data["attributes"]["page-type"];
+            }
+            // they sent across nothing but we had something previously
+            else if (page.metadata.pageType) {
+              delete page.metadata.pageType;
+            }
+            // support for defining and updating hideInMenu which behaves strangely on DOM side for whatever reason
+            if (typeof data["attributes"]["hide-in-menu"] !== "undefined") {
+              page.metadata.hideInMenu = true;
+            } else {
+              page.metadata.hideInMenu = false;
+            }
+            // support for defining and updating related-items
+            if (
+              data["attributes"]["related-items"] &&
+              data["attributes"]["related-items"] != ""
+            ) {
+              page.metadata.relatedItems = sanitizeMetadataValue(
+                data["attributes"]["related-items"],
+              );
+            }
+            // they sent across nothing but we had something previously
+            else if (page.metadata.relatedItems) {
+              delete page.metadata.relatedItems;
+            }
+            // support for defining and updating image
+            if (
+              data["attributes"]["image"] &&
+              data["attributes"]["image"] != ""
+            ) {
+              page.metadata.image = sanitizeURLValue(
+                data["attributes"]["image"],
+                "",
+              );
+            }
+            // they sent across nothing but we had something previously
+            else if (page.metadata.image) {
+              delete page.metadata.image;
+            }
+            // support for defining and updating page type
+            if (
+              data["attributes"]["tags"] &&
+              data["attributes"]["tags"] != ""
+            ) {
+              page.metadata.tags = sanitizeMetadataValue(
+                data["attributes"]["tags"],
+              );
+            }
+            // they sent across nothing but we had something previously
+            else if (page.metadata.tags) {
+              delete page.metadata.tags;
+            }
+            // support for defining and updating page accentColor
+            if (
+              data["attributes"]["accent-color"] &&
+              data["attributes"]["accent-color"] != ""
+            ) {
+              page.metadata.accentColor = sanitizeMetadataValue(
+                data["attributes"]["accent-color"],
+              );
+            }
+            // they sent across nothing but we had something previously
+            else if (page.metadata.accentColor) {
+              delete page.metadata.accentColor;
+            }
+            // support for defining and updating page type
+            if (
+              data["attributes"]["icon"] &&
+              data["attributes"]["icon"] != ""
+            ) {
+              page.metadata.icon = sanitizeMetadataValue(
+                data["attributes"]["icon"],
+              );
+            }
+            // they sent across nothing but we had something previously
+            else if (page.metadata.icon) {
+              delete page.metadata.icon;
+            }
+            // support for defining an image to represent the page
+            if (
+              data["attributes"]["image"] &&
+              data["attributes"]["image"] != ""
+            ) {
+              page.metadata.image = sanitizeURLValue(
+                data["attributes"]["image"],
+                "",
+              );
+            }
+            // they sent across nothing but we had something previously
+            else if (page.metadata.image) {
+              delete page.metadata.image;
+            }
+            // support for defining and updating linkUrl (page redirect)
+            if (
+              data["attributes"]["link-url"] &&
+              data["attributes"]["link-url"] != ""
+            ) {
+              page.metadata.linkUrl = sanitizeURLValue(
+                data["attributes"]["link-url"],
+                "",
+              );
+            }
+            // they sent across nothing but we had something previously
+            else if (page.metadata.linkUrl) {
+              delete page.metadata.linkUrl;
+            }
+            // support for defining and updating linkTarget (redirect window target)
+            if (
+              data["attributes"]["link-target"] &&
+              data["attributes"]["link-target"] != ""
+            ) {
+              page.metadata.linkTarget = sanitizeMetadataValue(
+                data["attributes"]["link-target"],
+              );
+            }
+            // they sent across nothing but we had something previously
+            else if (page.metadata.linkTarget) {
+              delete page.metadata.linkTarget;
+            }
+            if (!data["attributes"]["locked"]) {
+              page.metadata.locked = false;
+            } else {
+              page.metadata.locked = true;
+            }
+            // update the updated timestamp
+            page.metadata.updated = Math.floor(Date.now() / 1000);
+            let clean = strip_tags(body);
+            // auto generate a text only description from first 200 chars
+            // unless we were sent one to use
+            if (
+              data["attributes"]["description"] &&
+              data["attributes"]["description"] != ""
+            ) {
+              // Security (SEC-SANITIZE): decode then strip (see title)
+              page.description = toPlainText(data["attributes"]["description"]);
+            } else {
+              // Security (SEC-SANITIZE): decode then strip (see title)
+              const decodedClean = toPlainText(body);
+              page.description = decodedClean
+                .substring(0, 200)
+                .replace("\n", "");
+            }
+            let readtime = Math.round(countWords(clean) / 200);
+            // account for uber small body
+            if (readtime == 0) {
+              readtime = 1;
+            }
+            page.metadata.readtime = readtime;
+            // reset because we rebuild this each page save
+            page.metadata.videos = [];
+            page.metadata.images = [];
+            // pull schema apart and see if we have any media
+            // that other things could use for metadata / theming purposes
+            let schemaElements = [];
+            if (Array.isArray(schema)) {
+              schemaElements = schema;
+            } else if (schema && typeof schema === "object") {
+              for (var schemaKey in schema) {
+                if (schema[schemaKey]) {
+                  schemaElements.push(schema[schemaKey]);
+                }
+              }
+            }
+            for (var elementKey in schemaElements) {
+              let element = schemaElements[elementKey];
+              if (!element || !element["tag"]) {
+                continue;
+              }
+              if (!element["properties"]) {
+                element["properties"] = {};
+              }
+              switch (element["tag"]) {
+                case "img":
+                  if (element["properties"]["src"]) {
+                    page.metadata.images.push(element["properties"]["src"]);
+                  }
+                  break;
+                case "a11y-gif-player":
+                  if (element["properties"]["src"]) {
+                    page.metadata.images.push(element["properties"]["src"]);
+                  }
+                  break;
+                case "media-image":
+                  if (element["properties"]["source"]) {
+                    page.metadata.images.push(element["properties"]["source"]);
+                  }
+                  break;
+                case "video-player":
+                  if (element["properties"]["source"]) {
+                    page.metadata.videos.push(element["properties"]["source"]);
+                  }
+                  break;
+              }
+            }
+            // #3043: rebuild page.metadata.files as a deduped uuid-string
+            // array from a content path-scan. A file removed from the
+            // content drops out of the set automatically.
+            await FileContentScanner.rebuildPageFilesUuids(
+              site,
+              page,
+              sanitizedContent,
+            );
+            await site.updateNode(page);
+            await site.writePageAlternateFormats(page, sanitizedContent);
+            site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
+            await site.manifest.save();
+            await site.gitCommit(
+              "Page details updated: " + page.title + " (" + page.id + ")",
+            );
+          }
+        }
+        return res.send({
+          status: 200,
+          data: page,
+        });
+      } else {
+        // Mirror PHP behavior: if body is missing, treat as failed write instead of hanging
+        return res.status(500).json({
+          status: 500,
+          data: { message: "failed to write" },
+        });
+      }
+    } else {
+      return res
+        .status(500)
+        .json({ status: 500, data: { message: "Server error" } });
+    }
+  } else {
+    res
+      .status(403)
+      .json({ status: 403, data: { message: "Authentication required" } });
   }
-  function countWords(str) {
-    return str.trim().split(/\s+/).length;
-  }
-  module.exports = saveNode;
+}
+function countWords(str) {
+  return str.trim().split(/\s+/).length;
+}
+module.exports = saveNode;

@@ -3511,7 +3511,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     ) {
       // @todo think of how to make this less brittle
       // not a fan of pegging loading this definition to our file system's publishing structure
-      themeFields = JSON.parse(
+      const themeFields = JSON.parse(
         await fs.readFileSync(
           HAXCMS.HAXCMS_ROOT +
             "build/es6/node_modules/" +
@@ -3567,7 +3567,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       }
     }
     // response as schema and values
-    response = {};
+    const response = {};
     response.haxSchema = fields;
     response.values = values;
     return response;
@@ -5168,7 +5168,15 @@ class HAXCMSClass {
     return false;
   }
   getRequestToken(value = "") {
-    return this.hmacBase64(value, this.privateKey + this.salt);
+    // Security (L-3, PHP parity): domain-separated key. JWTs are signed with
+    // privateKey + salt directly; request tokens use a key derived from it
+    // (hex HMAC-SHA256 of 'haxcms-request-token') so the same secret never
+    // MACs two different kinds of message. Mirrors PHP getRequestToken.
+    const requestTokenKey = crypto
+      .createHmac("sha256", String(this.privateKey) + String(this.salt))
+      .update("haxcms-request-token")
+      .digest("hex");
+    return this.hmacBase64(String(value), requestTokenKey);
   }
   hmacBase64(data, key) {
     return crypto
@@ -5209,6 +5217,9 @@ class HAXCMSClass {
    * Process the form submission data
    */
   async processForm(form_id, params, context = []) {
+    // strict-mode fix: these were undeclared (class bodies are strict)
+    let value = {};
+    let fields = {};
     // make sure we have the original value / key pairs for the form
     if (this[form_id + "Value"]) {
       value = await this[form_id + "Value"](context);
@@ -5247,9 +5258,14 @@ class HAXCMSClass {
    * for selection keyed by item id: title, ordered based on
    * hierarchy with -- for each level down
    */
-  itemSelectorList() {
+  // strict-mode fix: `site` used to be read from an undeclared PHP-port global
+  // and itemValues/itemBuilder/distance were implicit globals; the site is now
+  // passed in and the working variables are locals.
+  itemSelectorList(site) {
     let items = site.manifest.orderTree(site.manifest.items);
-    itemValues = [
+    let itemBuilder;
+    let distance;
+    let itemValues = [
       {
         text: "-- No page --",
         value: null,
@@ -5450,7 +5466,10 @@ class HAXCMSClass {
    * Build valid JSON Schema for the config we have knowledge of
    */
   getConfigSchema() {
-    schema = {};
+    // strict-mode fix: schema/publishing/props/hax/apiDocs were undeclared
+    // and HAXAppStoreService was never required in this module
+    const HAXAppStoreService = require("./HAXAppStoreService.js");
+    const schema = {};
     schema["schema"] = "http://json-schema.org/schema#";
     schema.title = "HAXCMS Config";
     schema.type = "object";
@@ -5464,7 +5483,7 @@ class HAXCMSClass {
     schema.properties.apis.type = "object";
     schema.properties.apis.properties = {};
     // establish some defaults if nothing set internally
-    publishing = {
+    const publishing = {
       vendor: {
         name: "Vendor",
         description: "Name for this provided (github currently supported)",
@@ -5506,7 +5525,7 @@ class HAXCMSClass {
     // publishing
     for (var key in publishing) {
       let value = publishing[key];
-      props = {};
+      let props = {};
       props.title = value["name"];
       props.type = "string";
       if (this.config.site.git[key]) {
@@ -5541,10 +5560,10 @@ class HAXCMSClass {
       }
     }
     // API keys
-    hax = new HAXAppStoreService();
-    apiDocs = hax.baseSupportedApps();
+    const hax = new HAXAppStoreService();
+    const apiDocs = hax.baseSupportedApps();
     for (var key in apiDocs) {
-      props = {};
+      let props = {};
       props.title = key;
       props.type = "string";
       // if we have this value loaded internally then set it
@@ -5602,28 +5621,9 @@ class HAXCMSClass {
   getSSHKey() {
     return false;
   }
-  // russia strikes again
-  // https://stackoverflow.com/questions/3872423/php-problem-with-russian-language
-  html_to_obj(html) {
-    dom = new DOMDocument();
-    html = mb_convert_encoding(html, "HTML-ENTITIES", "UTF-8");
-    dom.loadHTML(html);
-    return this.element_to_obj(dom.documentElement);
-  }
-  element_to_obj(element) {
-    obj = { tag: element.tagName };
-    for (var attribute in element.attributes) {
-      obj[attribute.name] = attribute.value;
-    }
-    for (var subElement in element.childNodes) {
-      if (subElement.nodeType == XML_TEXT_NODE) {
-        obj["html"] = subElement.wholeText;
-      } else {
-        obj["children"].push(this.element_to_obj(subElement));
-      }
-    }
-    return obj;
-  }
+  // removed html_to_obj()/element_to_obj(): unported PHP (DOMDocument,
+  // mb_convert_encoding, XML_TEXT_NODE) that could never run in Node and had
+  // no callers; they also assigned undeclared globals (strict-mode errors).
   /**
    * parse attributes out of an HTML tag in a safer manner
    */
@@ -6016,7 +6016,9 @@ class HAXCMSClass {
     if (
       request != false &&
       request.id &&
-      request.id == this.getRequestToken("user") &&
+      // Security (L-7, PHP parity): constant-time, type-strict compare.
+      typeof request.id === "string" &&
+      this.safeStringCompare(this.getRequestToken("user"), request.id) &&
       request.user &&
       this.validateUser(request.user)
     ) {
@@ -6172,12 +6174,34 @@ class HAXCMSClass {
     return false;
   }
   /**
+   * Security (L-2, PHP parity): Secure flag decision for the refresh cookie.
+   * TRUE when NODE_ENV=production, when the request is HTTPS (via
+   * resolveTrustedProtocol, which only honours X-Forwarded-Proto behind a
+   * configured trusted proxy), or when config.security.forceSecureCookie is
+   * true. Plain-HTTP dev stays non-Secure so login keeps working there.
+   * Mirrors PHP refreshCookieShouldBeSecure.
+   */
+  refreshCookieShouldBeSecure(req = null) {
+    if (this.isProductionRuntime()) {
+      return true;
+    }
+    if (req && this.resolveTrustedProtocol(req) === "https") {
+      return true;
+    }
+    return !!(
+      this.config &&
+      this.config.security &&
+      this.config.security.forceSecureCookie === true
+    );
+  }
+  /**
    * PHP parity (M3): centralized refresh-token cookie helper so Secure /
    * SameSite / HttpOnly / path flags are consistent across every set and
-   * clear site (login, logout, refresh, validateRefreshToken clears). secure
-   * is protocol-driven (isProductionRuntime) so non-TLS dev still works.
-   * Pass maxAge=1 to clear (expires immediately). Mirrors PHP's single
-   * setRefreshTokenCookie used by login.php, logout.php, and session refresh.
+   * clear site (login, logout, refresh, validateRefreshToken clears).
+   * Secure follows refreshCookieShouldBeSecure (production, HTTPS request,
+   * or forceSecureCookie) so non-TLS dev still works. Express exposes the
+   * request as res.req. Pass maxAge=1 to clear (expires immediately).
+   * Mirrors PHP's single setRefreshTokenCookie.
    */
   setRefreshTokenCookie(res, value, maxAge) {
     if (!res || typeof res.cookie !== "function") {
@@ -6187,7 +6211,7 @@ class HAXCMSClass {
       path: "/",
       httpOnly: true,
       sameSite: "lax",
-      secure: this.isProductionRuntime(),
+      secure: this.refreshCookieShouldBeSecure(res.req || null),
     };
     if (typeof maxAge === "number") {
       options.maxAge = maxAge;
@@ -6686,15 +6710,12 @@ class HAXCMSClass {
   /**
    * Security (SEC-SESSION): config.security.requireSessionForRequestTokens,
    * overridable by env HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS (truthy:
-   * 1/true/yes; any other non-empty value means false). Default TRUE: the
-   * front-end (webcomponents jwt-login / AppHaxBackendAPI / haxcms-backend-*)
-   * now stores the tokens returned by login, refresh and connection-test, so
-   * anonymous connection-settings loads no longer need them. Set the config
-   * value to false (or the env var to 0/false/no) to restore the old
-   * behaviour for a deployment still serving an older front-end build.
-   * Config: a boolean is used as-is, a non-empty string goes through the
-   * truthy list, anything else (unset, null, numbers) falls back to the
-   * default.
+   * 1/true/yes; any other non-empty value means false).
+   * Security (L-3, PHP parity): default TRUE now that the front-end
+   * (jwt-login / session-request-tokens.js) picks up the tokens returned by
+   * login, refresh and connection-test, so anonymous connection-settings
+   * callers no longer receive request tokens. Opt out with config false or a
+   * falsy string (0/false/no/off), or a non-truthy env value.
    */
   getRequireSessionForRequestTokens() {
     const truthy = (value) =>
@@ -6705,11 +6726,15 @@ class HAXCMSClass {
     }
     if (this.config && this.config.security) {
       const configured = this.config.security.requireSessionForRequestTokens;
-      if (typeof configured === "boolean") {
-        return configured;
+      if (configured === false) {
+        return false;
       }
-      if (typeof configured === "string" && configured.trim() !== "") {
-        return truthy(configured);
+      if (typeof configured === "string") {
+        return (
+          ["0", "false", "no", "off"].indexOf(
+            configured.trim().toLowerCase(),
+          ) === -1
+        );
       }
     }
     return true;
@@ -6723,10 +6748,9 @@ class HAXCMSClass {
    *      JS payload).
    *   2. caller authenticated (valid bearer, or a refresh cookie that passes
    *      the session store check) -> include.
-   *   3. requireSessionForRequestTokens is true -> omit.
-   *   4. otherwise -> include (pre-existing behaviour; the shipped front-end
-   *      loads connection-settings once, before login, and its request layer
-   *      drops ALL auth headers when a required token is missing).
+   *   3. requireSessionForRequestTokens is true (the default, L-3) -> omit;
+   *      the front-end picks tokens up from login/refresh/connection-test.
+   *   4. otherwise (explicit opt-out) -> include (legacy behaviour).
    * Returns { include, authenticatedUser, reason }.
    */
   shouldIncludeRequestTokens(req) {
@@ -6960,7 +6984,9 @@ class HAXCMSClass {
       if (
         decoded &&
         decoded.id &&
-        decoded.id == this.getRequestToken("user") &&
+        // Security (L-7, PHP parity): constant-time, type-strict compare.
+        typeof decoded.id === "string" &&
+        this.safeStringCompare(this.getRequestToken("user"), decoded.id) &&
         decoded.user &&
         this.validateUser(decoded.user)
       ) {
