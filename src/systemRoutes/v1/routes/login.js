@@ -6,7 +6,7 @@ const {
   isBlocked,
   registerFailedAttempt,
 } = require('../../../lib/loginRateLimiter.js');
-function loginRoute(req, res)  {
+async function loginRoute(req, res)  {
   // primary branch: username / password login
   if (req.body && req.body.username && req.body.password) {
     const u = req.body.username;
@@ -47,12 +47,25 @@ function loginRoute(req, res)  {
     HAXCMS.setRefreshTokenCookie(res, HAXCMS.getRefreshToken(u), 24 * 60 * 60 * 1000);
     // Security (SEC-SESSION): connection-settings omits request tokens for
     // anonymous callers and the editor loads it once per page, so hand the
-    // userToken back with the JWT for an in-page login.
-    return res.json({
+    // request tokens back with the JWT for an in-page login: userToken always,
+    // siteToken when a site context resolves (login from a site page), the
+    // same shape refresh and connection-test return.
+    let sessionTokens = {};
+    try {
+      sessionTokens = await HAXCMS.getSessionRequestTokens(req);
+    }
+    catch (e) {
+      sessionTokens = {};
+    }
+    if (!sessionTokens || typeof sessionTokens.userToken !== 'string') {
+      sessionTokens = Object.assign({}, sessionTokens, {
+        userToken: HAXCMS.getRequestToken(HAXCMS.getActiveUserName()),
+      });
+    }
+    return res.json(Object.assign({
       status: 200,
       jwt: HAXCMS.getJWT(u),
-      userToken: HAXCMS.getRequestToken(HAXCMS.getActiveUserName()),
-    });
+    }, sessionTokens));
   }
   // login end point requested yet a jwt already exists
   // this is something of a revalidate case

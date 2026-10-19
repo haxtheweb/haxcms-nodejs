@@ -120,10 +120,10 @@ function lastCookie(res) {
 }
 
 // login through the real route so the cookie + store are produced for real
-function realLogin(t) {
+async function realLogin(t) {
   t.mock.method(HAXCMS, 'testLogin', () => true)
   const res = fakeRes()
-  loginRoute({ body: { username: ACTIVE_USER, password: 'x' }, headers: {}, ip: '10.9.9.' + storeCounter }, res)
+  await loginRoute({ body: { username: ACTIVE_USER, password: 'x' }, headers: {}, ip: '10.9.9.' + storeCounter }, res)
   assert.equal(res.body.status, 200)
   const cookie = lastCookie(res)
   assert.ok(cookie && cookie.length > 0)
@@ -301,7 +301,7 @@ describe('refresh-session store truth table', () => {
 describe('route flows with real tokens', () => {
   test('login -> refresh -> replay of the old cookie revokes the family', async (t) => {
     isolateStore(t)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     const r1 = fakeRes()
     await refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, r1)
     assert.equal(r1.body.status, 200)
@@ -324,7 +324,7 @@ describe('route flows with real tokens', () => {
 
   test('logout makes the refresh cookie unusable for refresh and connection-test', async (t) => {
     isolateStore(t)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     logoutRoute({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, fakeRes())
     const r1 = fakeRes()
     await refreshAccessToken({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, r1)
@@ -351,7 +351,7 @@ describe('route flows with real tokens', () => {
 
   test('connection-test recovers a live session and rotates the cookie', async (t) => {
     isolateStore(t)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     const res = fakeRes()
     await connectionTest({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, res)
     assert.equal(res.body.authenticated, true)
@@ -372,7 +372,7 @@ describe('connection-test / refresh origin gate', () => {
   test('cross-origin connection-test with a refresh cookie is denied before rotating', async (t) => {
     isolateStore(t)
     trustedOrigin(t)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     let rotated = 0
     const original = HAXCMS.rotateRefreshTokenAndCookie
     t.mock.method(HAXCMS, 'rotateRefreshTokenAndCookie', function () {
@@ -394,7 +394,7 @@ describe('connection-test / refresh origin gate', () => {
   test('same-origin connection-test with a refresh cookie proceeds', async (t) => {
     isolateStore(t)
     trustedOrigin(t)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     const res = fakeRes()
     await connectionTest({
       headers: { origin: 'https://cms.example.com', 'sec-fetch-site': 'same-origin' },
@@ -405,7 +405,7 @@ describe('connection-test / refresh origin gate', () => {
 
   test('Sec-Fetch-Site: cross-site is rejected even without Origin/Referer', async (t) => {
     isolateStore(t)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     const res = fakeRes()
     await connectionTest({
       headers: { 'sec-fetch-site': 'cross-site' },
@@ -491,7 +491,7 @@ describe('connection-settings', () => {
 
   test('a valid refresh-cookie session receives the tokens', async (t) => {
     isolateStore(t)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     const res = fakeRes()
     await connectionSettings({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, res)
     assert.equal(parse(res).userToken, HAXCMS.getRequestToken(ACTIVE_USER))
@@ -500,7 +500,7 @@ describe('connection-settings', () => {
   test('a revoked refresh cookie or a bad bearer gets no tokens (flag on)', async (t) => {
     isolateStore(t)
     withRequireSessionFlag(t, 'true')
-    const login = realLogin(t)
+    const login = await realLogin(t)
     logoutRoute({ headers: {}, cookies: { haxcms_refresh_token: login.cookie } }, fakeRes())
     const res = fakeRes()
     await connectionSettings({
@@ -512,9 +512,21 @@ describe('connection-settings', () => {
     assert.equal(settings.siteToken, undefined)
   })
 
-  test('flag off (default): anonymous same-origin callers still get the tokens', async (t) => {
+  test('default (flag on): anonymous same-origin callers get no tokens', async (t) => {
     isolateStore(t)
     withRequireSessionFlag(t, null)
+    const res = fakeRes()
+    await connectionSettings({ headers: { 'sec-fetch-site': 'same-origin' }, cookies: {} }, res)
+    const settings = parse(res)
+    assert.equal(settings.userToken, undefined)
+    assert.equal(settings.siteToken, undefined)
+    assert.equal(JSON.stringify(settings.getUserDataHeaders), '{}')
+    assert.equal(JSON.stringify(settings.appStore.headers), '{}')
+  })
+
+  test('flag off (opt-out): anonymous same-origin callers still get the tokens', async (t) => {
+    isolateStore(t)
+    withRequireSessionFlag(t, '0')
     const res = fakeRes()
     await connectionSettings({ headers: { 'sec-fetch-site': 'same-origin' }, cookies: {} }, res)
     const settings = parse(res)
@@ -826,7 +838,7 @@ describe('concurrent tabs refreshing with the same cookie (grace path)', () => {
   for (const order of ['A-first', 'B-first']) {
     test('both tabs get the same successor and whichever cookie is kept still works (' + order + ')', async (t) => {
       const storePath = isolateStore(t)
-      const login = realLogin(t)
+      const login = await realLogin(t)
       // tabs A and B both send the SAME old cookie; the server processes one
       // first (current-jti path), the other second (previous-within-grace path)
       const first = await refreshWith(login.cookie)
@@ -882,7 +894,7 @@ describe('host-only same-origin comparison', () => {
     t.mock.method(HAXCMS, 'resolveTrustedProtocol', () => 'http')
     t.mock.method(HAXCMS, 'resolveTrustedHost', () => 'cms.example.com')
     assert.equal(HAXCMS.isSameOriginRequest({ headers: { origin: 'https://cms.example.com' } }), true)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     const res = fakeRes()
     await connectionTest({
       headers: { origin: 'https://cms.example.com' },
@@ -896,7 +908,7 @@ describe('host-only same-origin comparison', () => {
     t.mock.method(HAXCMS, 'resolveTrustedProtocol', () => 'https')
     t.mock.method(HAXCMS, 'resolveTrustedHost', () => 'cms.example.com:8080')
     assert.equal(HAXCMS.isSameOriginRequest({ headers: { referer: 'http://cms.example.com:8080/x' } }), true)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     const res = fakeRes()
     await refreshAccessToken({
       headers: { origin: 'http://cms.example.com:8080' },
@@ -916,20 +928,52 @@ describe('request tokens on successful session responses', () => {
   const userToken = () => HAXCMS.getRequestToken(ACTIVE_USER)
   const siteToken = (name) => HAXCMS.getRequestToken(ACTIVE_USER + ':' + name)
 
-  test('login returns userToken alongside the jwt', (t) => {
+  test('login returns userToken alongside the jwt', async (t) => {
     isolateStore(t)
     t.mock.method(HAXCMS, 'testLogin', () => true)
     const res = fakeRes()
-    loginRoute({ body: { username: ACTIVE_USER, password: 'x' }, headers: {}, ip: '10.8.8.8' }, res)
+    await loginRoute({ body: { username: ACTIVE_USER, password: 'x' }, headers: {}, ip: '10.8.8.8' }, res)
     assert.equal(res.body.status, 200)
     assert.ok(res.body.jwt)
     assert.equal(res.body.userToken, userToken())
     assert.equal(Object.prototype.hasOwnProperty.call(res.body, 'siteToken'), false)
   })
 
+  test('login from a site page also returns that site\'s siteToken', async (t) => {
+    isolateStore(t)
+    t.mock.method(HAXCMS, 'testLogin', () => true)
+    const res = fakeRes()
+    await loginRoute({
+      body: { username: ACTIVE_USER, password: 'x' },
+      headers: {
+        host: 'cms.example.com',
+        referer: 'http://cms.example.com' + HAXCMS.basePath + HAXCMS.sitesDirectory + '/my-site/page',
+      },
+      ip: '10.8.8.9',
+    }, res)
+    assert.equal(res.body.status, 200)
+    assert.ok(res.body.jwt)
+    assert.equal(res.body.userToken, userToken())
+    assert.equal(res.body.siteToken, siteToken('my-site'))
+  })
+
+  test('a failed login never carries tokens', async (t) => {
+    isolateStore(t)
+    t.mock.method(HAXCMS, 'testLogin', () => false)
+    const res = fakeRes()
+    await loginRoute({
+      body: { username: ACTIVE_USER, password: 'wrong' },
+      headers: { referer: 'http://cms.example.com' + HAXCMS.basePath + HAXCMS.sitesDirectory + '/my-site/' },
+      ip: '10.8.8.10',
+    }, res)
+    assert.equal(res.body.status, 401)
+    assert.equal(res.body.userToken, undefined)
+    assert.equal(res.body.siteToken, undefined)
+  })
+
   test('refresh returns userToken and a siteToken resolved from the Referer path', async (t) => {
     isolateStore(t)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     const res = fakeRes()
     await refreshAccessToken({
       headers: {
@@ -945,7 +989,7 @@ describe('request tokens on successful session responses', () => {
 
   test('refresh resolves the site from the body before the Referer, and omits siteToken without context', async (t) => {
     isolateStore(t)
-    const login = realLogin(t)
+    const login = await realLogin(t)
     const res = fakeRes()
     await refreshAccessToken({
       headers: {},
@@ -1010,16 +1054,36 @@ describe('requireSessionForRequestTokens flag resolution', () => {
     })
   }
 
-  test('defaults to false', (t) => {
+  test('defaults to true (front-end stores login/refresh tokens)', (t) => {
     withRequireSessionFlag(t, null)
     withConfigValue(t, undefined)
-    assert.equal(HAXCMS.getRequireSessionForRequestTokens(), false)
+    assert.equal(HAXCMS.getRequireSessionForRequestTokens(), true)
   })
 
-  test('config.json value true turns it on', (t) => {
+  test('config.json boolean is used as-is', (t) => {
     withRequireSessionFlag(t, null)
     withConfigValue(t, true)
     assert.equal(HAXCMS.getRequireSessionForRequestTokens(), true)
+    HAXCMS.config.security.requireSessionForRequestTokens = false
+    assert.equal(HAXCMS.getRequireSessionForRequestTokens(), false)
+  })
+
+  test('config.json strings go through the truthy list; other types use the default', (t) => {
+    withRequireSessionFlag(t, null)
+    withConfigValue(t, 'false')
+    assert.equal(HAXCMS.getRequireSessionForRequestTokens(), false)
+    for (const v of ['no', '0', 'off']) {
+      HAXCMS.config.security.requireSessionForRequestTokens = v
+      assert.equal(HAXCMS.getRequireSessionForRequestTokens(), false, v)
+    }
+    for (const v of ['yes', 'TRUE', '1']) {
+      HAXCMS.config.security.requireSessionForRequestTokens = v
+      assert.equal(HAXCMS.getRequireSessionForRequestTokens(), true, v)
+    }
+    for (const v of ['  ', null, 0, 1, {}]) {
+      HAXCMS.config.security.requireSessionForRequestTokens = v
+      assert.equal(HAXCMS.getRequireSessionForRequestTokens(), true, JSON.stringify(v))
+    }
   })
 
   test('env override wins over config (truthy 1/true/yes, anything else false)', (t) => {

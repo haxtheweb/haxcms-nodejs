@@ -6009,9 +6009,14 @@ class HAXCMSClass {
     /**
      * Security (SEC-SESSION): config.security.requireSessionForRequestTokens,
      * overridable by env HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS (truthy:
-     * 1/true/yes; any other non-empty value means false). Default FALSE until
-     * the front-end consumes the tokens returned by login/refresh/
-     * connection-test (see shouldIncludeRequestTokens).
+     * 1/true/yes; any other non-empty value means false). Default TRUE: the
+     * front-end (webcomponents jwt-login / AppHaxBackendAPI / haxcms-backend-*)
+     * now stores the tokens returned by login, refresh and connection-test, so
+     * anonymous connection-settings loads no longer need them. Set the config
+     * value to false (or the env var to 0/false/no) to restore the old
+     * behaviour for a deployment still serving an older front-end build.
+     * Config: a boolean is used as-is, a string goes through the truthy list,
+     * anything else (unset, null, numbers) falls back to the default.
      */
     getRequireSessionForRequestTokens() {
       const truthy = (value) => ['1', 'true', 'yes'].indexOf(String(value).trim().toLowerCase()) !== -1;
@@ -6021,14 +6026,14 @@ class HAXCMSClass {
       }
       if (this.config && this.config.security) {
         const configured = this.config.security.requireSessionForRequestTokens;
-        if (configured === true) {
-          return true;
+        if (typeof configured === 'boolean') {
+          return configured;
         }
-        if (typeof configured === 'string') {
+        if (typeof configured === 'string' && configured.trim() !== '') {
           return truthy(configured);
         }
       }
-      return false;
+      return true;
     }
     /**
      * Security (SEC-SESSION): should connection-settings include siteToken /
