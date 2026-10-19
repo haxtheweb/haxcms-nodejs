@@ -35,6 +35,44 @@ npm start
 ```
 
 Visit http://localhost:3000 if it doesn't automatically open
+
+### Network binding
+- `HAXCMS_HOST` sets the interface the server listens on (e.g. `127.0.0.1`,
+  `0.0.0.0`, `::`, or a specific address). When unset, the server listens on
+  all interfaces — **except** in no-login mode.
+- No-login mode (`npx @haxtheweb/haxcms-nodejs`, `npm run dev:nologin`, i.e.
+  `HAXCMS_DISABLE_JWT_CHECKS`) binds `127.0.0.1` only, so an unauthenticated
+  instance is not reachable from other machines. To deliberately expose it on
+  your LAN set `HAXCMS_HOST=0.0.0.0`; a loud warning is printed because anyone
+  who can reach the port can edit every site.
+
+### First-run admin credentials
+On first start, if the config directory (`_config/` next to your sites, or
+`~/.haxcmsconfig`) has no `.user` file, an `admin` user is created with a
+random password. Only the scrypt hash is stored in `.user`; the plaintext is
+written once to `.initial-admin-password` in the same config directory with
+mode `0600`, and the log shows only that file's path. The password is also
+echoed to the terminal when stderr is an interactive TTY, but never to piped
+or captured logs (Docker, systemd, CI). Log in, change the password, then
+delete `.initial-admin-password`. When `HAXCMS_RUNTIME_USERNAME` /
+`HAXCMS_RUNTIME_PASSWORD` are supplied (see below) those credentials are used
+instead and no password file is written.
+
+### Docker
+The image runs as the non-root `node` user and declares two volumes:
+`/app/_sites` (site content) and `/home/node/.haxcmsconfig` (keys, salt,
+hashed admin user, API keys). Mount both to persist data and secrets across
+container re-creation, e.g.
+
+```bash
+docker run -p 3000:3000 \
+  -v haxcms-sites:/app/_sites -v haxcms-config:/home/node/.haxcmsconfig \
+  -e HAXCMS_RUNTIME_USERNAME=admin -e HAXCMS_RUNTIME_PASSWORD='<strong secret>' \
+  haxcms-nodejs
+```
+
+Without runtime credentials, read the seeded password with
+`docker exec <container> cat /home/node/.haxcmsconfig/.initial-admin-password`.
 ## API conformance testing
 Run endpoint conformance checks against `src/openapi/site-spec.yaml`:
 ```bash

@@ -2,7 +2,7 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const filter_var = require('../../../lib/filter_var.js');
 const path = require('path');
 const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
-const html_entity_decode = require("locutus/php/strings/html_entity_decode").html_entity_decode;
+const { toPlainText } = require('../../../lib/sanitizePageMetadata.js');
 const {
   sanitizeHTMLForStorage,
   sanitizeURLValue,
@@ -119,10 +119,20 @@ const FileContentScanner = require('../../../lib/FileContentScanner.js');
               };
               item = site.itemFromParams(nodeParams);
               // generate the boilerplate to fill this page
-              HAXCMS.recurseCopy(
+              // Security (N1/N5 parity): the copy must land inside this site's
+              // directory; refuse rather than writing anywhere else.
+              const copied = await HAXCMS.recurseCopy(
                 HAXCMS.boilerplatePath + 'page/default',
-                path.join(site.siteDirectory, item.location.replace('/index.html', ''))
+                path.join(site.siteDirectory, item.location.replace('/index.html', '')),
+                [],
+                site.siteDirectory
               );
+              if (copied === false) {
+                return res.status(400).json({
+                  status: 400,
+                  data: { message: 'Invalid node location' },
+                });
+              }
               // add the item back into the outline schema
               site.manifest.addItem(item);
               site.manifest.save();
@@ -152,8 +162,9 @@ const FileContentScanner = require('../../../lib/FileContentScanner.js');
                 }
                 // update attributes in the page
                 if (data["attributes"]["title"]) {
-                  // decode entities and strip tags so manifest stores clean text
-                  page.title = html_entity_decode(strip_tags(data["attributes"]["title"]));
+                  // Security (SEC-SANITIZE): decode entities THEN strip tags so
+                  // `&lt;img onerror&gt;` can't decode into markup after the strip
+                  page.title = toPlainText(data["attributes"]["title"]);
                 }
                 if (Object.prototype.hasOwnProperty.call(data["attributes"], 'override-pathauto')) {
                   const val = data["attributes"]['override-pathauto'];
@@ -333,10 +344,12 @@ const FileContentScanner = require('../../../lib/FileContentScanner.js');
                 // auto generate a text only description from first 200 chars
                 // unless we were sent one to use
                 if ((data["attributes"]["description"]) && data["attributes"]["description"] != '') {
-                  page.description = html_entity_decode(strip_tags(data["attributes"]["description"]));
+                  // Security (SEC-SANITIZE): decode then strip (see title)
+                  page.description = toPlainText(data["attributes"]["description"]);
                 }
                 else {
-                  const decodedClean = html_entity_decode(clean);
+                  // Security (SEC-SANITIZE): decode then strip (see title)
+                  const decodedClean = toPlainText(body);
                   page.description = decodedClean.substring(0, 200).replace("\n", '');
                 }
                 let readtime = Math.round(countWords(clean) / 200);

@@ -271,3 +271,40 @@ test('readEffectiveApiKeys returns empty defaults when neither config nor file e
     fs.removeSync(tmpDir)
   }
 })
+
+// Security (SEC-10 parity): apiKeys.json must be written 0600.
+test('writeApiKeys writes apiKeys.json with mode 0600 (plain config object)', { skip: process.platform === 'win32' }, async () => {
+  const tmpDir = mkTempConfigDir()
+  try {
+    const haxcms = { configDirectory: tmpDir }
+    const filePath = getApiKeysFilePath(haxcms)
+    // pre-existing world-readable file must be tightened too
+    fs.ensureDirSync(path.dirname(filePath))
+    fs.writeFileSync(filePath, '{}\n', { mode: 0o644 })
+    fs.chmodSync(filePath, 0o644)
+    await writeApiKeys(haxcms, { youtube: 'k1' })
+    assert.equal(fs.statSync(filePath).mode & 0o777, 0o600)
+  } finally {
+    fs.removeSync(tmpDir)
+  }
+})
+
+test('writeApiKeys uses HAXCMS writeSecretFile/chmodSecretFile when available', { skip: process.platform === 'win32' }, async () => {
+  const tmpDir = mkTempConfigDir()
+  try {
+    const { HAXCMSClass } = require('../../src/lib/HAXCMS.js')
+    const calls = []
+    const haxcms = {
+      configDirectory: tmpDir,
+      writeSecretFile(p, d) { calls.push(['write', p]); return HAXCMSClass.prototype.writeSecretFile.call(this, p, d) },
+      chmodSecretFile(p) { calls.push(['chmod', p]); return HAXCMSClass.prototype.chmodSecretFile.call(this, p) },
+    }
+    await writeApiKeys(haxcms, { youtube: 'k1' })
+    const filePath = getApiKeysFilePath(haxcms)
+    assert.deepEqual(calls, [['write', filePath], ['chmod', filePath]])
+    assert.equal(fs.statSync(filePath).mode & 0o777, 0o600)
+    assert.equal(JSON.parse(fs.readFileSync(filePath, 'utf8')).youtube, 'k1')
+  } finally {
+    fs.removeSync(tmpDir)
+  }
+})

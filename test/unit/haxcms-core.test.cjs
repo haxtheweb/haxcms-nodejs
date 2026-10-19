@@ -578,9 +578,12 @@ test('getRefreshToken records a family/jti session when storeRefreshSession is t
   const store = JSON.parse(
     fs.readFileSync(HAXCMS.getRefreshSessionsPath(), 'utf8'),
   )
-  assert.ok(store['refresh-user'])
-  assert.equal(store['refresh-user'].family, decoded.family)
-  assert.equal(store['refresh-user'].currentJtiHash, HAXCMS._hashJti(decoded.jti))
+  // Security (SEC-SESSION): v2 store shape, one entry per family
+  assert.equal(store.version, 2)
+  assert.ok(store.users['refresh-user'])
+  const familyEntry = store.users['refresh-user'].families[decoded.family]
+  assert.ok(familyEntry)
+  assert.equal(familyEntry.currentJtiHash, HAXCMS._hashJti(decoded.jti))
 })
 
 test('getRefreshToken without a session store skips the family/jti claims', () => {
@@ -667,24 +670,35 @@ test('rotateRefreshSession rejects a stale jti, revokes the family, then accepts
     HAXCMS.rotateRefreshSession(user, second.family, first.jti, 'jti-four', 9999999999),
     false,
   )
+  // Security (SEC-SESSION): the family is tombstoned, not deleted
   const store = JSON.parse(fs.readFileSync(HAXCMS.getRefreshSessionsPath(), 'utf8'))
-  assert.equal(store[user], undefined)
+  assert.equal(store.users[user].families[second.family].revoked, true)
+  // ...and every later attempt in that family is rejected
+  assert.equal(
+    HAXCMS.rotateRefreshSession(user, second.family, 'jti-three', 'jti-five', 9999999999),
+    false,
+  )
 })
 
-test('rotateRefreshSession rejects incomplete arguments and seeds a missing store entry', () => {
+test('rotateRefreshSession rejects incomplete arguments and never seeds a missing store entry', () => {
   assert.equal(HAXCMS.rotateRefreshSession(null, 'f', 'a', 'b', 1), false)
   assert.equal(HAXCMS.rotateRefreshSession('user', null, 'a', 'b', 1), false)
   assert.equal(HAXCMS.rotateRefreshSession('user', 'f', null, 'b', 1), false)
   assert.equal(HAXCMS.rotateRefreshSession('user', 'f', 'a', null, 1), false)
+  // Security (SEC-SESSION): a family-bearing token with no store entry is
+  // rejected (accept+seed made revocation a no-op)
   assert.equal(
     HAXCMS.rotateRefreshSession('legacy-user', 'legacy-family', 'legacy-jti', 'legacy-next', 9999999999),
-    true,
+    false,
   )
 })
 
 test('validateRefreshSession accepts legacy tokens without family/jti and rejects family mismatches', () => {
-  assert.equal(HAXCMS.validateRefreshSession(null, 'f', 'j'), true)
-  assert.equal(HAXCMS.validateRefreshSession('no-store-user', 'f', 'j'), true)
+  // Security (SEC-SESSION): no user / unknown family are rejected; only a
+  // token with NO family claim is accepted without a store entry
+  assert.equal(HAXCMS.validateRefreshSession(null, 'f', 'j'), false)
+  assert.equal(HAXCMS.validateRefreshSession('no-store-user', 'f', 'j'), false)
+  assert.equal(HAXCMS.validateRefreshSession('no-store-user', undefined, undefined), true)
   const user = 'validate-user'
   const signed = HAXCMS.getRefreshToken(user, true)
   const decoded = HAXCMS.decodeRefreshToken(signed)
@@ -702,14 +716,18 @@ test('recordRefreshSession skips incomplete inputs', () => {
   assert.equal(fs.readFileSync(storePath, 'utf8'), before)
 })
 
-test('revokeRefreshSession removes the stored family for the user only', () => {
+test('revokeRefreshSession tombstones the stored family for the user only', () => {
   const user = 'revoke-user'
-  HAXCMS.getRefreshToken(user, true)
+  const decoded = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken(user, true))
   const store = JSON.parse(fs.readFileSync(HAXCMS.getRefreshSessionsPath(), 'utf8'))
-  assert.ok(store[user])
-  HAXCMS.revokeRefreshSession(user)
+  assert.ok(store.users[user].families[decoded.family])
+  HAXCMS.revokeRefreshSession(user, decoded.family)
   const afterStore = JSON.parse(fs.readFileSync(HAXCMS.getRefreshSessionsPath(), 'utf8'))
-  assert.equal(afterStore[user], undefined)
+  const tombstone = afterStore.users[user].families[decoded.family]
+  assert.equal(tombstone.revoked, true)
+  assert.equal(tombstone.currentJtiHash, undefined)
+  assert.ok(tombstone.exp > Math.floor(Date.now() / 1000) + 24 * 60 * 60 - 5)
+  assert.equal(HAXCMS.validateRefreshSession(user, decoded.family, decoded.jti), false)
   HAXCMS.revokeRefreshSession(null)
   HAXCMS.revokeRefreshSession('never-existed-user')
   assert.ok(afterStore)
@@ -719,10 +737,13 @@ test('_saveRefreshSessions prunes expired entries when writing', () => {
   const user = 'prune-user'
   HAXCMS.getRefreshToken(user, true)
   const store = JSON.parse(fs.readFileSync(HAXCMS.getRefreshSessionsPath(), 'utf8'))
-  store[user].exp = 1
+  const families = Object.keys(store.users[user].families)
+  for (let i = 0; i < families.length; i++) {
+    store.users[user].families[families[i]].exp = 1
+  }
   HAXCMS._saveRefreshSessions(store)
   const afterStore = JSON.parse(fs.readFileSync(HAXCMS.getRefreshSessionsPath(), 'utf8'))
-  assert.equal(afterStore[user], undefined)
+  assert.equal(afterStore.users[user], undefined)
 })
 
 test('rotateRefreshTokenAndCookie rotates a valid decoded refresh and returns a fresh access JWT', () => {
@@ -759,7 +780,7 @@ test('rotateRefreshTokenAndCookie revokes the family on an unknown same-family j
     null,
   )
   const finalStore = JSON.parse(fs.readFileSync(HAXCMS.getRefreshSessionsPath(), 'utf8'))
-  assert.equal(finalStore[user], undefined)
+  assert.equal(finalStore.users[user].families[decoded.family].revoked, true)
 })
 
 // ---------------------------------------------------------------------------
@@ -840,7 +861,8 @@ test('resolveTrustedProtocol honors forwarded proto only behind a trusted proxy'
     protocol: 'http',
   }
   assert.equal(HAXCMS.resolveTrustedProtocol(forwardedReq), 'http')
-  HAXCMS.config.security.trustProxy = true
+  // Security (SEC-SESSION): boolean true is rejected, so use a hop count
+  HAXCMS.config.security.trustProxy = 1
   try {
     assert.equal(HAXCMS.resolveTrustedProtocol(forwardedReq), 'https')
     assert.equal(HAXCMS.resolveTrustedProtocol({ headers: {}, protocol: 'https' }), 'https')
@@ -852,7 +874,7 @@ test('resolveTrustedProtocol honors forwarded proto only behind a trusted proxy'
 })
 
 test('resolveTrustedHost honors forwarded hosts, allowedHosts fallback, and raw host', () => {
-  HAXCMS.config.security.trustProxy = true
+  HAXCMS.config.security.trustProxy = 1
   HAXCMS.config.security.allowedHosts = ['allowed.example']
   try {
     assert.equal(

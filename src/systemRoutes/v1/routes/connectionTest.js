@@ -35,17 +35,24 @@ function getValidatedJWTFromRefresh(req, res) {
   if (!validUser) {
     return null;
   }
-  // Security (H1 rotation): reject a revoked/stolen refresh family before
-  // minting an access token. validateRefreshSession accepts legacy tokens
-  // (no family/jti) so deploys don't log users out during upgrade.
-  if (!HAXCMS.validateRefreshSession(validRefresh.user, validRefresh.family, validRefresh.jti)) {
-    HAXCMS.revokeRefreshSession(validRefresh.user);
+  // Security (H1 rotation + SEC-SESSION): reject a revoked/stolen/unknown
+  // refresh family before minting an access token. Only legacy tokens that
+  // carry NO family claim are accepted without a store entry.
+  if (!HAXCMS.validateRefreshSession(validRefresh.user, validRefresh.family, validRefresh.jti, validRefresh.iat)) {
+    HAXCMS.revokeRefreshSession(validRefresh.user, validRefresh.family || null);
     HAXCMS.setRefreshTokenCookie(res, '', 1);
     return null;
   }
-  // rotate the refresh cookie on recovery so a stolen cookie is bounded
+  // rotate the refresh cookie on recovery so a stolen cookie is bounded.
+  // Security (SEC-SESSION): a rejected rotation (replay / revoked family)
+  // is authoritative -- do NOT fall back to minting an access token.
   const rotated = HAXCMS.rotateRefreshTokenAndCookie(res, validRefresh);
-  return rotated || HAXCMS.getJWT(validRefresh.user);
+  if (!rotated) {
+    HAXCMS.revokeRefreshSession(validRefresh.user, validRefresh.family || null);
+    HAXCMS.setRefreshTokenCookie(res, '', 1);
+    return null;
+  }
+  return rotated;
 }
 
 function resolveAuthenticatedUser(req, jwt) {
@@ -66,12 +73,12 @@ function resolveAuthenticatedUser(req, jwt) {
   return '';
 }
 
-function validateIAMAuthorizationIfNeeded() {
+function validateIAMAuthorizationIfNeeded(req) {
   if (typeof HAXCMS.validateIAMRouteAuthorization !== 'function') {
     return { allowed: true };
   }
   try {
-    return HAXCMS.validateIAMRouteAuthorization(true);
+    return HAXCMS.validateIAMRouteAuthorization(true, req);
   }
   catch (e) {
     return {
@@ -100,7 +107,7 @@ function validateIAMAuthorizationIfNeeded() {
  *   )
  * )
  */
-function connectionTest(req, res) {
+async function connectionTest(req, res) {
   // Auth-state probes must never be cached: a cached authenticated body could
   // be served to a different user (token leak), and a cached anonymous body
   // could mask a now-logged-in session. Applies to every response branch.
@@ -113,6 +120,23 @@ function connectionTest(req, res) {
   const suppliedBearerJWT = getRequestJWT(req);
   let jwt = getValidatedJWTFromRequest(req, res);
   if (!jwt) {
+    // Security (SEC-SESSION): falling back to the refresh cookie ROTATES it
+    // (state change authenticated only by a cookie), so apply the same
+    // same-origin / Sec-Fetch-Site gate session/refresh uses.
+    if (
+      req &&
+      req.cookies &&
+      req.cookies.haxcms_refresh_token &&
+      !HAXCMS.isSameOriginRequest(req)
+    ) {
+      HAXCMS.setRefreshTokenCookie(res, '', 1);
+      return res.status(403).json({
+        status: 403,
+        authenticated: false,
+        reason: 'cross_origin',
+        message: 'Cross-origin request denied',
+      });
+    }
     jwt = getValidatedJWTFromRefresh(req, res);
     refreshed = !!jwt;
   }
@@ -142,7 +166,7 @@ function connectionTest(req, res) {
     });
   }
 
-  const iamAuthorization = validateIAMAuthorizationIfNeeded();
+  const iamAuthorization = validateIAMAuthorizationIfNeeded(req);
   if (
     iamAuthorization &&
     typeof iamAuthorization === 'object' &&
@@ -156,13 +180,23 @@ function connectionTest(req, res) {
     });
   }
 
-  return res.json({
+  // Security (SEC-SESSION): include fresh request tokens (userToken, and
+  // siteToken when a site context is resolvable) for an editor that booted
+  // anonymously from connection-settings.
+  let sessionTokens = {};
+  try {
+    sessionTokens = await HAXCMS.getSessionRequestTokens(req);
+  }
+  catch (e) {
+    sessionTokens = {};
+  }
+  return res.json(Object.assign({
     status: 200,
     authenticated: true,
     jwt,
     refreshed,
     user: resolveAuthenticatedUser(req, jwt),
-  });
+  }, sessionTokens));
 }
 
 module.exports = connectionTest;

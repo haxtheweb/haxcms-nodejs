@@ -1,10 +1,33 @@
 node_modules
 dist
 .git
+.github
 _sites
 _published
 _archived
 _config
 coverage
+.nyc_output
+test
+test-results
+playwright-report
+screenshots
 *.log
 .DS_Store
+# Security (SEC-DEPLOY): never send local secrets / env files into the build
+# context (they would end up in an image layer via `COPY . .`).
+.env
+.env.*
+*.pem
+*.key
+.haxcmsconfig
+.initial-admin-password
+PR_BODY.md
+# per-install secrets that land in the boilerplate when the fallback config
+# path is used during local development
+src/boilerplate/systemsetup/.pk
+src/boilerplate/systemsetup/.rpk
+src/boilerplate/systemsetup/.user
+src/boilerplate/systemsetup/SALT.txt
+src/boilerplate/systemsetup/settings/apiKeys.json
+src/boilerplate/systemsetup/.initial-admin-password
