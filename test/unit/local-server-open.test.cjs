@@ -1,4 +1,4 @@
-'use strict'
+"use strict";
 
 // Boots the real src/local.js launcher in-process and verifies it opens the
 // served URL through the system opener WITHOUT opening a real browser.
@@ -25,134 +25,157 @@
 // Constraints honored: CommonJS (.cjs), require(), globalThis (not window),
 // NO optional chaining (explicit && guards), node:test + node:assert/strict.
 
-const test = require('node:test')
-const assert = require('node:assert/strict')
-const fs = require('fs-extra')
-const os = require('os')
-const path = require('path')
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("fs-extra");
+const os = require("os");
+const path = require("path");
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..')
-const LOCAL_ENTRY_PATH = path.join(REPO_ROOT, 'src', 'local.js')
-const APP_ENTRY_PATH = path.join(REPO_ROOT, 'src', 'app.js')
-const BOILERPLATE_SYSTEMSETUP = path.join(REPO_ROOT, 'src', 'boilerplate', 'systemsetup')
+const REPO_ROOT = path.resolve(__dirname, "..", "..");
+const LOCAL_ENTRY_PATH = path.join(REPO_ROOT, "src", "local.js");
+const APP_ENTRY_PATH = path.join(REPO_ROOT, "src", "app.js");
+const BOILERPLATE_SYSTEMSETUP = path.join(
+  REPO_ROOT,
+  "src",
+  "boilerplate",
+  "systemsetup",
+);
 
-const TEST_USER_NAME = 'local-launch-user'
-const TEST_USER_PASSWORD = 'local-launch-pass'
+const TEST_USER_NAME = "local-launch-user";
+const TEST_USER_PASSWORD = "local-launch-pass";
 
 // desktop / session / bus env scrubbed so the bundled xdg-open falls into
 // generic mode and consults $BROWSER instead of a real desktop opener
 const SCRUBBED_ENV_KEYS = [
-  'DISPLAY',
-  'WAYLAND_DISPLAY',
-  'XDG_CURRENT_DESKTOP',
-  'KDE_FULL_SESSION',
-  'GNOME_DESKTOP_SESSION_ID',
-  'MATE_DESKTOP_SESSION_ID',
-  'DESKTOP_SESSION',
-  'LXQT_SESSION_CONFIG',
-  'DESKTOP',
-  'DBUS_SESSION_BUS_ADDRESS',
-  'XDG_RUNTIME_DIR',
-]
-const MANAGED_ENV_KEYS = ['PORT', 'HAXCMS_ROOT', 'HAXCMS_ENABLE_SSL', 'NODE_ENV',
-  'HAXCMS_DISABLE_JWT_CHECKS', 'HAXCMS_HOST', 'PATH', 'BROWSER'].concat(SCRUBBED_ENV_KEYS)
+  "DISPLAY",
+  "WAYLAND_DISPLAY",
+  "XDG_CURRENT_DESKTOP",
+  "KDE_FULL_SESSION",
+  "GNOME_DESKTOP_SESSION_ID",
+  "MATE_DESKTOP_SESSION_ID",
+  "DESKTOP_SESSION",
+  "LXQT_SESSION_CONFIG",
+  "DESKTOP",
+  "DBUS_SESSION_BUS_ADDRESS",
+  "XDG_RUNTIME_DIR",
+];
+const MANAGED_ENV_KEYS = [
+  "PORT",
+  "HAXCMS_ROOT",
+  "HAXCMS_ENABLE_SSL",
+  "NODE_ENV",
+  "HAXCMS_DISABLE_JWT_CHECKS",
+  "HAXCMS_HOST",
+  "PATH",
+  "BROWSER",
+].concat(SCRUBBED_ENV_KEYS);
 
 function captureEnv(key) {
   return {
     exists: Object.prototype.hasOwnProperty.call(process.env, key),
     value: process.env[key],
-  }
+  };
 }
 
 function restoreEnv(key, snapshot) {
   if (!snapshot || snapshot.exists !== true) {
-    delete process.env[key]
-    return
+    delete process.env[key];
+    return;
   }
-  process.env[key] = snapshot.value
+  process.env[key] = snapshot.value;
 }
 
-const envSnapshots = {}
+const envSnapshots = {};
 for (let i = 0; i < MANAGED_ENV_KEYS.length; i++) {
-  envSnapshots[MANAGED_ENV_KEYS[i]] = captureEnv(MANAGED_ENV_KEYS[i])
+  envSnapshots[MANAGED_ENV_KEYS[i]] = captureEnv(MANAGED_ENV_KEYS[i]);
 }
 
-const originalCwd = process.cwd()
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'haxcms-local-open-'))
+const originalCwd = process.cwd();
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haxcms-local-open-"));
 // single-site runtime root: _config sibling + site.json at the root
-const runtimeRoot = path.join(tempRoot, 'runtime')
-const configRoot = path.join(runtimeRoot, '_config')
+const runtimeRoot = path.join(tempRoot, "runtime");
+const configRoot = path.join(runtimeRoot, "_config");
 
-fs.ensureDirSync(configRoot)
-fs.writeFileSync(path.join(configRoot, '.isHAXcmsConfig'), '')
+fs.ensureDirSync(configRoot);
+fs.writeFileSync(path.join(configRoot, ".isHAXcmsConfig"), "");
 const seedFiles = [
-  'config.json',
-  'my-custom-elements.js',
-  'userData.json',
-  'config.php',
-  '.htaccess',
-  '.user-files-htaccess',
-]
+  "config.json",
+  "my-custom-elements.js",
+  "userData.json",
+  "config.php",
+  ".htaccess",
+  ".user-files-htaccess",
+];
 for (let i = 0; i < seedFiles.length; i++) {
   fs.copySync(
     path.join(BOILERPLATE_SYSTEMSETUP, seedFiles[i]),
     path.join(configRoot, seedFiles[i]),
-  )
+  );
 }
-fs.ensureDirSync(path.join(configRoot, 'tmp'))
-fs.ensureDirSync(path.join(configRoot, 'settings'))
+fs.ensureDirSync(path.join(configRoot, "tmp"));
+fs.ensureDirSync(path.join(configRoot, "settings"));
 fs.writeFileSync(
-  path.join(configRoot, '.user'),
-  JSON.stringify({ name: TEST_USER_NAME, password: TEST_USER_PASSWORD }, null, 2),
-)
+  path.join(configRoot, ".user"),
+  JSON.stringify(
+    { name: TEST_USER_NAME, password: TEST_USER_PASSWORD },
+    null,
+    2,
+  ),
+);
 
 // a minimal but real site at the runtime root (same fixture shape as the
 // app-server-single-site suite so the boot resolves single-site context)
-fs.ensureDirSync(path.join(runtimeRoot, 'pages', 'home'))
-fs.ensureDirSync(path.join(runtimeRoot, 'pages', 'about'))
-fs.ensureDirSync(path.join(runtimeRoot, 'files'))
-fs.ensureDirSync(path.join(runtimeRoot, 'theme'))
-fs.writeFileSync(path.join(runtimeRoot, 'pages', 'home', 'index.html'), '<p>Home</p>')
-fs.writeFileSync(path.join(runtimeRoot, 'pages', 'about', 'index.html'), '<p>About</p>')
-fs.writeFileSync(path.join(runtimeRoot, 'files', 'asset.txt'), 'asset body')
-fs.writeFileSync(path.join(runtimeRoot, 'theme', 'style.css'), 'body {}')
-fs.writeFileSync(path.join(runtimeRoot, 'robots.txt'), 'User-agent: *')
-fs.writeFileSync(path.join(runtimeRoot, 'llms.txt'), '# Local Site')
+fs.ensureDirSync(path.join(runtimeRoot, "pages", "home"));
+fs.ensureDirSync(path.join(runtimeRoot, "pages", "about"));
+fs.ensureDirSync(path.join(runtimeRoot, "files"));
+fs.ensureDirSync(path.join(runtimeRoot, "theme"));
 fs.writeFileSync(
-  path.join(runtimeRoot, 'site.json'),
+  path.join(runtimeRoot, "pages", "home", "index.html"),
+  "<p>Home</p>",
+);
+fs.writeFileSync(
+  path.join(runtimeRoot, "pages", "about", "index.html"),
+  "<p>About</p>",
+);
+fs.writeFileSync(path.join(runtimeRoot, "files", "asset.txt"), "asset body");
+fs.writeFileSync(path.join(runtimeRoot, "theme", "style.css"), "body {}");
+fs.writeFileSync(path.join(runtimeRoot, "robots.txt"), "User-agent: *");
+fs.writeFileSync(path.join(runtimeRoot, "llms.txt"), "# Local Site");
+fs.writeFileSync(
+  path.join(runtimeRoot, "site.json"),
   JSON.stringify(
     {
-      id: 'local-site',
-      title: 'Local Site',
-      author: 'Local Author',
-      description: 'local launcher fixture',
-      license: 'by-sa',
+      id: "local-site",
+      title: "Local Site",
+      author: "Local Author",
+      description: "local launcher fixture",
+      license: "by-sa",
       metadata: {
-        site: { name: 'runtime', settings: { canonical: true } },
-        author: { name: 'Local Author', socialLink: '' },
+        site: { name: "runtime", settings: { canonical: true } },
+        author: { name: "Local Author", socialLink: "" },
         theme: {},
       },
       items: [
         {
-          id: 'home',
+          id: "home",
           indent: 0,
-          location: 'pages/home/index.html',
-          slug: 'home',
+          location: "pages/home/index.html",
+          slug: "home",
           order: 0,
-          parent: '',
-          title: 'Home',
-          description: 'home page',
+          parent: "",
+          title: "Home",
+          description: "home page",
           metadata: { created: 1700000000, updated: 1700000000 },
         },
         {
-          id: 'about',
+          id: "about",
           indent: 0,
-          location: 'pages/about/index.html',
-          slug: 'about',
+          location: "pages/about/index.html",
+          slug: "about",
           order: 1,
-          parent: '',
-          title: 'About',
-          description: 'about page',
+          parent: "",
+          title: "About",
+          description: "about page",
           metadata: { created: 1700000001, updated: 1700000001 },
         },
       ],
@@ -160,139 +183,198 @@ fs.writeFileSync(
     null,
     2,
   ),
-)
-fs.ensureDirSync(path.join(runtimeRoot, '.well-known'))
+);
+fs.ensureDirSync(path.join(runtimeRoot, ".well-known"));
 fs.writeFileSync(
-  path.join(runtimeRoot, '.well-known', 'api-catalog'),
+  path.join(runtimeRoot, ".well-known", "api-catalog"),
   JSON.stringify({ linkset: [] }),
-)
+);
 fs.writeFileSync(
-  path.join(runtimeRoot, 'index.html'),
+  path.join(runtimeRoot, "index.html"),
   [
-    '<html>',
-    '<head>',
+    "<html>",
+    "<head>",
     '<meta charset="utf-8" />',
-    '</head>',
-    '<body>',
+    "</head>",
+    "<body>",
     '<haxcms-site-builder id="site"></haxcms-site-builder>',
-    '</body>',
-    '</html>',
-  ].join('\n'),
-)
+    "</body>",
+    "</html>",
+  ].join("\n"),
+);
 
 // the xdg-open shim: records its argument and exits 0 (never a real browser)
-const shimDir = path.join(tempRoot, 'shim-bin')
-const shimPath = path.join(shimDir, 'xdg-open')
-const recordedPath = path.join(tempRoot, 'xdg-open-called.txt')
-fs.ensureDirSync(shimDir)
+const shimDir = path.join(tempRoot, "shim-bin");
+const shimPath = path.join(shimDir, "xdg-open");
+const recordedPath = path.join(tempRoot, "xdg-open-called.txt");
+fs.ensureDirSync(shimDir);
 fs.writeFileSync(
   shimPath,
-  '#!/bin/sh\nprintf \'%s\' "$1" > ' + JSON.stringify(recordedPath) + '\nexit 0\n',
-)
-fs.chmodSync(shimPath, 0o755)
+  "#!/bin/sh\nprintf '%s' \"$1\" > " +
+    JSON.stringify(recordedPath) +
+    "\nexit 0\n",
+);
+fs.chmodSync(shimPath, 0o755);
 
 // env must be in place BEFORE local.js is required (the open call inherits it)
 for (let i = 0; i < SCRUBBED_ENV_KEYS.length; i++) {
-  delete process.env[SCRUBBED_ENV_KEYS[i]]
+  delete process.env[SCRUBBED_ENV_KEYS[i]];
 }
-delete process.env.BROWSER
-process.env.PATH = shimDir + ':' + (process.env.PATH || '')
-process.env.BROWSER = shimPath
-process.chdir(runtimeRoot)
-process.env.HAXCMS_ROOT = runtimeRoot + '/'
-process.env.PORT = '0'
-delete process.env.HAXCMS_ENABLE_SSL
-delete process.env.NODE_ENV
+delete process.env.BROWSER;
+process.env.PATH = shimDir + ":" + (process.env.PATH || "");
+process.env.BROWSER = shimPath;
+process.chdir(runtimeRoot);
+process.env.HAXCMS_ROOT = runtimeRoot + "/";
+process.env.PORT = "0";
+delete process.env.HAXCMS_ENABLE_SSL;
+delete process.env.NODE_ENV;
 // Security (SEC-DEPLOY): no explicit host, so no-login mode must bind loopback
-delete process.env.HAXCMS_HOST
+delete process.env.HAXCMS_HOST;
 
 globalThis.HAXCMS_RUNTIME_CREDENTIALS = {
   username: TEST_USER_NAME,
   password: TEST_USER_PASSWORD,
-}
+};
 
 // boot the real launcher: sets HAXCMS_DISABLE_JWT_CHECKS itself, requires
 // app.js (same module instance as the one below), and fires go()
-require(LOCAL_ENTRY_PATH)
-const appModule = require(APP_ENTRY_PATH)
+require(LOCAL_ENTRY_PATH);
+const appModule = require(APP_ENTRY_PATH);
 
 async function waitForShimRecord(timeoutMs) {
-  const startedAt = Date.now()
+  const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     if (fs.existsSync(recordedPath)) {
-      return fs.readFileSync(recordedPath, 'utf8')
+      return fs.readFileSync(recordedPath, "utf8");
     }
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  return null
+  return null;
 }
 
 test.after(async () => {
-  if (appModule.server && typeof appModule.server.close === 'function') {
+  if (appModule.server && typeof appModule.server.close === "function") {
     await new Promise((resolve) => {
-      appModule.server.close(() => resolve())
-    })
+      appModule.server.close(() => resolve());
+    });
   }
-  process.chdir(originalCwd)
+  process.chdir(originalCwd);
   for (let i = 0; i < MANAGED_ENV_KEYS.length; i++) {
-    restoreEnv(MANAGED_ENV_KEYS[i], envSnapshots[MANAGED_ENV_KEYS[i]])
+    restoreEnv(MANAGED_ENV_KEYS[i], envSnapshots[MANAGED_ENV_KEYS[i]]);
   }
-  delete globalThis.HAXCMS_RUNTIME_CREDENTIALS
-  fs.removeSync(tempRoot)
-})
+  delete globalThis.HAXCMS_RUNTIME_CREDENTIALS;
+  fs.removeSync(tempRoot);
+});
 
-test('local.js boots on an ephemeral port and opens the served URL', async (t) => {
-  if (process.platform !== 'linux') {
-    t.skip('the xdg-open interception only applies on Linux')
-    return
+test("local.js boots on an ephemeral port and opens the served URL", async (t) => {
+  if (process.platform !== "linux") {
+    t.skip("the xdg-open interception only applies on Linux");
+    return;
   }
-  const port = await appModule.serverReady
-  assert.ok(Number(port) > 0, 'ephemeral port resolved')
-  assert.equal(appModule.serverProtocol, 'http')
-  const recorded = await waitForShimRecord(15000)
+  const port = await appModule.serverReady;
+  assert.ok(Number(port) > 0, "ephemeral port resolved");
+  assert.equal(appModule.serverProtocol, "http");
+  const recorded = await waitForShimRecord(15000);
   if (recorded === null) {
     // the shim approach failed in this environment; nothing to assert about
-    t.skip('the xdg-open shim was never invoked in this environment')
-    return
+    t.skip("the xdg-open shim was never invoked in this environment");
+    return;
   }
   // Security (SEC-DEPLOY): opens exactly the loopback address it binds
-  assert.equal(recorded, 'http://127.0.0.1:' + port)
-})
+  assert.equal(recorded, "http://127.0.0.1:" + port);
+});
 
 // Security (SEC-DEPLOY): the no-login launcher binds the IPv4 loopback only.
-test('local.js (no-login mode) listens on 127.0.0.1 only', async () => {
-  await appModule.serverReady
-  assert.equal(appModule.getListenHost(), '127.0.0.1')
-  const address = appModule.server.address()
-  assert.ok(address && typeof address === 'object')
-  assert.equal(address.address, '127.0.0.1')
-})
+test("local.js (no-login mode) listens on 127.0.0.1 only", async () => {
+  await appModule.serverReady;
+  assert.equal(appModule.getListenHost(), "127.0.0.1");
+  const address = appModule.server.address();
+  assert.ok(address && typeof address === "object");
+  assert.equal(address.address, "127.0.0.1");
+});
 
 // Security (SEC-DEPLOY / PHP SEC-03 parity): the bypass superuser JWT is only
 // embedded in connection-settings for loopback clients.
-test('connection-settings embeds the bypass JWT for loopback clients only', async () => {
-  const port = await appModule.serverReady
-  const res = await fetch('http://127.0.0.1:' + port + '/system/api/v1/session/connection-settings')
-  assert.equal(res.status, 200)
-  const body = await res.text()
-  assert.ok(body.indexOf('window.appSettings.jwt = "') !== -1, 'loopback caller gets the JWT')
+test("connection-settings embeds the bypass JWT for loopback clients only", async () => {
+  const port = await appModule.serverReady;
+  const res = await fetch(
+    "http://127.0.0.1:" + port + "/system/api/v1/session/connection-settings",
+  );
+  assert.equal(res.status, 200);
+  const body = await res.text();
+  assert.ok(
+    body.indexOf('window.appSettings.jwt = "') !== -1,
+    "loopback caller gets the JWT",
+  );
 
-  const connectionSettings = require(path.join(REPO_ROOT, 'src', 'systemRoutes', 'v1', 'routes', 'connectionSettings.js'))
-  let sent = null
+  const connectionSettings = require(
+    path.join(
+      REPO_ROOT,
+      "src",
+      "systemRoutes",
+      "v1",
+      "routes",
+      "connectionSettings.js",
+    ),
+  );
+  let sent = null;
   const fakeRes = {
     setHeader() {},
-    status() { return fakeRes },
-    send(value) { sent = String(value) },
-  }
+    status() {
+      return fakeRes;
+    },
+    send(value) {
+      sent = String(value);
+    },
+  };
   await connectionSettings(
     {
-      headers: { 'x-forwarded-for': '127.0.0.1' },
-      ip: '127.0.0.1',
+      headers: { "x-forwarded-for": "127.0.0.1" },
+      ip: "127.0.0.1",
       query: {},
-      socket: { remoteAddress: '192.168.50.7' },
+      socket: { remoteAddress: "192.168.50.7" },
     },
     fakeRes,
-  )
-  assert.ok(sent && sent.indexOf('window.appSettings =') !== -1, 'payload still served')
-  assert.equal(sent.indexOf('window.appSettings.jwt'), -1, 'remote caller gets no JWT')
-})
+  );
+  assert.ok(
+    sent && sent.indexOf("window.appSettings =") !== -1,
+    "payload still served",
+  );
+  assert.equal(
+    sent.indexOf("window.appSettings.jwt"),
+    -1,
+    "remote caller gets no JWT",
+  );
+});
+
+// Security (SEC-DEPLOY / DNS rebinding): in no-login mode a request whose Host
+// header is not loopback (what a DNS-rebinding page sends) is refused, while
+// normal loopback Host headers keep working.
+function getWithHost(port, hostHeader) {
+  const http = require("http");
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port: port,
+        path: "/site.json",
+        method: "GET",
+        headers: { Host: hostHeader },
+      },
+      (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+test("no-login mode rejects non-loopback Host headers (DNS rebinding)", async () => {
+  const port = await appModule.serverReady;
+  assert.equal(await getWithHost(port, "evil.example:" + port), 403);
+  assert.equal(await getWithHost(port, "127.0.0.1.evil.example"), 403);
+  assert.notEqual(await getWithHost(port, "127.0.0.1:" + port), 403);
+  assert.notEqual(await getWithHost(port, "localhost:" + port), 403);
+});

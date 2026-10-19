@@ -1,5 +1,8 @@
 const { HAXCMS } = require("../../lib/HAXCMS.js");
 const { readEffectiveApiKeys } = require("../../lib/apiKeys.js");
+// reached through the module object (not destructured) so the network
+// boundary can be stubbed in tests, matching stageRemoteFile.js.
+const safeFetchLib = require("../../lib/safeFetch.js");
 
 const RESERVED_QUERY_PARAMS = [
   "provider",
@@ -281,7 +284,10 @@ async function appStoreProviderSearch(req, res) {
 
   let upstreamResponse = null;
   try {
-    upstreamResponse = await fetch(requestUrl, requestOptions);
+    // Security (L5): routed through safeFetch so the upstream call is
+    // SSRF-guarded (pinned IP, per-hop validation) and byte-capped; the
+    // abort signal still bounds the request time.
+    upstreamResponse = await safeFetchLib.safeFetch(requestUrl, requestOptions);
   } catch (e) {
     return res.status(502).json({
       status: 502,

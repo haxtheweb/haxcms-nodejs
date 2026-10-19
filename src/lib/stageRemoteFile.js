@@ -1,10 +1,11 @@
-'use strict';
+"use strict";
 
-const fs = require('fs-extra');
-const path = require('path');
-const { HAXCMS } = require('./HAXCMS.js');
+const fs = require("fs-extra");
+const path = require("path");
+const crypto = require("crypto");
+const { HAXCMS } = require("./HAXCMS.js");
 // reached through the module object so the network boundary can be stubbed in tests
-const safeFetchLib = require('./safeFetch.js');
+const safeFetchLib = require("./safeFetch.js");
 
 // Bulk-import staging shared by the site importers and createSite (#3060).
 // HAXCMSFile.isValidBulkImportStagedPath only accepts real files under
@@ -14,7 +15,7 @@ const safeFetchLib = require('./safeFetch.js');
 // Directory under the HAXCMS config tree where bulk-import files are staged,
 // created if it does not exist yet.
 function getBulkImportStagingRoot() {
-  const root = path.join(HAXCMS.configDirectory, 'tmp', 'imports');
+  const root = path.join(HAXCMS.configDirectory, "tmp", "imports");
   try {
     fs.ensureDirSync(root);
   } catch (e) {}
@@ -38,12 +39,14 @@ async function stageRemoteFile(url, stagingRoot, idx, relPath) {
     if (!buf || buf.length === 0) {
       return null;
     }
-    const ext = path.extname(relPath || '');
+    const ext = path.extname(relPath || "");
+    // Security (L6): match safeFetchToFile's staging hygiene — exclusive
+    // create at 0600 and a crypto-random name instead of Math.random().
     const stagedPath = path.join(
       stagingRoot,
-      'haximp-' + Date.now() + '-' + idx + '-' + Math.floor(Math.random() * 1000000) + ext
+      "haximp-" + Date.now() + "-" + idx + "-" + crypto.randomUUID() + ext,
     );
-    fs.writeFileSync(stagedPath, buf);
+    fs.writeFileSync(stagedPath, buf, { mode: 0o600, flag: "wx" });
     return stagedPath;
   } catch (e) {
     return null;

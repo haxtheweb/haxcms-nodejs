@@ -26,6 +26,8 @@ const {
   selectListenHost,
   getBypassExposureWarning,
   getBrowserHost,
+  isLoopbackHostHeader,
+  shouldEnforceLoopbackHostHeader,
 } = require("./lib/listenHost.js");
 const PAGE_VARIANT_CONTENT_TYPES = {
   html: "text/html; charset=utf-8",
@@ -1000,6 +1002,23 @@ if (process.env.NODE_ENV === "development") {
 // Security (HAX-SEC-012): express.urlencoded was previously applied globally
 // (including to static/GET requests). It is now scoped to POST/PUT/PATCH/
 // DELETE routes via formBodyParser in the per-route parser selectors above.
+// Security (SEC-DEPLOY / DNS rebinding): the no-login bypass binds loopback,
+// but a hostile web page can still reach it via DNS rebinding. Reject any
+// request whose Host header is not a loopback name in that mode. Runs first so
+// nothing else (static files, API routes) is reachable with a foreign Host.
+app.use((req, res, next) => {
+  if (
+    shouldEnforceLoopbackHostHeader(
+      listenHost,
+      HAXCMS.HAXCMS_DISABLE_JWT_CHECKS,
+    ) &&
+    !isLoopbackHostHeader(req.headers.host)
+  ) {
+    res.status(403).send("Forbidden: invalid Host header");
+    return;
+  }
+  next();
+});
 app.use(helmet(helmetPolicies));
 // Security (M2): per-request CSP nonce middleware. Runs after helmet so the
 // nonce header is set on every response (alongside helmet's other headers).

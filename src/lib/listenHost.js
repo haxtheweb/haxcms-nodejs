@@ -10,17 +10,21 @@
 // - Otherwise keep the historical behaviour: `undefined` lets Node bind every
 //   interface (`::` / `0.0.0.0`), which containers and reverse proxies rely on.
 
-const LOOPBACK_HOST = '127.0.0.1';
+const LOOPBACK_HOST = "127.0.0.1";
 
 function selectListenHost(options) {
   const opts = options || {};
   const env = opts.env || process.env;
-  let explicit = typeof env.HAXCMS_HOST === 'string' ? env.HAXCMS_HOST.trim() : '';
+  let explicit =
+    typeof env.HAXCMS_HOST === "string" ? env.HAXCMS_HOST.trim() : "";
   // accept a bracketed IPv6 literal ([::1]) — server.listen wants it bare
-  if (explicit.charAt(0) === '[' && explicit.charAt(explicit.length - 1) === ']') {
+  if (
+    explicit.charAt(0) === "[" &&
+    explicit.charAt(explicit.length - 1) === "]"
+  ) {
     explicit = explicit.substring(1, explicit.length - 1).trim();
   }
-  if (explicit !== '') {
+  if (explicit !== "") {
     return explicit;
   }
   if (opts.jwtChecksDisabled) {
@@ -30,18 +34,18 @@ function selectListenHost(options) {
 }
 
 function isLoopbackHost(host) {
-  if (typeof host !== 'string') {
+  if (typeof host !== "string") {
     // undefined / null means "all interfaces"
     return false;
   }
   let value = host.trim().toLowerCase();
-  if (value.charAt(0) === '[' && value.charAt(value.length - 1) === ']') {
+  if (value.charAt(0) === "[" && value.charAt(value.length - 1) === "]") {
     value = value.substring(1, value.length - 1);
   }
-  if (value === 'localhost' || value === '::1' || value === '0:0:0:0:0:0:0:1') {
+  if (value === "localhost" || value === "::1" || value === "0:0:0:0:0:0:0:1") {
     return true;
   }
-  if (value.indexOf('::ffff:') === 0) {
+  if (value.indexOf("::ffff:") === 0) {
     value = value.substring(7);
   }
   // the whole 127.0.0.0/8 block is loopback
@@ -54,16 +58,17 @@ function getBypassExposureWarning(host, jwtChecksDisabled) {
   if (!jwtChecksDisabled || isLoopbackHost(host)) {
     return null;
   }
-  const shown = (typeof host === 'string' && host.trim() !== '') ? host : 'all interfaces';
+  const shown =
+    typeof host === "string" && host.trim() !== "" ? host : "all interfaces";
   return [
-    '***************************************************************',
-    'SECURITY WARNING: HAXCMS_DISABLE_JWT_CHECKS is active (no login) and',
+    "***************************************************************",
+    "SECURITY WARNING: HAXCMS_DISABLE_JWT_CHECKS is active (no login) and",
     `the server is listening on ${shown}. ANYONE who can reach this`,
-    'machine over the network can read and modify every site WITHOUT',
-    'authenticating. Unset HAXCMS_HOST (defaults to 127.0.0.1 in this',
-    'mode) unless you fully trust the network.',
-    '***************************************************************',
-  ].join('\n');
+    "machine over the network can read and modify every site WITHOUT",
+    "authenticating. Unset HAXCMS_HOST (defaults to 127.0.0.1 in this",
+    "mode) unless you fully trust the network.",
+    "***************************************************************",
+  ].join("\n");
 }
 
 // Host to use in the printed / auto-opened URL. Wildcard binds keep the
@@ -71,18 +76,22 @@ function getBypassExposureWarning(host, jwtChecksDisabled) {
 // `localhost` may resolve to ::1 first, which nothing is listening on. Any
 // other specific interface address is shown as-is (IPv6 bracketed).
 function getBrowserHost(host) {
-  if (typeof host !== 'string' || host.trim() === '') {
-    return 'localhost';
+  if (typeof host !== "string" || host.trim() === "") {
+    return "localhost";
   }
   let value = host.trim();
-  if (value.charAt(0) === '[' && value.charAt(value.length - 1) === ']') {
+  if (value.charAt(0) === "[" && value.charAt(value.length - 1) === "]") {
     value = value.substring(1, value.length - 1);
   }
-  if (value === '0.0.0.0' || value === '::' || value.toLowerCase() === 'localhost') {
-    return 'localhost';
+  if (
+    value === "0.0.0.0" ||
+    value === "::" ||
+    value.toLowerCase() === "localhost"
+  ) {
+    return "localhost";
   }
-  if (value.indexOf(':') !== -1 && value.charAt(0) !== '[') {
-    return '[' + value + ']';
+  if (value.indexOf(":") !== -1 && value.charAt(0) !== "[") {
+    return "[" + value + "]";
   }
   return value;
 }
@@ -99,17 +108,61 @@ function shouldEmbedBypassJwt(req, options) {
   if (!opts.jwtChecksDisabled || opts.isProduction) {
     return false;
   }
-  const explicitHost = selectListenHost({ env: opts.env || process.env, jwtChecksDisabled: false });
-  if (typeof explicitHost === 'string' && !isLoopbackHost(explicitHost)) {
+  const explicitHost = selectListenHost({
+    env: opts.env || process.env,
+    jwtChecksDisabled: false,
+  });
+  if (typeof explicitHost === "string" && !isLoopbackHost(explicitHost)) {
     return true;
   }
   const socket = req && (req.socket || req.connection);
-  const remoteAddress = socket && typeof socket.remoteAddress === 'string' ? socket.remoteAddress : '';
-  return isLoopbackHost(remoteAddress) && remoteAddress.toLowerCase() !== 'localhost';
+  const remoteAddress =
+    socket && typeof socket.remoteAddress === "string"
+      ? socket.remoteAddress
+      : "";
+  return (
+    isLoopbackHost(remoteAddress) && remoteAddress.toLowerCase() !== "localhost"
+  );
+}
+
+// Security (SEC-DEPLOY / DNS rebinding): when the no-login bypass is bound to
+// loopback, a malicious web page can still reach it by pointing its own
+// hostname at 127.0.0.1 (DNS rebinding); the browser then sends
+// `Host: attacker.example`. Only loopback Host headers are accepted in that
+// mode. Returns true when the request's Host header is a loopback name/IP.
+function isLoopbackHostHeader(hostHeader) {
+  if (typeof hostHeader !== "string" || hostHeader.trim() === "") {
+    return false;
+  }
+  let value = hostHeader.trim().toLowerCase();
+  if (value.charAt(0) === "[") {
+    // [::1]:3000 -> ::1
+    const end = value.indexOf("]");
+    if (end === -1) {
+      return false;
+    }
+    value = value.substring(1, end);
+  } else if (value.split(":").length === 2) {
+    // host:port -> host (bare IPv6 without brackets is not a valid Host)
+    value = value.split(":")[0];
+  }
+  if (value === "localhost" || value.endsWith(".localhost")) {
+    return true;
+  }
+  return isLoopbackHost(value);
+}
+
+// Should the Host header guard run? Only when the auth bypass is active AND
+// the server is bound to loopback. An explicit non-loopback HAXCMS_HOST is an
+// operator opt-in (already warned at startup), so it is left alone.
+function shouldEnforceLoopbackHostHeader(listenHost, jwtChecksDisabled) {
+  return !!jwtChecksDisabled && isLoopbackHost(listenHost);
 }
 
 module.exports = {
   LOOPBACK_HOST,
+  isLoopbackHostHeader,
+  shouldEnforceLoopbackHostHeader,
   shouldEmbedBypassJwt,
   getBrowserHost,
   selectListenHost,

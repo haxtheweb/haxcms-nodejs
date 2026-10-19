@@ -10,7 +10,7 @@
 // request construction (URL + query string + API key param), and every
 // upstream outcome branch (ok JSON passthrough, failed status with message
 // and error.message shapes, non-JSON body, unreadable body, unreachable
-// upstream) with globalThis.fetch stubbed per test via t.mock.method.
+// upstream) with safeFetch (src/lib/safeFetch.js) stubbed per test.
 //
 // Constraints honored: CommonJS (.cjs), require(), globalThis (not window),
 // NO optional chaining (explicit && guards), node:test + node:assert/strict.
@@ -22,6 +22,10 @@ const apiKeysMod = require("../../src/lib/apiKeys.js");
 // fixture key map returned by the stubbed readEffectiveApiKeys
 let effectiveApiKeysFixture = {};
 apiKeysMod.readEffectiveApiKeys = async () => effectiveApiKeysFixture;
+
+// Security (L5): the route forwards upstream calls through safeFetch (SSRF
+// guard + byte cap) instead of global fetch, so tests stub safeFetch itself.
+const safeFetchMod = require("../../src/lib/safeFetch.js");
 
 const {
   appStoreProviderSearch,
@@ -51,10 +55,11 @@ function makeReq(params, query, body) {
   };
 }
 
-// stub fetch and capture the upstream request
+// stub safeFetch and capture the upstream request
 function stubFetch(t, response) {
   const captured = { url: null, options: null, calls: 0 };
-  t.mock.method(globalThis, "fetch", async (url, options) => {
+  const realSafeFetch = safeFetchMod.safeFetch;
+  safeFetchMod.safeFetch = async (url, options) => {
     captured.url = url;
     captured.options = options;
     captured.calls++;
@@ -62,6 +67,9 @@ function stubFetch(t, response) {
       throw response;
     }
     return response;
+  };
+  t.after(() => {
+    safeFetchMod.safeFetch = realSafeFetch;
   });
   return captured;
 }
