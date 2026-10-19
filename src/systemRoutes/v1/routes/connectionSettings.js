@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const YAML = require('yaml');
+const { shouldEmbedBypassJwt } = require('../../../lib/listenHost.js');
 
 let cachedSystemOpenApiOperationPaths = null;
 
@@ -333,7 +334,13 @@ async function connectionSettings(req, res) {
   });
   const returnData = JSON.stringify(returnDataObj);
   let after='';
-  if (HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
+  // Security (SEC-DEPLOY / PHP SEC-03 parity): the superuser JWT is only handed
+  // out by the no-login bypass outside production and to loopback clients
+  // (unless HAXCMS_HOST deliberately exposes the bypass beyond loopback).
+  if (shouldEmbedBypassJwt(req, {
+    jwtChecksDisabled: !!HAXCMS.HAXCMS_DISABLE_JWT_CHECKS,
+    isProduction: HAXCMS.isProductionRuntime(),
+  })) {
     after = `window.appSettings.jwt = "${HAXCMS.getJWT(HAXCMS.superUser.name)}"`;
   }
   res.send(`window.MicroFrontendRegistryConfig = window.MicroFrontendRegistryConfig || {};

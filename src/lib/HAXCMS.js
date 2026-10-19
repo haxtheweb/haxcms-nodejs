@@ -53,6 +53,10 @@ const SITE_FILE_NAME = 'site.json';
 // previous refresh-token jti is still accepted, so concurrent multi-tab
 // refreshes don't mutually invalidate. Mirrors PHP HAXCMS_REFRESH_GRACE_SECONDS.
 const HAXCMS_REFRESH_GRACE_SECONDS = 30;
+// Security (SEC-DEPLOY): one-time file (mode 0600, config dir) that receives
+// the seeded admin password instead of printing it to non-interactive stderr.
+const SEEDED_PASSWORD_FILENAME = '.initial-admin-password';
+
 // Refresh-token lifetime (24h). Also bounds how long revocation tombstones are
 // kept: no token of a revoked family can outlive this (+60s clock tolerance).
 const REFRESH_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
@@ -3826,6 +3830,55 @@ class HAXCMSClass {
     }
     fs.writeFileSync(filePath, data, { mode: 0o600 });
   }
+  // Security (SEC-DEPLOY): hand the freshly seeded admin password to the
+  // operator without leaking it into log aggregation. The plaintext is written
+  // to a 0600 file in the config directory and only that path is logged; the
+  // password itself is echoed to stderr only when stderr is an interactive
+  // terminal (a human running `npx`/`npm start`), never when stderr is piped to
+  // a container runtime, systemd journal, CI log, etc.
+  // options.isTTY overrides process.stderr.isTTY (tests); options.log
+  // overrides console.error. Returns the password file path (or null if it
+  // could not be written).
+  announceSeededCredentials(userName, password, options) {
+    const opts = options || {};
+    const log = typeof opts.log === 'function' ? opts.log : console.error;
+    const isTTY = typeof opts.isTTY === 'boolean'
+      ? opts.isTTY
+      : !!(process.stderr && process.stderr.isTTY);
+    const passwordFile = path.join(this.configDirectory, SEEDED_PASSWORD_FILENAME);
+    let wroteFile = false;
+    try {
+      this.writeSecretFile(
+        passwordFile,
+        `username: ${userName}\npassword: ${password}\n`
+          + '# Generated on first start. Log in, change the password, then delete this file.\n',
+      );
+      // writeFileSync's mode only applies on create; enforce it if the file
+      // already existed from an earlier seed
+      this.chmodSecretFile(passwordFile);
+      wroteFile = true;
+    }
+    catch (e) {
+      wroteFile = false;
+    }
+    log('***************************************************************');
+    log('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
+    log('\n*** HAXcms admin seeded credentials ***');
+    log(`username: ${userName}`);
+    if (isTTY) {
+      log(`password: ${password}`);
+    }
+    if (wroteFile) {
+      log(`password written to (mode 0600): ${passwordFile}`);
+    }
+    else if (!isTTY) {
+      log('password could not be written to the config directory; set HAXCMS_RUNTIME_USERNAME/HAXCMS_RUNTIME_PASSWORD or create .user manually.');
+    }
+    log(`\nCredentials (hashed) saved to: ${path.join(this.configDirectory, ".user")}`);
+    log('Change this password immediately for production use.');
+    log('\n***************************************************************');
+    return wroteFile ? passwordFile : null;
+  }
   // Security (HAX-SEC-011): best-effort chmod of an existing secret file to
   // 0o600. Covers files created by a previous version that used the default
   // umask. Non-fatal: failures (read-only fs, locked-down env) are swallowed.
@@ -4083,8 +4136,9 @@ class HAXCMSClass {
       // create a default user with secure random password
       const seededPassword = this.generateSecurePassword();
       // Security (HAX-SEC-001): store a scrypt hash, never the plaintext. The
-      // plaintext is printed once below so the admin can capture it; only the
-      // hash is persisted to .user. Mirrors PHP install.php:360.
+      // plaintext is handed off once below (SEC-DEPLOY: 0600 file, stderr only
+      // on a TTY) so the admin can capture it; only the hash is persisted to
+      // .user. Mirrors PHP install.php:360.
       const seededHash = this.hashPassword(seededPassword);
       this.superUser = {
         name: 'admin',
@@ -4096,14 +4150,15 @@ class HAXCMSClass {
       };
       this.writeSecretFile(path.join(this.configDirectory, ".user"), JSON.stringify(this.user, null, 2));
       if (!this.isCLI()) {
-        console.error('***************************************************************');
-        console.error('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
-        console.error('\n*** HAXcms admin seeded credentials ***');
-        console.error(`username: ${this.user.name}`);
-        console.error(`password: ${seededPassword}`);
-        console.error(`\nCredentials saved to: ${path.join(this.configDirectory, ".user")}`);
-        console.error('Change this password immediately for production use.');
-        console.error('\n***************************************************************');
+        if (this.getRuntimeCredentialOverride()) {
+          // Security (SEC-DEPLOY): runtime credentials replace the seeded
+          // user below, so the random password is never usable — do not
+          // write or print it.
+          console.error('HAXcms: no .user found; a random admin was seeded but HAXCMS_RUNTIME_* credentials are in effect.');
+        }
+        else {
+          this.announceSeededCredentials(this.user.name, seededPassword);
+        }
       }
     }
     // Security (HAX-SEC-011): tighten permissions on existing secret files to
