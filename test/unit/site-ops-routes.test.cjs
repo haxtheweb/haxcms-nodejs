@@ -90,6 +90,53 @@ describe('downloadSite route', () => {
     const siteJson = JSON.parse(await zip.file('site.json').async('string'))
     assert.equal(siteJson.id, 'demo')
   })
+
+  test('leaves symlinks out of the zip so it carries no dangling links', async (t) => {
+    const tmpRoot = useTempRoots(t)
+    const siteDirectory = path.join(tmpRoot, '_sites', 'demosite')
+    fs.ensureDirSync(path.join(siteDirectory, 'assets'))
+    fs.ensureDirSync(path.join(siteDirectory, 'files'))
+    fs.writeFileSync(path.join(siteDirectory, 'site.json'), '{"id":"demo"}')
+    fs.writeFileSync(path.join(siteDirectory, 'assets', 'logo.svg'), '<svg/>')
+    // multi-site layout: shared assets live above the site directory and a
+    // scaffolded site links to them (HAXCMS.createSite)
+    fs.ensureDirSync(path.join(tmpRoot, 'build', 'es6'))
+    fs.writeFileSync(path.join(tmpRoot, 'build', 'es6', 'x.js'), 'x')
+    fs.writeFileSync(path.join(tmpRoot, 'wc-registry.json'), '{}')
+    fs.symlinkSync('../../build', path.join(siteDirectory, 'build'))
+    fs.symlinkSync('../../dist', path.join(siteDirectory, 'dist'))
+    fs.symlinkSync('../../wc-registry.json', path.join(siteDirectory, 'wc-registry.json'))
+    // the babel targets sit outside this layout, so this one already dangles
+    fs.symlinkSync('../../../babel/babel-top.js', path.join(siteDirectory, 'assets', 'babel-top.js'))
+    // names containing glob characters must be matched literally
+    fs.symlinkSync(
+      '../../wc-registry.json',
+      path.join(siteDirectory, 'files', 'link[1] (copy).json'),
+    )
+    t.mock.method(HAXCMS, 'loadSite', async () => ({
+      name: 'demosite',
+      manifest: { metadata: { site: { name: 'demosite' } } },
+    }))
+    const res = stubRes()
+    await downloadSite({ body: { site: { name: 'demosite' } } }, res)
+    assert.equal(res.sent.status, 200)
+    const zipPath = path.join(tmpRoot, '_published', 'demosite.zip')
+    const zip = await JSZip.loadAsync(fs.readFileSync(zipPath))
+    const names = Object.keys(zip.files)
+    // real files are untouched
+    assert.ok(names.indexOf('site.json') !== -1)
+    assert.ok(names.indexOf('assets/logo.svg') !== -1)
+    // none of the links made it in, valid or dangling
+    assert.deepEqual(
+      names.filter((name) => zip.files[name].unixPermissions !== null && (zip.files[name].unixPermissions & 0o170000) === 0o120000),
+      [],
+    )
+    assert.equal(names.indexOf('build'), -1)
+    assert.equal(names.indexOf('dist'), -1)
+    assert.equal(names.indexOf('wc-registry.json'), -1)
+    assert.equal(names.indexOf('assets/babel-top.js'), -1)
+    assert.equal(names.some((name) => name.indexOf('link[1]') !== -1), false)
+  })
 })
 
 describe('cloneSite route', () => {

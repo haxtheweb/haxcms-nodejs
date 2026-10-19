@@ -1,5 +1,6 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const fs = require('fs-extra');
+const path = require('path');
 const archiverModule = require('archiver');
 function createArchiver(format, options = {}) {
   const normalizedFormat = String(format || '').trim().toLowerCase();
@@ -113,11 +114,51 @@ function createArchiver(format, options = {}) {
 
 
 /**
+ * Relative paths (forward slashes) of every symlink under sourceDir. Links
+ * are never followed, and node_modules / .git are not walked since the
+ * archive ignores them anyway.
+ * @param {String} sourceDir: folder to scan
+ * @param {String} relDir: sub folder being scanned, relative to sourceDir
+ * @returns {Promise<String[]>}
+ */
+async function findSymlinks(sourceDir, relDir = '') {
+  const found = [];
+  let entries = [];
+  try {
+    entries = await fs.readdir(path.join(sourceDir, relDir), { withFileTypes: true });
+  }
+  catch (e) {
+    return found;
+  }
+  for (const entry of entries) {
+    const relPath = relDir ? relDir + '/' + entry.name : entry.name;
+    if (entry.isSymbolicLink()) {
+      found.push(relPath);
+    }
+    else if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
+      found.push(...await findSymlinks(sourceDir, relPath));
+    }
+  }
+  return found;
+}
+
+// a name with glob characters in it still has to match literally in `ignore`
+function escapeGlob(value) {
+  return value.replace(/[\\*?[\]{}()!+@|]/g, '\\$&');
+}
+
+/**
+ * Zip a site folder. Symlinks are left out: a scaffolded site links build,
+ * dist, wc-registry.json and the babel files to the multi-site root, and those
+ * targets don't exist once the zip is unpacked anywhere else (a dangling link
+ * that some unzip tools warn about). They are multi-site plumbing rather than
+ * site content, so nothing is lost by leaving them out.
  * @param {String} sourceDir: /some/folder/to/compress
  * @param {String} outPath: /path/to/created.zip
  * @returns {Promise}
  */
-function zipDirectory(sourceDir, outPath) {
+async function zipDirectory(sourceDir, outPath) {
+  const symlinks = await findSymlinks(sourceDir);
   const archive = createArchiver('zip', { zlib: { level: 9 }});
   const stream = fs.createWriteStream(outPath);
 
@@ -130,6 +171,7 @@ function zipDirectory(sourceDir, outPath) {
           'node_modules',
           '.git/**',
           '.git',
+          ...symlinks.map(escapeGlob),
         ],
       })
       .on('error', err => reject(err))
