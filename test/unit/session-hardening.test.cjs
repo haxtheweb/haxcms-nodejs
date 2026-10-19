@@ -124,10 +124,10 @@ function lastCookie(res) {
 }
 
 // login through the real route so the cookie + store are produced for real
-function realLogin(t) {
+async function realLogin(t) {
   t.mock.method(HAXCMS, "testLogin", () => true);
   const res = fakeRes();
-  loginRoute(
+  await loginRoute(
     {
       body: { username: ACTIVE_USER, password: "x" },
       headers: {},
@@ -358,7 +358,7 @@ describe("refresh-session store truth table", () => {
 describe("route flows with real tokens", () => {
   test("login -> refresh -> replay of the old cookie revokes the family", async (t) => {
     isolateStore(t);
-    const login = realLogin(t);
+    const login = await realLogin(t);
     const r1 = fakeRes();
     await refreshAccessToken(
       { headers: {}, cookies: { haxcms_refresh_token: login.cookie } },
@@ -393,7 +393,7 @@ describe("route flows with real tokens", () => {
 
   test("logout makes the refresh cookie unusable for refresh and connection-test", async (t) => {
     isolateStore(t);
-    const login = realLogin(t);
+    const login = await realLogin(t);
     logoutRoute(
       { headers: {}, cookies: { haxcms_refresh_token: login.cookie } },
       fakeRes(),
@@ -438,7 +438,7 @@ describe("route flows with real tokens", () => {
 
   test("connection-test recovers a live session and rotates the cookie", async (t) => {
     isolateStore(t);
-    const login = realLogin(t);
+    const login = await realLogin(t);
     const res = fakeRes();
     await connectionTest(
       { headers: {}, cookies: { haxcms_refresh_token: login.cookie } },
@@ -462,7 +462,7 @@ describe("connection-test / refresh origin gate", () => {
   test("cross-origin connection-test with a refresh cookie is denied before rotating", async (t) => {
     isolateStore(t);
     trustedOrigin(t);
-    const login = realLogin(t);
+    const login = await realLogin(t);
     let rotated = 0;
     const original = HAXCMS.rotateRefreshTokenAndCookie;
     t.mock.method(HAXCMS, "rotateRefreshTokenAndCookie", function () {
@@ -487,7 +487,7 @@ describe("connection-test / refresh origin gate", () => {
   test("same-origin connection-test with a refresh cookie proceeds", async (t) => {
     isolateStore(t);
     trustedOrigin(t);
-    const login = realLogin(t);
+    const login = await realLogin(t);
     const res = fakeRes();
     await connectionTest(
       {
@@ -504,7 +504,7 @@ describe("connection-test / refresh origin gate", () => {
 
   test("Sec-Fetch-Site: cross-site is rejected even without Origin/Referer", async (t) => {
     isolateStore(t);
-    const login = realLogin(t);
+    const login = await realLogin(t);
     const res = fakeRes();
     await connectionTest(
       {
@@ -636,7 +636,7 @@ describe("connection-settings", () => {
 
   test("a valid refresh-cookie session receives the tokens", async (t) => {
     isolateStore(t);
-    const login = realLogin(t);
+    const login = await realLogin(t);
     const res = fakeRes();
     await connectionSettings(
       { headers: {}, cookies: { haxcms_refresh_token: login.cookie } },
@@ -648,7 +648,7 @@ describe("connection-settings", () => {
   test("a revoked refresh cookie or a bad bearer gets no tokens (flag on)", async (t) => {
     isolateStore(t);
     withRequireSessionFlag(t, "true");
-    const login = realLogin(t);
+    const login = await realLogin(t);
     logoutRoute(
       { headers: {}, cookies: { haxcms_refresh_token: login.cookie } },
       fakeRes(),
@@ -1148,7 +1148,7 @@ describe("concurrent tabs refreshing with the same cookie (grace path)", () => {
         ")",
       async (t) => {
         const storePath = isolateStore(t);
-        const login = realLogin(t);
+        const login = await realLogin(t);
         // tabs A and B both send the SAME old cookie; the server processes one
         // first (current-jti path), the other second (previous-within-grace path)
         const first = await refreshWith(login.cookie);
@@ -1222,7 +1222,7 @@ describe("host-only same-origin comparison", () => {
       }),
       true,
     );
-    const login = realLogin(t);
+    const login = await realLogin(t);
     const res = fakeRes();
     await connectionTest(
       {
@@ -1244,7 +1244,7 @@ describe("host-only same-origin comparison", () => {
       }),
       true,
     );
-    const login = realLogin(t);
+    const login = await realLogin(t);
     const res = fakeRes();
     await refreshAccessToken(
       {
@@ -1277,11 +1277,11 @@ describe("request tokens on successful session responses", () => {
   const userToken = () => HAXCMS.getRequestToken(ACTIVE_USER);
   const siteToken = (name) => HAXCMS.getRequestToken(ACTIVE_USER + ":" + name);
 
-  test("login returns userToken alongside the jwt", (t) => {
+  test("login returns userToken alongside the jwt", async (t) => {
     isolateStore(t);
     t.mock.method(HAXCMS, "testLogin", () => true);
     const res = fakeRes();
-    loginRoute(
+    await loginRoute(
       {
         body: { username: ACTIVE_USER, password: "x" },
         headers: {},
@@ -1298,9 +1298,57 @@ describe("request tokens on successful session responses", () => {
     );
   });
 
+  test("login from a site page also returns that site's siteToken", async (t) => {
+    isolateStore(t);
+    t.mock.method(HAXCMS, "testLogin", () => true);
+    const res = fakeRes();
+    await loginRoute(
+      {
+        body: { username: ACTIVE_USER, password: "x" },
+        headers: {
+          host: "cms.example.com",
+          referer:
+            "http://cms.example.com" +
+            HAXCMS.basePath +
+            HAXCMS.sitesDirectory +
+            "/my-site/page",
+        },
+        ip: "10.8.8.9",
+      },
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.ok(res.body.jwt);
+    assert.equal(res.body.userToken, userToken());
+    assert.equal(res.body.siteToken, siteToken("my-site"));
+  });
+
+  test("a failed login never carries tokens", async (t) => {
+    isolateStore(t);
+    t.mock.method(HAXCMS, "testLogin", () => false);
+    const res = fakeRes();
+    await loginRoute(
+      {
+        body: { username: ACTIVE_USER, password: "wrong" },
+        headers: {
+          referer:
+            "http://cms.example.com" +
+            HAXCMS.basePath +
+            HAXCMS.sitesDirectory +
+            "/my-site/",
+        },
+        ip: "10.8.8.10",
+      },
+      res,
+    );
+    assert.equal(res.body.status, 401);
+    assert.equal(res.body.userToken, undefined);
+    assert.equal(res.body.siteToken, undefined);
+  });
+
   test("refresh returns userToken and a siteToken resolved from the Referer path", async (t) => {
     isolateStore(t);
-    const login = realLogin(t);
+    const login = await realLogin(t);
     const res = fakeRes();
     await refreshAccessToken(
       {
@@ -1323,7 +1371,7 @@ describe("request tokens on successful session responses", () => {
 
   test("refresh resolves the site from the body before the Referer, and omits siteToken without context", async (t) => {
     isolateStore(t);
-    const login = realLogin(t);
+    const login = await realLogin(t);
     const res = fakeRes();
     await refreshAccessToken(
       {
