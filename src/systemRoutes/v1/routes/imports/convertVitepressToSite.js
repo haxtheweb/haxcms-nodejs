@@ -1,7 +1,7 @@
 const MarkdownIt = require('markdown-it')
 const markdownItContainer = require('markdown-it-container')
 const markdownItFootnote = require('markdown-it-footnote')
-const yaml = require('js-yaml')
+const { loadYamlSafely } = require('../../../../lib/safeYaml.js')
 const { parse } = require('node-html-parser')
 const JSONOutlineSchemaItem = require('../../../../lib/JSONOutlineSchemaItem.js')
 const { HAXCMS } = require('../../../../lib/HAXCMS.js')
@@ -844,7 +844,10 @@ function splitFrontmatter(markdown) {
   }
   let data = {}
   try {
-    const parsed = yaml.load(match[1])
+    // Security (SEC-SSRF): size cap + anchor/alias rejection (alias
+    // amplification); a rejected frontmatter falls back to {} like any
+    // other unparseable frontmatter.
+    const parsed = loadYamlSafely(match[1])
     if (parsed && typeof parsed === 'object') {
       data = parsed
     }

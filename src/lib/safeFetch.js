@@ -3,6 +3,7 @@
 const dns = require('dns');
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
 const HAXCMSFile = require('./HAXCMSFile.js');
 
 const isPrivateOrReservedIP = HAXCMSFile.isPrivateOrReservedIP;
@@ -167,85 +168,163 @@ function buildResponseLike(statusCode, statusMessage, rawHeaders, bodyBuffer) {
 }
 
 /**
+ * Security (SEC-SSRF): default cap on the number of response-body bytes
+ * safeFetch will accept (20 MB). Every hop (including redirect bodies) is
+ * capped. Callers may pass options.maxBytes; the process default may be
+ * overridden with HAXCMS_SAFE_FETCH_MAX_BYTES. Exceeding the cap destroys the
+ * request and rejects with code SSRF_TOO_LARGE. Parity: PHP SsrfGuard uses the
+ * same default and error code.
+ */
+const SAFE_FETCH_DEFAULT_MAX_BYTES = 20 * 1024 * 1024;
+
+function getDefaultMaxBytes() {
+  var fromEnv = parseInt(process.env.HAXCMS_SAFE_FETCH_MAX_BYTES || '', 10);
+  if (!isNaN(fromEnv) && fromEnv > 0) {
+    return fromEnv;
+  }
+  return SAFE_FETCH_DEFAULT_MAX_BYTES;
+}
+
+function resolveMaxBytes(value) {
+  var n = typeof value === 'number' ? value : parseInt(value, 10);
+  if (!isNaN(n) && isFinite(n) && n > 0) {
+    return Math.floor(n);
+  }
+  return getDefaultMaxBytes();
+}
+
+function tooLargeError(maxBytes) {
+  var err = new Error('Remote response exceeds the maximum allowed size of ' + maxBytes + ' bytes');
+  err.code = 'SSRF_TOO_LARGE';
+  return err;
+}
+
+/**
  * Perform a single (non-redirect-following) HTTP(S) request to the parsed
  * URL's hostname, pinning the TCP connection to the pre-validated pinnedIp
  * via a custom lookup. TLS hostname verification (SNI/cert) is preserved
  * because the request host stays the original hostname and only the
  * connection target IP is overridden. Supports a caller-supplied AbortSignal
  * and an idle/total timeout. Returns a fetch-Response-like object.
+ *
+ * Security (SEC-SSRF): the body is capped at maxBytes. A Content-Length above
+ * the cap is refused before any body is read, and a streamed body that crosses
+ * the cap destroys the socket immediately (no unbounded Buffer.concat). When
+ * sinkPath is set and the final response is 2xx, the body is streamed to that
+ * file instead of memory (same cap); the caller removes it on failure.
  */
-function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs) {
+function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, maxBytes, sinkPath) {
   var isHttps = parsed.protocol === 'https:';
   var lib = isHttps ? https : http;
   var requestOptions = buildPinnedRequestOptions(parsed, fetchOptions, pinnedIp);
   var bodyData = fetchOptions.body;
   var signal = fetchOptions.signal;
+  var byteCap = resolveMaxBytes(maxBytes);
   return new Promise(function (resolve, reject) {
     var settled = false;
     var timer = null;
-    var req = lib.request(requestOptions, function (response) {
-      var chunks = [];
-      response.on('data', function (chunk) { chunks.push(chunk); });
-      response.on('end', function () {
-        if (settled) { return; }
-        settled = true;
-        if (timer) { clearTimeout(timer); }
-        var bodyBuffer = Buffer.concat(chunks);
-        resolve(buildResponseLike(response.statusCode, response.statusMessage, response.headers, bodyBuffer));
-      });
-      response.on('error', function (e) {
-        if (settled) { return; }
-        settled = true;
-        if (timer) { clearTimeout(timer); }
-        reject(e);
-      });
-    });
-    req.on('error', function (e) {
+    var activeResponse = null;
+    var sink = null;
+    var req = null;
+    function fail(err) {
       if (settled) { return; }
       settled = true;
       if (timer) { clearTimeout(timer); }
-      reject(e);
-    });
-    if (timeoutMs && timeoutMs > 0) {
-      timer = setTimeout(function () {
-        if (settled) { return; }
-        settled = true;
-        req.destroy();
-        var err = new Error('safeFetch timed out');
-        err.code = 'SSRF_TIMEOUT';
-        reject(err);
-      }, timeoutMs);
-    }
-    if (signal) {
-      if (signal.aborted) {
-        if (!settled) {
-          settled = true;
-          if (timer) { clearTimeout(timer); }
-          req.destroy();
-          var abortErr = new Error('safeFetch aborted');
-          abortErr.code = 'SSRF_ABORT';
-          reject(abortErr);
-        }
+      if (sink) {
+        try { sink.destroy(); } catch (e) {}
       }
-      else {
-        signal.addEventListener('abort', function onAbort() {
+      if (activeResponse) {
+        try { activeResponse.destroy(); } catch (e) {}
+      }
+      if (req) {
+        try { req.destroy(); } catch (e) {}
+      }
+      reject(err);
+    }
+    req = lib.request(requestOptions, function (response) {
+      activeResponse = response;
+      var declaredLength = parseInt((response.headers && response.headers['content-length']) || '', 10);
+      if (!isNaN(declaredLength) && declaredLength > byteCap) {
+        fail(tooLargeError(byteCap));
+        return;
+      }
+      var received = 0;
+      var chunks = [];
+      var isSuccess = response.statusCode >= 200 && response.statusCode < 300;
+      if (sinkPath && isSuccess) {
+        sink = fs.createWriteStream(sinkPath, { flags: 'wx', mode: 0o600 });
+        sink.on('error', function (e) { fail(e); });
+      }
+      response.on('data', function (chunk) {
+        if (settled) { return; }
+        received += chunk.length;
+        if (received > byteCap) {
+          fail(tooLargeError(byteCap));
+          return;
+        }
+        if (sink) {
+          sink.write(chunk);
+        }
+        else {
+          chunks.push(chunk);
+        }
+      });
+      response.on('end', function () {
+        if (settled) { return; }
+        var bodyBuffer = sink ? Buffer.alloc(0) : Buffer.concat(chunks);
+        var finish = function () {
           if (settled) { return; }
           settled = true;
           if (timer) { clearTimeout(timer); }
-          req.destroy();
-          var abortErr = new Error('safeFetch aborted');
-          abortErr.code = 'SSRF_ABORT';
-          reject(abortErr);
+          var responseLike = buildResponseLike(response.statusCode, response.statusMessage, response.headers, bodyBuffer);
+          if (sink) {
+            responseLike.filePath = sinkPath;
+            responseLike.bytesWritten = received;
+          }
+          resolve(responseLike);
+        };
+        if (sink) {
+          sink.end(finish);
+        }
+        else {
+          finish();
+        }
+      });
+      response.on('error', function (e) {
+        fail(e);
+      });
+    });
+    req.on('error', function (e) {
+      fail(e);
+    });
+    if (timeoutMs && timeoutMs > 0) {
+      timer = setTimeout(function () {
+        var err = new Error('safeFetch timed out');
+        err.code = 'SSRF_TIMEOUT';
+        fail(err);
+      }, timeoutMs);
+    }
+    if (signal) {
+      var abortErr = new Error('safeFetch aborted');
+      abortErr.code = 'SSRF_ABORT';
+      if (signal.aborted) {
+        fail(abortErr);
+      }
+      else {
+        signal.addEventListener('abort', function onAbort() {
+          fail(abortErr);
         });
       }
     }
-    if (bodyData !== undefined && bodyData !== null) {
+    if (bodyData !== undefined && bodyData !== null && !settled) {
       if (typeof bodyData === 'string' || Buffer.isBuffer(bodyData)) {
         req.write(bodyData);
       }
       // other body types (stream) are not used by current callers; leave them
     }
-    req.end();
+    if (!settled) {
+      req.end();
+    }
   });
 }
 
@@ -265,32 +344,48 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs) {
  * slow/hanging host from holding a request open. Callers may override `signal`
  * via options.
  *
+ * Options (in addition to method/headers/body/signal):
+ *   maxBytes     response-body byte cap per hop (default 20 MB, SEC-SSRF)
+ *   timeoutMs    per-hop timeout when no signal is given (default 15000)
+ *   maxRedirects redirect hops to follow (default and ceiling 5; 0 = never
+ *                follow, any 3xx then rejects with SSRF_REDIRECTS)
+ *
  * Signature matches global fetch: returns the final, non-3xx Response-like
  * object (with .ok/.status/.headers.get/.text/.json). Throws on SSRF rejection
  * (resolveAndValidateUrl), too many redirects (SSRF_REDIRECTS), a bad Location
- * (SSRF_REDIRECT), or fetch/timeout/abort.
+ * (SSRF_REDIRECT), an oversized body (SSRF_TOO_LARGE), or fetch/timeout/abort.
  */
 const SAFE_FETCH_MAX_REDIRECTS = 5;
 const SAFE_FETCH_TIMEOUT_MS = 15000;
 
-async function safeFetch(urlString, options) {
+async function safeFetchInternal(urlString, options, sinkPath) {
   var fetchOptions = options || {};
   // Only add a timeout when the caller did not supply their own signal;
   // combining two signals would require AbortSignal.any (Node 20.3+), which
   // is not guaranteed available on the supported Node 18.20.3 LTS line.
-  var timeoutMs = fetchOptions.signal ? 0 : SAFE_FETCH_TIMEOUT_MS;
+  var timeoutMs = 0;
+  if (!fetchOptions.signal) {
+    timeoutMs = (typeof fetchOptions.timeoutMs === 'number' && fetchOptions.timeoutMs > 0)
+      ? fetchOptions.timeoutMs
+      : SAFE_FETCH_TIMEOUT_MS;
+  }
+  var maxRedirects = SAFE_FETCH_MAX_REDIRECTS;
+  if (typeof fetchOptions.maxRedirects === 'number' && fetchOptions.maxRedirects >= 0) {
+    maxRedirects = Math.min(Math.floor(fetchOptions.maxRedirects), SAFE_FETCH_MAX_REDIRECTS);
+  }
+  var maxBytes = resolveMaxBytes(fetchOptions.maxBytes);
   var currentUrl = urlString;
-  for (var hop = 0; hop <= SAFE_FETCH_MAX_REDIRECTS; hop++) {
+  for (var hop = 0; hop <= maxRedirects; hop++) {
     // Security (L1): resolve + validate, then pin the IP for the connect so
     // DNS rebinding cannot redirect the request to a private/metadata address
     // between the SSRF check and the actual TCP connection.
     var resolved = await resolveAndValidateUrl(currentUrl);
-    var response = await pinnedFetchSingle(resolved.parsed, fetchOptions, resolved.pinnedIp, resolved.family, timeoutMs);
+    var response = await pinnedFetchSingle(resolved.parsed, fetchOptions, resolved.pinnedIp, resolved.family, timeoutMs, maxBytes, sinkPath);
     // not a redirect (or 304 Not Modified) -> final response
     if (response.status < 300 || response.status >= 400 || response.status === 304) {
       return response;
     }
-    if (hop === SAFE_FETCH_MAX_REDIRECTS) {
+    if (hop === maxRedirects) {
       var tooManyErr = new Error('safeFetch exceeded the redirect hop cap');
       tooManyErr.code = 'SSRF_REDIRECTS';
       throw tooManyErr;
@@ -314,8 +409,43 @@ async function safeFetch(urlString, options) {
   throw new Error('safeFetch unexpected loop exit');
 }
 
+async function safeFetch(urlString, options) {
+  return safeFetchInternal(urlString, options, null);
+}
+
+/**
+ * Security (SEC-SSRF): stream a remote URL to a local file through the same
+ * SSRF guard as safeFetch (scheme check, all-records private-IP rejection,
+ * pinned connect, per-hop re-validation) with a byte cap and timeout. The
+ * file is created exclusively (wx, 0600). Non-2xx responses reject with
+ * SSRF_HTTP_STATUS. Any failure removes the partial file before rethrowing.
+ * Resolves to the filepath.
+ */
+async function safeFetchToFile(urlString, filepath, options) {
+  var response;
+  try {
+    response = await safeFetchInternal(urlString, options, filepath);
+    if (!response.ok) {
+      var statusErr = new Error('Remote server responded with HTTP ' + response.status);
+      statusErr.code = 'SSRF_HTTP_STATUS';
+      statusErr.status = response.status;
+      throw statusErr;
+    }
+  }
+  catch (e) {
+    try {
+      fs.unlinkSync(filepath);
+    }
+    catch (unlinkErr) {}
+    throw e;
+  }
+  return filepath;
+}
+
 module.exports = {
   safeFetch,
+  safeFetchToFile,
+  SAFE_FETCH_DEFAULT_MAX_BYTES,
   assertUrlNotSSRF,
   isPrivateOrReservedIP,
   validateUrlNotSSRF: HAXCMSFile.validateUrlNotSSRF,
