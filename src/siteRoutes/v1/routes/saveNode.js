@@ -119,10 +119,20 @@ const FileContentScanner = require('../../../lib/FileContentScanner.js');
               };
               item = site.itemFromParams(nodeParams);
               // generate the boilerplate to fill this page
-              HAXCMS.recurseCopy(
+              // Security (N1/N5 parity): the copy must land inside this site's
+              // directory; refuse rather than writing anywhere else.
+              const copied = await HAXCMS.recurseCopy(
                 HAXCMS.boilerplatePath + 'page/default',
-                path.join(site.siteDirectory, item.location.replace('/index.html', ''))
+                path.join(site.siteDirectory, item.location.replace('/index.html', '')),
+                [],
+                site.siteDirectory
               );
+              if (copied === false) {
+                return res.status(400).json({
+                  status: 400,
+                  data: { message: 'Invalid node location' },
+                });
+              }
               // add the item back into the outline schema
               site.manifest.addItem(item);
               site.manifest.save();

@@ -31,6 +31,7 @@ const PAGE_VARIANT_CONTENT_TYPES = {
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
+const { resolveContainedPath } = require('./lib/pathConfinement.js');
 const loginRateLimiter = require('./lib/loginRateLimiter.js');
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
 // colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
@@ -3017,7 +3018,12 @@ function resolveVariantFilePath(site, item, format = 'json') {
   if (!variantLocation || !site || !site.siteDirectory) {
     return null;
   }
-  const absolutePath = path.join(site.siteDirectory, variantLocation);
+  // Security (N1/N5 parity): the sidecar path derives from the manifest
+  // location, so prove it resolves inside the site before serving it.
+  const absolutePath = resolveContainedPath(site.siteDirectory, variantLocation);
+  if (absolutePath === false) {
+    return null;
+  }
   if (fs.existsSync(absolutePath) && fs.lstatSync(absolutePath).isFile()) {
     return absolutePath;
   }

@@ -121,7 +121,10 @@ const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
         if (!tmpLoad) {
           await HAXCMS.recurseCopy(
               HAXCMS.boilerplatePath + 'page/default',
-              site.siteDirectory + '/' + page.location.replace('/index.html', '')
+              site.siteDirectory + '/' + page.location.replace('/index.html', ''),
+              [],
+              // Security (N1/N5 parity): confine the copy to the site dir
+              site.siteDirectory
           );
           pageAlternateContentMap[page.id] = '';
         }
@@ -163,7 +166,10 @@ const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
                 page.slug = tmpTitle;
                 await HAXCMS.recurseCopy(
                     HAXCMS.boilerplatePath + 'page/default',
-                    site.siteDirectory + '/' + page.location.replace('/index.html', '')
+                    site.siteDirectory + '/' + page.location.replace('/index.html', ''),
+                    [],
+                    // Security (N1/N5 parity): confine the copy to the site dir
+                    site.siteDirectory
                 );
                 pageAlternateContentMap[page.id] = '';
             }

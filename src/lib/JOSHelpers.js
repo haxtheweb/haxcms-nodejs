@@ -2,6 +2,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { parse } = require('node-html-parser');
 const JSONOutlineSchema = require('./JSONOutlineSchema.js');
+const { resolveContainedPath } = require('./pathConfinement.js');
 
 const WORDSPERMIN = 225;
 
@@ -143,8 +144,9 @@ async function getItemHTML(site, item) {
   if (!site || !item || !item.location || !site.siteDirectory) {
     return '';
   }
-  const pagePath = path.join(site.siteDirectory, item.location);
-  if (!fs.existsSync(pagePath)) {
+  // Security (N1/N5 parity): containment-checked resolve of the location
+  const pagePath = resolveContainedPath(site.siteDirectory, item.location);
+  if (pagePath === false || !fs.existsSync(pagePath)) {
     return '';
   }
   try {

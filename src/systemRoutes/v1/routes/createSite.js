@@ -658,6 +658,15 @@ async function createSite(req, res) {
         domain,
         build
     );
+    // Security (N1/N5 parity): newSite returns false when the boilerplate
+    // copy is refused (traversal / escaping destination); answer with an
+    // error envelope instead of dereferencing a missing site.
+    if (!site || !site.manifest) {
+      return res.status(500).json({
+        status: 500,
+        data: { message: 'Unable to create site' },
+      });
+    }
     const supportedSiteLicenses = getSupportedSiteLicenseCodes();
     const requestedLicense =
       req.body &&
