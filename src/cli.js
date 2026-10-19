@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-
 // cli bridge which ensures calls just go through without security
 process.env.haxcms_middleware = "node-cli";
 // HAXcms core settings
-const { HAXCMS } = require('./lib/HAXCMS.js');
-const { allRoutes } = require('./lib/allRoutes.js');
+const { HAXCMS } = require("./lib/HAXCMS.js");
+const { allRoutes } = require("./lib/allRoutes.js");
 // Shared CLI theme so the API-bridge CLI speaks with the same Merlin voice as
 // the server launcher (issue haxtheweb/issues#2973). Only human-facing error
 // lines are styled; structured route data is still printed verbatim.
-const cliTheme = require('./lib/cliTheme.js');
+const cliTheme = require("./lib/cliTheme.js");
+const { annotateApiResponse } = require("./lib/apiMessageCodes.js");
 const systemRouteRegistry =
   allRoutes && allRoutes.system && allRoutes.system.map
     ? allRoutes.system.map
@@ -18,38 +18,42 @@ const siteRouteRegistry =
     ? allRoutes.site.map
     : { get: {}, post: {}, patch: {}, put: {}, delete: {} };
 const systemApiBasePath = `${HAXCMS.basePath}${HAXCMS.systemRequestBase}v1/`;
-const basePath = String(HAXCMS.basePath || '/').replace(/\/+$/, '');
-const siteApiBasePath = basePath === '' || basePath === '/' ? '/x/api' : `${basePath}/x/api`;
+const basePath = String(HAXCMS.basePath || "/").replace(/\/+$/, "");
+const siteApiBasePath =
+  basePath === "" || basePath === "/" ? "/x/api" : `${basePath}/x/api`;
 
 // process arguments from commandline appropriately
 let body = {};
 let cliOp = null;
 const cli = {
-  post: (path, callback) => 
+  post: (path, callback) =>
     callback(
-    {
-      route: {
-        path: path
+      {
+        route: {
+          path: path,
+        },
+        body: body,
+        method: "post",
       },
-      body: body,
-      method: "post"
-    },
-    {
-      query: {},
-      send: (data) => console.log(data),
-    }
-  ),
-  get: (path, callback) => callback({
-    route: {
-      path: path
-    },
-    body: body,
-    method: "get"
-  },
-  {
-    query: {},
-    send: (data) => console.log(data),
-  }),
+      {
+        query: {},
+        send: (data) => console.log(data),
+      },
+    ),
+  get: (path, callback) =>
+    callback(
+      {
+        route: {
+          path: path,
+        },
+        body: body,
+        method: "get",
+      },
+      {
+        query: {},
+        send: (data) => console.log(data),
+      },
+    ),
 };
 // loop through methods and apply the route to the file to deliver it
 // @todo ensure that we apply the same JWT checking that we do in the PHP side
@@ -57,18 +61,16 @@ const cli = {
 // routes object above and apply JWT requirement on paths in a better way
 for (var method in systemRouteRegistry) {
   for (var route in systemRouteRegistry[method]) {
-    if (cliOp === 'listCalls') {
+    if (cliOp === "listCalls") {
       console.log(route);
-    }
-    else if (route === cliOp) {
+    } else if (route === cliOp) {
       cli[method](`${systemApiBasePath}${route}`, (req, res) => {
-        const op = req.route.path.replace(systemApiBasePath, '');
+        const op = req.route.path.replace(systemApiBasePath, "");
         const rMethod = req.method.toLowerCase();
         if (HAXCMS.validateJWT(req, res)) {
           // call the method
           systemRouteRegistry[rMethod][op](req, res);
-        }
-        else {
+        } else {
           console.error(cliTheme.merlinError("route connection issue"));
         }
       });
@@ -95,7 +97,11 @@ class Res {
     return this;
   }
   json(data) {
-    this.data = JSON.parse(JSON.stringify(data));
+    // same message codes the HTTP server adds (issues#3157)
+    this.data = annotateApiResponse(
+      JSON.parse(JSON.stringify(data)),
+      this.statusCode === null ? 200 : this.statusCode,
+    );
     return this;
   }
   sendStatus(status) {
@@ -106,7 +112,7 @@ class Res {
 }
 
 // method to bridge api calls in similar manner given a site already loaded into scope
-export async function cliBridge(op, body = {}, method = 'post', file = null) {
+export async function cliBridge(op, body = {}, method = "post", file = null) {
   // when CLI is detected, we assume the user is authenticated
   // this is just to ensure that backend calls looking for tokens to exist
   // get the data they are expecting
@@ -115,7 +121,7 @@ export async function cliBridge(op, body = {}, method = 'post', file = null) {
   const rMethod = method.toLowerCase();
 
   let handler = null;
-  let routePath = '';
+  let routePath = "";
   let routeParams = {};
   let isSiteRoute = false;
 
@@ -127,18 +133,18 @@ export async function cliBridge(op, body = {}, method = 'post', file = null) {
   // Try site routes with exact match
   else if (siteRouteRegistry[rMethod] && siteRouteRegistry[rMethod][op]) {
     handler = siteRouteRegistry[rMethod][op];
-    routePath = `${siteApiBasePath}${op === '' ? '' : '/' + op}`;
+    routePath = `${siteApiBasePath}${op === "" ? "" : "/" + op}`;
     isSiteRoute = true;
   }
   // Try site routes with pattern matching for parameterized routes
   else if (siteRouteRegistry[rMethod]) {
     for (const pattern in siteRouteRegistry[rMethod]) {
-      const regexPattern = pattern.replace(/:([^/]+)/g, '([^/]+)');
+      const regexPattern = pattern.replace(/:([^/]+)/g, "([^/]+)");
       const regex = new RegExp(`^${regexPattern}$`);
       const match = op.match(regex);
       if (match) {
         handler = siteRouteRegistry[rMethod][pattern];
-        routePath = `${siteApiBasePath}${pattern === '' ? '' : '/' + pattern}`;
+        routePath = `${siteApiBasePath}${pattern === "" ? "" : "/" + pattern}`;
         isSiteRoute = true;
         const paramNames = [];
         pattern.replace(/:([^/]+)/g, (m, name) => paramNames.push(name));
@@ -157,7 +163,7 @@ export async function cliBridge(op, body = {}, method = 'post', file = null) {
 
   let req = {
     route: {
-      path: routePath
+      path: routePath,
     },
     body: body,
     params: routeParams,
@@ -166,23 +172,23 @@ export async function cliBridge(op, body = {}, method = 'post', file = null) {
       site_token: fakeToken,
     },
     headers: {
-      'x-haxcms-site-token': fakeToken,
+      "x-haxcms-site-token": fakeToken,
     },
     file: file,
-    method: method
+    method: method,
   };
 
   // For site routes, set auth context to help site resolution
   if (isSiteRoute) {
-    let siteName = '';
+    let siteName = "";
     if (body && body.site) {
-      if (typeof body.site === 'object' && body.site.name) {
+      if (typeof body.site === "object" && body.site.name) {
         siteName = body.site.name;
-      } else if (typeof body.site === 'string') {
+      } else if (typeof body.site === "string") {
         siteName = body.site;
       }
     }
-    if (siteName !== '') {
+    if (siteName !== "") {
       // Mirror the CLI branch of validateSiteApiRouteAccess (src/app.js) so
       // defense-in-depth site-mutation gates (isSiteApiRequestAuthenticated)
       // and anonymous-visibility reads see the CLI as authenticated, not
@@ -191,7 +197,7 @@ export async function cliBridge(op, body = {}, method = 'post', file = null) {
       req.haxcmsSiteApiAuth = {
         siteName: siteName,
         authenticated: true,
-        securityLevel: 'authenticated-site',
+        securityLevel: "authenticated-site",
       };
     }
   }
@@ -199,9 +205,8 @@ export async function cliBridge(op, body = {}, method = 'post', file = null) {
   let res = new Res();
   if (HAXCMS.validateJWT(req, res)) {
     await handler(req, res);
-    return {req: req, res: res};
-  }
-  else {
+    return { req: req, res: res };
+  } else {
     console.error(cliTheme.merlinError("route connection issue"));
   }
 }

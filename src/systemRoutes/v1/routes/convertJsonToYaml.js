@@ -1,5 +1,7 @@
-const yaml = require('js-yaml');
-const { safeFetch } = require('../../../lib/safeFetch.js');
+const yaml = require("js-yaml");
+const { safeFetch } = require("../../../lib/safeFetch.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/actions/json-to-yaml
@@ -13,37 +15,42 @@ async function convertJsonToYaml(req, res) {
     let body = {};
     if (req && req.query && req.query.json) {
       body = req.query;
-    } else if (req.body && typeof req.body === 'object') {
+    } else if (req.body && typeof req.body === "object") {
       body = req.body;
     }
 
     if (!body || body.json === undefined || body.json === null) {
       return res.status(400).json({
         status: 400,
-        data: { error: 'missing `json` param', contents: '' },
+        data: { error: "missing `json` param", contents: "" },
       });
     }
 
     let jsonData = body.json;
-    if (body.type === 'link' && jsonData) {
+    if (body.type === "link" && jsonData) {
       try {
-        jsonData = await safeFetch(String(jsonData).trim()).then((d) => (d.ok ? d.text() : ''));
+        jsonData = await safeFetch(String(jsonData).trim()).then((d) =>
+          d.ok ? d.text() : "",
+        );
         jsonData = JSON.parse(jsonData);
       } catch (e) {
         return res.status(400).json({
           status: 400,
-          data: { error: 'Failed to fetch or parse JSON from link', contents: '' },
+          data: {
+            error: "Failed to fetch or parse JSON from link",
+            contents: "",
+          },
         });
       }
     }
 
-    if (typeof jsonData === 'string') {
+    if (typeof jsonData === "string") {
       try {
         jsonData = JSON.parse(jsonData);
       } catch (e) {
         return res.status(400).json({
           status: 400,
-          data: { error: 'Invalid JSON string provided', contents: '' },
+          data: { error: "Invalid JSON string provided", contents: "" },
         });
       }
     }
@@ -56,10 +63,13 @@ async function convertJsonToYaml(req, res) {
       },
     });
   } catch (error) {
-    console.error('jsonToYaml route error:', error.message);
+    console.error("jsonToYaml route error:", error.message);
     return res.status(400).json({
       status: 400,
-      data: { error: `JSON to YAML conversion failed: ${error.message}`, contents: '' },
+      data: {
+        error: `JSON to YAML conversion failed: ${clientSafeErrorDetail(error)}`,
+        contents: "",
+      },
     });
   }
 }

@@ -1,5 +1,7 @@
-const pretty = require('pretty');
-const { safeFetch } = require('../../../lib/safeFetch.js');
+const pretty = require("pretty");
+const { safeFetch } = require("../../../lib/safeFetch.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/actions/pretty-html
@@ -13,23 +15,23 @@ async function convertPrettyHtml(req, res) {
     let body = {};
     if (req && req.query && req.query.html) {
       body = req.query;
-    } else if (req.body && typeof req.body === 'object') {
+    } else if (req.body && typeof req.body === "object") {
       body = req.body;
     }
 
     if (!body || !body.html) {
       return res.status(400).json({
         status: 400,
-        data: { error: 'missing `html` param', contents: '' },
+        data: { error: "missing `html` param", contents: "" },
       });
     }
 
-    let html = String(body.html || '');
-    if (body.type === 'link' && html) {
+    let html = String(body.html || "");
+    if (body.type === "link" && html) {
       try {
-        html = await safeFetch(html.trim()).then((d) => (d.ok ? d.text() : ''));
+        html = await safeFetch(html.trim()).then((d) => (d.ok ? d.text() : ""));
       } catch (e) {
-        html = '';
+        html = "";
       }
     }
 
@@ -41,10 +43,13 @@ async function convertPrettyHtml(req, res) {
       },
     });
   } catch (error) {
-    console.error('prettyHtml route error:', error.message);
+    console.error("prettyHtml route error:", error.message);
     return res.status(400).json({
       status: 400,
-      data: { error: `HTML pretty-print failed: ${error.message}`, contents: '' },
+      data: {
+        error: `HTML pretty-print failed: ${clientSafeErrorDetail(error)}`,
+        contents: "",
+      },
     });
   }
 }

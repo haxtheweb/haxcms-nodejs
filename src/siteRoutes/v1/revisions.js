@@ -1,25 +1,30 @@
-const fs = require('fs');
-const path = require('path');
-const util = require('node:util');
-const child_process = require('node:child_process');
+const fs = require("fs");
+const path = require("path");
+const util = require("node:util");
+const child_process = require("node:child_process");
 const execFile = util.promisify(child_process.execFile);
-const stripTagsImport = require('locutus/php/strings/strip_tags');
+const stripTagsImport = require("locutus/php/strings/strip_tags");
 const strip_tags = stripTagsImport.strip_tags || stripTagsImport;
-const { sanitizeURLValue, sanitizeHTMLForStorage } = require('../../lib/sanitizeContent.js');
+const {
+  sanitizeURLValue,
+  sanitizeHTMLForStorage,
+} = require("../../lib/sanitizeContent.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../lib/clientErrorMessage.js");
 const {
   getApiBasePath,
   getQueryValue,
   resolveSiteForRequest,
   findItemByIdOrSlug,
   sendFormattedResponse,
-} = require('./siteRouteUtils.js');
+} = require("./siteRouteUtils.js");
 
 function sanitizePageLocation(siteDirectory, location) {
-  const normalizedLocation = String(location || '')
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\/+/g, '/');
-  if (!normalizedLocation || normalizedLocation.indexOf('..') !== -1) {
+  const normalizedLocation = String(location || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/");
+  if (!normalizedLocation || normalizedLocation.indexOf("..") !== -1) {
     return null;
   }
   const siteRoot = path.resolve(siteDirectory);
@@ -35,11 +40,11 @@ function sanitizePageLocation(siteDirectory, location) {
 }
 
 async function gitOutput(siteDirectory, args, trim = true) {
-  const result = await execFile('git', ['--no-pager'].concat(args), {
+  const result = await execFile("git", ["--no-pager"].concat(args), {
     cwd: siteDirectory,
     maxBuffer: 1024 * 1024 * 20,
   });
-  const stdout = typeof result.stdout === 'string' ? result.stdout : '';
+  const stdout = typeof result.stdout === "string" ? result.stdout : "";
   if (trim) {
     return stdout.trim();
   }
@@ -60,17 +65,17 @@ function toPositiveInteger(value, fallbackValue, minValue = 0, maxValue = 0) {
   return parsed;
 }
 
-function parseRevisionRows(logRaw = '', offset = 0) {
+function parseRevisionRows(logRaw = "", offset = 0) {
   const revisions = [];
   if (!logRaw) {
     return revisions;
   }
-  const lines = String(logRaw).split('\n');
+  const lines = String(logRaw).split("\n");
   for (let i = 0; i < lines.length; i++) {
     if (!lines[i]) {
       continue;
     }
-    const parts = lines[i].split('\u001f');
+    const parts = lines[i].split("\u001f");
     if (parts.length < 7) {
       continue;
     }
@@ -89,28 +94,28 @@ function parseRevisionRows(logRaw = '', offset = 0) {
   return revisions;
 }
 
-function sanitizeRevisionId(value = '') {
-  let revisionId = String(value || '').trim();
-  if (revisionId === '') {
-    return '';
+function sanitizeRevisionId(value = "") {
+  let revisionId = String(value || "").trim();
+  if (revisionId === "") {
+    return "";
   }
   try {
     revisionId = decodeURIComponent(revisionId);
   } catch (e) {}
   revisionId = revisionId.trim();
   if (!/^[a-fA-F0-9]{7,64}$/.test(revisionId)) {
-    return '';
+    return "";
   }
   return revisionId;
 }
 
 function parseRevisionJSONPayload(rawPayload) {
-  if (!rawPayload || typeof rawPayload !== 'string') {
+  if (!rawPayload || typeof rawPayload !== "string") {
     return null;
   }
   try {
     const parsed = JSON.parse(rawPayload);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
     return parsed;
@@ -120,35 +125,35 @@ function parseRevisionJSONPayload(rawPayload) {
 }
 
 function getItemMetadataFromPayload(payload) {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return null;
   }
   const itemMetadata = {};
-  if (Object.prototype.hasOwnProperty.call(payload, 'id')) {
+  if (Object.prototype.hasOwnProperty.call(payload, "id")) {
     itemMetadata.id = payload.id;
   }
-  if (Object.prototype.hasOwnProperty.call(payload, 'title')) {
+  if (Object.prototype.hasOwnProperty.call(payload, "title")) {
     itemMetadata.title = payload.title;
   }
-  if (Object.prototype.hasOwnProperty.call(payload, 'description')) {
+  if (Object.prototype.hasOwnProperty.call(payload, "description")) {
     itemMetadata.description = payload.description;
   }
-  if (Object.prototype.hasOwnProperty.call(payload, 'slug')) {
+  if (Object.prototype.hasOwnProperty.call(payload, "slug")) {
     itemMetadata.slug = payload.slug;
   }
-  if (Object.prototype.hasOwnProperty.call(payload, 'parent')) {
+  if (Object.prototype.hasOwnProperty.call(payload, "parent")) {
     itemMetadata.parent = payload.parent;
   }
-  if (Object.prototype.hasOwnProperty.call(payload, 'order')) {
+  if (Object.prototype.hasOwnProperty.call(payload, "order")) {
     itemMetadata.order = payload.order;
   }
-  if (Object.prototype.hasOwnProperty.call(payload, 'indent')) {
+  if (Object.prototype.hasOwnProperty.call(payload, "indent")) {
     itemMetadata.indent = payload.indent;
   }
   if (
-    Object.prototype.hasOwnProperty.call(payload, 'metadata') &&
+    Object.prototype.hasOwnProperty.call(payload, "metadata") &&
     payload.metadata &&
-    typeof payload.metadata === 'object' &&
+    typeof payload.metadata === "object" &&
     !Array.isArray(payload.metadata)
   ) {
     itemMetadata.metadata = payload.metadata;
@@ -161,7 +166,7 @@ function getItemMetadataFromPayload(payload) {
 function ensurePageMetadata(page) {
   if (
     !page.metadata ||
-    typeof page.metadata !== 'object' ||
+    typeof page.metadata !== "object" ||
     Array.isArray(page.metadata)
   ) {
     page.metadata = {};
@@ -169,8 +174,8 @@ function ensurePageMetadata(page) {
 }
 
 function normalizeTextValue(value) {
-  if (value === null || typeof value === 'undefined') {
-    return '';
+  if (value === null || typeof value === "undefined") {
+    return "";
   }
   return strip_tags(String(value));
 }
@@ -191,7 +196,7 @@ function setURLMetadataValue(page, sourceMetadata, fieldName) {
     sourceMetadata &&
     Object.prototype.hasOwnProperty.call(sourceMetadata, fieldName)
   ) {
-    const safeValue = sanitizeURLValue(sourceMetadata[fieldName], '');
+    const safeValue = sanitizeURLValue(sourceMetadata[fieldName], "");
     if (safeValue) {
       page.metadata[fieldName] = safeValue;
     } else if (Object.prototype.hasOwnProperty.call(page.metadata, fieldName)) {
@@ -210,7 +215,7 @@ function setURLArrayMetadataValue(page, sourceMetadata, fieldName) {
   ) {
     const values = [];
     for (let i = 0; i < sourceMetadata[fieldName].length; i++) {
-      const safeValue = sanitizeURLValue(sourceMetadata[fieldName][i], '');
+      const safeValue = sanitizeURLValue(sourceMetadata[fieldName][i], "");
       if (safeValue) {
         values.push(safeValue);
       }
@@ -224,48 +229,50 @@ function setURLArrayMetadataValue(page, sourceMetadata, fieldName) {
 function applyItemMetadataToPage(page, itemMetadata) {
   if (
     !itemMetadata ||
-    typeof itemMetadata !== 'object' ||
+    typeof itemMetadata !== "object" ||
     Array.isArray(itemMetadata)
   ) {
     return false;
   }
-  if (Object.prototype.hasOwnProperty.call(itemMetadata, 'title')) {
+  if (Object.prototype.hasOwnProperty.call(itemMetadata, "title")) {
     page.title = normalizeTextValue(itemMetadata.title);
   }
-  if (Object.prototype.hasOwnProperty.call(itemMetadata, 'description')) {
+  if (Object.prototype.hasOwnProperty.call(itemMetadata, "description")) {
     page.description = normalizeTextValue(itemMetadata.description);
   }
   const sourceMetadata =
     itemMetadata.metadata &&
-    typeof itemMetadata.metadata === 'object' &&
+    typeof itemMetadata.metadata === "object" &&
     !Array.isArray(itemMetadata.metadata)
       ? itemMetadata.metadata
       : null;
   ensurePageMetadata(page);
-  setBooleanMetadataValue(page, sourceMetadata, 'published');
-  setBooleanMetadataValue(page, sourceMetadata, 'locked');
-  setURLMetadataValue(page, sourceMetadata, 'image');
-  setURLArrayMetadataValue(page, sourceMetadata, 'images');
-  setURLArrayMetadataValue(page, sourceMetadata, 'videos');
+  setBooleanMetadataValue(page, sourceMetadata, "published");
+  setBooleanMetadataValue(page, sourceMetadata, "locked");
+  setURLMetadataValue(page, sourceMetadata, "image");
+  setURLArrayMetadataValue(page, sourceMetadata, "images");
+  setURLArrayMetadataValue(page, sourceMetadata, "videos");
   return true;
 }
 
-function parseRevisionMetadata(revisionMetadataRaw = '', revisionHash = '') {
-  const metadataParts = String(revisionMetadataRaw || '').trim().split('\u001f');
+function parseRevisionMetadata(revisionMetadataRaw = "", revisionHash = "") {
+  const metadataParts = String(revisionMetadataRaw || "")
+    .trim()
+    .split("\u001f");
   return {
     hash: metadataParts[0] || revisionHash,
     shortHash: metadataParts[1] || String(revisionHash).substring(0, 7),
-    author: metadataParts[2] || '',
-    authorEmail: metadataParts[3] || '',
+    author: metadataParts[2] || "",
+    authorEmail: metadataParts[3] || "",
     timestamp: parseInt(metadataParts[4], 10) || 0,
-    date: metadataParts[5] || '',
-    message: metadataParts[6] || '',
+    date: metadataParts[5] || "",
+    message: metadataParts[6] || "",
   };
 }
 
 function resolveLookupValue(item) {
-  if (!item || typeof item !== 'object') {
-    return '';
+  if (!item || typeof item !== "object") {
+    return "";
   }
   if (item.slug) {
     return String(item.slug);
@@ -273,7 +280,7 @@ function resolveLookupValue(item) {
   if (item.id) {
     return String(item.id);
   }
-  return '';
+  return "";
 }
 
 async function listItemRevisions(req, res) {
@@ -281,58 +288,71 @@ async function listItemRevisions(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions', }
+      data: {
+        message:
+          "Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions",
+      },
     });
   }
   const idOrSlug =
-    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : '';
+    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : "";
   const item = findItemByIdOrSlug(site, idOrSlug);
   if (!item) {
     return res.status(404).json({
       status: 404,
-      data: { message: `Item not found for idOrSlug "${idOrSlug}"`, }
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"` },
     });
   }
-  if (!item.id || typeof site.loadNode !== 'function') {
+  if (!item.id || typeof site.loadNode !== "function") {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve item page context for revisions', }
+      data: { message: "Unable to resolve item page context for revisions" },
     });
   }
   const page = site.loadNode(item.id);
   if (!page || !page.location) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve page location for revisions', }
+      data: { message: "Unable to resolve page location for revisions" },
     });
   }
   const fileData = sanitizePageLocation(site.siteDirectory, page.location);
   if (!fileData) {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Invalid node file location', }
+      data: { message: "Invalid node file location" },
     });
   }
   if (!fs.existsSync(fileData.absolutePath)) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Node file not found', }
+      data: { message: "Node file not found" },
     });
   }
 
-  const limit = toPositiveInteger(getQueryValue(req, 'page.limit', 25), 25, 1, 200);
-  const offset = toPositiveInteger(getQueryValue(req, 'page.offset', 0), 0, 0, 0);
-  const logFormat = '%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%ad%x1f%s';
+  const limit = toPositiveInteger(
+    getQueryValue(req, "page.limit", 25),
+    25,
+    1,
+    200,
+  );
+  const offset = toPositiveInteger(
+    getQueryValue(req, "page.offset", 0),
+    0,
+    0,
+    0,
+  );
+  const logFormat = "%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%ad%x1f%s";
   try {
     const logRaw = await gitOutput(
       site.siteDirectory,
       [
-        'log',
-        '--date=iso-strict',
-        '--pretty=format:' + logFormat,
-        '--max-count=' + limit,
-        '--skip=' + offset,
-        '--',
+        "log",
+        "--date=iso-strict",
+        "--pretty=format:" + logFormat,
+        "--max-count=" + limit,
+        "--skip=" + offset,
+        "--",
         fileData.location,
       ],
       false,
@@ -342,14 +362,14 @@ async function listItemRevisions(req, res) {
     try {
       const totalRaw = await gitOutput(
         site.siteDirectory,
-        ['log', '--pretty=format:%H', '--', fileData.location],
+        ["log", "--pretty=format:%H", "--", fileData.location],
         false,
       );
       if (totalRaw) {
         total = totalRaw
-          .split('\n')
+          .split("\n")
           .map((row) => row.trim())
-          .filter((row) => row !== '').length;
+          .filter((row) => row !== "").length;
       } else {
         total = 0;
       }
@@ -357,17 +377,17 @@ async function listItemRevisions(req, res) {
     const lookupValue = item.slug ? String(item.slug) : String(item.id);
     const apiBasePath = getApiBasePath(req);
     const jsonVariantLocation =
-      typeof site.getPageAlternateLocation === 'function'
-        ? site.getPageAlternateLocation(page.location, 'json')
-        : '';
+      typeof site.getPageAlternateLocation === "function"
+        ? site.getPageAlternateLocation(page.location, "json")
+        : "";
     return sendFormattedResponse(
       req,
       res,
       {
         nodeId: item.id,
-        nodeSlug: item.slug || '',
-        nodeTitle: item.title || '',
-        jsonVariantLocation: jsonVariantLocation || '',
+        nodeSlug: item.slug || "",
+        nodeTitle: item.title || "",
+        jsonVariantLocation: jsonVariantLocation || "",
         count: revisions.length,
         total,
         page: {
@@ -382,14 +402,16 @@ async function listItemRevisions(req, res) {
         },
       },
       {
-        allowedFormats: ['json'],
-        defaultFormat: 'json',
+        allowedFormats: ["json"],
+        defaultFormat: "json",
       },
     );
   } catch (e) {
     return res.status(500).json({
       status: 500,
-      data: { message: e && e.message ? e.message : 'Unable to load item revisions', }
+      data: {
+        message: clientSafeErrorDetail(e, "Unable to load item revisions"),
+      },
     });
   }
 }
@@ -399,62 +421,67 @@ async function itemRevisionDetail(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions/:revisionId', }
+      data: {
+        message:
+          "Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions/:revisionId",
+      },
     });
   }
   const idOrSlug =
-    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : '';
+    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : "";
   const item = findItemByIdOrSlug(site, idOrSlug);
   if (!item) {
     return res.status(404).json({
       status: 404,
-      data: { message: `Item not found for idOrSlug "${idOrSlug}"`, }
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"` },
     });
   }
-  if (!item.id || typeof site.loadNode !== 'function') {
+  if (!item.id || typeof site.loadNode !== "function") {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve item page context for revision detail', }
+      data: {
+        message: "Unable to resolve item page context for revision detail",
+      },
     });
   }
   const page = site.loadNode(item.id);
   if (!page || !page.location) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve page location for revision detail', }
+      data: { message: "Unable to resolve page location for revision detail" },
     });
   }
   const fileData = sanitizePageLocation(site.siteDirectory, page.location);
   if (!fileData) {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Invalid node file location', }
+      data: { message: "Invalid node file location" },
     });
   }
   if (!fs.existsSync(fileData.absolutePath)) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Node file not found', }
+      data: { message: "Node file not found" },
     });
   }
   const revisionHash =
     req && req.params && req.params.revisionId
       ? sanitizeRevisionId(req.params.revisionId)
-      : '';
-  if (revisionHash === '') {
+      : "";
+  if (revisionHash === "") {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Invalid revision hash', }
+      data: { message: "Invalid revision hash" },
     });
   }
   try {
     const revisionMetadataRaw = await gitOutput(
       site.siteDirectory,
       [
-        'show',
-        '--quiet',
-        '--date=iso-strict',
-        '--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%ad%x1f%s',
+        "show",
+        "--quiet",
+        "--date=iso-strict",
+        "--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%ad%x1f%s",
         revisionHash,
       ],
       false,
@@ -462,7 +489,7 @@ async function itemRevisionDetail(req, res) {
     if (!revisionMetadataRaw) {
       return res.status(404).json({
         status: 404,
-        data: { message: 'Revision not found', }
+        data: { message: "Revision not found" },
       });
     }
     const revisionMetadata = parseRevisionMetadata(
@@ -471,19 +498,19 @@ async function itemRevisionDetail(req, res) {
     );
     const revisionContent = await gitOutput(
       site.siteDirectory,
-      ['show', revisionHash + ':' + fileData.location],
+      ["show", revisionHash + ":" + fileData.location],
       false,
     );
     const jsonVariantLocation =
-      typeof site.getPageAlternateLocation === 'function'
-        ? site.getPageAlternateLocation(page.location, 'json')
-        : '';
+      typeof site.getPageAlternateLocation === "function"
+        ? site.getPageAlternateLocation(page.location, "json")
+        : "";
     let itemMetadata = null;
     if (jsonVariantLocation) {
       try {
         const itemMetadataRaw = await gitOutput(
           site.siteDirectory,
-          ['show', revisionHash + ':' + jsonVariantLocation],
+          ["show", revisionHash + ":" + jsonVariantLocation],
           false,
         );
         const parsedPayload = parseRevisionJSONPayload(itemMetadataRaw);
@@ -497,11 +524,11 @@ async function itemRevisionDetail(req, res) {
       res,
       {
         nodeId: item.id,
-        nodeSlug: item.slug || '',
-        nodeTitle: item.title || '',
+        nodeSlug: item.slug || "",
+        nodeTitle: item.title || "",
         revision: revisionMetadata,
         content: revisionContent,
-        jsonVariantLocation: jsonVariantLocation || '',
+        jsonVariantLocation: jsonVariantLocation || "",
         hasItemMetadata: !!itemMetadata,
         itemMetadata: itemMetadata,
         links: {
@@ -512,21 +539,21 @@ async function itemRevisionDetail(req, res) {
         },
       },
       {
-        allowedFormats: ['json'],
-        defaultFormat: 'json',
+        allowedFormats: ["json"],
+        defaultFormat: "json",
       },
     );
   } catch (e) {
-    const message = e && e.message ? e.message : '';
-    if (message.indexOf('does not exist') !== -1) {
+    const message = clientSafeErrorDetail(e, "");
+    if (message.indexOf("does not exist") !== -1) {
       return res.status(404).json({
         status: 404,
-        data: { message: 'Revision content for this page was not found', }
+        data: { message: "Revision content for this page was not found" },
       });
     }
     return res.status(500).json({
       status: 500,
-      data: { message: message || 'Unable to load item revision detail', }
+      data: { message: message || "Unable to load item revision detail" },
     });
   }
 }
@@ -536,52 +563,57 @@ async function restoreItemRevision(req, res) {
   if (!site || !site.manifest || !site.siteDirectory) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions/:revisionId/restore', }
+      data: {
+        message:
+          "Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions/:revisionId/restore",
+      },
     });
   }
   const idOrSlug =
-    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : '';
+    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : "";
   const item = findItemByIdOrSlug(site, idOrSlug);
   if (!item) {
     return res.status(404).json({
       status: 404,
-      data: { message: `Item not found for idOrSlug "${idOrSlug}"`, }
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"` },
     });
   }
-  if (!item.id || typeof site.loadNode !== 'function') {
+  if (!item.id || typeof site.loadNode !== "function") {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve item page context for revision restore', }
+      data: {
+        message: "Unable to resolve item page context for revision restore",
+      },
     });
   }
   const page = site.loadNode(item.id);
   if (!page || !page.location) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve page location for revision restore', }
+      data: { message: "Unable to resolve page location for revision restore" },
     });
   }
   const fileData = sanitizePageLocation(site.siteDirectory, page.location);
   if (!fileData) {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Invalid node file location', }
+      data: { message: "Invalid node file location" },
     });
   }
   if (!fs.existsSync(fileData.absolutePath)) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Node file not found', }
+      data: { message: "Node file not found" },
     });
   }
   const revisionHash =
     req && req.params && req.params.revisionId
       ? sanitizeRevisionId(req.params.revisionId)
-      : '';
-  if (revisionHash === '') {
+      : "";
+  if (revisionHash === "") {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Invalid revision hash', }
+      data: { message: "Invalid revision hash" },
     });
   }
   try {
@@ -592,7 +624,7 @@ async function restoreItemRevision(req, res) {
       String(
         await gitOutput(
           site.siteDirectory,
-          ['show', revisionHash + ':' + fileData.location],
+          ["show", revisionHash + ":" + fileData.location],
           false,
         ),
       ),
@@ -601,20 +633,20 @@ async function restoreItemRevision(req, res) {
     if (bytes === false) {
       return res.status(500).json({
         status: 500,
-        data: { message: 'Failed writing restored revision', }
+        data: { message: "Failed writing restored revision" },
       });
     }
     const jsonVariantLocation =
-      typeof site.getPageAlternateLocation === 'function'
-        ? site.getPageAlternateLocation(page.location, 'json')
-        : '';
+      typeof site.getPageAlternateLocation === "function"
+        ? site.getPageAlternateLocation(page.location, "json")
+        : "";
     let itemMetadata = null;
     let itemMetadataRestored = false;
     if (jsonVariantLocation) {
       try {
         const itemMetadataRaw = await gitOutput(
           site.siteDirectory,
-          ['show', revisionHash + ':' + jsonVariantLocation],
+          ["show", revisionHash + ":" + jsonVariantLocation],
           false,
         );
         const parsedPayload = parseRevisionJSONPayload(itemMetadataRaw);
@@ -622,12 +654,12 @@ async function restoreItemRevision(req, res) {
         itemMetadataRestored = applyItemMetadataToPage(page, itemMetadata);
       } catch (e) {}
     }
-    if (typeof site.writePageAlternateFormats === 'function') {
+    if (typeof site.writePageAlternateFormats === "function") {
       await site.writePageAlternateFormats(page, revisionContent);
     }
     if (
       !page.metadata ||
-      typeof page.metadata !== 'object' ||
+      typeof page.metadata !== "object" ||
       Array.isArray(page.metadata)
     ) {
       page.metadata = {};
@@ -638,20 +670,20 @@ async function restoreItemRevision(req, res) {
       site.manifest &&
       site.manifest.metadata &&
       site.manifest.metadata.site &&
-      typeof site.manifest.metadata.site === 'object'
+      typeof site.manifest.metadata.site === "object"
     ) {
       site.manifest.metadata.site.updated = now;
     }
-    if (site.manifest && typeof site.manifest.save === 'function') {
+    if (site.manifest && typeof site.manifest.save === "function") {
       await site.manifest.save();
     }
-    if (typeof site.gitCommit === 'function') {
+    if (typeof site.gitCommit === "function") {
       await site.gitCommit(
-        'Page revision restored: ' +
-          (page.title || 'Untitled') +
-          ' (' +
+        "Page revision restored: " +
+          (page.title || "Untitled") +
+          " (" +
           page.id +
-          ') from ' +
+          ") from " +
           revisionHash.substring(0, 12),
       );
     }
@@ -662,10 +694,10 @@ async function restoreItemRevision(req, res) {
       res,
       {
         nodeId: item.id,
-        nodeSlug: item.slug || '',
-        nodeTitle: page.title || item.title || '',
+        nodeSlug: item.slug || "",
+        nodeTitle: page.title || item.title || "",
         restoredFromHash: revisionHash,
-        jsonVariantLocation: jsonVariantLocation || '',
+        jsonVariantLocation: jsonVariantLocation || "",
         hasItemMetadata: !!itemMetadata,
         itemMetadataRestored: itemMetadataRestored,
         links: {
@@ -676,21 +708,21 @@ async function restoreItemRevision(req, res) {
         },
       },
       {
-        allowedFormats: ['json'],
-        defaultFormat: 'json',
+        allowedFormats: ["json"],
+        defaultFormat: "json",
       },
     );
   } catch (e) {
-    const message = e && e.message ? e.message : '';
-    if (message.indexOf('does not exist') !== -1) {
+    const message = clientSafeErrorDetail(e, "");
+    if (message.indexOf("does not exist") !== -1) {
       return res.status(404).json({
         status: 404,
-        data: { message: 'Revision content for this page was not found', }
+        data: { message: "Revision content for this page was not found" },
       });
     }
     return res.status(500).json({
       status: 500,
-      data: { message: message || 'Unable to restore item revision', }
+      data: { message: message || "Unable to restore item revision" },
     });
   }
 }

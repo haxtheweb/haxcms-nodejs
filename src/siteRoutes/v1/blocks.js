@@ -1,7 +1,7 @@
-const fs = require('fs-extra');
-const path = require('path');
-const { parse } = require('node-html-parser');
-const { HAXCMS } = require('../../lib/HAXCMS.js');
+const fs = require("fs-extra");
+const path = require("path");
+const { parse } = require("node-html-parser");
+const { HAXCMS } = require("../../lib/HAXCMS.js");
 const {
   getApiBasePath,
   getCsvQuery,
@@ -17,7 +17,7 @@ const {
   getItemContent,
   itemToSummary,
   sendFormattedResponse,
-} = require('./siteRouteUtils.js');
+} = require("./siteRouteUtils.js");
 
 function normalizeEnabledBlocks(input = []) {
   if (!Array.isArray(input)) {
@@ -25,11 +25,11 @@ function normalizeEnabledBlocks(input = []) {
   }
   const output = [];
   for (let i = 0; i < input.length; i++) {
-    if (typeof input[i] !== 'string') {
+    if (typeof input[i] !== "string") {
       return null;
     }
     const tag = input[i].trim().toLowerCase();
-    if (tag === '') {
+    if (tag === "") {
       return null;
     }
     if (!/^[a-z][a-z0-9-]*$/.test(tag)) {
@@ -43,13 +43,13 @@ function normalizeEnabledBlocks(input = []) {
 async function readEnabledBlocksSetting() {
   const filePath = path.join(
     HAXCMS.configDirectory,
-    'settings',
-    'enabledBlocks.json',
+    "settings",
+    "enabledBlocks.json",
   );
   if (!(await fs.pathExists(filePath))) {
     return null;
   }
-  const raw = await fs.readFile(filePath, 'utf8');
+  const raw = await fs.readFile(filePath, "utf8");
   const parsed = JSON.parse(raw);
   return normalizeEnabledBlocks(parsed);
 }
@@ -61,37 +61,41 @@ function getAutoloaderList() {
     Array.isArray(HAXCMS.config.appStore.autoloader)
   ) {
     return HAXCMS.config.appStore.autoloader
-      .map((tag) => String(tag || '').trim().toLowerCase())
-      .filter((tag) => tag !== '');
+      .map((tag) =>
+        String(tag || "")
+          .trim()
+          .toLowerCase(),
+      )
+      .filter((tag) => tag !== "");
   }
-  return ['grid-plate'];
+  return ["grid-plate"];
 }
 
 function parseImportPath(value) {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return value;
   }
-  if (value && typeof value === 'object') {
-    if (typeof value.path === 'string' && value.path !== '') {
+  if (value && typeof value === "object") {
+    if (typeof value.path === "string" && value.path !== "") {
       return value.path;
     }
-    if (typeof value.import === 'string' && value.import !== '') {
+    if (typeof value.import === "string" && value.import !== "") {
       return value.import;
     }
   }
-  return '';
+  return "";
 }
 
-function parsePackageName(importPath = '') {
-  const cleanImport = String(importPath || '').trim();
-  if (cleanImport === '') {
-    return '';
+function parsePackageName(importPath = "") {
+  const cleanImport = String(importPath || "").trim();
+  if (cleanImport === "") {
+    return "";
   }
-  const parts = cleanImport.split('/').filter((part) => part !== '');
+  const parts = cleanImport.split("/").filter((part) => part !== "");
   if (parts.length === 0) {
-    return '';
+    return "";
   }
-  if (parts[0].indexOf('@') === 0 && parts.length > 1) {
+  if (parts[0].indexOf("@") === 0 && parts.length > 1) {
     return `${parts[0]}/${parts[1]}`;
   }
   return parts[0];
@@ -103,7 +107,7 @@ function buildSchemaFragments(tag, importPath) {
       gizmo: {
         title: tag,
         tag,
-        icon: 'icons:extension',
+        icon: "icons:extension",
       },
       settings: {
         configure: [],
@@ -113,7 +117,7 @@ function buildSchemaFragments(tag, importPath) {
       source: importPath,
     },
     haxSchema: {
-      api: '1',
+      api: "1",
       canScale: true,
       canPosition: true,
       canEditSource: true,
@@ -121,7 +125,7 @@ function buildSchemaFragments(tag, importPath) {
     haxElementSchema: {
       tag,
       properties: {},
-      content: '',
+      content: "",
     },
   };
 }
@@ -135,20 +139,22 @@ function getBlockSchemaLinks(apiBasePath, tag) {
   };
 }
 
-function escapeForRegExp(value = '') {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function escapeForRegExp(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function countTagUsageInHtml(tag, html = '') {
-  const cleanTag = String(tag || '').trim().toLowerCase();
-  if (cleanTag === '') {
+function countTagUsageInHtml(tag, html = "") {
+  const cleanTag = String(tag || "")
+    .trim()
+    .toLowerCase();
+  if (cleanTag === "") {
     return 0;
   }
-  const source = String(html || '');
-  if (source === '') {
+  const source = String(html || "");
+  if (source === "") {
     return 0;
   }
-  const regex = new RegExp(`<${escapeForRegExp(cleanTag)}\\b`, 'gi');
+  const regex = new RegExp(`<${escapeForRegExp(cleanTag)}\\b`, "gi");
   let count = 0;
   let matched = regex.exec(source);
   while (matched) {
@@ -159,7 +165,7 @@ function countTagUsageInHtml(tag, html = '') {
 }
 function buildContextualHaxElementSchema(tag, element = null) {
   const properties = {};
-  if (element && element.attributes && typeof element.attributes === 'object') {
+  if (element && element.attributes && typeof element.attributes === "object") {
     const attributeNames = Object.keys(element.attributes);
     for (let i = 0; i < attributeNames.length; i++) {
       const name = attributeNames[i];
@@ -170,17 +176,19 @@ function buildContextualHaxElementSchema(tag, element = null) {
   return {
     tag,
     properties,
-    content: element && element.innerHTML ? String(element.innerHTML) : '',
+    content: element && element.innerHTML ? String(element.innerHTML) : "",
   };
 }
 
-function extractTagUsageInstances(tag, html = '') {
-  const cleanTag = String(tag || '').trim().toLowerCase();
-  if (cleanTag === '') {
+function extractTagUsageInstances(tag, html = "") {
+  const cleanTag = String(tag || "")
+    .trim()
+    .toLowerCase();
+  if (cleanTag === "") {
     return [];
   }
-  const source = String(html || '');
-  if (source === '') {
+  const source = String(html || "");
+  if (source === "") {
     return [];
   }
   const wrapper = parse(`<div data-block-usage-wrapper>${source}</div>`);
@@ -270,7 +278,11 @@ function buildBlockRecord(
 ) {
   const importPath = parseImportPath(wcMap[tag]);
   const normalizedUsageItemIds = Array.isArray(usageItemIds)
-    ? [...new Set(usageItemIds.filter((id) => typeof id === 'string' && id !== ''))]
+    ? [
+        ...new Set(
+          usageItemIds.filter((id) => typeof id === "string" && id !== ""),
+        ),
+      ]
     : [];
   const hasExplicitEnabledList = enabledBlockSet && enabledBlockSet.size > 0;
   const enabled = hasExplicitEnabledList ? enabledBlockSet.has(tag) : true;
@@ -290,32 +302,32 @@ function buildBlockRecord(
     },
     related: [
       {
-        rel: 'entity',
-        type: 'block',
+        rel: "entity",
+        type: "block",
         href: `${apiBasePath}/v1/entities#block`,
       },
       {
-        rel: 'schema',
-        type: 'haxProperties',
+        rel: "schema",
+        type: "haxProperties",
         href: schemaLinks.haxProperties,
       },
       {
-        rel: 'schema',
-        type: 'haxSchema',
+        rel: "schema",
+        type: "haxSchema",
         href: schemaLinks.haxSchema,
       },
       {
-        rel: 'schema',
-        type: 'haxElementSchema',
+        rel: "schema",
+        type: "haxElementSchema",
         href: schemaLinks.haxElementSchema,
       },
     ],
   };
   const schemaFragments = buildSchemaFragments(tag, importPath);
-  if (include.indexOf('haxProperties') !== -1) {
+  if (include.indexOf("haxProperties") !== -1) {
     record.haxProperties = schemaFragments.haxProperties;
   }
-  if (include.indexOf('haxSchema') !== -1) {
+  if (include.indexOf("haxSchema") !== -1) {
     record.haxSchema = schemaFragments.haxSchema;
   }
   if (Array.isArray(options.usedInDetails)) {
@@ -330,14 +342,14 @@ async function listBlocks(req, res) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Unable to resolve site context for /x/api/v1/blocks',
+        message: "Unable to resolve site context for /x/api/v1/blocks",
       },
     });
   }
   const apiBasePath = getApiBasePath(req);
-  const include = getCsvQuery(req, 'include');
-  const fields = getCsvQuery(req, 'fields');
-  const filterTag = String(getQueryValue(req, 'filter.tag', '') || '')
+  const include = getCsvQuery(req, "include");
+  const fields = getCsvQuery(req, "fields");
+  const filterTag = String(getQueryValue(req, "filter.tag", "") || "")
     .trim()
     .toLowerCase();
   // A4: enforce anon-visibility so anon callers don't see usage from
@@ -349,19 +361,21 @@ async function listBlocks(req, res) {
   const wcMap = HAXCMS.getWCRegistryJson(site);
   const autoloader = getAutoloaderList();
   const enabledBlocks = await readEnabledBlocksSetting();
-  const enabledBlockSet = new Set(Array.isArray(enabledBlocks) ? enabledBlocks : []);
+  const enabledBlockSet = new Set(
+    Array.isArray(enabledBlocks) ? enabledBlocks : [],
+  );
   const tagSet = new Set();
   Object.keys(usage).forEach((tag) => {
-    tagSet.add(String(tag || '').toLowerCase());
+    tagSet.add(String(tag || "").toLowerCase());
   });
   for (let i = 0; i < autoloader.length; i++) {
     tagSet.add(autoloader[i]);
   }
-  if (filterTag !== '') {
+  if (filterTag !== "") {
     tagSet.add(filterTag);
   }
   let records = Array.from(tagSet)
-    .filter((tag) => tag !== '')
+    .filter((tag) => tag !== "")
     .map((tag) =>
       buildBlockRecord(
         tag,
@@ -373,10 +387,10 @@ async function listBlocks(req, res) {
         apiBasePath,
       ),
     );
-  if (filterTag !== '') {
+  if (filterTag !== "") {
     records = records.filter((record) => record.tag.indexOf(filterTag) !== -1);
   }
-  records = sortRecords(records, getQueryValue(req, 'sort', ''), '-usageCount');
+  records = sortRecords(records, getQueryValue(req, "sort", ""), "-usageCount");
   const paged = paginateRecords(records, req, 100, 2000);
   const outputRecords = projectCollection(paged.records, fields);
   return sendFormattedResponse(
@@ -392,8 +406,8 @@ async function listBlocks(req, res) {
       },
     },
     {
-      allowedFormats: ['json'],
-      defaultFormat: 'json',
+      allowedFormats: ["json"],
+      defaultFormat: "json",
     },
   );
 }
@@ -404,25 +418,26 @@ async function blockDetail(req, res) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Unable to resolve site context for /x/api/v1/blocks/:webcomponentName',
+        message:
+          "Unable to resolve site context for /x/api/v1/blocks/:webcomponentName",
       },
     });
   }
   const webcomponentName =
     req && req.params && req.params.webcomponentName
       ? String(req.params.webcomponentName).trim().toLowerCase()
-      : '';
-  if (webcomponentName === '') {
+      : "";
+  if (webcomponentName === "") {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Block not found',
+        message: "Block not found",
       },
     });
   }
   const apiBasePath = getApiBasePath(req);
-  const include = getCsvQuery(req, 'include');
-  const fields = getCsvQuery(req, 'fields');
+  const include = getCsvQuery(req, "include");
+  const fields = getCsvQuery(req, "fields");
   // A4: enforce anon-visibility so anon callers don't see usage details from
   // unpublished/hidden items
   const orderedItems = applyItemFilters(getOrderedItems(site), req, site, {
@@ -430,7 +445,9 @@ async function blockDetail(req, res) {
   });
   const wcMap = HAXCMS.getWCRegistryJson(site);
   const enabledBlocks = await readEnabledBlocksSetting();
-  const enabledBlockSet = new Set(Array.isArray(enabledBlocks) ? enabledBlocks : []);
+  const enabledBlockSet = new Set(
+    Array.isArray(enabledBlocks) ? enabledBlocks : [],
+  );
   const usageDetails = await buildBlockUsageDetails(
     site,
     orderedItems,
@@ -448,8 +465,8 @@ async function blockDetail(req, res) {
     });
   }
   const usageItemIds = usageDetails
-    .map((detail) => String(detail.id || '').trim())
-    .filter((id) => id !== '');
+    .map((detail) => String(detail.id || "").trim())
+    .filter((id) => id !== "");
   const usageCount = usageDetails.reduce((total, detail) => {
     return total + Number(detail.usageCount || 0);
   }, 0);
@@ -467,8 +484,8 @@ async function blockDetail(req, res) {
   );
   const outputRecord = projectRecord(record, fields);
   return sendFormattedResponse(req, res, outputRecord, {
-    allowedFormats: ['json'],
-    defaultFormat: 'json',
+    allowedFormats: ["json"],
+    defaultFormat: "json",
   });
 }
 
@@ -479,24 +496,24 @@ async function blockUsage(req, res) {
       status: 404,
       data: {
         message:
-          'Unable to resolve site context for /x/api/v1/blocks/:webcomponentName/usage',
+          "Unable to resolve site context for /x/api/v1/blocks/:webcomponentName/usage",
       },
     });
   }
   const webcomponentName =
     req && req.params && req.params.webcomponentName
       ? String(req.params.webcomponentName).trim().toLowerCase()
-      : '';
-  if (webcomponentName === '') {
+      : "";
+  if (webcomponentName === "") {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Block not found',
+        message: "Block not found",
       },
     });
   }
   const apiBasePath = getApiBasePath(req);
-  const fields = getCsvQuery(req, 'fields');
+  const fields = getCsvQuery(req, "fields");
   // A4: enforce anon-visibility so anon callers don't see usage from
   // unpublished/hidden items
   const filteredItems = applyItemFilters(getOrderedItems(site), req, site, {
@@ -508,7 +525,7 @@ async function blockUsage(req, res) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: `Block \"${webcomponentName}\" not found`,
+        message: `Block "${webcomponentName}" not found`,
       },
     });
   }
@@ -518,7 +535,7 @@ async function blockUsage(req, res) {
     webcomponentName,
     apiBasePath,
   );
-  records = sortRecords(records, getQueryValue(req, 'sort', ''), '-usageCount');
+  records = sortRecords(records, getQueryValue(req, "sort", ""), "-usageCount");
   const paged = paginateRecords(records, req, 25, 500);
   const outputRecords = projectCollection(paged.records, fields);
   return sendFormattedResponse(
@@ -536,8 +553,8 @@ async function blockUsage(req, res) {
       },
     },
     {
-      allowedFormats: ['json'],
-      defaultFormat: 'json',
+      allowedFormats: ["json"],
+      defaultFormat: "json",
     },
   );
 }

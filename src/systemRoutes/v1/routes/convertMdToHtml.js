@@ -1,6 +1,8 @@
-const MarkdownIt = require('markdown-it');
+const MarkdownIt = require("markdown-it");
 const md = new MarkdownIt();
-const { safeFetch } = require('../../../lib/safeFetch.js');
+const { safeFetch } = require("../../../lib/safeFetch.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/actions/md-to-html
@@ -14,23 +16,25 @@ async function convertMdToHtml(req, res) {
     let body = {};
     if (req && req.query && req.query.md) {
       body = req.query;
-    } else if (req.body && typeof req.body === 'object') {
+    } else if (req.body && typeof req.body === "object") {
       body = req.body;
     }
 
     if (!body || !body.md) {
       return res.status(400).json({
         status: 400,
-        data: { error: 'missing `md` param', contents: '' },
+        data: { error: "missing `md` param", contents: "" },
       });
     }
 
-    let mdText = String(body.md || '');
-    if (body.type === 'link' && mdText) {
+    let mdText = String(body.md || "");
+    if (body.type === "link" && mdText) {
       try {
-        mdText = await safeFetch(mdText.trim()).then((d) => (d.ok ? d.text() : ''));
+        mdText = await safeFetch(mdText.trim()).then((d) =>
+          d.ok ? d.text() : "",
+        );
       } catch (e) {
-        mdText = '';
+        mdText = "";
       }
     }
 
@@ -42,10 +46,13 @@ async function convertMdToHtml(req, res) {
       },
     });
   } catch (error) {
-    console.error('mdToHtml route error:', error.message);
+    console.error("mdToHtml route error:", error.message);
     return res.status(400).json({
       status: 400,
-      data: { error: `Markdown to HTML conversion failed: ${error.message}`, contents: '' },
+      data: {
+        error: `Markdown to HTML conversion failed: ${clientSafeErrorDetail(error)}`,
+        contents: "",
+      },
     });
   }
 }

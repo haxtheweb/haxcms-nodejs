@@ -11,38 +11,60 @@ const {
   serializePayload,
   isAnonymousSiteApiRequest,
   isItemVisibleToAnonymous,
-} = require('./siteRouteUtils.js')
-const fs = require('fs')
-const path = require('path')
-const crypto = require('crypto')
-const { HAXCMS } = require('../../lib/HAXCMS.js')
-const { convertHtmlToDocxBuffer, htmlToPdfBuffer } = require('../../lib/convertUtils.js')
+} = require("./siteRouteUtils.js");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const { HAXCMS } = require("../../lib/HAXCMS.js");
+const {
+  convertHtmlToDocxBuffer,
+  htmlToPdfBuffer,
+} = require("../../lib/convertUtils.js");
 const {
   resolveExportImages,
   resolveExportImageToFileUrl,
   finalizeExportHtml,
   createExportImageBudget,
-} = require('../../lib/exportImageResolver.js')
-const os = require('os')
-const EPUB = require('epub-gen-memory')
-const { parse } = require('node-html-parser')
-const TurndownService = require('turndown')
+} = require("../../lib/exportImageResolver.js");
+const os = require("os");
+const EPUB = require("epub-gen-memory");
+const { parse } = require("node-html-parser");
+const TurndownService = require("turndown");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../lib/clientErrorMessage.js");
 
-const turndownService = new TurndownService()
+const turndownService = new TurndownService();
 
-const SITE_EXPORT_FORMATS = ['zip', 'markdown', 'md', 'pdf', 'docx', 'epub', 'html', 'skeleton']
-const ITEM_EXPORT_FORMATS = ['pdf', 'docx', 'html', 'md', 'json', 'yaml', 'xml', 'epub']
+const SITE_EXPORT_FORMATS = [
+  "zip",
+  "markdown",
+  "md",
+  "pdf",
+  "docx",
+  "epub",
+  "html",
+  "skeleton",
+];
+const ITEM_EXPORT_FORMATS = [
+  "pdf",
+  "docx",
+  "html",
+  "md",
+  "json",
+  "yaml",
+  "xml",
+  "epub",
+];
 const EXPORT_MEDIA_TYPES = {
-  pdf: 'application/pdf',
-  docx:
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  epub: 'application/epub+zip',
-  html: 'text/html',
-  md: 'text/markdown',
-  json: 'application/json',
-  yaml: 'application/yaml',
-  xml: 'application/xml',
-}
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  epub: "application/epub+zip",
+  html: "text/html",
+  md: "text/markdown",
+  json: "application/json",
+  yaml: "application/yaml",
+  xml: "application/xml",
+};
 
 const EPUB_EXPORT_CSS = `body { font-family: serif; line-height: 1.6; margin: 0; padding: 1em; }
 h1, h2, h3, h4, h5, h6 { font-family: sans-serif; margin-top: 1.5em; margin-bottom: 0.5em; }
@@ -53,42 +75,46 @@ td, th { border: 1px solid #ccc; padding: 0.5em; }
 blockquote { margin: 1em; padding: 0.5em 1em; border-left: 3px solid #ccc; }
 pre { background: #f4f4f4; padding: 1em; overflow-x: auto; }
 .responsive-iframe-container { position: relative; overflow: hidden; width: 100%; padding-top: 56.25%; }
-.responsive-iframe { position: absolute; top: 0; left: 0; bottom: 0; right: 0; width: 100%; height: 100%; }`
+.responsive-iframe { position: absolute; top: 0; left: 0; bottom: 0; right: 0; width: 100%; height: 100%; }`;
 
-function normalizeFormatValue(value = '') {
-  return String(value || '').trim().toLowerCase()
+function normalizeFormatValue(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
-function getSystemApiBasePath(apiBasePath = '/x/api') {
-  const normalizedSystemRequestBase = String(HAXCMS.systemRequestBase || 'system/api/')
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '')
-  return String(apiBasePath || '/x/api').replace(
+function getSystemApiBasePath(apiBasePath = "/x/api") {
+  const normalizedSystemRequestBase = String(
+    HAXCMS.systemRequestBase || "system/api/",
+  )
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  return String(apiBasePath || "/x/api").replace(
     /\/x\/api$/,
     `/${normalizedSystemRequestBase}`,
-  )
+  );
 }
 
-function escapeHtmlValue(value = '') {
+function escapeHtmlValue(value = "") {
   return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
-function sanitizeDownloadFileName(value = '', fallback = 'export') {
-  const sanitized = String(value || '')
+function sanitizeDownloadFileName(value = "", fallback = "export") {
+  const sanitized = String(value || "")
     .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '')
-  if (sanitized !== '') {
-    return sanitized
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
+  if (sanitized !== "") {
+    return sanitized;
   }
-  return fallback
+  return fallback;
 }
 
 function getSiteExportFileBaseName(site) {
@@ -99,58 +125,58 @@ function getSiteExportFileBaseName(site) {
     site.manifest.metadata.site &&
     site.manifest.metadata.site.name
   ) {
-    return sanitizeDownloadFileName(site.manifest.metadata.site.name, 'site')
+    return sanitizeDownloadFileName(site.manifest.metadata.site.name, "site");
   }
   if (site && site.manifest && site.manifest.title) {
-    return sanitizeDownloadFileName(site.manifest.title, 'site')
+    return sanitizeDownloadFileName(site.manifest.title, "site");
   }
   if (site && site.name) {
-    return sanitizeDownloadFileName(site.name, 'site')
+    return sanitizeDownloadFileName(site.name, "site");
   }
-  return 'site'
+  return "site";
 }
 
 function getItemExportFileBaseName(item) {
   if (item && item.slug) {
-    return sanitizeDownloadFileName(item.slug, 'item')
+    return sanitizeDownloadFileName(item.slug, "item");
   }
   if (item && item.title) {
-    return sanitizeDownloadFileName(item.title, 'item')
+    return sanitizeDownloadFileName(item.title, "item");
   }
   if (item && item.id) {
-    return sanitizeDownloadFileName(item.id, 'item')
+    return sanitizeDownloadFileName(item.id, "item");
   }
-  return 'item'
+  return "item";
 }
 
 function buildSiteExportDocumentTitle(site) {
   if (site && site.manifest && site.manifest.title) {
-    return String(site.manifest.title)
+    return String(site.manifest.title);
   }
   if (site && site.name) {
-    return String(site.name)
+    return String(site.name);
   }
-  return 'Site export'
+  return "Site export";
 }
 
 function buildItemExportDocumentTitle(item) {
   if (item && item.title) {
-    return String(item.title)
+    return String(item.title);
   }
   if (item && item.slug) {
-    return String(item.slug)
+    return String(item.slug);
   }
   if (item && item.id) {
-    return String(item.id)
+    return String(item.id);
   }
-  return 'Item export'
+  return "Item export";
 }
 
-function getExportMediaType(format = 'pdf') {
+function getExportMediaType(format = "pdf") {
   if (Object.prototype.hasOwnProperty.call(EXPORT_MEDIA_TYPES, format)) {
-    return EXPORT_MEDIA_TYPES[format]
+    return EXPORT_MEDIA_TYPES[format];
   }
-  return 'application/octet-stream'
+  return "application/octet-stream";
 }
 
 /**
@@ -162,13 +188,13 @@ function getExportMediaType(format = 'pdf') {
  * allowedHosts safety.
  */
 function buildAbsoluteSiteBaseUrl(req, site) {
-  const siteBasePath = getSiteBasePath(site)
-  const protocol = HAXCMS.resolveTrustedProtocol(req)
-  const host = HAXCMS.resolveTrustedHost(req)
-  if (host === '') {
-    return siteBasePath
+  const siteBasePath = getSiteBasePath(site);
+  const protocol = HAXCMS.resolveTrustedProtocol(req);
+  const host = HAXCMS.resolveTrustedHost(req);
+  if (host === "") {
+    return siteBasePath;
   }
-  return protocol + '://' + host + siteBasePath
+  return protocol + "://" + host + siteBasePath;
 }
 
 // Security (SEC-SSRF): image-resolution context for a site export. Images are
@@ -179,60 +205,67 @@ function buildExportImageOptions(site, selfBaseUrl) {
   return {
     siteDir: site && site.siteDirectory ? String(site.siteDirectory) : null,
     siteBasePath: getSiteBasePath(site),
-    selfBaseUrl: selfBaseUrl && /^https?:\/\//i.test(selfBaseUrl) ? selfBaseUrl : null,
-  }
+    selfBaseUrl:
+      selfBaseUrl && /^https?:\/\//i.test(selfBaseUrl) ? selfBaseUrl : null,
+  };
 }
 
-async function convertHtmlToDownloadBuffer(format = 'pdf', html = '', base = '/', imageOptions) {
-  const normalizedFormat = normalizeFormatValue(format)
-  if (normalizedFormat === 'docx') {
+async function convertHtmlToDownloadBuffer(
+  format = "pdf",
+  html = "",
+  base = "/",
+  imageOptions,
+) {
+  const normalizedFormat = normalizeFormatValue(format);
+  if (normalizedFormat === "docx") {
     try {
-      const docxBuffer = await convertHtmlToDocxBuffer(html, imageOptions)
+      const docxBuffer = await convertHtmlToDocxBuffer(html, imageOptions);
       if (!docxBuffer || docxBuffer.length < 1) {
-        const emptyError = new Error('Export conversion returned empty output')
-        emptyError.status = 502
-        throw emptyError
+        const emptyError = new Error("Export conversion returned empty output");
+        emptyError.status = 502;
+        throw emptyError;
       }
-      return docxBuffer
-    }
-    catch (e) {
+      return docxBuffer;
+    } catch (e) {
       const conversionError = new Error(
-        e && e.message ? e.message : 'Unable to complete DOCX export conversion',
-      )
-      conversionError.status = e && e.status ? e.status : 502
-      throw conversionError
+        clientSafeErrorDetail(e, "Unable to complete DOCX export conversion"),
+      );
+      conversionError.status = e && e.status ? e.status : 502;
+      throw conversionError;
     }
   }
-  if (normalizedFormat === 'pdf') {
+  if (normalizedFormat === "pdf") {
     try {
-      const pdfBuffer = await htmlToPdfBuffer(html, base, imageOptions)
+      const pdfBuffer = await htmlToPdfBuffer(html, base, imageOptions);
       if (!pdfBuffer || pdfBuffer.length < 1) {
-        const emptyError = new Error('Export conversion returned empty output')
-        emptyError.status = 502
-        throw emptyError
+        const emptyError = new Error("Export conversion returned empty output");
+        emptyError.status = 502;
+        throw emptyError;
       }
-      return pdfBuffer
-    }
-    catch (e) {
+      return pdfBuffer;
+    } catch (e) {
       const conversionError = new Error(
-        e && e.message ? e.message : 'Unable to complete PDF export conversion',
-      )
-      conversionError.status = e && e.status ? e.status : 502
-      throw conversionError
+        clientSafeErrorDetail(e, "Unable to complete PDF export conversion"),
+      );
+      conversionError.status = e && e.status ? e.status : 502;
+      throw conversionError;
     }
   }
-  throw new Error(`Unsupported conversion format "${normalizedFormat}"`)
+  throw new Error(`Unsupported conversion format "${normalizedFormat}"`);
 }
 
 function sendDownloadResponse(res, buffer, mediaType, filename) {
-  const safeMediaType = String(mediaType || 'application/octet-stream')
-  const safeFilename = String(filename || 'export.bin').replace(/"/g, '')
-  const safeBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
-  res.status(200)
-  res.setHeader('Content-Type', safeMediaType)
-  res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`)
-  res.setHeader('Content-Length', safeBuffer.length)
-  return res.send(safeBuffer)
+  const safeMediaType = String(mediaType || "application/octet-stream");
+  const safeFilename = String(filename || "export.bin").replace(/"/g, "");
+  const safeBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  res.status(200);
+  res.setHeader("Content-Type", safeMediaType);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${safeFilename}"`,
+  );
+  res.setHeader("Content-Length", safeBuffer.length);
+  return res.send(safeBuffer);
 }
 
 // Drop items an anonymous visitor must not see (unpublished or hidden from the
@@ -242,76 +275,92 @@ function sendDownloadResponse(res, buffer, mediaType, filename) {
 function filterItemsVisibleToAnonymous(items = []) {
   return (Array.isArray(items) ? items : []).filter(
     (item) => item && isItemVisibleToAnonymous(item),
-  )
+  );
 }
 
 // Ordered items for a whole-site export, optionally limited to the branch
 // under ancestor. Mirrors PHP ExportConverters::getSiteExportItems.
 function getSiteExportItems(site, ancestor) {
-  const orderedItems = getOrderedItems(site)
-  if (!ancestor || !site || !site.manifest || typeof site.manifest.findBranch !== 'function') {
-    return orderedItems
+  const orderedItems = getOrderedItems(site);
+  if (
+    !ancestor ||
+    !site ||
+    !site.manifest ||
+    typeof site.manifest.findBranch !== "function"
+  ) {
+    return orderedItems;
   }
   try {
-    const branch = site.manifest.findBranch(ancestor)
+    const branch = site.manifest.findBranch(ancestor);
     if (Array.isArray(branch)) {
-      const branchIds = new Set()
+      const branchIds = new Set();
       for (let i = 0; i < branch.length; i++) {
         if (branch[i] && branch[i].id) {
-          branchIds.add(branch[i].id)
+          branchIds.add(branch[i].id);
         }
       }
-      return orderedItems.filter((item) => item && item.id && branchIds.has(item.id))
+      return orderedItems.filter(
+        (item) => item && item.id && branchIds.has(item.id),
+      );
     }
-  }
-  catch (e) {}
-  return orderedItems
+  } catch (e) {}
+  return orderedItems;
 }
 
 // Percent-encode each slug segment (mirrors PHP SiteRouteUtils::encodeSlugPath).
-function encodeSlugPath(slug = '') {
+function encodeSlugPath(slug = "") {
   return String(slug)
-    .split('/')
+    .split("/")
     .map((part) => part.trim())
-    .filter((part) => part !== '')
+    .filter((part) => part !== "")
     .map((part) => encodeURIComponent(part))
-    .join('/')
+    .join("/");
 }
 
 // Absolute page URL prefix when the site has a domain, otherwise the site
 // base path; always ends with a slash.
 function getSiteExportPageUrlBase(site) {
   const domain =
-    site && site.manifest && site.manifest.metadata && site.manifest.metadata.site
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site
       ? site.manifest.metadata.site.domain
-      : ''
-  if (typeof domain === 'string' && /^https?:\/\//i.test(domain)) {
-    return domain.replace(/\/+$/, '') + '/'
+      : "";
+  if (typeof domain === "string" && /^https?:\/\//i.test(domain)) {
+    return domain.replace(/\/+$/, "") + "/";
   }
-  return String(getSiteBasePath(site) || '/').replace(/\/+$/, '') + '/'
+  return String(getSiteBasePath(site) || "/").replace(/\/+$/, "") + "/";
 }
 
 // Markdown body for one page: the save-time sidecar (pages/<id>/index.md,
 // written by writePageAlternateFormats) when present, otherwise a
 // conversion of the page HTML.
 async function getItemMarkdownBody(site, item) {
-  if (item && typeof item.location === 'string' && item.location !== '' && site && site.siteDirectory) {
+  if (
+    item &&
+    typeof item.location === "string" &&
+    item.location !== "" &&
+    site &&
+    site.siteDirectory
+  ) {
     const markdownLocation = /\.html?$/i.test(item.location)
-      ? item.location.replace(/\.html?$/i, '.md')
-      : item.location + '.md'
-    if (markdownLocation.indexOf('..') === -1) {
+      ? item.location.replace(/\.html?$/i, ".md")
+      : item.location + ".md";
+    if (markdownLocation.indexOf("..") === -1) {
       try {
-        return fs.readFileSync(path.join(String(site.siteDirectory), markdownLocation), 'utf8')
-      }
-      catch (e) {}
+        return fs.readFileSync(
+          path.join(String(site.siteDirectory), markdownLocation),
+          "utf8",
+        );
+      } catch (e) {}
     }
   }
-  const html = await getItemContent(site, item)
+  const html = await getItemContent(site, item);
   try {
-    return turndownService.turndown(String(html || ''))
-  }
-  catch (e) {
-    return String(html || '')
+    return turndownService.turndown(String(html || ""));
+  } catch (e) {
+    return String(html || "");
   }
 }
 
@@ -321,218 +370,267 @@ async function getItemMarkdownBody(site, item) {
 // anonymous callers and llms-full.txt). Mirrors PHP
 // ExportConverters::buildSiteExportMarkdown.
 async function buildSiteExportMarkdown(site, ancestor, visibleOnly = false) {
-  let itemsToExport = getSiteExportItems(site, ancestor)
+  let itemsToExport = getSiteExportItems(site, ancestor);
   if (visibleOnly) {
-    itemsToExport = filterItemsVisibleToAnonymous(itemsToExport)
+    itemsToExport = filterItemsVisibleToAnonymous(itemsToExport);
   }
-  const parts = [`# ${buildSiteExportDocumentTitle(site)}`]
-  const description = site && site.manifest && site.manifest.description
-    ? String(site.manifest.description).replace(/\s+/g, ' ').trim()
-    : ''
-  if (description !== '') {
-    parts.push('')
-    parts.push(`> ${description}`)
+  const parts = [`# ${buildSiteExportDocumentTitle(site)}`];
+  const description =
+    site && site.manifest && site.manifest.description
+      ? String(site.manifest.description).replace(/\s+/g, " ").trim()
+      : "";
+  if (description !== "") {
+    parts.push("");
+    parts.push(`> ${description}`);
   }
-  const pageUrlBase = getSiteExportPageUrlBase(site)
+  const pageUrlBase = getSiteExportPageUrlBase(site);
   for (let i = 0; i < itemsToExport.length; i++) {
-    const item = itemsToExport[i]
+    const item = itemsToExport[i];
     if (!item) {
-      continue
+      continue;
     }
-    parts.push('')
-    parts.push(`## ${buildItemExportDocumentTitle(item)}`)
-    parts.push('')
+    parts.push("");
+    parts.push(`## ${buildItemExportDocumentTitle(item)}`);
+    parts.push("");
     if (item.slug) {
-      parts.push(`Source: ${pageUrlBase}${encodeSlugPath(String(item.slug))}`)
-      parts.push('')
+      parts.push(`Source: ${pageUrlBase}${encodeSlugPath(String(item.slug))}`);
+      parts.push("");
     }
-    parts.push(String(await getItemMarkdownBody(site, item)).trim())
+    parts.push(String(await getItemMarkdownBody(site, item)).trim());
   }
-  return parts.join('\n').trim() + '\n'
+  return parts.join("\n").trim() + "\n";
 }
 
 // Send a text export inline with validators so agents and proxies can
 // revalidate cheaply. isPublic marks anonymous-view responses as shareable;
 // responses that may include unpublished pages are private.
 function sendCacheableText(req, res, body, mediaType, isPublic = true) {
-  const buffer = Buffer.from(String(body || ''))
-  const etag = '"' + crypto.createHash('sha1').update(buffer).digest('hex') + '"'
-  res.setHeader('Content-Type', mediaType)
-  res.setHeader('ETag', etag)
-  res.setHeader('Cache-Control', isPublic ? 'public, max-age=300' : 'private, no-cache')
-  res.setHeader('Vary', 'Authorization')
+  const buffer = Buffer.from(String(body || ""));
+  const etag =
+    '"' + crypto.createHash("sha1").update(buffer).digest("hex") + '"';
+  res.setHeader("Content-Type", mediaType);
+  res.setHeader("ETag", etag);
+  res.setHeader(
+    "Cache-Control",
+    isPublic ? "public, max-age=300" : "private, no-cache",
+  );
+  res.setHeader("Vary", "Authorization");
   const ifNoneMatch =
-    req && req.headers && req.headers['if-none-match']
-      ? String(req.headers['if-none-match']).trim()
-      : ''
-  if (ifNoneMatch !== '' && (ifNoneMatch === etag || ifNoneMatch === 'W/' + etag)) {
-    return res.status(304).send()
+    req && req.headers && req.headers["if-none-match"]
+      ? String(req.headers["if-none-match"]).trim()
+      : "";
+  if (
+    ifNoneMatch !== "" &&
+    (ifNoneMatch === etag || ifNoneMatch === "W/" + etag)
+  ) {
+    return res.status(304).send();
   }
-  res.setHeader('Content-Length', buffer.length)
-  return res.status(200).send(buffer)
+  res.setHeader("Content-Length", buffer.length);
+  return res.status(200).send(buffer);
 }
 
 async function buildSiteExportHtmlContent(site, ancestor, visibleOnly = false) {
-  const orderedItems = getOrderedItems(site)
-  const sections = []
-  const siteTitle = buildSiteExportDocumentTitle(site)
-  sections.push(`<h1>${escapeHtmlValue(siteTitle)}</h1>`)
+  const orderedItems = getOrderedItems(site);
+  const sections = [];
+  const siteTitle = buildSiteExportDocumentTitle(site);
+  sections.push(`<h1>${escapeHtmlValue(siteTitle)}</h1>`);
 
-  let itemsToExport = orderedItems
-  if (ancestor && site.manifest && typeof site.manifest.findBranch === 'function') {
+  let itemsToExport = orderedItems;
+  if (
+    ancestor &&
+    site.manifest &&
+    typeof site.manifest.findBranch === "function"
+  ) {
     try {
-      const branch = site.manifest.findBranch(ancestor)
+      const branch = site.manifest.findBranch(ancestor);
       if (Array.isArray(branch)) {
-        const branchIds = new Set()
+        const branchIds = new Set();
         for (let i = 0; i < branch.length; i++) {
           if (branch[i] && branch[i].id) {
-            branchIds.add(branch[i].id)
+            branchIds.add(branch[i].id);
           }
         }
-        itemsToExport = orderedItems.filter((item) => item && item.id && branchIds.has(item.id))
+        itemsToExport = orderedItems.filter(
+          (item) => item && item.id && branchIds.has(item.id),
+        );
       }
-    }
-    catch (e) {}
+    } catch (e) {}
   }
 
   if (visibleOnly) {
-    itemsToExport = filterItemsVisibleToAnonymous(itemsToExport)
+    itemsToExport = filterItemsVisibleToAnonymous(itemsToExport);
   }
 
   for (let i = 0; i < itemsToExport.length; i++) {
-    const item = itemsToExport[i]
+    const item = itemsToExport[i];
     if (!item) {
-      continue
+      continue;
     }
-    const itemContent = await getItemContent(site, item)
-    sections.push(`<div data-jos-item-id="${escapeHtmlValue(item.id || '')}">`)
-    sections.push(String(itemContent || ''))
-    sections.push('</div>')
+    const itemContent = await getItemContent(site, item);
+    sections.push(`<div data-jos-item-id="${escapeHtmlValue(item.id || "")}">`);
+    sections.push(String(itemContent || ""));
+    sections.push("</div>");
   }
-  return sections.join('\n')
+  return sections.join("\n");
 }
 
 async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
-  const orderedItems = getOrderedItems(site)
-  const siteTitle = buildSiteExportDocumentTitle(site)
+  const orderedItems = getOrderedItems(site);
+  const siteTitle = buildSiteExportDocumentTitle(site);
 
-  let itemsToExport = orderedItems
-  if (ancestor && site.manifest && typeof site.manifest.findBranch === 'function') {
+  let itemsToExport = orderedItems;
+  if (
+    ancestor &&
+    site.manifest &&
+    typeof site.manifest.findBranch === "function"
+  ) {
     try {
-      const branch = site.manifest.findBranch(ancestor)
+      const branch = site.manifest.findBranch(ancestor);
       if (Array.isArray(branch)) {
-        const branchIds = new Set()
+        const branchIds = new Set();
         for (let i = 0; i < branch.length; i++) {
           if (branch[i] && branch[i].id) {
-            branchIds.add(branch[i].id)
+            branchIds.add(branch[i].id);
           }
         }
-        itemsToExport = orderedItems.filter((item) => item && item.id && branchIds.has(item.id))
+        itemsToExport = orderedItems.filter(
+          (item) => item && item.id && branchIds.has(item.id),
+        );
       }
-    }
-    catch (e) {}
+    } catch (e) {}
   }
 
   if (visibleOnly) {
-    itemsToExport = filterItemsVisibleToAnonymous(itemsToExport)
+    itemsToExport = filterItemsVisibleToAnonymous(itemsToExport);
   }
 
   if (magic) {
-    const content = await buildSiteExportHtmlContent(site, ancestor, visibleOnly)
-    const sections = []
-    sections.push('<!DOCTYPE html>')
-    sections.push('<html lang="en">')
-    sections.push('<head>')
-    sections.push('<meta charset="utf-8">')
-    sections.push(`<link rel="preconnect" crossorigin href="${escapeHtmlValue(magic)}">`)
-    sections.push(`<link rel="preconnect" crossorigin href="https://fonts.googleapis.com">`)
-    sections.push(`<link rel="preload" href="${escapeHtmlValue(magic)}build.js" as="script" />`)
-    sections.push(`<link rel="preload" href="${escapeHtmlValue(magic)}wc-registry.json" as="fetch" crossorigin="anonymous" />`)
-    sections.push(`<link rel="preload" href="${escapeHtmlValue(magic)}build/es6/node_modules/@haxtheweb/dynamic-import-registry/dynamic-import-registry.js" as="script" crossorigin="anonymous" />`)
-    sections.push(`<link rel="modulepreload" href="${escapeHtmlValue(magic)}build/es6/node_modules/@haxtheweb/dynamic-import-registry/dynamic-import-registry.js" />`)
-    sections.push(`<link rel="preload" href="${escapeHtmlValue(magic)}build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js" as="script" crossorigin="anonymous" />`)
-    sections.push(`<link rel="modulepreload" href="${escapeHtmlValue(magic)}build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js" />`)
-    sections.push(`<link rel="stylesheet" href="${escapeHtmlValue(magic)}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" />`)
-    sections.push('<meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, user-scalable=yes">')
-    sections.push('</head>')
-    sections.push('<body>')
-    sections.push('<haxcms-print-theme>')
-    sections.push(content)
-    sections.push('</haxcms-print-theme>')
-    sections.push('</body>')
-    sections.push(`<script>window.__appCDN="${escapeHtmlValue(magic)}";</script>`)
-    sections.push(`<script src="${escapeHtmlValue(magic)}build.js"></script>`)
-    sections.push('</html>')
-    return sections.join('\n')
+    const content = await buildSiteExportHtmlContent(
+      site,
+      ancestor,
+      visibleOnly,
+    );
+    const sections = [];
+    sections.push("<!DOCTYPE html>");
+    sections.push('<html lang="en">');
+    sections.push("<head>");
+    sections.push('<meta charset="utf-8">');
+    sections.push(
+      `<link rel="preconnect" crossorigin href="${escapeHtmlValue(magic)}">`,
+    );
+    sections.push(
+      `<link rel="preconnect" crossorigin href="https://fonts.googleapis.com">`,
+    );
+    sections.push(
+      `<link rel="preload" href="${escapeHtmlValue(magic)}build.js" as="script" />`,
+    );
+    sections.push(
+      `<link rel="preload" href="${escapeHtmlValue(magic)}wc-registry.json" as="fetch" crossorigin="anonymous" />`,
+    );
+    sections.push(
+      `<link rel="preload" href="${escapeHtmlValue(magic)}build/es6/node_modules/@haxtheweb/dynamic-import-registry/dynamic-import-registry.js" as="script" crossorigin="anonymous" />`,
+    );
+    sections.push(
+      `<link rel="modulepreload" href="${escapeHtmlValue(magic)}build/es6/node_modules/@haxtheweb/dynamic-import-registry/dynamic-import-registry.js" />`,
+    );
+    sections.push(
+      `<link rel="preload" href="${escapeHtmlValue(magic)}build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js" as="script" crossorigin="anonymous" />`,
+    );
+    sections.push(
+      `<link rel="modulepreload" href="${escapeHtmlValue(magic)}build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js" />`,
+    );
+    sections.push(
+      `<link rel="stylesheet" href="${escapeHtmlValue(magic)}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" />`,
+    );
+    sections.push(
+      '<meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, user-scalable=yes">',
+    );
+    sections.push("</head>");
+    sections.push("<body>");
+    sections.push("<haxcms-print-theme>");
+    sections.push(content);
+    sections.push("</haxcms-print-theme>");
+    sections.push("</body>");
+    sections.push(
+      `<script>window.__appCDN="${escapeHtmlValue(magic)}";</script>`,
+    );
+    sections.push(`<script src="${escapeHtmlValue(magic)}build.js"></script>`);
+    sections.push("</html>");
+    return sections.join("\n");
   }
 
-  const sections = []
-  sections.push('<!doctype html>')
-  sections.push('<html>')
-  sections.push('<head>')
-  sections.push('<meta charset="utf-8" />')
-  sections.push(`<title>${escapeHtmlValue(siteTitle)}</title>`)
-  sections.push('</head>')
-  sections.push('<body>')
-  sections.push(`<main data-haxcms-export="site" data-title="${escapeHtmlValue(siteTitle)}">`)
-  sections.push(`<h1>${escapeHtmlValue(siteTitle)}</h1>`)
+  const sections = [];
+  sections.push("<!doctype html>");
+  sections.push("<html>");
+  sections.push("<head>");
+  sections.push('<meta charset="utf-8" />');
+  sections.push(`<title>${escapeHtmlValue(siteTitle)}</title>`);
+  sections.push("</head>");
+  sections.push("<body>");
+  sections.push(
+    `<main data-haxcms-export="site" data-title="${escapeHtmlValue(siteTitle)}">`,
+  );
+  sections.push(`<h1>${escapeHtmlValue(siteTitle)}</h1>`);
   for (let i = 0; i < itemsToExport.length; i++) {
-    const item = itemsToExport[i]
+    const item = itemsToExport[i];
     if (!item) {
-      continue
+      continue;
     }
-    const itemTitle = buildItemExportDocumentTitle(item)
-    const itemContent = await getItemContent(site, item)
+    const itemTitle = buildItemExportDocumentTitle(item);
+    const itemContent = await getItemContent(site, item);
     sections.push(
-      `<article data-item-id="${escapeHtmlValue(item.id || '')}" data-item-slug="${escapeHtmlValue(item.slug || '')}">`,
-    )
-    sections.push(`<h2>${escapeHtmlValue(itemTitle)}</h2>`)
-    sections.push(String(itemContent || ''))
-    sections.push('</article>')
+      `<article data-item-id="${escapeHtmlValue(item.id || "")}" data-item-slug="${escapeHtmlValue(item.slug || "")}">`,
+    );
+    sections.push(`<h2>${escapeHtmlValue(itemTitle)}</h2>`);
+    sections.push(String(itemContent || ""));
+    sections.push("</article>");
   }
-  sections.push('</main>')
-  sections.push('</body>')
-  sections.push('</html>')
-  return sections.join('\n')
+  sections.push("</main>");
+  sections.push("</body>");
+  sections.push("</html>");
+  return sections.join("\n");
 }
 
 function resolveUrlForEpub(attributeValue, basePath) {
-  const value = String(attributeValue || '').trim()
-  if (value === '') {
-    return ''
+  const value = String(attributeValue || "").trim();
+  if (value === "") {
+    return "";
   }
-  if (value.startsWith('http://') || value.startsWith('https://')) {
-    return value
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value;
   }
-  if (value.startsWith('/')) {
-    return value
+  if (value.startsWith("/")) {
+    return value;
   }
-  return basePath + value
+  return basePath + value;
 }
 
-function normalizeHtmlForDocumentExport(html, basePath, items, mode = 'epub') {
+function normalizeHtmlForDocumentExport(html, basePath, items, mode = "epub") {
   if (!html) {
-    return ''
+    return "";
   }
-  const htmlString = String(html)
-  const trimmed = htmlString.trim().toLowerCase()
-  const isFullDocument = trimmed.startsWith('<!doctype') || trimmed.startsWith('<html')
+  const htmlString = String(html);
+  const trimmed = htmlString.trim().toLowerCase();
+  const isFullDocument =
+    trimmed.startsWith("<!doctype") || trimmed.startsWith("<html");
   const doc = isFullDocument
     ? parse(htmlString)
-    : parse(`<div id="wrapper">${htmlString}</div>`)
+    : parse(`<div id="wrapper">${htmlString}</div>`);
 
   // Process videos
-  const videos = doc.querySelectorAll('video-player,iframe[src*="youtube.com"],iframe[src*="youtube-nocookie.com"],iframe[src*="vimeo.com"],video[src],video source[src],a11y-media-player')
+  const videos = doc.querySelectorAll(
+    'video-player,iframe[src*="youtube.com"],iframe[src*="youtube-nocookie.com"],iframe[src*="vimeo.com"],video[src],video source[src],a11y-media-player',
+  );
   for (let i = 0; i < videos.length; i++) {
-    const el = videos[i]
-    let videoUrl = ''
-    const source = el.getAttribute('source')
-    const src = el.getAttribute('src')
+    const el = videos[i];
+    let videoUrl = "";
+    const source = el.getAttribute("source");
+    const src = el.getAttribute("src");
 
     if (source) {
-      videoUrl = resolveUrlForEpub(source, basePath)
+      videoUrl = resolveUrlForEpub(source, basePath);
     } else if (src) {
-      videoUrl = resolveUrlForEpub(src, basePath)
+      videoUrl = resolveUrlForEpub(src, basePath);
     }
 
     // PDF and DOCX can't render iframe/embed content; replace with a
@@ -540,136 +638,140 @@ function normalizeHtmlForDocumentExport(html, basePath, items, mode = 'epub') {
     // box (PDF) or being stripped entirely (DOCX's html-to-docx removes
     // <iframe> tags, which would silently drop the video). Aligns with the
     // PHP ExportConverters pdf/docx branch.
-    if (mode === 'pdf' || mode === 'docx') {
+    if (mode === "pdf" || mode === "docx") {
       if (videoUrl) {
-        const link = `<p><a href="${escapeHtmlValue(videoUrl)}">[Video] ${escapeHtmlValue(videoUrl)}</a></p>`
-        el.replaceWith(link)
+        const link = `<p><a href="${escapeHtmlValue(videoUrl)}">[Video] ${escapeHtmlValue(videoUrl)}</a></p>`;
+        el.replaceWith(link);
       } else {
-        el.remove()
+        el.remove();
       }
-      continue
+      continue;
     }
 
     if (videoUrl) {
-      let videoId = ''
+      let videoId = "";
       try {
-        const urlData = new URL(videoUrl)
-        if (urlData.hostname === 'www.youtube.com' || urlData.hostname === 'youtube.com' || urlData.hostname === 'www.youtube-nocookie.com') {
-          if (urlData.searchParams.get('v')) {
-            videoId = urlData.searchParams.get('v')
-          } else if (urlData.pathname.startsWith('/embed/')) {
-            videoId = urlData.pathname.replace('/embed/', '')
+        const urlData = new URL(videoUrl);
+        if (
+          urlData.hostname === "www.youtube.com" ||
+          urlData.hostname === "youtube.com" ||
+          urlData.hostname === "www.youtube-nocookie.com"
+        ) {
+          if (urlData.searchParams.get("v")) {
+            videoId = urlData.searchParams.get("v");
+          } else if (urlData.pathname.startsWith("/embed/")) {
+            videoId = urlData.pathname.replace("/embed/", "");
           }
           if (videoId) {
-            videoId = `https://www.youtube-nocookie.com/embed/${videoId}`
+            videoId = `https://www.youtube-nocookie.com/embed/${videoId}`;
           }
-        } else if (urlData.hostname === 'youtu.be') {
-          videoId = `https://www.youtube-nocookie.com/embed/${urlData.pathname.replace('/', '')}`
+        } else if (urlData.hostname === "youtu.be") {
+          videoId = `https://www.youtube-nocookie.com/embed/${urlData.pathname.replace("/", "")}`;
         } else {
-          videoId = videoUrl
+          videoId = videoUrl;
         }
       } catch (e) {
-        videoId = videoUrl
+        videoId = videoUrl;
       }
 
       if (videoId) {
-        const embed = `<div class="responsive-iframe-container"><iframe class="responsive-iframe" width="100%" height="100%" frameborder="0" src="${escapeHtmlValue(videoId)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>`
-        el.replaceWith(embed)
+        const embed = `<div class="responsive-iframe-container"><iframe class="responsive-iframe" width="100%" height="100%" frameborder="0" src="${escapeHtmlValue(videoId)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>`;
+        el.replaceWith(embed);
       } else {
-        el.remove()
+        el.remove();
       }
     } else {
-      el.remove()
+      el.remove();
     }
   }
 
   // Process images
-  const images = doc.querySelectorAll('media-image,img,simple-img')
+  const images = doc.querySelectorAll("media-image,img,simple-img");
   for (let i = 0; i < images.length; i++) {
-    const el = images[i]
-    let imageUrl = ''
-    const source = el.getAttribute('source')
-    const src = el.getAttribute('src')
+    const el = images[i];
+    let imageUrl = "";
+    const source = el.getAttribute("source");
+    const src = el.getAttribute("src");
 
     if (source) {
-      imageUrl = resolveUrlForEpub(source, basePath)
+      imageUrl = resolveUrlForEpub(source, basePath);
     } else if (src) {
-      imageUrl = resolveUrlForEpub(src, basePath)
+      imageUrl = resolveUrlForEpub(src, basePath);
     }
 
     if (imageUrl) {
-      const alt = escapeHtmlValue(el.getAttribute('alt') || '')
-      const img = `<img src="${escapeHtmlValue(imageUrl)}" alt="${alt}" />`
-      el.replaceWith(img)
+      const alt = escapeHtmlValue(el.getAttribute("alt") || "");
+      const img = `<img src="${escapeHtmlValue(imageUrl)}" alt="${alt}" />`;
+      el.replaceWith(img);
     } else {
-      el.remove()
+      el.remove();
     }
   }
 
   // Process tables - strip inline styles
-  const tables = doc.querySelectorAll('table,tr,td,th')
+  const tables = doc.querySelectorAll("table,tr,td,th");
   for (let i = 0; i < tables.length; i++) {
-    tables[i].removeAttribute('style')
+    tables[i].removeAttribute("style");
   }
 
   // Process links — epub mode rewrites internal links to .xhtml chapter files;
   // docx mode leaves links site-relative (per A4)
-  if (mode === 'epub') {
-    const slugSet = new Set()
+  if (mode === "epub") {
+    const slugSet = new Set();
     for (let i = 0; i < items.length; i++) {
       if (items[i] && items[i].slug) {
-        slugSet.add(items[i].slug)
+        slugSet.add(items[i].slug);
       }
     }
 
-    const links = doc.querySelectorAll('a')
+    const links = doc.querySelectorAll("a");
     for (let i = 0; i < links.length; i++) {
-      const el = links[i]
-      let href = el.getAttribute('href') || ''
+      const el = links[i];
+      let href = el.getAttribute("href") || "";
       if (!href) {
-        el.remove()
-        continue
+        el.remove();
+        continue;
       }
 
       try {
-        let urlData
+        let urlData;
         try {
-          urlData = new URL(href, basePath)
+          urlData = new URL(href, basePath);
         } catch (e) {
-          el.remove()
-          continue
+          el.remove();
+          continue;
         }
 
-        if (href.startsWith('/')) {
-          const pathname = urlData.pathname.replace(/^\/+/, '')
+        if (href.startsWith("/")) {
+          const pathname = urlData.pathname.replace(/^\/+/, "");
           if (slugSet.has(pathname)) {
-            href = pathname.replace(/\//g, '-') + '.xhtml'
-          } else if (urlData.searchParams && urlData.searchParams.has('q')) {
-            href = urlData.searchParams.get('q').replace(/\//g, '-') + '.xhtml'
+            href = pathname.replace(/\//g, "-") + ".xhtml";
+          } else if (urlData.searchParams && urlData.searchParams.has("q")) {
+            href = urlData.searchParams.get("q").replace(/\//g, "-") + ".xhtml";
           }
         } else {
-          const pathname = urlData.pathname.replace(/^\/+/, '')
+          const pathname = urlData.pathname.replace(/^\/+/, "");
           if (slugSet.has(pathname)) {
-            href = pathname.replace(/\//g, '-') + '.xhtml'
+            href = pathname.replace(/\//g, "-") + ".xhtml";
           }
         }
 
         if (href) {
-          el.setAttribute('href', href)
+          el.setAttribute("href", href);
         } else {
-          el.remove()
+          el.remove();
         }
       } catch (e) {
-        el.remove()
+        el.remove();
       }
     }
   }
 
   if (isFullDocument) {
-    return doc.toString()
+    return doc.toString();
   }
-  const wrapper = doc.querySelector('#wrapper')
-  return wrapper ? wrapper.innerHTML : htmlString
+  const wrapper = doc.querySelector("#wrapper");
+  return wrapper ? wrapper.innerHTML : htmlString;
 }
 
 // Security (SEC-SSRF): epub-gen-memory downloads every <img src> (and the
@@ -678,17 +780,16 @@ function normalizeHtmlForDocumentExport(html, basePath, items, mode = 'epub') {
 // and hand the generator only file:// URLs to copies in a private temp dir
 // that is removed after the build.
 function createEpubImageTempDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'haxcms-epub-'))
+  return fs.mkdtempSync(path.join(os.tmpdir(), "haxcms-epub-"));
 }
 
 function removeEpubImageTempDir(dir) {
   if (!dir) {
-    return
+    return;
   }
   try {
-    fs.rmSync(dir, { recursive: true, force: true })
-  }
-  catch (e) {}
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch (e) {}
 }
 
 // One image context per EPUB build: shared temp dir and a single per-export
@@ -697,32 +798,37 @@ function createEpubImageContext() {
   return {
     tempDir: createEpubImageTempDir(),
     budget: createExportImageBudget(),
-  }
+  };
 }
 
 async function resolveEpubImages(html, site, imageContext) {
-  let resolved = ''
+  let resolved = "";
   try {
     resolved = await resolveExportImages(
       html,
       Object.assign(buildExportImageOptions(site, null), {
-        output: 'file',
+        output: "file",
         tempDir: imageContext.tempDir,
         budget: imageContext.budget,
         allowSvg: false,
       }),
-    )
-  }
-  catch (e) {
-    resolved = String(html || '').replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, '')
+    );
+  } catch (e) {
+    resolved = String(html || "").replace(
+      /<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi,
+      "",
+    );
   }
   // fail-closed final pass with epub-gen-memory's own htmlparser2 build
-  return finalizeExportHtml(resolved, { consumer: 'epub', tempDir: imageContext.tempDir })
+  return finalizeExportHtml(resolved, {
+    consumer: "epub",
+    tempDir: imageContext.tempDir,
+  });
 }
 
 async function resolveEpubCover(cover, site, imageContext) {
   if (!cover) {
-    return ''
+    return "";
   }
   return await resolveExportImageToFileUrl(
     cover,
@@ -731,57 +837,64 @@ async function resolveEpubCover(cover, site, imageContext) {
       budget: imageContext.budget,
       allowSvg: false,
     }),
-  )
+  );
 }
 
 function processHtmlForEpub(html, basePath, items) {
-  return normalizeHtmlForDocumentExport(html, basePath, items, 'epub')
+  return normalizeHtmlForDocumentExport(html, basePath, items, "epub");
 }
 
-async function buildSiteExportEpubBuffer(site, basePath = '/', ancestor) {
-  const orderedItems = getOrderedItems(site)
-  let itemsToExport = orderedItems
+async function buildSiteExportEpubBuffer(site, basePath = "/", ancestor) {
+  const orderedItems = getOrderedItems(site);
+  let itemsToExport = orderedItems;
 
   // Apply ancestor filtering with unpublished parent/child checks
-  if (ancestor && site.manifest && typeof site.manifest.findBranch === 'function') {
+  if (
+    ancestor &&
+    site.manifest &&
+    typeof site.manifest.findBranch === "function"
+  ) {
     try {
-      const branch = site.manifest.findBranch(ancestor)
+      const branch = site.manifest.findBranch(ancestor);
       if (Array.isArray(branch)) {
-        const branchIds = new Set()
+        const branchIds = new Set();
         for (let i = 0; i < branch.length; i++) {
           if (branch[i] && branch[i].id) {
-            branchIds.add(branch[i].id)
+            branchIds.add(branch[i].id);
           }
         }
         itemsToExport = orderedItems.filter((item) => {
           if (!item || !item.id || !branchIds.has(item.id)) {
-            return false
+            return false;
           }
           // Skip unpublished items
           if (item.metadata && item.metadata.published === false) {
-            return false
+            return false;
           }
           // Walk up tree to ensure no parent is unpublished
           if (item.parent) {
-            let tmpEl = { ...item }
+            let tmpEl = { ...item };
             while (tmpEl.parent) {
-              tmpEl = findItemByIdOrSlug(site, tmpEl.parent)
-              if (tmpEl && tmpEl.metadata && tmpEl.metadata.published === false) {
-                return false
+              tmpEl = findItemByIdOrSlug(site, tmpEl.parent);
+              if (
+                tmpEl &&
+                tmpEl.metadata &&
+                tmpEl.metadata.published === false
+              ) {
+                return false;
               }
             }
             if (tmpEl && tmpEl.metadata && tmpEl.metadata.published === false) {
-              return false
+              return false;
             }
           }
-          return true
-        })
+          return true;
+        });
       }
-    }
-    catch (e) {}
+    } catch (e) {}
   }
 
-  const siteTitle = buildSiteExportDocumentTitle(site)
+  const siteTitle = buildSiteExportDocumentTitle(site);
   const author =
     site &&
     site.manifest &&
@@ -789,11 +902,11 @@ async function buildSiteExportEpubBuffer(site, basePath = '/', ancestor) {
     site.manifest.metadata.author &&
     site.manifest.metadata.author.name
       ? String(site.manifest.metadata.author.name)
-      : 'HAX The Web'
+      : "HAX The Web";
   const description =
     site && site.manifest && site.manifest.description
       ? String(site.manifest.description)
-      : ''
+      : "";
   const cover =
     site &&
     site.manifest &&
@@ -801,59 +914,80 @@ async function buildSiteExportEpubBuffer(site, basePath = '/', ancestor) {
     site.manifest.metadata.site &&
     site.manifest.metadata.site.logo
       ? String(site.manifest.metadata.site.logo)
-      : ''
+      : "";
 
-  const imageContext = createEpubImageContext()
+  const imageContext = createEpubImageContext();
   try {
-    const content = []
+    const content = [];
     for (let i = 0; i < itemsToExport.length; i++) {
-      const item = itemsToExport[i]
+      const item = itemsToExport[i];
       if (!item) {
-        continue
+        continue;
       }
-      const itemTitle = buildItemExportDocumentTitle(item)
-      let itemContent = await getItemContent(site, item)
+      const itemTitle = buildItemExportDocumentTitle(item);
+      let itemContent = await getItemContent(site, item);
       if (itemContent) {
-        itemContent = processHtmlForEpub(itemContent, basePath, itemsToExport)
-        itemContent = await resolveEpubImages(itemContent, site, imageContext)
+        itemContent = processHtmlForEpub(itemContent, basePath, itemsToExport);
+        itemContent = await resolveEpubImages(itemContent, site, imageContext);
       }
       content.push({
         title: itemTitle,
-        content: String(itemContent || ''),
-        filename: (item.slug ? item.slug.replace(/\//g, '-') : item.id) + '.xhtml',
-      })
+        content: String(itemContent || ""),
+        filename:
+          (item.slug ? item.slug.replace(/\//g, "-") : item.id) + ".xhtml",
+      });
     }
 
     const options = {
       title: siteTitle,
       author: author,
-      publisher: 'HAX The Web',
+      publisher: "HAX The Web",
       description: description,
       cover: await resolveEpubCover(cover, site, imageContext),
-      tocTitle: 'Table of Contents',
+      tocTitle: "Table of Contents",
       css: EPUB_EXPORT_CSS,
-      date: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.updated ? new Date(site.manifest.metadata.site.updated * 1000).toISOString() : new Date().toISOString(),
-      lang: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.lang ? String(site.manifest.metadata.site.lang) : 'en',
+      date:
+        site &&
+        site.manifest &&
+        site.manifest.metadata &&
+        site.manifest.metadata.site &&
+        site.manifest.metadata.site.updated
+          ? new Date(site.manifest.metadata.site.updated * 1000).toISOString()
+          : new Date().toISOString(),
+      lang:
+        site &&
+        site.manifest &&
+        site.manifest.metadata &&
+        site.manifest.metadata.site &&
+        site.manifest.metadata.site.lang
+          ? String(site.manifest.metadata.site.lang)
+          : "en",
       fetchTimeout: 3000,
       ignoreFailedDownloads: true,
-    }
+    };
 
-    const epubGenerator = EPUB.default && EPUB.default.default ? EPUB.default.default : (EPUB.default || EPUB)
-    return await epubGenerator(options, content)
-  }
-  finally {
-    removeEpubImageTempDir(imageContext.tempDir)
+    const epubGenerator =
+      EPUB.default && EPUB.default.default
+        ? EPUB.default.default
+        : EPUB.default || EPUB;
+    return await epubGenerator(options, content);
+  } finally {
+    removeEpubImageTempDir(imageContext.tempDir);
   }
 }
 
-async function buildItemExportEpubBuffer(site, item, basePath = '/') {
-  const imageContext = createEpubImageContext()
+async function buildItemExportEpubBuffer(site, item, basePath = "/") {
+  const imageContext = createEpubImageContext();
   try {
-    const itemTitle = buildItemExportDocumentTitle(item)
-    let itemContent = await getItemContent(site, item)
+    const itemTitle = buildItemExportDocumentTitle(item);
+    let itemContent = await getItemContent(site, item);
     if (itemContent) {
-      itemContent = processHtmlForEpub(itemContent, basePath, getOrderedItems(site))
-      itemContent = await resolveEpubImages(itemContent, site, imageContext)
+      itemContent = processHtmlForEpub(
+        itemContent,
+        basePath,
+        getOrderedItems(site),
+      );
+      itemContent = await resolveEpubImages(itemContent, site, imageContext);
     }
 
     const author =
@@ -863,11 +997,11 @@ async function buildItemExportEpubBuffer(site, item, basePath = '/') {
       site.manifest.metadata.author &&
       site.manifest.metadata.author.name
         ? String(site.manifest.metadata.author.name)
-        : 'HAX The Web'
+        : "HAX The Web";
     const description =
       site && site.manifest && site.manifest.description
         ? String(site.manifest.description)
-        : ''
+        : "";
     const cover =
       site &&
       site.manifest &&
@@ -875,153 +1009,177 @@ async function buildItemExportEpubBuffer(site, item, basePath = '/') {
       site.manifest.metadata.site &&
       site.manifest.metadata.site.logo
         ? String(site.manifest.metadata.site.logo)
-        : ''
+        : "";
 
     const content = [
       {
         title: itemTitle,
-        content: String(itemContent || ''),
-        filename: (item.slug ? item.slug.replace(/\//g, '-') : item.id) + '.xhtml',
+        content: String(itemContent || ""),
+        filename:
+          (item.slug ? item.slug.replace(/\//g, "-") : item.id) + ".xhtml",
       },
-    ]
+    ];
 
     const options = {
       title: itemTitle,
       author: author,
-      publisher: 'HAX The Web',
+      publisher: "HAX The Web",
       description: description,
       cover: await resolveEpubCover(cover, site, imageContext),
-      tocTitle: 'Table of Contents',
+      tocTitle: "Table of Contents",
       css: EPUB_EXPORT_CSS,
-      date: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.updated ? new Date(site.manifest.metadata.site.updated * 1000).toISOString() : new Date().toISOString(),
-      lang: site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.lang ? String(site.manifest.metadata.site.lang) : 'en',
+      date:
+        site &&
+        site.manifest &&
+        site.manifest.metadata &&
+        site.manifest.metadata.site &&
+        site.manifest.metadata.site.updated
+          ? new Date(site.manifest.metadata.site.updated * 1000).toISOString()
+          : new Date().toISOString(),
+      lang:
+        site &&
+        site.manifest &&
+        site.manifest.metadata &&
+        site.manifest.metadata.site &&
+        site.manifest.metadata.site.lang
+          ? String(site.manifest.metadata.site.lang)
+          : "en",
       fetchTimeout: 3000,
       ignoreFailedDownloads: true,
-    }
+    };
 
-    const epubGenerator = EPUB.default && EPUB.default.default ? EPUB.default.default : (EPUB.default || EPUB)
-    return await epubGenerator(options, content)
-  }
-  finally {
-    removeEpubImageTempDir(imageContext.tempDir)
+    const epubGenerator =
+      EPUB.default && EPUB.default.default
+        ? EPUB.default.default
+        : EPUB.default || EPUB;
+    return await epubGenerator(options, content);
+  } finally {
+    removeEpubImageTempDir(imageContext.tempDir);
   }
 }
 
 async function buildItemExportHtml(site, item) {
-  const itemTitle = buildItemExportDocumentTitle(item)
-  const itemContent = await getItemContent(site, item)
-  const sections = []
-  sections.push('<!doctype html>')
-  sections.push('<html>')
-  sections.push('<head>')
-  sections.push('<meta charset="utf-8" />')
-  sections.push(`<title>${escapeHtmlValue(itemTitle)}</title>`)
-  sections.push('</head>')
-  sections.push('<body>')
+  const itemTitle = buildItemExportDocumentTitle(item);
+  const itemContent = await getItemContent(site, item);
+  const sections = [];
+  sections.push("<!doctype html>");
+  sections.push("<html>");
+  sections.push("<head>");
+  sections.push('<meta charset="utf-8" />');
+  sections.push(`<title>${escapeHtmlValue(itemTitle)}</title>`);
+  sections.push("</head>");
+  sections.push("<body>");
   sections.push(
-    `<article data-haxcms-export="item" data-item-id="${escapeHtmlValue(item && item.id ? item.id : '')}" data-item-slug="${escapeHtmlValue(item && item.slug ? item.slug : '')}">`,
-  )
-  sections.push(`<h1>${escapeHtmlValue(itemTitle)}</h1>`)
-  sections.push(String(itemContent || ''))
-  sections.push('</article>')
-  sections.push('</body>')
-  sections.push('</html>')
-  return sections.join('\n')
+    `<article data-haxcms-export="item" data-item-id="${escapeHtmlValue(item && item.id ? item.id : "")}" data-item-slug="${escapeHtmlValue(item && item.slug ? item.slug : "")}">`,
+  );
+  sections.push(`<h1>${escapeHtmlValue(itemTitle)}</h1>`);
+  sections.push(String(itemContent || ""));
+  sections.push("</article>");
+  sections.push("</body>");
+  sections.push("</html>");
+  return sections.join("\n");
 }
 
 function convertItemHtmlToMarkdown(item, html) {
-  const title = buildItemExportDocumentTitle(item)
-  const body = String(html || '')
-  let markdown = ''
+  const title = buildItemExportDocumentTitle(item);
+  const body = String(html || "");
+  let markdown = "";
   try {
-    markdown = turndownService.turndown(body)
+    markdown = turndownService.turndown(body);
   } catch (e) {
-    markdown = body
+    markdown = body;
   }
-  const sections = []
-  sections.push(`# ${title}`)
-  sections.push('')
-  sections.push(markdown)
-  return sections.join('\n').trim()
+  const sections = [];
+  sections.push(`# ${title}`);
+  sections.push("");
+  sections.push(markdown);
+  return sections.join("\n").trim();
 }
 
-async function buildItemExportRecord(site, item, apiBasePath = '/x/api') {
-  const content = await getItemContent(site, item)
-  const record = itemToSummary(item, apiBasePath)
-  record.content = String(content || '')
-  return record
+async function buildItemExportRecord(site, item, apiBasePath = "/x/api") {
+  const content = await getItemContent(site, item);
+  const record = itemToSummary(item, apiBasePath);
+  record.content = String(content || "");
+  return record;
 }
 
-function buildSiteExportDetails(site, apiBasePath = '/x/api', format = '') {
-  const siteBasePath = getSiteBasePath(site)
-  const systemApiBasePath = getSystemApiBasePath(apiBasePath)
-  const normalizedFormat = normalizeFormatValue(format)
+function buildSiteExportDetails(site, apiBasePath = "/x/api", format = "") {
+  const siteBasePath = getSiteBasePath(site);
+  const systemApiBasePath = getSystemApiBasePath(apiBasePath);
+  const normalizedFormat = normalizeFormatValue(format);
   const siteName =
-    site && site.manifest && site.manifest.metadata && site.manifest.metadata.site && site.manifest.metadata.site.name
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    site.manifest.metadata.site.name
       ? String(site.manifest.metadata.site.name)
-      : ''
+      : "";
   const exportDescriptors = {
     markdown: {
-      rel: 'download',
-      mediaType: 'text/markdown',
+      rel: "download",
+      mediaType: "text/markdown",
       href: `${apiBasePath}/v1/site/export/md`,
     },
     zip: {
-      rel: 'download',
-      mediaType: 'application/zip',
+      rel: "download",
+      mediaType: "application/zip",
       href: `${systemApiBasePath}/v1/sites/${encodeURIComponent(siteName)}/download`,
       authenticatedEndpoint: `${systemApiBasePath}/v1/sites/${encodeURIComponent(siteName)}/download`,
-      method: 'POST',
+      method: "POST",
     },
     pdf: {
-      rel: 'download',
-      mediaType: 'application/pdf',
+      rel: "download",
+      mediaType: "application/pdf",
       href: `${apiBasePath}/v1/site/export/pdf`,
     },
     docx: {
-      rel: 'download',
+      rel: "download",
       mediaType:
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       href: `${apiBasePath}/v1/site/export/docx`,
     },
     epub: {
-      rel: 'download',
-      mediaType: 'application/epub+zip',
+      rel: "download",
+      mediaType: "application/epub+zip",
       href: `${apiBasePath}/v1/site/export/epub`,
     },
     html: {
-      rel: 'download',
-      mediaType: 'text/html',
+      rel: "download",
+      mediaType: "text/html",
       href: `${apiBasePath}/v1/site/export/html`,
     },
     skeleton: {
-      rel: 'download',
-      mediaType: 'application/json',
+      rel: "download",
+      mediaType: "application/json",
       href: `${systemApiBasePath}/v1/sites/${encodeURIComponent(siteName)}/download-skeleton`,
       authenticatedEndpoint: `${systemApiBasePath}/v1/sites/${encodeURIComponent(siteName)}/download-skeleton`,
-      method: 'POST',
+      method: "POST",
     },
+  };
+  if (
+    Object.prototype.hasOwnProperty.call(exportDescriptors, normalizedFormat)
+  ) {
+    return exportDescriptors[normalizedFormat];
   }
-  if (Object.prototype.hasOwnProperty.call(exportDescriptors, normalizedFormat)) {
-    return exportDescriptors[normalizedFormat]
-  }
-  return null
+  return null;
 }
 
 async function siteExport(req, res) {
-  const site = await resolveSiteForRequest(req)
+  const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Unable to resolve site context for /x/api/v1/site/export/:format',
+        message:
+          "Unable to resolve site context for /x/api/v1/site/export/:format",
       },
-    })
+    });
   }
-  const apiBasePath = getApiBasePath(req)
+  const apiBasePath = getApiBasePath(req);
   const format = normalizeFormatValue(
-    req && req.params && req.params.format ? req.params.format : '',
-  )
+    req && req.params && req.params.format ? req.params.format : "",
+  );
   if (SITE_EXPORT_FORMATS.indexOf(format) === -1) {
     return res.status(400).json({
       status: 400,
@@ -1029,12 +1187,12 @@ async function siteExport(req, res) {
         message: `Unsupported site export format "${format}"`,
         supportedFormats: SITE_EXPORT_FORMATS,
       },
-    })
+    });
   }
-  const ancestor = getQueryValue(req, 'filter.ancestor', '')
-  const magic = getQueryValue(req, 'magic', '')
-  const isAnonymousRequest = isAnonymousSiteApiRequest(req)
-  if (format === 'pdf' || format === 'docx' || format === 'epub') {
+  const ancestor = getQueryValue(req, "filter.ancestor", "");
+  const magic = getQueryValue(req, "magic", "");
+  const isAnonymousRequest = isAnonymousSiteApiRequest(req);
+  if (format === "pdf" || format === "docx" || format === "epub") {
     // Binary whole-site exports render the entire site on every request
     // (500+ page sites are common), so they are reserved for logged-in users.
     // Anonymous agents get the cheap html / markdown exports instead.
@@ -1044,99 +1202,135 @@ async function siteExport(req, res) {
         data: {
           message: `Authentication required for ${format} site exports`,
         },
-      })
+      });
     }
-    let outputBuffer = null
+    let outputBuffer = null;
     try {
-      if (format === 'epub') {
-        outputBuffer = await buildSiteExportEpubBuffer(site, getSiteBasePath(site), ancestor)
+      if (format === "epub") {
+        outputBuffer = await buildSiteExportEpubBuffer(
+          site,
+          getSiteBasePath(site),
+          ancestor,
+        );
       } else {
-        let html = ''
+        let html = "";
         try {
-          html = await buildSiteExportHtml(site, ancestor, '')
-        }
-        catch (e) {
+          html = await buildSiteExportHtml(site, ancestor, "");
+        } catch (e) {
           return res.status(500).json({
             status: 500,
             data: {
-              message: `Unable to build site export HTML: ${e.message}`,
+              message: `Unable to build site export HTML: ${clientSafeErrorDetail(e)}`,
             },
-          })
+          });
         }
-        if (format === 'docx') {
+        if (format === "docx") {
           try {
-            html = normalizeHtmlForDocumentExport(html, getSiteBasePath(site), getOrderedItems(site), 'docx')
-          }
-          catch (e) {}
-          outputBuffer = await convertHtmlToDownloadBuffer(format, html, getSiteBasePath(site), buildExportImageOptions(site, null))
+            html = normalizeHtmlForDocumentExport(
+              html,
+              getSiteBasePath(site),
+              getOrderedItems(site),
+              "docx",
+            );
+          } catch (e) {}
+          outputBuffer = await convertHtmlToDownloadBuffer(
+            format,
+            html,
+            getSiteBasePath(site),
+            buildExportImageOptions(site, null),
+          );
         } else {
           // format === 'pdf': normalize so media-image/simple-img become <img>,
           // and pass an absolute base URL so relative image srcs resolve in Puppeteer.
-          const pdfBase = buildAbsoluteSiteBaseUrl(req, site)
+          const pdfBase = buildAbsoluteSiteBaseUrl(req, site);
           try {
-            html = normalizeHtmlForDocumentExport(html, pdfBase, getOrderedItems(site), 'pdf')
-          }
-          catch (e) {}
-          outputBuffer = await convertHtmlToDownloadBuffer(format, html, pdfBase, buildExportImageOptions(site, pdfBase))
+            html = normalizeHtmlForDocumentExport(
+              html,
+              pdfBase,
+              getOrderedItems(site),
+              "pdf",
+            );
+          } catch (e) {}
+          outputBuffer = await convertHtmlToDownloadBuffer(
+            format,
+            html,
+            pdfBase,
+            buildExportImageOptions(site, pdfBase),
+          );
         }
       }
-    }
-    catch (e) {
+    } catch (e) {
       return res.status(e && e.status ? e.status : 502).json({
         status: e && e.status ? e.status : 502,
         data: {
-          message: e && e.message ? e.message : 'Unable to complete export conversion',
+          message: clientSafeErrorDetail(
+            e,
+            "Unable to complete export conversion",
+          ),
         },
-      })
+      });
     }
     return sendDownloadResponse(
       res,
       outputBuffer,
       getExportMediaType(format),
       `${getSiteExportFileBaseName(site)}.${format}`,
-    )
+    );
   }
-  if (format === 'md') {
+  if (format === "md") {
     // Whole site as one markdown document for agents (also served as
     // llms-full.txt). Pages are concatenated from their save-time markdown
     // sidecars, so this stays cheap on large sites.
-    let markdown = ''
+    let markdown = "";
     try {
-      markdown = await buildSiteExportMarkdown(site, ancestor, isAnonymousRequest)
-    }
-    catch (e) {
+      markdown = await buildSiteExportMarkdown(
+        site,
+        ancestor,
+        isAnonymousRequest,
+      );
+    } catch (e) {
       return res.status(500).json({
         status: 500,
         data: {
-          message: `Unable to build site export markdown: ${e.message}`,
+          message: `Unable to build site export markdown: ${clientSafeErrorDetail(e)}`,
         },
-      })
+      });
     }
-    return sendCacheableText(req, res, markdown, 'text/markdown; charset=utf-8', isAnonymousRequest)
+    return sendCacheableText(
+      req,
+      res,
+      markdown,
+      "text/markdown; charset=utf-8",
+      isAnonymousRequest,
+    );
   }
-  if (format === 'html') {
+  if (format === "html") {
     try {
       // anonymous callers only ever see pages they could open directly
-      const html = await buildSiteExportHtml(site, ancestor, magic, isAnonymousRequest)
+      const html = await buildSiteExportHtml(
+        site,
+        ancestor,
+        magic,
+        isAnonymousRequest,
+      );
       // E4: send html export as a file download with Content-Disposition
       // (mirrors PHP sendFileDownload / other binary export formats)
       return sendDownloadResponse(
         res,
         Buffer.from(html),
-        'text/html; charset=utf-8',
+        "text/html; charset=utf-8",
         `${getSiteExportFileBaseName(site)}.html`,
-      )
-    }
-    catch (e) {
+      );
+    } catch (e) {
       return res.status(500).json({
         status: 500,
         data: {
-          message: `Unable to build site export HTML: ${e.message}`,
+          message: `Unable to build site export HTML: ${clientSafeErrorDetail(e)}`,
         },
-      })
+      });
     }
   }
-  const exportDetails = buildSiteExportDetails(site, apiBasePath, format)
+  const exportDetails = buildSiteExportDetails(site, apiBasePath, format);
   return sendFormattedResponse(
     req,
     res,
@@ -1150,48 +1344,45 @@ async function siteExport(req, res) {
       },
     },
     {
-      allowedFormats: ['json'],
-      defaultFormat: 'json',
+      allowedFormats: ["json"],
+      defaultFormat: "json",
     },
-  )
+  );
 }
 
 async function itemExport(req, res) {
-  const site = await resolveSiteForRequest(req)
+  const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
       data: {
         message:
-          'Unable to resolve site context for /x/api/v1/items/:idOrSlug/export/:format',
+          "Unable to resolve site context for /x/api/v1/items/:idOrSlug/export/:format",
       },
-    })
+    });
   }
   const idOrSlug =
-    req && req.params && req.params.idOrSlug ? req.params.idOrSlug : ''
-  const item = findItemByIdOrSlug(site, idOrSlug)
+    req && req.params && req.params.idOrSlug ? req.params.idOrSlug : "";
+  const item = findItemByIdOrSlug(site, idOrSlug);
   if (!item) {
     return res.status(404).json({
       status: 404,
       data: {
         message: `Item not found for idOrSlug "${idOrSlug}"`,
       },
-    })
+    });
   }
-  if (
-    isAnonymousSiteApiRequest(req) &&
-    !isItemVisibleToAnonymous(item)
-  ) {
+  if (isAnonymousSiteApiRequest(req) && !isItemVisibleToAnonymous(item)) {
     return res.status(404).json({
       status: 404,
       data: {
         message: `Item not found for idOrSlug "${idOrSlug}"`,
       },
-    })
+    });
   }
   const format = normalizeFormatValue(
-    req && req.params && req.params.format ? req.params.format : '',
-  )
+    req && req.params && req.params.format ? req.params.format : "",
+  );
   if (ITEM_EXPORT_FORMATS.indexOf(format) === -1) {
     return res.status(400).json({
       status: 400,
@@ -1199,12 +1390,12 @@ async function itemExport(req, res) {
         message: `Unsupported item export format "${format}"`,
         supportedFormats: ITEM_EXPORT_FORMATS,
       },
-    })
+    });
   }
-  const apiBasePath = getApiBasePath(req)
-  const fileBaseName = getItemExportFileBaseName(item)
+  const apiBasePath = getApiBasePath(req);
+  const fileBaseName = getItemExportFileBaseName(item);
 
-  if (format === 'pdf' || format === 'docx') {
+  if (format === "pdf" || format === "docx") {
     // rendered binaries are generated per request; logged-in users only
     if (isAnonymousSiteApiRequest(req)) {
       return res.status(401).json({
@@ -1212,132 +1403,141 @@ async function itemExport(req, res) {
         data: {
           message: `Authentication required for ${format} exports`,
         },
-      })
+      });
     }
-    let html = ''
+    let html = "";
     try {
-      html = await buildItemExportHtml(site, item)
-    }
-    catch (e) {
+      html = await buildItemExportHtml(site, item);
+    } catch (e) {
       return res.status(500).json({
         status: 500,
         data: {
-          message: `Unable to build item export HTML: ${e.message}`,
+          message: `Unable to build item export HTML: ${clientSafeErrorDetail(e)}`,
         },
-      })
+      });
     }
     // pdf uses an absolute base URL so relative image srcs resolve in Puppeteer;
     // docx keeps the site-relative base (html-to-docx embeds images directly).
-    const exportBase = format === 'pdf'
-      ? buildAbsoluteSiteBaseUrl(req, site)
-      : getSiteBasePath(site)
+    const exportBase =
+      format === "pdf"
+        ? buildAbsoluteSiteBaseUrl(req, site)
+        : getSiteBasePath(site);
     try {
-      html = normalizeHtmlForDocumentExport(html, exportBase, getOrderedItems(site), format)
-    }
-    catch (e) {}
-    let outputBuffer = null
+      html = normalizeHtmlForDocumentExport(
+        html,
+        exportBase,
+        getOrderedItems(site),
+        format,
+      );
+    } catch (e) {}
+    let outputBuffer = null;
     try {
       outputBuffer = await convertHtmlToDownloadBuffer(
         format,
         html,
         exportBase,
-        buildExportImageOptions(site, format === 'pdf' ? exportBase : null),
-      )
-    }
-    catch (e) {
+        buildExportImageOptions(site, format === "pdf" ? exportBase : null),
+      );
+    } catch (e) {
       return res.status(e && e.status ? e.status : 502).json({
         status: e && e.status ? e.status : 502,
         data: {
-          message: e && e.message ? e.message : 'Unable to complete export conversion',
+          message: clientSafeErrorDetail(
+            e,
+            "Unable to complete export conversion",
+          ),
         },
-      })
+      });
     }
     return sendDownloadResponse(
       res,
       outputBuffer,
       getExportMediaType(format),
       `${fileBaseName}.${format}`,
-    )
+    );
   }
 
-  if (format === 'html') {
-    let html = ''
+  if (format === "html") {
+    let html = "";
     try {
-      html = await buildItemExportHtml(site, item)
-    }
-    catch (e) {
+      html = await buildItemExportHtml(site, item);
+    } catch (e) {
       return res.status(500).json({
         status: 500,
         data: {
-          message: `Unable to build item export HTML: ${e.message}`,
+          message: `Unable to build item export HTML: ${clientSafeErrorDetail(e)}`,
         },
-      })
+      });
     }
     return sendDownloadResponse(
       res,
       Buffer.from(html),
-      'text/html; charset=utf-8',
+      "text/html; charset=utf-8",
       `${fileBaseName}.html`,
-    )
+    );
   }
 
-  if (format === 'md') {
-    let html = ''
+  if (format === "md") {
+    let html = "";
     try {
-      html = await getItemContent(site, item)
+      html = await getItemContent(site, item);
+    } catch (e) {
+      html = "";
     }
-    catch (e) {
-      html = ''
-    }
-    const markdown = convertItemHtmlToMarkdown(item, html)
+    const markdown = convertItemHtmlToMarkdown(item, html);
     return sendDownloadResponse(
       res,
       Buffer.from(markdown),
-      'text/markdown; charset=utf-8',
+      "text/markdown; charset=utf-8",
       `${fileBaseName}.md`,
-    )
+    );
   }
 
-  if (format === 'epub') {
-    let epubBuffer = null
+  if (format === "epub") {
+    let epubBuffer = null;
     try {
-      epubBuffer = await buildItemExportEpubBuffer(site, item, getSiteBasePath(site))
-    }
-    catch (e) {
+      epubBuffer = await buildItemExportEpubBuffer(
+        site,
+        item,
+        getSiteBasePath(site),
+      );
+    } catch (e) {
       return res.status(e && e.status ? e.status : 502).json({
         status: e && e.status ? e.status : 502,
         data: {
-          message: e && e.message ? e.message : 'Unable to complete EPUB export conversion',
+          message: clientSafeErrorDetail(
+            e,
+            "Unable to complete EPUB export conversion",
+          ),
         },
-      })
+      });
     }
     return sendDownloadResponse(
       res,
       epubBuffer,
-      'application/epub+zip',
+      "application/epub+zip",
       `${fileBaseName}.epub`,
-    )
+    );
   }
 
-  let record
+  let record;
   try {
-    record = await buildItemExportRecord(site, item, apiBasePath)
-  }
-  catch (e) {
+    record = await buildItemExportRecord(site, item, apiBasePath);
+  } catch (e) {
     return res.status(500).json({
       status: 500,
       data: {
-        message: `Unable to build item export record: ${e.message}`,
+        message: `Unable to build item export record: ${clientSafeErrorDetail(e)}`,
       },
-    })
+    });
   }
-  const serialized = serializePayload(record, format)
+  const serialized = serializePayload(record, format);
   return sendDownloadResponse(
     res,
     Buffer.from(serialized),
     getExportMediaType(format),
     `${fileBaseName}.${format}`,
-  )
+  );
 }
 
 // D43: POST v1/site/export/:format mutation handler. Mirrors PHP
@@ -1350,13 +1550,14 @@ async function siteExportMutation(req, res) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Unable to resolve site context for /x/api/v1/site/export/:format',
+        message:
+          "Unable to resolve site context for /x/api/v1/site/export/:format",
       },
     });
   }
   const apiBasePath = getApiBasePath(req);
   const format = normalizeFormatValue(
-    req && req.params && req.params.format ? req.params.format : '',
+    req && req.params && req.params.format ? req.params.format : "",
   );
   if (SITE_EXPORT_FORMATS.indexOf(format) === -1) {
     return res.status(400).json({
@@ -1381,8 +1582,8 @@ async function siteExportMutation(req, res) {
       },
     },
     {
-      allowedFormats: ['json'],
-      defaultFormat: 'json',
+      allowedFormats: ["json"],
+      defaultFormat: "json",
     },
   );
 }
@@ -1395,4 +1596,4 @@ module.exports = {
   itemExport,
   ITEM_EXPORT_FORMATS,
   normalizeHtmlForDocumentExport,
-}
+};

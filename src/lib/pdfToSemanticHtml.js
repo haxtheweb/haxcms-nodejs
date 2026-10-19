@@ -1,4 +1,4 @@
-const { getResolvedPDFJS } = require('unpdf');
+const { getResolvedPDFJS } = require("unpdf");
 
 const DEFAULT_FONT_SIZE = 12;
 const HEADING_TOLERANCE = 0.75;
@@ -27,16 +27,13 @@ async function convertPdfBufferToHtml(buffer) {
       pages.push(lines);
     }
     return linesToSemanticHtml(pages);
-  }
-  catch (e) {
+  } catch (e) {
     throw new Error(`Unable to parse PDF: ${e.message}`);
-  }
-  finally {
-    if (loadingTask && typeof loadingTask.destroy === 'function') {
+  } finally {
+    if (loadingTask && typeof loadingTask.destroy === "function") {
       try {
         await loadingTask.destroy();
-      }
-      catch (e) {
+      } catch (e) {
         // no-op
       }
     }
@@ -46,14 +43,16 @@ async function convertPdfBufferToHtml(buffer) {
 function normalizeTextItemsToLines(textItems) {
   const items = [];
   for (const item of textItems) {
-    if (!item || typeof item.str !== 'string') {
+    if (!item || typeof item.str !== "string") {
       continue;
     }
     const cleanText = normalizeWhitespace(item.str);
-    if (cleanText === '') {
+    if (cleanText === "") {
       continue;
     }
-    const transform = Array.isArray(item.transform) ? item.transform : [0, 0, 0, 0, 0, 0];
+    const transform = Array.isArray(item.transform)
+      ? item.transform
+      : [0, 0, 0, 0, 0, 0];
     let x = Number(transform[4]);
     let y = Number(transform[5]);
     let width = Number(item.width);
@@ -102,7 +101,7 @@ function normalizeTextItemsToLines(textItems) {
   const lines = [];
   for (const row of rows) {
     row.items.sort((a, b) => a.x - b.x);
-    let lineText = '';
+    let lineText = "";
     let previous = null;
     let lineFontSize = DEFAULT_FONT_SIZE;
     for (const item of row.items) {
@@ -110,15 +109,15 @@ function normalizeTextItemsToLines(textItems) {
       if (previous) {
         const previousRightEdge = previous.x + previous.width;
         const gap = item.x - previousRightEdge;
-        if (gap > item.fontSize * 0.2 && !lineText.endsWith(' ')) {
-          lineText += ' ';
+        if (gap > item.fontSize * 0.2 && !lineText.endsWith(" ")) {
+          lineText += " ";
         }
       }
       lineText += item.text;
       previous = item;
     }
     lineText = normalizeWhitespace(lineText);
-    if (lineText !== '') {
+    if (lineText !== "") {
       lines.push({
         text: lineText,
         fontSize: lineFontSize,
@@ -135,32 +134,29 @@ function linesToSemanticHtml(pages) {
   const htmlParts = [];
 
   for (const lines of pages) {
-    let paragraphBuffer = '';
+    let paragraphBuffer = "";
     let activeListType = null;
     for (const line of lines) {
       const lineInfo = getLineInfo(line, headingSizes);
-      if (lineInfo.type === 'paragraph') {
+      if (lineInfo.type === "paragraph") {
         if (activeListType) {
           htmlParts.push(`</${activeListType}>`);
           activeListType = null;
         }
-        if (paragraphBuffer === '') {
+        if (paragraphBuffer === "") {
           paragraphBuffer = lineInfo.content;
-        }
-        else if (shouldMergeParagraph(paragraphBuffer, lineInfo.content)) {
+        } else if (shouldMergeParagraph(paragraphBuffer, lineInfo.content)) {
           paragraphBuffer += ` ${lineInfo.content}`;
-        }
-        else {
+        } else {
           htmlParts.push(`<p>${escapeHtml(paragraphBuffer)}</p>`);
           paragraphBuffer = lineInfo.content;
         }
-      }
-      else {
-        if (paragraphBuffer !== '') {
+      } else {
+        if (paragraphBuffer !== "") {
           htmlParts.push(`<p>${escapeHtml(paragraphBuffer)}</p>`);
-          paragraphBuffer = '';
+          paragraphBuffer = "";
         }
-        if (lineInfo.type === 'list') {
+        if (lineInfo.type === "list") {
           if (activeListType !== lineInfo.listType) {
             if (activeListType) {
               htmlParts.push(`</${activeListType}>`);
@@ -169,17 +165,18 @@ function linesToSemanticHtml(pages) {
             htmlParts.push(`<${activeListType}>`);
           }
           htmlParts.push(`<li>${escapeHtml(lineInfo.content)}</li>`);
-        }
-        else {
+        } else {
           if (activeListType) {
             htmlParts.push(`</${activeListType}>`);
             activeListType = null;
           }
-          htmlParts.push(`<${lineInfo.type}>${escapeHtml(lineInfo.content)}</${lineInfo.type}>`);
+          htmlParts.push(
+            `<${lineInfo.type}>${escapeHtml(lineInfo.content)}</${lineInfo.type}>`,
+          );
         }
       }
     }
-    if (paragraphBuffer !== '') {
+    if (paragraphBuffer !== "") {
       htmlParts.push(`<p>${escapeHtml(paragraphBuffer)}</p>`);
     }
     if (activeListType) {
@@ -188,9 +185,9 @@ function linesToSemanticHtml(pages) {
   }
 
   if (htmlParts.length === 0) {
-    return '<p></p>';
+    return "<p></p>";
   }
-  return htmlParts.join('\n');
+  return htmlParts.join("\n");
 }
 
 function getLineInfo(line, headingSizes) {
@@ -198,7 +195,7 @@ function getLineInfo(line, headingSizes) {
   const listMatch = getListMatch(rawText);
   if (listMatch) {
     return {
-      type: 'list',
+      type: "list",
       listType: listMatch.listType,
       content: listMatch.content,
     };
@@ -213,7 +210,7 @@ function getLineInfo(line, headingSizes) {
   }
 
   return {
-    type: 'paragraph',
+    type: "paragraph",
     content: rawText,
   };
 }
@@ -221,14 +218,14 @@ function getLineInfo(line, headingSizes) {
 function getListMatch(text) {
   if (/^[-\u2022\u25CF\u25AA\u25E6]\s+/.test(text)) {
     return {
-      listType: 'ul',
-      content: text.replace(/^[-\u2022\u25CF\u25AA\u25E6]\s+/, ''),
+      listType: "ul",
+      content: text.replace(/^[-\u2022\u25CF\u25AA\u25E6]\s+/, ""),
     };
   }
-  if (/^\(?\d+[\.\)]\s+/.test(text)) {
+  if (/^\(?\d+[.)]\s+/.test(text)) {
     return {
-      listType: 'ol',
-      content: text.replace(/^\(?\d+[\.\)]\s+/, ''),
+      listType: "ol",
+      content: text.replace(/^\(?\d+[.)]\s+/, ""),
     };
   }
   return null;
@@ -280,20 +277,29 @@ function getHeadingSizes(fontStats, bodyFontSize) {
 
 function getHeadingLevel(fontSize, headingSizes) {
   const normalized = normalizeFontSize(fontSize);
-  if (headingSizes.h1 && Math.abs(normalized - headingSizes.h1) <= HEADING_TOLERANCE) {
-    return 'h1';
+  if (
+    headingSizes.h1 &&
+    Math.abs(normalized - headingSizes.h1) <= HEADING_TOLERANCE
+  ) {
+    return "h1";
   }
-  if (headingSizes.h2 && Math.abs(normalized - headingSizes.h2) <= HEADING_TOLERANCE) {
-    return 'h2';
+  if (
+    headingSizes.h2 &&
+    Math.abs(normalized - headingSizes.h2) <= HEADING_TOLERANCE
+  ) {
+    return "h2";
   }
-  if (headingSizes.h3 && Math.abs(normalized - headingSizes.h3) <= HEADING_TOLERANCE) {
-    return 'h3';
+  if (
+    headingSizes.h3 &&
+    Math.abs(normalized - headingSizes.h3) <= HEADING_TOLERANCE
+  ) {
+    return "h3";
   }
   return null;
 }
 
 function looksLikeHeading(text) {
-  const words = text.split(/\s+/).filter((word) => word !== '');
+  const words = text.split(/\s+/).filter((word) => word !== "");
   if (words.length === 0) {
     return false;
   }
@@ -321,8 +327,8 @@ function shouldMergeParagraph(currentText, nextText) {
 
 function normalizeWhitespace(value) {
   return value
-    .replace(/\u0000/g, '')
-    .replace(/\s+/g, ' ')
+    .replace(/\u0000/g, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -339,8 +345,7 @@ function getItemFontSize(item) {
       const yScale = Number(transform[3]);
       if (Number.isFinite(yScale) && yScale !== 0) {
         size = Math.abs(yScale);
-      }
-      else if (Number.isFinite(xScale) && xScale !== 0) {
+      } else if (Number.isFinite(xScale) && xScale !== 0) {
         size = Math.abs(xScale);
       }
     }
@@ -353,9 +358,9 @@ function getItemFontSize(item) {
 
 function escapeHtml(value) {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 module.exports = {

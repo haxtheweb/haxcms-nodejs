@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+_sites
+_archived
+_published
+_config
+package-lock.json
+yarn.lock
+src/public/**
+src/lib/vendor/**
+src/boilerplate/**
+screenshots
+*.min.js

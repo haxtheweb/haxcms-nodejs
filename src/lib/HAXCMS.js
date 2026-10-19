@@ -1,18 +1,18 @@
-const fs = require('fs-extra');
-const path = require('path');
-const crypto = require('crypto');
-const JWT = require('jsonwebtoken');
-const { v4: uuidv4 } = require('uuid');
-const GitPlus = require('./GitPlus.js');
-const JSONOutlineSchema = require('./JSONOutlineSchema.js');
-const { discoverConfigPath } = require('./discoverConfigPath.js');
-const filter_var = require('./filter_var.js');
-const { resolveContainedPath, hasTraversal } = require('./pathConfinement.js');
-const explodeImport = require('locutus/php/strings/explode');
+const fs = require("fs-extra");
+const path = require("path");
+const crypto = require("crypto");
+const JWT = require("jsonwebtoken");
+const { v4: uuidv4 } = require("uuid");
+const GitPlus = require("./GitPlus.js");
+const JSONOutlineSchema = require("./JSONOutlineSchema.js");
+const { discoverConfigPath } = require("./discoverConfigPath.js");
+const filter_var = require("./filter_var.js");
+const { resolveContainedPath, hasTraversal } = require("./pathConfinement.js");
+const explodeImport = require("locutus/php/strings/explode");
 // may need to change as we get into CLI integration
 const HAXCMS_ROOT = process.env.HAXCMS_ROOT || path.join(process.cwd(), "/");
-const HAXCMS_DEFAULT_THEME = 'clean-two';
-const HAXCMS_FALLBACK_HEX = '#3f51b5';
+const HAXCMS_DEFAULT_THEME = "clean-two";
+const HAXCMS_FALLBACK_HEX = "#3f51b5";
 // Scoped .htaccess written into every site's .well-known/agent-skills/ dir.
 // CORS open so browser-based agents on other origins can fetch the index +
 // skills; script-execution hardening so a slipped-through script file can never
@@ -26,7 +26,7 @@ const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskil
 </IfModule>
 # Defense in depth: the discovery index only ships .md/.json/.txt, but harden
 # so a slipped-through script file can never execute server-side here.
-<FilesMatch "\.(php|phtml|php[3-7]|phps|pht|sh|cgi|pl|py)$">
+<FilesMatch ".(php|phtml|php[3-7]|phps|pht|sh|cgi|pl|py)$">
   php_flag engine off
   RemoveHandler .php .phtml .php3 .php4 .php5 .php7
   SetHandler text/plain
@@ -35,27 +35,40 @@ const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskil
 `;
 // Minimal HTML entity decoding for llms.txt summaries (mirrors PHP
 // html_entity_decode for the entities authored content commonly contains).
-function decodeLLMSEntities(text = '') {
-  const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
-  return String(text).replace(/&(#x[0-9a-f]+|#\d+|[a-z0-9]+);/gi, (match, entity) => {
-    const key = entity.toLowerCase();
-    if (key.startsWith('#x')) {
-      return String.fromCodePoint(parseInt(key.slice(2), 16));
-    }
-    if (key.startsWith('#')) {
-      return String.fromCodePoint(parseInt(key.slice(1), 10));
-    }
-    return Object.prototype.hasOwnProperty.call(named, key) ? named[key] : match;
-  });
+function decodeLLMSEntities(text = "") {
+  const named = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    nbsp: " ",
+    "#39": "'",
+  };
+  return String(text).replace(
+    /&(#x[0-9a-f]+|#\d+|[a-z0-9]+);/gi,
+    (match, entity) => {
+      const key = entity.toLowerCase();
+      if (key.startsWith("#x")) {
+        return String.fromCodePoint(parseInt(key.slice(2), 16));
+      }
+      if (key.startsWith("#")) {
+        return String.fromCodePoint(parseInt(key.slice(1), 10));
+      }
+      return Object.prototype.hasOwnProperty.call(named, key)
+        ? named[key]
+        : match;
+    },
+  );
 }
-const SITE_FILE_NAME = 'site.json';
+const SITE_FILE_NAME = "site.json";
 // Security (H1 rotation): grace window in seconds during which the immediately
 // previous refresh-token jti is still accepted, so concurrent multi-tab
 // refreshes don't mutually invalidate. Mirrors PHP HAXCMS_REFRESH_GRACE_SECONDS.
 const HAXCMS_REFRESH_GRACE_SECONDS = 30;
 // Security (SEC-DEPLOY): one-time file (mode 0600, config dir) that receives
 // the seeded admin password instead of printing it to non-interactive stderr.
-const SEEDED_PASSWORD_FILENAME = '.initial-admin-password';
+const SEEDED_PASSWORD_FILENAME = ".initial-admin-password";
 
 // Refresh-token lifetime (24h). Also bounds how long revocation tombstones are
 // kept: no token of a revoked family can outlive this (+60s clock tolerance).
@@ -73,51 +86,62 @@ const REFRESH_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
 // server-side via console.error only — never leaked to any HTTP response, and
 // this function never throws.
 function loadConfigJson(configDirectory) {
-  const configPath = path.join(configDirectory, 'config.json');
+  const configPath = path.join(configDirectory, "config.json");
   if (fs.existsSync(configPath)) {
     try {
-      const raw = fs.readFileSync(configPath, { encoding: 'utf8', flag: 'r' });
+      const raw = fs.readFileSync(configPath, { encoding: "utf8", flag: "r" });
       return JSON.parse(raw);
+    } catch (e) {
+      console.error(
+        "[HAXCMS] config.json exists but failed to parse; falling back to an in-memory default (no files were modified). Parse error: " +
+          e.message,
+      );
     }
-    catch (e) {
-      console.error('[HAXCMS] config.json exists but failed to parse; falling back to an in-memory default (no files were modified). Parse error: ' + e.message);
-    }
-  }
-  else {
-    console.error('[HAXCMS] config.json was not found; falling back to an in-memory default (no files were created).');
+  } else {
+    console.error(
+      "[HAXCMS] config.json was not found; falling back to an in-memory default (no files were created).",
+    );
   }
   // in-memory-only fallback shared by the missing and corrupt/empty cases.
   // Read the boilerplate config.json fresh each time — read-only, never
   // written anywhere.
   try {
-    const boilerplateConfigPath = path.join(__dirname, '/../boilerplate/systemsetup/config.json');
-    const raw = fs.readFileSync(boilerplateConfigPath, { encoding: 'utf8', flag: 'r' });
+    const boilerplateConfigPath = path.join(
+      __dirname,
+      "/../boilerplate/systemsetup/config.json",
+    );
+    const raw = fs.readFileSync(boilerplateConfigPath, {
+      encoding: "utf8",
+      flag: "r",
+    });
     return JSON.parse(raw);
-  }
-  catch (e) {
-    console.error('[HAXCMS] boilerplate config.json could not be read/parsed either; using a minimal built-in fallback. Cause: ' + e.message);
+  } catch (e) {
+    console.error(
+      "[HAXCMS] boilerplate config.json could not be read/parsed either; using a minimal built-in fallback. Cause: " +
+        e.message,
+    );
     return {
       themes: {},
       security: {},
       site: { settings: {}, git: {}, static: {}, publishers: {} },
       mcp: { enabled: true, readOnly: true },
-      deploymentProfile: 'single-site',
+      deploymentProfile: "single-site",
     };
   }
 }
 // HAXCMSSite which overlaps heavily and is referenced here often
-const utf8 = require('utf8');
-const JSONOutlineSchemaItem = require('./JSONOutlineSchemaItem.js');
-const FeedMe = require('./RSS.js');
-const TurndownService = require('turndown');
-const jsyaml = require('js-yaml');
-const arraySearchImport = require('locutus/php/array/array_search');
-const arrayUnshiftImport = require('locutus/php/array/array_unshift');
-const implodeImport = require('locutus/php/strings/implode');
-const arrayUniqueImport = require('locutus/php/array/array_unique');
-const jsonEncodeImport = require('locutus/php/json/json_encode');
-const strtrImport = require('locutus/php/strings/strtr');
-const usortImport = require('locutus/php/array/usort');
+const utf8 = require("utf8");
+const JSONOutlineSchemaItem = require("./JSONOutlineSchemaItem.js");
+const FeedMe = require("./RSS.js");
+const TurndownService = require("turndown");
+const jsyaml = require("js-yaml");
+const arraySearchImport = require("locutus/php/array/array_search");
+const arrayUnshiftImport = require("locutus/php/array/array_unshift");
+const implodeImport = require("locutus/php/strings/implode");
+const arrayUniqueImport = require("locutus/php/array/array_unique");
+const jsonEncodeImport = require("locutus/php/json/json_encode");
+const strtrImport = require("locutus/php/strings/strtr");
+const usortImport = require("locutus/php/array/usort");
 const explode = explodeImport.explode || explodeImport;
 const array_search = arraySearchImport.array_search || arraySearchImport;
 const array_unshift = arrayUnshiftImport.array_unshift || arrayUnshiftImport;
@@ -126,21 +150,23 @@ const array_unique = arrayUniqueImport.array_unique || arrayUniqueImport;
 const json_encode = jsonEncodeImport.json_encode || jsonEncodeImport;
 const strtr = strtrImport.strtr || strtrImport;
 const usort = usortImport.usort || usortImport;
-const sharp = require('sharp');
-const util  = require('node:util');
-const child_process  = require('child_process');
+const sharp = require("sharp");
+const util = require("node:util");
+const child_process = require("child_process");
 const {
   sanitizeHTMLForStorage,
   sanitizeURLValue,
   escapeHTMLAttribute,
   escapeXMLValue,
-} = require('./sanitizeContent.js');
-const { materializeInlineImages } = require('./materializeInlineImages.js');
-const { applyPageMetadata, toPlainText } = require('./sanitizePageMetadata.js');
+} = require("./sanitizeContent.js");
+const { materializeInlineImages } = require("./materializeInlineImages.js");
+const { applyPageMetadata, toPlainText } = require("./sanitizePageMetadata.js");
 const exec = util.promisify(child_process.exec);
+// Security (I3, 2026-10-19 audit): argument-array git calls (no shell string)
+const execFile = util.promisify(child_process.execFile);
 const turndownService = new TurndownService();
-turndownService.keep(function(node) {
-  return node && node.nodeName && String(node.nodeName).indexOf('-') !== -1;
+turndownService.keep(function (node) {
+  return node && node.nodeName && String(node.nodeName).indexOf("-") !== -1;
 });
 // Twig PHP-constant function (ported from PHP HAXcms). The service-worker.js
 // boilerplate template uses {{ swhash|json_encode(constant('JSON_PRETTY_PRINT'))|raw }},
@@ -150,7 +176,7 @@ turndownService.keep(function(node) {
 // {{ swhash... }} / {% if cdnRegex %}) on disk. Register a static allowlist
 // of the PHP JSON_* constants the templates reference; return null for anything
 // else so no env/global leaks (mirrors create CLI's ensureTwigConstantFunction).
-const Twig = require('twig');
+const Twig = require("twig");
 const TWIG_PHP_CONSTANTS = {
   JSON_PRETTY_PRINT: 128,
   JSON_HEX_TAG: 1,
@@ -162,8 +188,8 @@ const TWIG_PHP_CONSTANTS = {
   JSON_UNESCAPED_SLASHES: 64,
   JSON_UNESCAPED_UNICODE: 256,
 };
-Twig.extendFunction('constant', function constantLookup(name) {
-  if (typeof name !== 'string') {
+Twig.extendFunction("constant", function constantLookup(name) {
+  if (typeof name !== "string") {
     return null;
   }
   if (Object.prototype.hasOwnProperty.call(TWIG_PHP_CONSTANTS, name)) {
@@ -178,9 +204,11 @@ Twig.extendFunction('constant', function constantLookup(name) {
  * initial newSite() commit so site titles cannot inject git arguments.
  */
 function sanitizeGitCommitMessage(msg) {
-  var safeMsg = String(msg || 'Committed changes').replace(/[\x00-\x1f\x7f'"\\]/g, '').substring(0, 200);
-  if (safeMsg === '') {
-    safeMsg = 'Committed changes';
+  var safeMsg = String(msg || "Committed changes")
+    .replace(/[\x00-\x1f\x7f'"\\]/g, "")
+    .substring(0, 200);
+  if (safeMsg === "") {
+    safeMsg = "Committed changes";
   }
   return safeMsg;
 }
@@ -194,7 +222,7 @@ const GIT_BRANCH_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._\-/]*$/;
  * not use the ext:: transport (arbitrary command execution) anywhere.
  */
 function isSafeGitRemoteUrl(url) {
-  if (typeof url !== 'string' || url === '') {
+  if (typeof url !== "string" || url === "") {
     return false;
   }
   if (!/^(https:\/\/|git@)/.test(url)) {
@@ -203,7 +231,7 @@ function isSafeGitRemoteUrl(url) {
   if (/[\s'"\\\x00-\x1f\x7f]/.test(url)) {
     return false;
   }
-  if (/ext::/i.test(url) || url.indexOf('--') === 0) {
+  if (/ext::/i.test(url) || url.indexOf("--") === 0) {
     return false;
   }
   return true;
@@ -218,10 +246,10 @@ function isSafeGitRemoteUrl(url) {
  *  - text: no escaping (control-char/backslash rule only)
  */
 const MANAGED_TEMPLATE_TEXT_FORMATS = {
-  'manifest.json': 'json',
-  'package.json': 'json',
-  'imsmanifest.xml': 'xml',
-  'llms.txt': 'text',
+  "manifest.json": "json",
+  "package.json": "json",
+  "imsmanifest.xml": "xml",
+  "llms.txt": "text",
 };
 /**
  * Security (PR8-6) parity contract with PHP (PR2): before rendering managed
@@ -232,10 +260,10 @@ const MANAGED_TEMPLATE_TEXT_FORMATS = {
  * Non-string values are returned unchanged.
  */
 function sanitizeManagedTemplateText(value) {
-  if (typeof value !== 'string') {
+  if (typeof value !== "string") {
     return value;
   }
-  return value.replace(/[\r\n\t]/g, ' ').replace(/[\x00-\x1f\x7f\\]/g, '');
+  return value.replace(/[\r\n\t]/g, " ").replace(/[\x00-\x1f\x7f\\]/g, "");
 }
 /**
  * Security (PR8-6): escape an already rule-sanitized title/description for
@@ -243,13 +271,13 @@ function sanitizeManagedTemplateText(value) {
  */
 function escapeManagedTemplateText(value, format) {
   if (value === null || value === undefined) {
-    return '';
+    return "";
   }
   const text = sanitizeManagedTemplateText(String(value));
-  if (format === 'json') {
+  if (format === "json") {
     return JSON.stringify(text).slice(1, -1);
   }
-  if (format === 'xml') {
+  if (format === "xml") {
     return escapeXMLValue(text);
   }
   return text;
@@ -259,7 +287,10 @@ function escapeManagedTemplateText(value, format) {
  * description escaped for that file's format, everything else unchanged.
  */
 function managedTemplateVarsFor(fileName, templateVars) {
-  const format = Object.prototype.hasOwnProperty.call(MANAGED_TEMPLATE_TEXT_FORMATS, fileName)
+  const format = Object.prototype.hasOwnProperty.call(
+    MANAGED_TEMPLATE_TEXT_FORMATS,
+    fileName,
+  )
     ? MANAGED_TEMPLATE_TEXT_FORMATS[fileName]
     : null;
   if (!format) {
@@ -271,139 +302,143 @@ function managedTemplateVarsFor(fileName, templateVars) {
   });
 }
 // a site object
-class HAXCMSSite
-{
-    constructor() {
-        this.name;
-        this.manifest;
-        this.directory;
-        this.basePath = '/';
-        this.language = 'en-us';
-        this.siteDirectory;
-    }
-    /**
-     * Load a site based on directory and name. Assumes multi-site mode
-     */
-    async load(directory, siteBasePath, name)
-    {
-        this.name = name;
-        let tmpname = decodeURIComponent(name);
-        tmpname = HAXCMS.cleanTitle(tmpname, false);
-        this.basePath = siteBasePath;
-        this.directory = directory;
-        this.manifest = new JSONOutlineSchema();
-        await this.manifest.load(this.directory + '/' + tmpname + '/site.json');
-        this.siteDirectory = path.join(this.directory, tmpname);
-    }
-    /**
-     * Load a single site from a directory directly. Assumes single-site mode
-     */
-    async loadSingle(directory) {
-      this.name = path.basename(directory);
-      this.basePath = '/';
-      this.directory = directory;
-      this.manifest = new JSONOutlineSchema();
-      await this.manifest.load(path.join(directory, SITE_FILE_NAME));
-      // set additional value to ensure things requiring root find it since it is the root
-      this.siteDirectory = path.dirname(path.join(directory, SITE_FILE_NAME));
-    }
-    /**
-     * Initialize a new site with a single page to start the outline
-     * @var directory string file system path
-     * @var siteBasePath string web based url / base_path
-     * @var name string name of the site
-     * @var gitDetails git details
-     * @var domain domain information
-     *
-     * @return HAXCMSSite object
-     */
-    async newSite(
-        directory,
-        siteBasePath,
-        name,
-        gitDetails = null,
-        domain = null,
-        build = null
-    ) {
-      // calls must set basePath internally to avoid page association issues
-      this.basePath = siteBasePath;
-      this.directory = directory;
-      this.name = name;
-      // clean up name so it can be in a URL / published
-      let tmpname = decodeURIComponent(name);
-      tmpname = HAXCMS.cleanTitle(tmpname, false);
-      let loop = 0;
-      let newName = tmpname;
-      if (fs.existsSync(directory + "/" + newName)) {
-        while (fs.existsSync(directory  + "/" + newName)) {
-            loop++;
-            newName = tmpname + '-' + loop;
-        }
+class HAXCMSSite {
+  constructor() {
+    this.name;
+    this.manifest;
+    this.directory;
+    this.basePath = "/";
+    this.language = "en-us";
+    this.siteDirectory;
+  }
+  /**
+   * Load a site based on directory and name. Assumes multi-site mode
+   */
+  async load(directory, siteBasePath, name) {
+    this.name = name;
+    let tmpname = decodeURIComponent(name);
+    tmpname = HAXCMS.cleanTitle(tmpname, false);
+    this.basePath = siteBasePath;
+    this.directory = directory;
+    this.manifest = new JSONOutlineSchema();
+    await this.manifest.load(this.directory + "/" + tmpname + "/site.json");
+    this.siteDirectory = path.join(this.directory, tmpname);
+  }
+  /**
+   * Load a single site from a directory directly. Assumes single-site mode
+   */
+  async loadSingle(directory) {
+    this.name = path.basename(directory);
+    this.basePath = "/";
+    this.directory = directory;
+    this.manifest = new JSONOutlineSchema();
+    await this.manifest.load(path.join(directory, SITE_FILE_NAME));
+    // set additional value to ensure things requiring root find it since it is the root
+    this.siteDirectory = path.dirname(path.join(directory, SITE_FILE_NAME));
+  }
+  /**
+   * Initialize a new site with a single page to start the outline
+   * @var directory string file system path
+   * @var siteBasePath string web based url / base_path
+   * @var name string name of the site
+   * @var gitDetails git details
+   * @var domain domain information
+   *
+   * @return HAXCMSSite object
+   */
+  async newSite(
+    directory,
+    siteBasePath,
+    name,
+    gitDetails = null,
+    domain = null,
+    build = null,
+  ) {
+    // calls must set basePath internally to avoid page association issues
+    this.basePath = siteBasePath;
+    this.directory = directory;
+    this.name = name;
+    // clean up name so it can be in a URL / published
+    let tmpname = decodeURIComponent(name);
+    tmpname = HAXCMS.cleanTitle(tmpname, false);
+    let loop = 0;
+    let newName = tmpname;
+    if (fs.existsSync(directory + "/" + newName)) {
+      while (fs.existsSync(directory + "/" + newName)) {
+        loop++;
+        newName = tmpname + "-" + loop;
       }
-      tmpname = newName;
-      // siteDirectory set so we can discover this and work with it while it's being built
-      this.siteDirectory = path.join(this.directory, tmpname);
-      // attempt to shift it on the file system
-      // Security (N1/N5 parity): recurseCopy refuses traversal / escaping
-      // destinations; treat a refusal as a failed site creation (createSite
-      // already returns false when newSite does). The sites directory is the
-      // containment base, so make sure it exists (copySync used to create it
-      // implicitly) unless it is itself a traversal attempt.
-      if (!hasTraversal(directory)) {
-        fs.ensureDirSync(directory);
+    }
+    tmpname = newName;
+    // siteDirectory set so we can discover this and work with it while it's being built
+    this.siteDirectory = path.join(this.directory, tmpname);
+    // attempt to shift it on the file system
+    // Security (N1/N5 parity): recurseCopy refuses traversal / escaping
+    // destinations; treat a refusal as a failed site creation (createSite
+    // already returns false when newSite does). The sites directory is the
+    // containment base, so make sure it exists (copySync used to create it
+    // implicitly) unless it is itself a traversal attempt.
+    if (!hasTraversal(directory)) {
+      fs.ensureDirSync(directory);
+    }
+    const copied = await HAXCMS.recurseCopy(
+      HAXCMS.boilerplatePath + "site",
+      directory + "/" + tmpname,
+      [],
+      directory,
+    );
+    if (copied === false) {
+      return false;
+    }
+    try {
+      // create symlink to make it easier to resolve things to single built asset buckets
+      await fs.symlink("../../build", directory + "/" + tmpname + "/build");
+      // symlink to do local development if needed
+      await fs.symlink("../../dist", directory + "/" + tmpname + "/dist");
+      // symlink to do project development if needed
+      if (
+        fs.pathExistsSync(HAXCMS.HAXCMS_ROOT + "node_modules") &&
+        (fs.lstatSync(HAXCMS.HAXCMS_ROOT + "node_modules").isSymbolicLink() ||
+          fs.lstatSync(HAXCMS.HAXCMS_ROOT + "node_modules").isDirectory())
+      ) {
+        await fs.symlink(
+          "../../node_modules",
+          directory + "/" + tmpname + "/node_modules",
+        );
       }
-      const copied = await HAXCMS.recurseCopy(
-          HAXCMS.boilerplatePath + 'site',
-          directory + '/' + tmpname,
-          [],
-          directory
+      // links babel files so that unification is easier
+      await fs.symlink(
+        "../../wc-registry.json",
+        directory + "/" + tmpname + "/wc-registry.json",
       );
-      if (copied === false) {
-        return false;
+      await fs.symlink(
+        "../../../babel/babel-top.js",
+        directory + "/" + tmpname + "/assets/babel-top.js",
+      );
+      await fs.symlink(
+        "../../../babel/babel-bottom.js",
+        directory + "/" + tmpname + "/assets/babel-bottom.js",
+      );
+      // default support is for gh-pages
+      if (domain == null && gitDetails != null && gitDetails.user) {
+        domain = "https://" + gitDetails.user + ".github.io/" + tmpname;
+      } else if (domain != null) {
+        // put domain into CNAME not the github.io address if that exists
+        await fs.writeFileSync(directory + "/" + tmpname + "/CNAME", domain);
       }
-      try {
-        // create symlink to make it easier to resolve things to single built asset buckets
-        await fs.symlink('../../build', directory + '/' + tmpname + '/build');
-        // symlink to do local development if needed
-        await fs.symlink('../../dist', directory + '/' + tmpname + '/dist');
-        // symlink to do project development if needed
-        if (fs.pathExistsSync(HAXCMS.HAXCMS_ROOT + 'node_modules') && (fs.lstatSync(HAXCMS.HAXCMS_ROOT + 'node_modules').isSymbolicLink() || fs.lstatSync(HAXCMS.HAXCMS_ROOT + 'node_modules').isDirectory())) {
-          await fs.symlink(
-            '../../node_modules',
-            directory + '/' + tmpname + '/node_modules'
-            );
-        }
-        // links babel files so that unification is easier
-        await fs.symlink('../../wc-registry.json', directory + '/' + tmpname + '/wc-registry.json');
-        await fs.symlink(
-          '../../../babel/babel-top.js',
-          directory + '/' + tmpname + '/assets/babel-top.js'
-        );
-        await fs.symlink(
-            '../../../babel/babel-bottom.js',
-            directory + '/' + tmpname + '/assets/babel-bottom.js'
-        );
-        // default support is for gh-pages
-        if (domain == null && (gitDetails != null && gitDetails.user)) {
-          domain = 'https://' + gitDetails.user + '.github.io/' + tmpname;
-        } else if (domain != null) {
-            // put domain into CNAME not the github.io address if that exists
-            await fs.writeFileSync(directory + '/' + tmpname + '/CNAME', domain);
-        }
-      }
-      catch(e) {}
+    } catch (e) {}
     // load what we just created
     this.manifest = new JSONOutlineSchema();
     // where to save it to
-    this.manifest.file = directory + '/' + tmpname + '/site.json';
+    this.manifest.file = directory + "/" + tmpname + "/site.json";
     // start updating the schema to match this new item we got
     this.manifest.title = name;
-    this.manifest.location = this.basePath + tmpname + '/index.html';
+    this.manifest.location = this.basePath + tmpname + "/index.html";
     this.manifest.metadata = {};
     this.manifest.metadata.author = {};
     this.manifest.metadata.site = {};
     this.manifest.metadata.site.settings = {};
-    this.manifest.metadata.site.settings.lang = 'en';
+    this.manifest.metadata.site.settings.lang = "en";
     this.manifest.metadata.site.settings.canonical = true;
     this.manifest.metadata.site.settings.pathauto = true;
     this.manifest.metadata.site.name = tmpname;
@@ -415,1531 +450,1738 @@ class HAXCMSSite
     this.manifest.metadata.node = {};
     this.manifest.metadata.node.fields = {};
     this.manifest.items = [];
-      // create an initial page to make sense of what's there
-      // this will double as saving our location and other updated data
-      // accept a schema which can generate an array of pages to start
-      if (build == null) {
-        await this.addPage(null, 'Welcome', 'init', 'welcome');
-      }
-      else {
-        let pageSchema = [];
-        switch (build.structure) {
-          case 'from-skeleton':
-          case 'import':
-            // implies we had a backend service process much of what we are to build for an import
-            // from-skeleton uses same structure as import but comes from skeleton files
-            if (build.items) {
-              for (let i=0; i < build.items.length; i++) {
-                pageSchema.push({
-                  "parent" : build.items[i]['parent'],
-                  "title" : build.items[i]['title'],
-                  "template" : "html",
-                  "slug" : build.items[i]['slug'],
-                  "id" : build.items[i]['id'],
-                  "indent" : build.items[i]['indent'],
-                  "contents" : build.items[i]['content'] || build.items[i]['contents'] || '',
-                  "order" : build.items[i]['order'],
-                  "metadata" : (build.items[i]['metadata']) ? build.items[i]['metadata'] : null,
+    // create an initial page to make sense of what's there
+    // this will double as saving our location and other updated data
+    // accept a schema which can generate an array of pages to start
+    if (build == null) {
+      await this.addPage(null, "Welcome", "init", "welcome");
+    } else {
+      let pageSchema = [];
+      switch (build.structure) {
+        case "from-skeleton":
+        case "import":
+          // implies we had a backend service process much of what we are to build for an import
+          // from-skeleton uses same structure as import but comes from skeleton files
+          if (build.items) {
+            for (let i = 0; i < build.items.length; i++) {
+              pageSchema.push({
+                parent: build.items[i]["parent"],
+                title: build.items[i]["title"],
+                template: "html",
+                slug: build.items[i]["slug"],
+                id: build.items[i]["id"],
+                indent: build.items[i]["indent"],
+                contents:
+                  build.items[i]["content"] || build.items[i]["contents"] || "",
+                order: build.items[i]["order"],
+                metadata: build.items[i]["metadata"]
+                  ? build.items[i]["metadata"]
+                  : null,
               });
-              }
             }
-            for (let i=0; i < pageSchema.length; i++) {
-              if (pageSchema[i]['template'] == 'html') {
-                await this.addPage(
-                  pageSchema[i]['parent'], 
-                  pageSchema[i]['title'], 
-                  pageSchema[i]['template'], 
-                  pageSchema[i]['slug'],
-                  pageSchema[i]['id'],
-                  pageSchema[i]['indent'],
-                  pageSchema[i]['contents'],
-                  pageSchema[i]['order'],
-                  pageSchema[i]['metadata'],
-                );
-              }
-              else {
-                await this.addPage(pageSchema[i]['parent'], pageSchema[i]['title'], pageSchema[i]['template'], pageSchema[i]['slug']);
-              }
+          }
+          for (let i = 0; i < pageSchema.length; i++) {
+            if (pageSchema[i]["template"] == "html") {
+              await this.addPage(
+                pageSchema[i]["parent"],
+                pageSchema[i]["title"],
+                pageSchema[i]["template"],
+                pageSchema[i]["slug"],
+                pageSchema[i]["id"],
+                pageSchema[i]["indent"],
+                pageSchema[i]["contents"],
+                pageSchema[i]["order"],
+                pageSchema[i]["metadata"],
+              );
+            } else {
+              await this.addPage(
+                pageSchema[i]["parent"],
+                pageSchema[i]["title"],
+                pageSchema[i]["template"],
+                pageSchema[i]["slug"],
+              );
             }
+          }
           break;
-          case 'course':
-            pageSchema = [{ 
-                "parent" : null,
-                "title" : "Welcome to " + name,
-                "template" : "course",
-                "slug" : "welcome"
-            }];
-            switch (build.type) {
-              case 'docx import':
-                  // ensure we have items
-                if (build.items) {
-                  for (let i=0; i < build.items.length; i++) {
-                    pageSchema.push({
-                      "parent" : build.items[i]['parent'],
-                      "title" : build.items[i]['title'],
-                      "template" : "html",
-                      "slug" : build.items[i]['slug'],
-                      "id" : build.items[i]['id'],
-                      "indent" : build.items[i]['indent'],
-                      "contents" : build.items[i]['contents'],
-                      "order" : build.items[i]['order'],
-                      "metadata" : (build.items[i]['metadata']) ? build.items[i]['metadata'] : null,
-                    });
-                  }
-                }
-              break;
-              case '6w':
-                for (let i=0; i < 6; i++) {
+        case "course":
+          pageSchema = [
+            {
+              parent: null,
+              title: "Welcome to " + name,
+              template: "course",
+              slug: "welcome",
+            },
+          ];
+          switch (build.type) {
+            case "docx import":
+              // ensure we have items
+              if (build.items) {
+                for (let i = 0; i < build.items.length; i++) {
                   pageSchema.push({
-                    "parent" : null,
-                    "title" : "Lesson " + (i+1),
-                    "template" : "lesson",
-                    "slug" : "lesson-" + (i+1)
+                    parent: build.items[i]["parent"],
+                    title: build.items[i]["title"],
+                    template: "html",
+                    slug: build.items[i]["slug"],
+                    id: build.items[i]["id"],
+                    indent: build.items[i]["indent"],
+                    contents: build.items[i]["contents"],
+                    order: build.items[i]["order"],
+                    metadata: build.items[i]["metadata"]
+                      ? build.items[i]["metadata"]
+                      : null,
                   });
                 }
+              }
               break;
-              case '15w':
-                for (let i=0; i < 15; i++) {
-                  pageSchema.push({
-                    "parent" : null,
-                    "title" : "Lesson " + (i+1),
-                    "template" : "lesson",
-                    "slug" : "lesson-" + (i+1)
+            case "6w":
+              for (let i = 0; i < 6; i++) {
+                pageSchema.push({
+                  parent: null,
+                  title: "Lesson " + (i + 1),
+                  template: "lesson",
+                  slug: "lesson-" + (i + 1),
                 });
-                }
+              }
               break;
-              default:
-                /*pageSchema.push({
+            case "15w":
+              for (let i = 0; i < 15; i++) {
+                pageSchema.push({
+                  parent: null,
+                  title: "Lesson " + (i + 1),
+                  template: "lesson",
+                  slug: "lesson-" + (i + 1),
+                });
+              }
+              break;
+            default:
+              /*pageSchema.push({
                   "parent" : null,
                   "title" : "Lessons",
                   "template" : "default",
                   "slug" : "lessons"
                 });*/
               break;
-            }
-            /*pageSchema.push({
+          }
+          /*pageSchema.push({
               "parent" : null,
               "title" : "Glossary",
               "template" : "glossary",
               "slug" : "glossary"
             });*/
-            for (let i=0; i < pageSchema.length; i++) {
-              if (pageSchema[i]['template'] == 'html') {
-                await this.addPage(
-                  pageSchema[i]['parent'], 
-                  pageSchema[i]['title'], 
-                  pageSchema[i]['template'], 
-                  pageSchema[i]['slug'],
-                  pageSchema[i]['id'],
-                  pageSchema[i]['indent'],
-                  pageSchema[i]['contents'],
-                  pageSchema[i]['order'],
-                  pageSchema[i]['metadata'],
-                );
-              }
-              else {
-                await this.addPage(pageSchema[i]['parent'], pageSchema[i]['title'], pageSchema[i]['template'], pageSchema[i]['slug']);
-              }
-            }
-          break;
-          case 'blog':
-            await this.addPage(null, 'Article 1', 'init', 'article-1');
-            await this.addPage(null, 'Article 2', 'init', 'article-2');
-            await this.addPage(null, 'Meet the author', 'init', 'meet-the-author');
-          break;
-          case 'website':
-            switch (build.type) {
-              default:
-                await this.addPage(null, 'Home', 'init', 'home');
-              break;
-            }
-          break;
-          case 'collection':
-            await this.addPage(null, 'Home', 'collection', 'home');
-          break;
-          case 'training':
-            await this.addPage(null, 'Start', 'init', 'start');
-            break;
-          case 'portfolio':
-            switch (build.type) {
-              case 'art':
-                await this.addPage(null, 'Gallery 1', 'init', 'gallery-1');
-                await this.addPage(null, 'Gallery 2', 'init', 'gallery-2');
-                await this.addPage(null, 'Meet the artist', 'init', 'meet-the-artist');
-              break;
-              case 'business':
-              case 'technology':
-              default:
-                await this.addPage(null, 'Article 1', 'init', 'article-1');
-                await this.addPage(null, 'Article 2', 'init', 'article-2');
-                await this.addPage(null, 'Meet the author', 'init', 'meet-the-author');
-              break;
-            }
-          break;
-        }
-      }
-      try {
-        // write the managed files to ensure we get happy copies
-        await this.rebuildManagedFiles();
-      }
-      catch(e){}
-      try {
-        // put this in version control :) :) :)
-        const git = new GitPlus({
-          dir: directory + '/' + tmpname,
-          cliVersion: await this.gitTest()
-        });
-        // initalize git repo
-        await git.init();
-        await git.add();
-        // haxtheweb/issues#3116: fresh containers / CI often have no git identity,
-        // which made this commit fail with a stack trace and no initial commit
-        const restoreGitIdentity = await this.gitFallbackIdentity(directory + '/' + tmpname);
-        try {
-          // Security (PR8-3): the site title is user input; run it through the
-          // same sanitizer gitCommit() uses before it reaches git-interface.
-          await git.commit(sanitizeGitCommitMessage('A new journey begins: ' + this.manifest.title + ' (' + this.manifest.id + ')'));
-        }
-        finally {
-          restoreGitIdentity();
-        }
-        if (
-            !(this.manifest.metadata.site && this.manifest.metadata.site.git && this.manifest.metadata.site.git.url) &&
-            (gitDetails != null && gitDetails.url)
-        ) {
-            await this.gitSetRemote(gitDetails);
-        }
-      }
-      catch(e){
-        // one line instead of a stack trace; site creation itself succeeded
-        console.warn('HAXcms: initial git commit skipped: ' + String((e && e.message) || e).split('\n')[0]);
-      }
-      return this;
-    }
-    /**
-     * Return the forceUpgrade status which is whether to force end users to upgrade their browser
-     * @return string status of forced upgrade, string as boolean since it'll get written into a JS file
-     */
-    getForceUpgrade() {
-        if (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.forceUpgrade) {
-            return "true";
-        }
-        return "false";
-    }
-    /**
-     * Return the sw status
-     * @return string status of forced upgrade, string as boolean since it'll get written into a JS file
-     */
-    getServiceWorkerStatus() {
-        if (this.manifest.metadata.site.settings && (this.manifest.metadata.site.settings.sw) && this.manifest.metadata.site.settings.sw) {
-            return true;
-        }
-        return false;
-    }
-    async gitTest() {
-      try {
-        const { stdout, stderr } = await exec('git --version');
-        return stdout;
-      } catch (e) {
-        return null;
-      }
-    }
-    /**
-     * When no git identity is configured (config or env), supply a placeholder
-     * identity through GIT_AUTHOR_* / GIT_COMMITTER_* env vars for the next git
-     * call only. Never writes git config. Returns a function that restores the
-     * previous environment.
-     */
-    async gitFallbackIdentity(dir) {
-      const gitConfigValue = async (key) => {
-        try {
-          const { stdout } = await exec('git config ' + key, { cwd: dir });
-          return stdout.trim();
-        }
-        catch (e) {
-          return '';
-        }
-      };
-      const hasEmail = (process.env.GIT_AUTHOR_EMAIL && process.env.GIT_COMMITTER_EMAIL) || process.env.EMAIL || await gitConfigValue('user.email');
-      const hasName = (process.env.GIT_AUTHOR_NAME && process.env.GIT_COMMITTER_NAME) || await gitConfigValue('user.name');
-      let fallback = {};
-      if (!hasName) {
-        fallback.GIT_AUTHOR_NAME = 'HAXcms';
-        fallback.GIT_COMMITTER_NAME = 'HAXcms';
-      }
-      if (!hasEmail) {
-        fallback.GIT_AUTHOR_EMAIL = 'haxcms@localhost';
-        fallback.GIT_COMMITTER_EMAIL = 'haxcms@localhost';
-      }
-      const keys = Object.keys(fallback);
-      if (keys.length === 0) {
-        return () => {};
-      }
-      let previous = {};
-      keys.forEach((key) => {
-        previous[key] = process.env[key];
-        process.env[key] = fallback[key];
-      });
-      console.warn('HAXcms: no git identity configured; committing as "HAXcms <haxcms@localhost>". Set git config user.name and user.email to use your own.');
-      return () => {
-        keys.forEach((key) => {
-          if (previous[key] === undefined) {
-            delete process.env[key];
-          }
-          else {
-            process.env[key] = previous[key];
-          }
-        });
-      };
-    }
-    /**
-     * Return an array of files we care about rebuilding on managed file operations
-     * @return array keyed array of files we wish to pull from the boilerplate and keep in sync
-     */
-    getManagedTemplateFiles() {
-        return {
-          // HAX core / application / PWA requirements
-          'htaccess' : '.htaccess',
-          'build' : 'build.js',
-          'buildhaxcms' : 'build-haxcms.js',
-          'outdated' : 'assets/upgrade-browser.html',
-          'index' : 'index.html', // static published fallback
-          'ghpages' : 'ghpages.html', // github pages publishing for custom theme work
-          '404' : '404.html', // github / static published redirect appropriately
-          // seo / performance
-          'push' : 'push-manifest.json',
-          'robots' : 'robots.txt',
-          'llms' : 'llms.txt',
-          'securitytxt' : '.well-known/security.txt',
-          'apicatalog' : '.well-known/api-catalog',
-          // pwa related files
-          'msbc' : 'browserconfig.xml',
-          'manifest' : 'manifest.json',
-          'sw' : 'service-worker.js',
-          'offline' : 'offline.html', // pwa offline page
-          // local development tooling
-          'webdevserverhaxcmsconfigcjs' : 'web-dev-server.haxcms.config.cjs',
-          'package' : 'package.json',
-          // SCORM 1.2
-          'imsmdrootv1p2p1' : 'imsmd_rootv1p2p1.xsd',
-          'imscprootv1p1p2' : 'imscp_rootv1p1p2.xsd',
-          'adlcprootv1p2' : 'adlcp_rootv1p2.xsd',
-          'imsxml' : 'ims_xml.xsd',
-          'imsmanifest' : 'imsmanifest.xml',
-          // files directory execution hardening
-          'fileshtaccess' : 'files/.htaccess',
-        };
-    }
-    /**
-     * Build the default public base path for this site without protocol/host.
-     */
-    getDefaultSiteBasePath() {
-      let basePath = '/';
-      if (typeof this.basePath === 'string' && this.basePath !== '') {
-        basePath = this.basePath;
-      }
-      if (basePath.substring(0, 1) !== '/') {
-        basePath = '/' + basePath;
-      }
-      if (basePath.substring(basePath.length - 1) !== '/') {
-        basePath += '/';
-      }
-      return basePath + this.manifest.metadata.site.name + '/';
-    }
-    /**
-     * Compute the PWA scope / start_url path for this site.
-     * When a vanity domain is set (manifest.metadata.site.domain non-empty)
-     * the site is served from the domain root, so the PWA scope is '/'.
-     * Otherwise fall back to the internal multisite basePath + site.name.
-     */
-    getPWAScopePath() {
-      if (
-        this.manifest &&
-        this.manifest.metadata &&
-        this.manifest.metadata.site &&
-        this.manifest.metadata.site.domain &&
-        String(this.manifest.metadata.site.domain).trim() !== ''
-      ) {
-        return '/';
-      }
-      return this.getDefaultSiteBasePath();
-    }
-    /**
-     * Detect a legacy (@lrnwebcomponents) bootstrap in index.html and rebuild
-     * managed files once to upgrade it. Self-extinguishing: the rebuild copies
-     * in the modern (@haxtheweb) boilerplate so the tell is gone next load.
-     */
-    async maybeUpgradeLegacyBootstrap() {
-      try {
-        const indexPath = this.siteDirectory + '/index.html';
-        if (!fs.pathExistsSync(indexPath)) {
-          return;
-        }
-        const indexHtml = fs.readFileSync(indexPath, 'utf8');
-        if (!indexHtml || indexHtml.indexOf('@lrnwebcomponents') === -1) {
-          return;
-        }
-        await this.rebuildManagedFiles();
-        await this.gitCommit('Managed files upgraded: legacy bootstrap');
-      }
-      catch (e) {}
-    }
-    /**
-     * Reprocess the files that twig helps set in their static
-     * form that the user is not in control of.
-     */
-    async rebuildManagedFiles() {
-      let templates = this.getManagedTemplateFiles();
-      // this can't be there by default since it's a dynamic file and we only
-      // want to update this when we are refreshing the managed files directly
-      // not the case w/ non php backends but still fine for consistency
-      templates['indexphp'] = 'index.php';
-      for (var key in templates) {
-        const destinationPath = this.siteDirectory + '/' + templates[key];
-        const destinationDirectory = path.dirname(destinationPath);
-        if (!fs.pathExistsSync(destinationDirectory)) {
-          fs.mkdirpSync(destinationDirectory);
-        }
-        await fs.copySync(HAXCMS.boilerplatePath + "/site/" + templates[key], destinationPath);
-      }
-      // agent-skills discovery index + curated skill files (agentskills.io v0.2.0).
-      // Pre-curated by ubiquity into the boilerplate; explicit per-file copy with
-      // sha256 verification, no filtering, no site.json reads. Best-effort.
-      try {
-        await this.rebuildAgentSkills();
-      }
-      catch (e) {}
-      let licenseData = this.getLicenseData('all');
-      let licenseLink = '';
-      let licenseName = '';
-      let domain = null;
-      if ((this.manifest.license) && (licenseData[this.manifest.license])) {
-        licenseLink = licenseData[this.manifest.license]['link'];
-        licenseName = 'License: ' + licenseData[this.manifest.license]['name'];
-      }
-      if (this.manifest.metadata.site.domain) {
-        domain = this.manifest.metadata.site.domain;
-      }
-      if (domain == null || domain == '') {
-        let fallbackDomain = HAXCMS.getDomain();
-        const siteBasePath = this.getDefaultSiteBasePath();
-        if (!fallbackDomain || fallbackDomain == '') {
-          domain = siteBasePath;
-        }
-        else {
-          fallbackDomain = fallbackDomain.replace('iam.', 'oer.');
-          if (!/^https?:\/\//.test(fallbackDomain)) {
-            fallbackDomain = 'https://' + fallbackDomain;
-          }
-          domain = fallbackDomain.replace(/\/$/, '') + '/' + siteBasePath.replace(/^\//, '');
-        }
-      }
-      if (domain.substring(domain.length - 1) != '/') {
-        domain += '/';
-      }
-      let templateVars = {
-          'hexCode': HAXCMS.HAXCMS_FALLBACK_HEX,
-          'version': await HAXCMS.getHAXCMSVersion(),
-          'basePath' :
-              this.getPWAScopePath(),
-          'domain': domain,
-          // Security (PR8-6): see sanitizeManagedTemplateText
-          'title': sanitizeManagedTemplateText(this.manifest.title),
-          'short': this.manifest.metadata.site.name,
-          'privateSite' : (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.private) ? this.manifest.metadata.site.settings.private : false,
-          'description': sanitizeManagedTemplateText(this.manifest.description),
-          'forceUpgrade': this.getForceUpgrade(),
-          'swhash': [],
-          'ghPagesURLParamCount': 0,
-          'licenseLink': licenseLink,
-          'licenseName': licenseName,
-          'securityTxtExpires': new Date(Date.now() + (1000 * 60 * 60 * 24 * 180)).toISOString(),
-          'serviceWorkerScript': this.getServiceWorkerScript(this.getPWAScopePath()),
-          'bodyAttrs': this.getSitePageAttributes(),
-          'metadata': await this.getSiteMetadata(),
-          'logo512x512': await this.getLogoSize('512','512'),
-          'logo256x256': await this.getLogoSize('256','256'),
-          'logo192x192': await this.getLogoSize('192','192'),
-          'logo144x144': await this.getLogoSize('144','144'),
-          'logo96x96': await this.getLogoSize('96','96'),
-          'logo72x72': await this.getLogoSize('72','72'),
-          'logo48x48': await this.getLogoSize('48','48'),
-          'favicon': await this.getLogoSize('32','32'),
-      };
-      let swItems = [...this.manifest.items];
-      // the core files you need in every SW manifest
-      let coreFiles = [
-          'index.html',
-          await this.getLogoSize('512','512'),
-          await this.getLogoSize('256','256'),
-          await this.getLogoSize('192','192'),
-          await this.getLogoSize('144','144'),
-          await this.getLogoSize('96','96'),
-          await this.getLogoSize('72','72'),
-          await this.getLogoSize('48','48'),
-          'manifest.json',
-          'site.json',
-          '404.html',
-      ];
-      let handle;
-      // loop through files directory so we can cache those things too
-      if (handle = fs.readdirSync(this.siteDirectory + '/files')) {
-        handle.forEach(file => {
-          if (
-              file != "." &&
-              file != ".." &&
-              file != '.gitkeep' &&
-              file != '.DS_Store' &&
-              file != '.htaccess'
-          ) {
-            // ensure this is a file
-            if (
-              fs.lstatSync(this.siteDirectory + '/files/' + file).isFile()
-            ) {
-                coreFiles.push('files/' + file);
+          for (let i = 0; i < pageSchema.length; i++) {
+            if (pageSchema[i]["template"] == "html") {
+              await this.addPage(
+                pageSchema[i]["parent"],
+                pageSchema[i]["title"],
+                pageSchema[i]["template"],
+                pageSchema[i]["slug"],
+                pageSchema[i]["id"],
+                pageSchema[i]["indent"],
+                pageSchema[i]["contents"],
+                pageSchema[i]["order"],
+                pageSchema[i]["metadata"],
+              );
             } else {
-                // @todo maybe step into directories?
-            }
-          }
-        });
-      }
-      for (var key in coreFiles) {
-          let coreItem = {};
-          coreItem.location = coreFiles[key];
-          swItems.push(coreItem);
-      }
-      // generate a legit hash value that's the same for each file name + file size
-      for (var key in swItems) {
-        let filesize;
-        let item = swItems[key];
-        if (
-            item.location === '' ||
-            item.location === templateVars['basePath']
-        ) {
-            filesize = await fs.statSync(
-              this.siteDirectory + '/index.html'
-            ).size;
-        } else if (
-          // Security (N1/N5 parity): only stat locations contained in the site
-          this.validatePageLocation(item.location) &&
-          fs.lstatSync(this.resolvePageLocationRealPath(item.location)).isFile()
-        ) {
-            filesize = await fs.statSync(
-              this.resolvePageLocationRealPath(item.location)
-            ).size;
-        } else {
-            // ?? file referenced but doesn't exist
-            filesize = 0;
-        }
-        if (filesize !== 0) {
-          templateVars['swhash'].push([
-              item.location,
-              strtr(
-                HAXCMS.hmacBase64(
-                      item.location + filesize,
-                      'haxcmsswhash',
-                  ),
-                  {
-                      '+':'',
-                      '/':'',
-                      '=':'',
-                      '-':''
-                  }
-              )
-          ]);
-        }
-      }
-      if (this.manifest.metadata.theme && this.manifest.metadata.theme.variables && this.manifest.metadata.theme.variables.hexCode) {
-        templateVars['hexCode'] = this.manifest.metadata.theme.variables.hexCode;
-      }
-      // put the twig written output into the file
-      var Twig = require('twig');
-      for (var key in templates) {
-        // ensure files exist before going to write them
-          if (await fs.lstatSync(this.siteDirectory + '/' + templates[key]).isFile()) {
-            try {
-              let fileData = await fs.readFileSync(this.siteDirectory + '/' + templates[key],
-                {encoding:'utf8', flag:'r'}, 'utf8');
-              let template = await Twig.twig({data: fileData, async: false});
-              // Security (PR8-6): title/description pre-escaped per format
-              // (JSON string / XML / plain text) for the managed files that
-              // embed them; see MANAGED_TEMPLATE_TEXT_FORMATS.
-              let templatedHTML = template.render(managedTemplateVarsFor(templates[key], templateVars));
-              await fs.writeFileSync(this.siteDirectory + '/' + templates[key], templatedHTML);           
-            }
-            catch(e) {}
-          }
-      }
-      try {
-        await this.updateAlternateFormats('llms');
-      }
-      catch (e) {}
-    }
-    /**
-     * Copy the boilerplate .well-known/agent-skills/ directory into the site.
-     * The boilerplate dir is pre-curated by ubiquity (site set only), so this
-     * does NO filtering and reads NO site.json. For each skill in the boilerplate
-     * index.json, copy SKILL.md + every files[] entry individually (flat copy,
-     * no recursion) with sha256 verification against the declared digest. Only
-     * .md / .json / .txt extensions are copied (defense in depth). Best-effort:
-     * a digest mismatch or missing file warns and continues; agent-skills never
-     * blocks a site save. Silent no-op if the boilerplate agent-skills index is
-     * absent (e.g. before ubiquity has populated it). Also writes a scoped
-     * .htaccess (CORS + script-execution hardening) for Apache-hosted sites.
-     */
-    async rebuildAgentSkills() {
-      let boilerAS = HAXCMS.boilerplatePath + '/site/.well-known/agent-skills';
-      let boilerIndex = boilerAS + '/index.json';
-      if (!fs.pathExistsSync(boilerIndex)) {
-        // ubiquity hasn't populated agent-skills yet; nothing to do
-        return;
-      }
-      let index;
-      try {
-        index = JSON.parse(fs.readFileSync(boilerIndex, 'utf8'));
-      } catch (e) {
-        return;
-      }
-      if (!index || !Array.isArray(index.skills)) {
-        return;
-      }
-      let siteAS = this.siteDirectory + '/.well-known/agent-skills';
-      // clean the site agent-skills dir so removed skills don't linger
-      try {
-        fs.removeSync(siteAS);
-      } catch (e) {}
-      fs.mkdirpSync(siteAS);
-      // scoped .htaccess: CORS + script-execution hardening (harmless on Node/static)
-      fs.writeFileSync(siteAS + '/.htaccess', HAXCMS_AGENT_SKILLS_HTACCESS);
-      // copy the index through verbatim
-      try {
-        fs.copySync(boilerIndex, siteAS + '/index.json');
-      } catch (e) {}
-      let allowedAuxExt = { md: true, json: true, txt: true };
-      for (let i = 0; i < index.skills.length; i++) {
-        let skill = index.skills[i];
-        if (!skill || !skill.name || !skill.url) {
-          continue;
-        }
-        // skill.url is relative, e.g. "hax-site-structure/SKILL.md"
-        let skillMdBoiler = boilerAS + '/' + skill.url;
-        let skillMdSite = siteAS + '/' + skill.url;
-        if (fs.pathExistsSync(skillMdBoiler)) {
-          let bytes = fs.readFileSync(skillMdBoiler);
-          let hash = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
-          if (skill.digest && hash === skill.digest) {
-            fs.mkdirpSync(path.dirname(skillMdSite));
-            fs.writeFileSync(skillMdSite, bytes);
-          } else {
-            console.warn('agent-skills: digest mismatch for ' + skill.url + ', skipping');
-          }
-        }
-        if (Array.isArray(skill.files)) {
-          for (let j = 0; j < skill.files.length; j++) {
-            let f = skill.files[j];
-            if (!f || !f.path) {
-              continue;
-            }
-            let ext = String(f.path).split('.').pop().toLowerCase();
-            if (!allowedAuxExt[ext]) {
-              continue;
-            }
-            let fBoiler = boilerAS + '/' + skill.name + '/' + f.path;
-            let fSite = siteAS + '/' + skill.name + '/' + f.path;
-            if (fs.pathExistsSync(fBoiler)) {
-              let bytes = fs.readFileSync(fBoiler);
-              let hash = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
-              if (f.digest && hash === f.digest) {
-                fs.mkdirpSync(path.dirname(fSite));
-                fs.writeFileSync(fSite, bytes);
-              } else {
-                console.warn('agent-skills: digest mismatch for ' + skill.name + '/' + f.path + ', skipping');
-              }
-            }
-          }
-        }
-      }
-    }
-    /**
-     * Rename a page from one location to another
-     * This ensures that folders are moved but not the final index.html involved
-     * It also helps secure the sites by ensuring movement is only within
-     * their folder tree
-     */
-    async renamePageLocation(oldItem, newItem) {        
-        oldItem = oldItem.replace('./', '').replace('../', '');
-        newItem = newItem.replace('./', '').replace('../', '');
-        // ensure the path to the new folder is valid
-        if (await fs.pathExistsSync(this.siteDirectory + '/' + oldItem) &&
-          await fs.lstatSync(this.siteDirectory + '/' + oldItem).isFile()) {
-            await fs.moveSync(
-              this.siteDirectory + '/' + oldItem.replace('/index.html', ''),
-              this.siteDirectory + '/' + newItem.replace('/index.html', '')
-            );
-            await fs.unlinkSync(this.siteDirectory + '/' + oldItem);
-        }
-    }
-    /**
-     * Basic wrapper to commit current changes to version control of the site
-     */
-    async gitCommit(msg = 'Committed changes')
-    {
-        try {
-          // Security (HAX-SEC-006): sanitize the commit message to a conservative
-          // allowlist before it reaches git-interface, which string-splits the
-          // command (git-interface/dist/index.js:26) and only escapes single
-          // quotes. A message containing a quote/control char could break the
-          // quoted token and inject git arguments. This is defense-in-depth;
-          // callers should also avoid passing user input (files.js uses the
-          // server-generated sanitized filename, not upload.originalname).
-          var safeMsg = sanitizeGitCommitMessage(msg);
-          // commit, true flag will attempt to make this a git repo if it currently isn't
-          const git = new GitPlus({
-            dir: this.siteDirectory,
-            cliVersion: await this.gitTest()
-          });
-          await git.add();
-          await git.commit(safeMsg);
-          // commit should execute the automatic push flag if it's on
-          if ((this.manifest.metadata.site.git.autoPush) && this.manifest.metadata.site.git.autoPush && (this.manifest.metadata.site.git.branch)) {
-            // Security (HAX-SEC-006): validate the branch name against a strict
-            // pattern before checkout to prevent git argument injection via a
-            // configured branch name containing shell/arg metacharacters.
-            // Security (PR8-3): must start alphanumeric so a leading `-` can
-            // never be parsed as a git option.
-            var branch = String(this.manifest.metadata.site.git.branch);
-            if (GIT_BRANCH_PATTERN.test(branch)) {
-              await git.checkout(branch);
-              await git.push();
-            }
-          }
-        }
-        catch(e){}
-        return true;
-    }
-    /**
-     * Basic wrapper to revert top commit of the site
-     */
-    async gitRevert(count = 1)
-    {
-      try {
-        const git = new GitPlus({
-          dir: this.siteDirectory,
-          cliVersion: await this.gitTest()
-        });
-        await git.revert(count);
-      }
-      catch(e){}
-      return true;
-    }
-    /**
-     * Basic wrapper to commit current changes to version control of the site
-     */
-    async gitPush()
-    {
-      try {
-        const git = new GitPlus({
-          dir: this.siteDirectory,
-          cliVersion: await this.gitTest()
-        });
-        await git.add();
-        await git.commit("commit forced");
-        await git.push();
-      }
-      catch(e){}
-      return true;
-    }
-
-    /**
-     * Basic wrapper to commit current changes to version control of the site
-     *
-     * @var git a stdClass containing repo details
-     */
-    async gitSetRemote(gitDetails)
-    {
-      // Security (PR8-3): previously referenced an undefined `repo` and always
-      // threw (silently swallowed). Validate the URL before it reaches
-      // git-interface (which splits the command on whitespace) and use the
-      // GitPlus instance. Mirrors PHP set_remote (`git remote add origin`),
-      // falling back to `remote set-url` when origin already exists.
-      const url = gitDetails && typeof gitDetails.url === 'string' ? gitDetails.url.trim() : '';
-      if (!isSafeGitRemoteUrl(url)) {
-        console.warn('HAXcms: refusing to set git remote: URL must start with https:// or git@ and contain no whitespace, quotes or ext:: transport');
-        return false;
-      }
-      try {
-        const git = new GitPlus({
-          dir: this.siteDirectory,
-          cliVersion: await this.gitTest()
-        });
-        try {
-          await git.addRemote("origin", url);
-        }
-        catch (e) {
-          await git.setRemote("origin", url);
-        }
-      }
-      catch(e){
-        return false;
-      }
-      return true;
-    }
-    /**
-     * Add a page to the site's file system and reflect it in the outine schema.
-     *
-     * @var parent JSONOutlineSchemaItem representing a parent to add this page under
-     * @var title title of the new page to create
-     * @var template string which boilerplate page template / directory to load
-     *
-     * @return page repesented as JSONOutlineSchemaItem
-     */
-    async addPage(parent = null, title = 'New page', template = "default", slug = 'welcome', id = null, indent = null, html = '<p></p>', order = null, metadata = null)
-    {
-        // draft an outline schema item
-        let page = new JSONOutlineSchemaItem();
-        // support direct ID setting, useful for parent associations calculated ahead of time
-        if (id) {
-          // Security (N1/N5 parity): sanitize caller-supplied id before it is
-          // used to build the on-disk page location (same defense as
-          // itemFromParams / PHP HAXCMSSite::addPage), so a crafted id such as
-          // `../../othersite` cannot escape the site pages directory.
-          page.id = HAXCMS.generateMachineName(id);
-        }
-        // set a crappy default title
-        // Security (SEC-SANITIZE): title can come straight from a request
-        // (createNode items[]); store plain text like saveOutline / PHP
-        title = toPlainText(title);
-        if (title === '') {
-          title = 'New page';
-        }
-        page.title = title;
-        if (parent == null) {
-          page.parent = null;
-          page.indent = 0;
-        }
-        else if (typeof parent === 'string' || parent instanceof String) {
-          // set to the parent id
-          page.parent = parent;
-          // move it one indentation below the parent; this can be changed later if desired
-          page.indent = indent;
-        } else {
-          // set to the parent id
-          page.parent = parent.id;
-          // move it one indentation below the parent; this can be changed later if desired
-          page.indent = parent.indent + 1;
-        }
-        // set order to the page's count for default add to end ordering
-        if (order || order === 0) {
-          page.order = order;
-        }
-        else {
-          page.order = this.manifest.items.length;
-        }
-        // location is the html file we just copied and renamed
-        page.location = 'pages/' + page.id + '/index.html';
-        // sanitize slug but dont trust it was anything
-        if (slug == '') {
-          slug = title;
-        }
-        page.slug = this.getUniqueSlugName(HAXCMS.cleanTitle(slug));
-        // support presetting multiple metadata attributes like tags, pageType, etc
-        // Security (SEC-SANITIZE): metadata can come straight from a request
-        // (createNode items[]); apply saveNode's per-field rules
-        if (metadata) {
-          applyPageMetadata(page, metadata, { themes: HAXCMS.getThemes() });
-        }
-        page.metadata.created = Math.floor(Date.now() / 1000);
-        page.metadata.updated = Math.floor(Date.now() / 1000);
-        let location = path.join(this.siteDirectory, 'pages', page.id);
-        // copy the page we use for simplicity (or later complexity if we want)
-        switch (template) {
-            case 'course':
-            case 'glossary':
-            case 'collection':
-            case 'init':
-            case 'lesson':
-            case 'default':
-              await HAXCMS.recurseCopy(HAXCMS.boilerplatePath + 'page/' + template, location, [], this.siteDirectory);
-            break;
-            // didn't understand it, just go default
-            default:
-              await HAXCMS.recurseCopy(HAXCMS.boilerplatePath + 'page/default', location, [], this.siteDirectory);
-            break;
-        }
-        this.manifest.addItem(page);
-        this.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
-        await this.manifest.save();
-        // support direct HTML setting
-        let alternateContent = '';
-        if (template == 'html') {
-          // now this should exist if it didn't a minute ago
-          const { html: rewritten, uuids } = await materializeInlineImages(html, this, {
-            pageTitle: title,
-          });
-          alternateContent = sanitizeHTMLForStorage(rewritten);
-          let bytes = page.writeLocation(
-            alternateContent,
-            this.siteDirectory
-          );
-          // #3043: imported files are referenced by their FileEntity uuid
-          // (the same source saveNode uses), sourced directly from the
-          // Entity API by materializeInlineImages. Set page.metadata.files
-          // from those uuids rather than re-scanning the content: mammoth
-          // docx output carries images as data URIs (which the helper just
-          // saved), not pre-existing files/ refs, so the entity uuids are
-          // the complete set. Pre-existing files/ refs in imported HTML are
-          // reconciled by saveNode's content scan on the next edit.
-          if (!page.metadata) {
-            page.metadata = {};
-          }
-          page.metadata.files = uuids;
-          if (uuids.length > 0) {
-            await this.manifest.save();
-          }
-        }
-        this.writePageAlternateFormats(page, alternateContent);
-        this.updateAlternateFormats();
-        return page;
-    }
-    /**
-     * Save the site, though this basically is just a mapping to the manifest site.json saving
-     */
-    async save(reorder = true) {
-      await this.manifest.save(reorder);
-    }
-    /**
-     * Update RSS, Atom feeds, site map, legacy outline, search index
-     * which are physical files and need rebuilt on chnages to data structure
-     */
-    async updateAlternateFormats(format = null)
-    {
-        let rss = new FeedMe();
-        let domain = null;
-        if (this.manifest.metadata.site.domain) {
-          domain = this.manifest.metadata.site.domain;
-        }
-        if (domain == null || domain == '') {
-          // mirror PHP fallback behavior for generated feeds
-          let fallbackDomain = HAXCMS.getDomain();
-          const siteBasePath = this.getDefaultSiteBasePath();
-          if (!fallbackDomain || fallbackDomain == '') {
-            domain = siteBasePath;
-          }
-          else {
-            fallbackDomain = fallbackDomain.replace('iam.', 'oer.');
-            if (!/^https?:\/\//.test(fallbackDomain)) {
-              fallbackDomain = 'https://' + fallbackDomain;
-            }
-            domain = fallbackDomain.replace(/\/$/, '') + '/' + siteBasePath.replace(/^\//, '');
-          }
-        }
-        if (format == null || format == 'rss') {
-            try {
-              fs.writeFileSync(this.siteDirectory + '/rss.xml', rss.getRSSFeed(this, domain));
-              fs.writeFileSync(
-                this.siteDirectory + '/atom.xml',
-                rss.getAtomFeed(this, domain)
+              await this.addPage(
+                pageSchema[i]["parent"],
+                pageSchema[i]["title"],
+                pageSchema[i]["template"],
+                pageSchema[i]["slug"],
               );
             }
-            catch (e) {
-              // keep parity with PHP behavior: never hard fail a save on feed serialization
-            }
-        }
-        if (format == null || format == 'sitemap') {
-            try {
-              if (domain != null && domain != '') {
-                fs.writeFileSync(this.siteDirectory + '/sitemap.xml', rss.getSitemap(this, domain));
-                fs.writeFileSync(
-                  this.siteDirectory + '/sitemap-index.xml',
-                  rss.getSitemapIndex(domain)
-                );
-              }
-            }
-            catch (e) {
-              // keep parity with PHP behavior: never hard fail a save on sitemap serialization
-            }
-        }
-        if (format == null || format == 'search') {
-            // now generate the search index
-            await fs.writeFileSync(
-              this.siteDirectory + '/lunrSearchIndex.json',
-                    json_encode(await this.lunrSearchIndex(this.manifest.items))
-            );
-        }
-        if (format == null || format == 'llms') {
-            try {
-              fs.writeFileSync(this.siteDirectory + '/llms.txt', this.getLLMSTxt(domain));
-            }
-            catch (e) {
-              // keep parity with PHP behavior: never hard fail a save on llms serialization
-            }
-        }
-    }
-    /**
-     * Generate llms.txt content based on site structure and generated markdown pages.
-     */
-    getLLMSTxt(domain = '') {
-      let title = this.getLLMSSafeText(this.manifest.title);
-      if (title == '') {
-        title = this.getLLMSSafeText(this.name);
-      }
-      if (title == '') {
-        title = 'HAXcms site';
-      }
-      let lines = ['# ' + title];
-      let description = this.getLLMSSafeText(this.manifest.description);
-      if (description != '') {
-        lines.push('');
-        lines.push('> ' + description);
-      }
-      lines.push('');
-      lines.push('HAXcms is a file-based CMS: authored pages and metadata are stored as portable files, not locked into a database-only workflow.');
-      lines.push('The canonical site structure is `site.json`, represented in JSON Outline Schema (`id`, `parent`, `order`, `slug`, `location`, and `metadata`).');
-      lines.push('Use HAX CLI and ecosystem tooling to maintain human-authored content while keeping machine-readable outputs synchronized.');
-      lines.push('Managed files (feeds, search indexes, manifests, and this `llms.txt`) are generated artifacts and should be rebuilt by tooling.');
-      lines.push('');
-      lines.push('## Core resources');
-      lines.push('- [site.json](' + this.getLLMSResourceURL(domain, 'site.json') + '): Canonical site manifest and navigation tree in JSON Outline Schema format.');
-      lines.push('- [llms.txt](' + this.getLLMSResourceURL(domain, 'llms.txt') + '): LLM-oriented guide to this site and its machine-readable resources.');
-      lines.push('- [llms-full.txt](' + this.getLLMSResourceURL(domain, 'llms-full.txt') + '): The whole site as one markdown document, in outline order.');
-      lines.push('- [Whole site as HTML](' + this.getLLMSResourceURL(domain, 'x/api/v1/site/export/html') + '): Every page in one HTML document.');
-      // haxtheweb/issues#3116: point agents at AGENTS.md (older sites may not have one)
-      if (this.siteDirectory && fs.existsSync(path.join(this.siteDirectory, 'AGENTS.md'))) {
-        lines.push('- [AGENTS.md](' + this.getLLMSResourceURL(domain, 'AGENTS.md') + '): Instructions for AI agents working on this site\'s files.');
-      }
-      lines.push('');
-      lines.push('## Pages');
-      let items = [];
-      if (this.manifest && this.manifest.items) {
-        items = this.manifest.orderTree(this.manifest.items);
-      }
-      let hasPages = false;
-      const regionItemIds = this.getThemeRegionItemIds();
-      for (let key in items) {
-        let item = items[key];
-        if (!item || !item.location) {
-          continue;
-        }
-        // agents only see what an anonymous visitor can open: skip unpublished
-        // and hidden pages, plus theme-region content (header/footer blocks)
-        if (!this.isItemListedForAgents(item, regionItemIds)) {
-          continue;
-        }
-        let markdownLocation = this.getPageAlternateLocation(item.location, 'md');
-        if (markdownLocation == '') {
-          continue;
-        }
-        let itemTitle = this.getLLMSSafeLinkText(item.title || item.slug || item.id || 'Untitled page');
-        let itemDescription = this.getLLMSPageSummary(item, this.getLLMSSafeText(item.description), markdownLocation);
-        let line = '- [' + itemTitle + '](' + this.getLLMSResourceURL(domain, markdownLocation) + ')';
-        if (itemDescription != '') {
-          line += ': ' + itemDescription;
-        }
-        lines.push(line);
-        hasPages = true;
-      }
-      if (!hasPages) {
-        lines.push('- [Site outline](' + this.getLLMSResourceURL(domain, 'site.json') + '): No page markdown files are currently available.');
-      }
-      lines.push('');
-      lines.push('## Optional');
-      lines.push('- [Search index](' + this.getLLMSResourceURL(domain, 'lunrSearchIndex.json') + '): Lunr corpus for quick full-text retrieval.');
-      lines.push('- [RSS feed](' + this.getLLMSResourceURL(domain, 'rss.xml') + '): Site updates in RSS format.');
-      lines.push('- [Atom feed](' + this.getLLMSResourceURL(domain, 'atom.xml') + '): Site updates in Atom format.');
-      lines.push('- [Sitemap](' + this.getLLMSResourceURL(domain, 'sitemap.xml') + '): URL-level discovery map for the published site.');
-      lines.push('- [Agent skills](' + this.getLLMSResourceURL(domain, '.well-known/agent-skills/index.json') + '): Agent Skills discovery index (agentskills.io v0.2.0) listing skills that teach an agent how to read, author, audit, and remix this site.');
-      return lines.join('\n') + '\n';
-    }
-    /**
-     * Item ids placed in theme regions (manifest.metadata.theme.regions), e.g.
-     * header and footer content. These render inside every page rather than
-     * as pages of their own, so they are left out of llms.txt.
-     * Mirrors PHP HAXCMSSite::getThemeRegionItemIds.
-     */
-    getThemeRegionItemIds() {
-      const ids = new Set();
-      const regions = this.manifest && this.manifest.metadata && this.manifest.metadata.theme
-        ? this.manifest.metadata.theme.regions
-        : null;
-      if (!regions || typeof regions !== 'object') {
-        return ids;
-      }
-      for (const key of Object.keys(regions)) {
-        const regionItems = regions[key];
-        if (typeof regionItems === 'string' && regionItems !== '') {
-          ids.add(regionItems);
-        }
-        else if (regionItems && typeof regionItems === 'object') {
-          for (const regionItemId of Object.values(regionItems)) {
-            if (typeof regionItemId === 'string' && regionItemId !== '') {
-              ids.add(regionItemId);
-            }
           }
-        }
+          break;
+        case "blog":
+          await this.addPage(null, "Article 1", "init", "article-1");
+          await this.addPage(null, "Article 2", "init", "article-2");
+          await this.addPage(
+            null,
+            "Meet the author",
+            "init",
+            "meet-the-author",
+          );
+          break;
+        case "website":
+          switch (build.type) {
+            default:
+              await this.addPage(null, "Home", "init", "home");
+              break;
+          }
+          break;
+        case "collection":
+          await this.addPage(null, "Home", "collection", "home");
+          break;
+        case "training":
+          await this.addPage(null, "Start", "init", "start");
+          break;
+        case "portfolio":
+          switch (build.type) {
+            case "art":
+              await this.addPage(null, "Gallery 1", "init", "gallery-1");
+              await this.addPage(null, "Gallery 2", "init", "gallery-2");
+              await this.addPage(
+                null,
+                "Meet the artist",
+                "init",
+                "meet-the-artist",
+              );
+              break;
+            case "business":
+            case "technology":
+            default:
+              await this.addPage(null, "Article 1", "init", "article-1");
+              await this.addPage(null, "Article 2", "init", "article-2");
+              await this.addPage(
+                null,
+                "Meet the author",
+                "init",
+                "meet-the-author",
+              );
+              break;
+          }
+          break;
       }
-      return ids;
     }
-    /**
-     * Whether a page belongs in llms.txt: visible to anonymous visitors (same
-     * rule as the site API: published and not hidden from the menu) and not
-     * theme-region content. Mirrors PHP HAXCMSSite::isItemListedForAgents.
-     */
-    isItemListedForAgents(item, regionItemIds = new Set()) {
-      // lazy require: siteRouteUtils requires this module
-      const { isItemVisibleToAnonymous } = require('../siteRoutes/v1/siteRouteUtils.js');
-      if (!isItemVisibleToAnonymous(item)) {
-        return false;
+    try {
+      // write the managed files to ensure we get happy copies
+      await this.rebuildManagedFiles();
+    } catch (e) {}
+    try {
+      // put this in version control :) :) :)
+      const git = new GitPlus({
+        dir: directory + "/" + tmpname,
+        cliVersion: await this.gitTest(),
+      });
+      // initalize git repo
+      await git.init();
+      await git.add();
+      // haxtheweb/issues#3116: fresh containers / CI often have no git identity,
+      // which made this commit fail with a stack trace and no initial commit
+      const restoreGitIdentity = await this.gitFallbackIdentity(
+        directory + "/" + tmpname,
+      );
+      try {
+        // Security (PR8-3): the site title is user input; run it through the
+        // same sanitizer gitCommit() uses before it reaches git-interface.
+        await git.commit(
+          sanitizeGitCommitMessage(
+            "A new journey begins: " +
+              this.manifest.title +
+              " (" +
+              this.manifest.id +
+              ")",
+          ),
+        );
+      } finally {
+        restoreGitIdentity();
       }
-      if (item && item.id && regionItemIds.has(String(item.id))) {
-        return false;
+      if (
+        !(
+          this.manifest.metadata.site &&
+          this.manifest.metadata.site.git &&
+          this.manifest.metadata.site.git.url
+        ) &&
+        gitDetails != null &&
+        gitDetails.url
+      ) {
+        await this.gitSetRemote(gitDetails);
       }
+    } catch (e) {
+      // one line instead of a stack trace; site creation itself succeeded
+      console.warn(
+        "HAXcms: initial git commit skipped: " +
+          String((e && e.message) || e).split("\n")[0],
+      );
+    }
+    return this;
+  }
+  /**
+   * Return the forceUpgrade status which is whether to force end users to upgrade their browser
+   * @return string status of forced upgrade, string as boolean since it'll get written into a JS file
+   */
+  getForceUpgrade() {
+    if (
+      this.manifest.metadata.site.settings &&
+      this.manifest.metadata.site.settings.forceUpgrade
+    ) {
+      return "true";
+    }
+    return "false";
+  }
+  /**
+   * Return the sw status
+   * @return string status of forced upgrade, string as boolean since it'll get written into a JS file
+   */
+  getServiceWorkerStatus() {
+    if (
+      this.manifest.metadata.site.settings &&
+      this.manifest.metadata.site.settings.sw &&
+      this.manifest.metadata.site.settings.sw
+    ) {
       return true;
     }
-    /**
-     * One-line page summary for llms.txt. Stored descriptions are often the
-     * first N characters of the page cut mid-word; when the description does
-     * not end a sentence, rebuild it from the page's first full sentence(s).
-     * Mirrors PHP HAXCMSSite::getLLMSPageSummary.
-     */
-    getLLMSPageSummary(item, description = '', markdownLocation = '') {
-      description = String(description || '').trim();
-      if (description !== '' && /[.!?…]["'”’)\]]?$/u.test(description)) {
-        return description;
+    return false;
+  }
+  async gitTest() {
+    try {
+      const { stdout, stderr } = await exec("git --version");
+      return stdout;
+    } catch (e) {
+      return null;
+    }
+  }
+  /**
+   * When no git identity is configured (config or env), supply a placeholder
+   * identity through GIT_AUTHOR_* / GIT_COMMITTER_* env vars for the next git
+   * call only. Never writes git config. Returns a function that restores the
+   * previous environment.
+   */
+  async gitFallbackIdentity(dir) {
+    const gitConfigValue = async (key) => {
+      try {
+        // Security (I3): execFile with an argument array, matching
+        // revisions.js, so no shell ever parses the key.
+        const { stdout } = await execFile("git", ["config", key], { cwd: dir });
+        return stdout.trim();
+      } catch (e) {
+        return "";
       }
-      let source = '';
-      if (markdownLocation && markdownLocation.indexOf('..') === -1 && this.siteDirectory) {
+    };
+    const hasEmail =
+      (process.env.GIT_AUTHOR_EMAIL && process.env.GIT_COMMITTER_EMAIL) ||
+      process.env.EMAIL ||
+      (await gitConfigValue("user.email"));
+    const hasName =
+      (process.env.GIT_AUTHOR_NAME && process.env.GIT_COMMITTER_NAME) ||
+      (await gitConfigValue("user.name"));
+    let fallback = {};
+    if (!hasName) {
+      fallback.GIT_AUTHOR_NAME = "HAXcms";
+      fallback.GIT_COMMITTER_NAME = "HAXcms";
+    }
+    if (!hasEmail) {
+      fallback.GIT_AUTHOR_EMAIL = "haxcms@localhost";
+      fallback.GIT_COMMITTER_EMAIL = "haxcms@localhost";
+    }
+    const keys = Object.keys(fallback);
+    if (keys.length === 0) {
+      return () => {};
+    }
+    let previous = {};
+    keys.forEach((key) => {
+      previous[key] = process.env[key];
+      process.env[key] = fallback[key];
+    });
+    console.warn(
+      'HAXcms: no git identity configured; committing as "HAXcms <haxcms@localhost>". Set git config user.name and user.email to use your own.',
+    );
+    return () => {
+      keys.forEach((key) => {
+        if (previous[key] === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = previous[key];
+        }
+      });
+    };
+  }
+  /**
+   * Return an array of files we care about rebuilding on managed file operations
+   * @return array keyed array of files we wish to pull from the boilerplate and keep in sync
+   */
+  getManagedTemplateFiles() {
+    return {
+      // HAX core / application / PWA requirements
+      htaccess: ".htaccess",
+      build: "build.js",
+      buildhaxcms: "build-haxcms.js",
+      outdated: "assets/upgrade-browser.html",
+      index: "index.html", // static published fallback
+      ghpages: "ghpages.html", // github pages publishing for custom theme work
+      404: "404.html", // github / static published redirect appropriately
+      // seo / performance
+      push: "push-manifest.json",
+      robots: "robots.txt",
+      llms: "llms.txt",
+      securitytxt: ".well-known/security.txt",
+      apicatalog: ".well-known/api-catalog",
+      // pwa related files
+      msbc: "browserconfig.xml",
+      manifest: "manifest.json",
+      sw: "service-worker.js",
+      offline: "offline.html", // pwa offline page
+      // local development tooling
+      webdevserverhaxcmsconfigcjs: "web-dev-server.haxcms.config.cjs",
+      package: "package.json",
+      // SCORM 1.2
+      imsmdrootv1p2p1: "imsmd_rootv1p2p1.xsd",
+      imscprootv1p1p2: "imscp_rootv1p1p2.xsd",
+      adlcprootv1p2: "adlcp_rootv1p2.xsd",
+      imsxml: "ims_xml.xsd",
+      imsmanifest: "imsmanifest.xml",
+      // files directory execution hardening
+      fileshtaccess: "files/.htaccess",
+    };
+  }
+  /**
+   * Build the default public base path for this site without protocol/host.
+   */
+  getDefaultSiteBasePath() {
+    let basePath = "/";
+    if (typeof this.basePath === "string" && this.basePath !== "") {
+      basePath = this.basePath;
+    }
+    if (basePath.substring(0, 1) !== "/") {
+      basePath = "/" + basePath;
+    }
+    if (basePath.substring(basePath.length - 1) !== "/") {
+      basePath += "/";
+    }
+    return basePath + this.manifest.metadata.site.name + "/";
+  }
+  /**
+   * Compute the PWA scope / start_url path for this site.
+   * When a vanity domain is set (manifest.metadata.site.domain non-empty)
+   * the site is served from the domain root, so the PWA scope is '/'.
+   * Otherwise fall back to the internal multisite basePath + site.name.
+   */
+  getPWAScopePath() {
+    if (
+      this.manifest &&
+      this.manifest.metadata &&
+      this.manifest.metadata.site &&
+      this.manifest.metadata.site.domain &&
+      String(this.manifest.metadata.site.domain).trim() !== ""
+    ) {
+      return "/";
+    }
+    return this.getDefaultSiteBasePath();
+  }
+  /**
+   * Detect a legacy (@lrnwebcomponents) bootstrap in index.html and rebuild
+   * managed files once to upgrade it. Self-extinguishing: the rebuild copies
+   * in the modern (@haxtheweb) boilerplate so the tell is gone next load.
+   */
+  async maybeUpgradeLegacyBootstrap() {
+    try {
+      const indexPath = this.siteDirectory + "/index.html";
+      if (!fs.pathExistsSync(indexPath)) {
+        return;
+      }
+      const indexHtml = fs.readFileSync(indexPath, "utf8");
+      if (!indexHtml || indexHtml.indexOf("@lrnwebcomponents") === -1) {
+        return;
+      }
+      await this.rebuildManagedFiles();
+      await this.gitCommit("Managed files upgraded: legacy bootstrap");
+    } catch (e) {}
+  }
+  /**
+   * Reprocess the files that twig helps set in their static
+   * form that the user is not in control of.
+   */
+  async rebuildManagedFiles() {
+    let templates = this.getManagedTemplateFiles();
+    // this can't be there by default since it's a dynamic file and we only
+    // want to update this when we are refreshing the managed files directly
+    // not the case w/ non php backends but still fine for consistency
+    templates["indexphp"] = "index.php";
+    for (var key in templates) {
+      const destinationPath = this.siteDirectory + "/" + templates[key];
+      const destinationDirectory = path.dirname(destinationPath);
+      if (!fs.pathExistsSync(destinationDirectory)) {
+        fs.mkdirpSync(destinationDirectory);
+      }
+      await fs.copySync(
+        HAXCMS.boilerplatePath + "/site/" + templates[key],
+        destinationPath,
+      );
+    }
+    // agent-skills discovery index + curated skill files (agentskills.io v0.2.0).
+    // Pre-curated by ubiquity into the boilerplate; explicit per-file copy with
+    // sha256 verification, no filtering, no site.json reads. Best-effort.
+    try {
+      await this.rebuildAgentSkills();
+    } catch (e) {}
+    let licenseData = this.getLicenseData("all");
+    let licenseLink = "";
+    let licenseName = "";
+    let domain = null;
+    if (this.manifest.license && licenseData[this.manifest.license]) {
+      licenseLink = licenseData[this.manifest.license]["link"];
+      licenseName = "License: " + licenseData[this.manifest.license]["name"];
+    }
+    if (this.manifest.metadata.site.domain) {
+      domain = this.manifest.metadata.site.domain;
+    }
+    if (domain == null || domain == "") {
+      let fallbackDomain = HAXCMS.getDomain();
+      const siteBasePath = this.getDefaultSiteBasePath();
+      if (!fallbackDomain || fallbackDomain == "") {
+        domain = siteBasePath;
+      } else {
+        fallbackDomain = fallbackDomain.replace("iam.", "oer.");
+        if (!/^https?:\/\//.test(fallbackDomain)) {
+          fallbackDomain = "https://" + fallbackDomain;
+        }
+        domain =
+          fallbackDomain.replace(/\/$/, "") +
+          "/" +
+          siteBasePath.replace(/^\//, "");
+      }
+    }
+    if (domain.substring(domain.length - 1) != "/") {
+      domain += "/";
+    }
+    let templateVars = {
+      hexCode: HAXCMS.HAXCMS_FALLBACK_HEX,
+      version: await HAXCMS.getHAXCMSVersion(),
+      basePath: this.getPWAScopePath(),
+      domain: domain,
+      // Security (PR8-6): see sanitizeManagedTemplateText
+      title: sanitizeManagedTemplateText(this.manifest.title),
+      short: this.manifest.metadata.site.name,
+      privateSite:
+        this.manifest.metadata.site.settings &&
+        this.manifest.metadata.site.settings.private
+          ? this.manifest.metadata.site.settings.private
+          : false,
+      description: sanitizeManagedTemplateText(this.manifest.description),
+      forceUpgrade: this.getForceUpgrade(),
+      swhash: [],
+      ghPagesURLParamCount: 0,
+      licenseLink: licenseLink,
+      licenseName: licenseName,
+      securityTxtExpires: new Date(
+        Date.now() + 1000 * 60 * 60 * 24 * 180,
+      ).toISOString(),
+      serviceWorkerScript: this.getServiceWorkerScript(this.getPWAScopePath()),
+      bodyAttrs: this.getSitePageAttributes(),
+      metadata: await this.getSiteMetadata(),
+      logo512x512: await this.getLogoSize("512", "512"),
+      logo256x256: await this.getLogoSize("256", "256"),
+      logo192x192: await this.getLogoSize("192", "192"),
+      logo144x144: await this.getLogoSize("144", "144"),
+      logo96x96: await this.getLogoSize("96", "96"),
+      logo72x72: await this.getLogoSize("72", "72"),
+      logo48x48: await this.getLogoSize("48", "48"),
+      favicon: await this.getLogoSize("32", "32"),
+    };
+    let swItems = [...this.manifest.items];
+    // the core files you need in every SW manifest
+    let coreFiles = [
+      "index.html",
+      await this.getLogoSize("512", "512"),
+      await this.getLogoSize("256", "256"),
+      await this.getLogoSize("192", "192"),
+      await this.getLogoSize("144", "144"),
+      await this.getLogoSize("96", "96"),
+      await this.getLogoSize("72", "72"),
+      await this.getLogoSize("48", "48"),
+      "manifest.json",
+      "site.json",
+      "404.html",
+    ];
+    let handle;
+    // loop through files directory so we can cache those things too
+    if ((handle = fs.readdirSync(this.siteDirectory + "/files"))) {
+      handle.forEach((file) => {
+        if (
+          file != "." &&
+          file != ".." &&
+          file != ".gitkeep" &&
+          file != ".DS_Store" &&
+          file != ".htaccess"
+        ) {
+          // ensure this is a file
+          if (fs.lstatSync(this.siteDirectory + "/files/" + file).isFile()) {
+            coreFiles.push("files/" + file);
+          } else {
+            // @todo maybe step into directories?
+          }
+        }
+      });
+    }
+    for (var key in coreFiles) {
+      let coreItem = {};
+      coreItem.location = coreFiles[key];
+      swItems.push(coreItem);
+    }
+    // generate a legit hash value that's the same for each file name + file size
+    for (var key in swItems) {
+      let filesize;
+      let item = swItems[key];
+      if (item.location === "" || item.location === templateVars["basePath"]) {
+        filesize = await fs.statSync(this.siteDirectory + "/index.html").size;
+      } else if (
+        // Security (N1/N5 parity): only stat locations contained in the site
+        this.validatePageLocation(item.location) &&
+        fs.lstatSync(this.resolvePageLocationRealPath(item.location)).isFile()
+      ) {
+        filesize = await fs.statSync(
+          this.resolvePageLocationRealPath(item.location),
+        ).size;
+      } else {
+        // ?? file referenced but doesn't exist
+        filesize = 0;
+      }
+      if (filesize !== 0) {
+        templateVars["swhash"].push([
+          item.location,
+          strtr(HAXCMS.hmacBase64(item.location + filesize, "haxcmsswhash"), {
+            "+": "",
+            "/": "",
+            "=": "",
+            "-": "",
+          }),
+        ]);
+      }
+    }
+    if (
+      this.manifest.metadata.theme &&
+      this.manifest.metadata.theme.variables &&
+      this.manifest.metadata.theme.variables.hexCode
+    ) {
+      templateVars["hexCode"] = this.manifest.metadata.theme.variables.hexCode;
+    }
+    // put the twig written output into the file
+    var Twig = require("twig");
+    for (var key in templates) {
+      // ensure files exist before going to write them
+      if (
+        await fs.lstatSync(this.siteDirectory + "/" + templates[key]).isFile()
+      ) {
         try {
-          source = this.getLLMSPlainTextFromMarkdown(
-            fs.readFileSync(path.join(this.siteDirectory, markdownLocation.replace(/^\/+/, '')), 'utf8')
+          let fileData = await fs.readFileSync(
+            this.siteDirectory + "/" + templates[key],
+            { encoding: "utf8", flag: "r" },
+            "utf8",
+          );
+          let template = await Twig.twig({ data: fileData, async: false });
+          // Security (PR8-6): title/description pre-escaped per format
+          // (JSON string / XML / plain text) for the managed files that
+          // embed them; see MANAGED_TEMPLATE_TEXT_FORMATS.
+          let templatedHTML = template.render(
+            managedTemplateVarsFor(templates[key], templateVars),
+          );
+          await fs.writeFileSync(
+            this.siteDirectory + "/" + templates[key],
+            templatedHTML,
+          );
+        } catch (e) {}
+      }
+    }
+    try {
+      await this.updateAlternateFormats("llms");
+    } catch (e) {}
+  }
+  /**
+   * Copy the boilerplate .well-known/agent-skills/ directory into the site.
+   * The boilerplate dir is pre-curated by ubiquity (site set only), so this
+   * does NO filtering and reads NO site.json. For each skill in the boilerplate
+   * index.json, copy SKILL.md + every files[] entry individually (flat copy,
+   * no recursion) with sha256 verification against the declared digest. Only
+   * .md / .json / .txt extensions are copied (defense in depth). Best-effort:
+   * a digest mismatch or missing file warns and continues; agent-skills never
+   * blocks a site save. Silent no-op if the boilerplate agent-skills index is
+   * absent (e.g. before ubiquity has populated it). Also writes a scoped
+   * .htaccess (CORS + script-execution hardening) for Apache-hosted sites.
+   */
+  async rebuildAgentSkills() {
+    let boilerAS = HAXCMS.boilerplatePath + "/site/.well-known/agent-skills";
+    let boilerIndex = boilerAS + "/index.json";
+    if (!fs.pathExistsSync(boilerIndex)) {
+      // ubiquity hasn't populated agent-skills yet; nothing to do
+      return;
+    }
+    let index;
+    try {
+      index = JSON.parse(fs.readFileSync(boilerIndex, "utf8"));
+    } catch (e) {
+      return;
+    }
+    if (!index || !Array.isArray(index.skills)) {
+      return;
+    }
+    let siteAS = this.siteDirectory + "/.well-known/agent-skills";
+    // clean the site agent-skills dir so removed skills don't linger
+    try {
+      fs.removeSync(siteAS);
+    } catch (e) {}
+    fs.mkdirpSync(siteAS);
+    // scoped .htaccess: CORS + script-execution hardening (harmless on Node/static)
+    fs.writeFileSync(siteAS + "/.htaccess", HAXCMS_AGENT_SKILLS_HTACCESS);
+    // copy the index through verbatim
+    try {
+      fs.copySync(boilerIndex, siteAS + "/index.json");
+    } catch (e) {}
+    let allowedAuxExt = { md: true, json: true, txt: true };
+    for (let i = 0; i < index.skills.length; i++) {
+      let skill = index.skills[i];
+      if (!skill || !skill.name || !skill.url) {
+        continue;
+      }
+      // skill.url is relative, e.g. "hax-site-structure/SKILL.md"
+      let skillMdBoiler = boilerAS + "/" + skill.url;
+      let skillMdSite = siteAS + "/" + skill.url;
+      if (fs.pathExistsSync(skillMdBoiler)) {
+        let bytes = fs.readFileSync(skillMdBoiler);
+        let hash =
+          "sha256:" + crypto.createHash("sha256").update(bytes).digest("hex");
+        if (skill.digest && hash === skill.digest) {
+          fs.mkdirpSync(path.dirname(skillMdSite));
+          fs.writeFileSync(skillMdSite, bytes);
+        } else {
+          console.warn(
+            "agent-skills: digest mismatch for " + skill.url + ", skipping",
           );
         }
-        catch (e) {}
       }
-      if (source === '' && item && item.location && item.location.indexOf('..') === -1 && this.siteDirectory) {
-        try {
-          // Security (N1/N5 parity): containment-checked read
-          const resolvedLocation = this.resolvePageLocationRealPath(item.location);
-          if (resolvedLocation === false) {
-            throw new Error('invalid page location');
+      if (Array.isArray(skill.files)) {
+        for (let j = 0; j < skill.files.length; j++) {
+          let f = skill.files[j];
+          if (!f || !f.path) {
+            continue;
           }
-          const html = fs.readFileSync(resolvedLocation, 'utf8');
-          source = this.getLLMSSafeText(decodeLLMSEntities(String(html).replace(/<[^>]+>/g, ' ')));
-        }
-        catch (e) {}
-      }
-      const summary = this.getLLMSLeadingSentences(source);
-      if (summary !== '') {
-        return summary;
-      }
-      return this.getLLMSWordBoundaryTrim(description, 240);
-    }
-    /**
-     * Strip markdown syntax down to readable text for summaries.
-     */
-    getLLMSPlainTextFromMarkdown(markdown = '') {
-      let text = String(markdown || '');
-      text = text.replace(/```[\s\S]*?```/g, ' ');
-      text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ');
-      text = text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
-      text = text.replace(/<[^>]+>/g, ' ');
-      // headings label sections rather than summarize them
-      text = text.replace(/^\s{0,3}#{1,6}\s.*$/gm, ' ');
-      text = text.replace(/^\s{0,3}(>|[-*+]|\d+\.)\s+/gm, '');
-      text = text.replace(/\*\*|__|`/g, '');
-      return this.getLLMSSafeText(decodeLLMSEntities(text));
-    }
-    /**
-     * First full sentence(s) of a text, at least ~60 and at most 240
-     * characters; long first sentences are cut at a word boundary.
-     */
-    getLLMSLeadingSentences(text = '', max = 240) {
-      text = String(text || '').trim();
-      if (text === '') {
-        return '';
-      }
-      const sentences = text.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(\[])/u);
-      let summary = '';
-      for (const sentence of sentences) {
-        const candidate = (summary === '' ? sentence : summary + ' ' + sentence).trim();
-        if ([...candidate].length > max) {
-          break;
-        }
-        summary = candidate;
-        if ([...summary].length >= 60) {
-          break;
-        }
-      }
-      if (summary === '') {
-        return this.getLLMSWordBoundaryTrim(text, max);
-      }
-      return summary;
-    }
-    /**
-     * Trim to max characters on a word boundary, adding an ellipsis when cut.
-     */
-    getLLMSWordBoundaryTrim(text = '', max = 240) {
-      text = String(text || '').trim();
-      const chars = [...text];
-      if (text === '' || chars.length <= max) {
-        return text;
-      }
-      let cut = chars.slice(0, max).join('');
-      const space = cut.lastIndexOf(' ');
-      if (space !== -1 && space > max / 2) {
-        cut = cut.substring(0, space);
-      }
-      return cut.replace(/[ ,;:-]+$/, '') + '…';
-    }
-    /**
-     * Build a normalized llms.txt link URL from domain/base and a relative resource path.
-     */
-    getLLMSResourceURL(domain = '', location = '') {
-      let baseURL = this.getLLMSBaseURL(domain);
-      let cleanLocation = '';
-      if (typeof location === 'string') {
-        cleanLocation = location.replace(/\\/g, '/').replace(/^\/+/, '');
-      }
-      if (cleanLocation == '') {
-        return baseURL;
-      }
-      if (baseURL == '/') {
-        return '/' + cleanLocation;
-      }
-      return baseURL + cleanLocation;
-    }
-    /**
-     * Normalize domain/base values into a URL-safe prefix for llms.txt links.
-     */
-    getLLMSBaseURL(domain = '') {
-      let baseURL = '';
-      if (typeof domain === 'string') {
-        baseURL = domain.trim();
-      }
-      if (baseURL == '') {
-        return '/';
-      }
-      if (!/^https?:\/\//.test(baseURL) && baseURL.substring(0, 1) != '/') {
-        baseURL = '/' + baseURL;
-      }
-      if (baseURL.substring(baseURL.length - 1) != '/') {
-        baseURL += '/';
-      }
-      return baseURL;
-    }
-    /**
-     * Normalize text for llms.txt body content.
-     */
-    getLLMSSafeText(value = '') {
-      if (value == null || typeof value === 'undefined') {
-        return '';
-      }
-      let text = String(value);
-      return text.replace(/\r/g, ' ').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
-    }
-    /**
-     * Normalize markdown link text and escape bracket characters.
-     */
-    getLLMSSafeLinkText(value = '') {
-      let text = this.getLLMSSafeText(value);
-      if (text == '') {
-        text = 'Untitled page';
-      }
-      return text.replace(/\[/g, '\\[').replace(/\]/g, '\\]');
-    }
-    /**
-     * Create Lunr.js style search index
-     */
-    async lunrSearchIndex(items) {
-      let data = [];
-      let textData;
-      for (var key in items) {
-        let item = items[key];
-        let created = Math.floor(Date.now() / 1000);
-        if ((item.metadata) && (item.metadata.created)) {
-          created = item.metadata.created;
-        }
-        textData = '';
-        try {
-          // Security (N1/N5 parity): read via containment-checked resolver
-          const resolvedLocation = this.resolvePageLocationRealPath(item.location);
-          if (resolvedLocation === false) {
-            throw new Error('invalid page location');
+          let ext = String(f.path).split(".").pop().toLowerCase();
+          if (!allowedAuxExt[ext]) {
+            continue;
           }
-          textData = await fs.readFileSync(resolvedLocation,
-          {encoding:'utf8', flag:'r'});
-          textData = this.cleanSearchData(textData);
-          // may seem silly but IDs in lunr have a size limit for some reason in our context..
-          data.push({
-            "id":item.id.replace('-', '').replace('item-', '').substring(0, 29),
-            "title":item.title,
-            "created":created,
-            "location": item.slug,
-            "description":item.description,
-            "text":textData,
-          });
-        }
-        catch(e) {}
-      }
-      return data;
-    }
-    /**
-     * Clean up data from a file and make it easy for us to index on the front end
-     */
-    cleanSearchData(text) {
-      if (text == '' || text == null || !text) {
-        return '';
-      }
-      // clean up initial, small, trim, replace end lines, utf8 no tags
-      text = utf8.encode(text.replace(/(<([^>]+)>)/ig,"").replace("\n", ' ').toLowerCase().trim());
-      // all weird chars
-      text = text.replace('/[^a-z0-9\']/', ' ');
-      text = text.replace("'", '');
-      // all words 1 to 4 letters long
-      text = text.replace('~\b[a-z]{1,4}\b\s*~', '');
-      // all excess white space
-      text = text.replace('/\s+/', ' ');
-      // crush string to array and back to make an unique index
-      text = implode(' ', array_unique(explode(' ', text)));
-      return text;
-    }
-    /**
-     * Sort items by a certain key value. Must be in the included list for safety of the sort
-     * @var string key - the key name to sort on, only some supported
-     * @var string dir - direction to sort, ASC default or DESC to reverse
-     * @return array items - sorted items based on the key used
-     */
-    sortItems(key, dir = 'ASC') {
-        let items = [];
-        if (Array.isArray(this.manifest.items)) {
-          for (var itemKey in this.manifest.items) {
-            let item = this.manifest.items[itemKey];
-            if (item && typeof item === 'object') {
-              items.push(item);
+          let fBoiler = boilerAS + "/" + skill.name + "/" + f.path;
+          let fSite = siteAS + "/" + skill.name + "/" + f.path;
+          if (fs.pathExistsSync(fBoiler)) {
+            let bytes = fs.readFileSync(fBoiler);
+            let hash =
+              "sha256:" +
+              crypto.createHash("sha256").update(bytes).digest("hex");
+            if (f.digest && hash === f.digest) {
+              fs.mkdirpSync(path.dirname(fSite));
+              fs.writeFileSync(fSite, bytes);
+            } else {
+              console.warn(
+                "agent-skills: digest mismatch for " +
+                  skill.name +
+                  "/" +
+                  f.path +
+                  ", skipping",
+              );
             }
           }
         }
-        else if (this.manifest.items && typeof this.manifest.items === 'object') {
-          for (var objKey in this.manifest.items) {
-            let item = this.manifest.items[objKey];
-            if (item && typeof item === 'object') {
-              items.push(item);
-            }
-          }
-        }
-        let sortDir = 'ASC';
-        if (dir == 'DESC') {
-          sortDir = 'DESC';
-        }
-        switch (key) {
-            case 'created':
-            case 'updated':
-            case 'readtime':
-              usort(items, function (a, b) {
-                let aMeta = {};
-                let bMeta = {};
-                if (a.metadata && typeof a.metadata === 'object') {
-                  aMeta = a.metadata;
-                }
-                if (b.metadata && typeof b.metadata === 'object') {
-                  bMeta = b.metadata;
-                }
-                let aValue = Number(aMeta[key]);
-                let bValue = Number(bMeta[key]);
-                if (isNaN(aValue)) {
-                  aValue = 0;
-                }
-                if (isNaN(bValue)) {
-                  bValue = 0;
-                }
-                if (aValue === bValue) {
-                  return 0;
-                }
-                if (sortDir == 'DESC') {
-                  return aValue > bValue ? -1 : 1;
-                }
-                return aValue < bValue ? -1 : 1;
-              });
-            break;
-            case 'id':
-            case 'title':
-            case 'indent':
-            case 'location':
-            case 'order':
-            case 'parent':
-            case 'description':
-                usort(items, function (a, b) {
-                  let aValue = '';
-                  let bValue = '';
-                  if (typeof a[key] !== 'undefined' && a[key] !== null) {
-                    aValue = String(a[key]);
-                  }
-                  if (typeof b[key] !== 'undefined' && b[key] !== null) {
-                    bValue = String(b[key]);
-                  }
-                  if (aValue === bValue) {
-                    return 0;
-                  }
-                  if (sortDir == 'DESC') {
-                    return aValue > bValue ? -1 : 1;
-                  }
-                  return aValue < bValue ? -1 : 1;
-                });
-            break;
-        }
-        return items;
+      }
     }
-    /**
-     * Build a JOS into a tree of links recursively
-     */
-    treeToNodes(current, rendered = [], html = '')
-    {
-        let loc = '';
-        for (var key in current) {
-            let item = this.manifest.items[key];
-            if (!array_search(item.id, rendered)) {
-                loc +=`<li><a href="${item.location}" target="content">${item.title}</a>`;
-                rendered.push(item.id);
-                let children = [];
-                for (var key2 in this.manifest.items) {
-                    let child = this.manifest.items[key2];
-                    if (child.parent == item.id) {
-                        children.push(child);
-                    }
-                }
-                // sort the kids
-                usort(children, function (a, b) {
-                    return a.order > b.order;
-                });
-                // only walk deeper if there were children for this page
-                if (children.length > 0) {
-                    loc += this.treeToNodes(children, rendered);
-                }
-                loc += '</li>';
-            }
-        }
-        // make sure we aren't empty here before wrapping
-        if (loc != '') {
-            loc = '<ul>' + loc + '</ul>';
-        }
-        return html + loc;
+  }
+  /**
+   * Rename a page from one location to another
+   * This ensures that folders are moved but not the final index.html involved
+   * It also helps secure the sites by ensuring movement is only within
+   * their folder tree
+   */
+  async renamePageLocation(oldItem, newItem) {
+    oldItem = oldItem.replace("./", "").replace("../", "");
+    newItem = newItem.replace("./", "").replace("../", "");
+    // ensure the path to the new folder is valid
+    if (
+      (await fs.pathExistsSync(this.siteDirectory + "/" + oldItem)) &&
+      (await fs.lstatSync(this.siteDirectory + "/" + oldItem).isFile())
+    ) {
+      await fs.moveSync(
+        this.siteDirectory + "/" + oldItem.replace("/index.html", ""),
+        this.siteDirectory + "/" + newItem.replace("/index.html", ""),
+      );
+      await fs.unlinkSync(this.siteDirectory + "/" + oldItem);
     }
-    /**
-     * Load node by unique id
-     */
-    loadNode(uuid)
-    {
-      for (var key in this.manifest.items) {
-        let item = this.manifest.items[key];
-        if (item.id == uuid) {
-          return item;
+  }
+  /**
+   * Basic wrapper to commit current changes to version control of the site
+   */
+  async gitCommit(msg = "Committed changes") {
+    try {
+      // Security (HAX-SEC-006): sanitize the commit message to a conservative
+      // allowlist before it reaches git-interface, which string-splits the
+      // command (git-interface/dist/index.js:26) and only escapes single
+      // quotes. A message containing a quote/control char could break the
+      // quoted token and inject git arguments. This is defense-in-depth;
+      // callers should also avoid passing user input (files.js uses the
+      // server-generated sanitized filename, not upload.originalname).
+      var safeMsg = sanitizeGitCommitMessage(msg);
+      // commit, true flag will attempt to make this a git repo if it currently isn't
+      const git = new GitPlus({
+        dir: this.siteDirectory,
+        cliVersion: await this.gitTest(),
+      });
+      await git.add();
+      await git.commit(safeMsg);
+      // commit should execute the automatic push flag if it's on
+      if (
+        this.manifest.metadata.site.git.autoPush &&
+        this.manifest.metadata.site.git.autoPush &&
+        this.manifest.metadata.site.git.branch
+      ) {
+        // Security (HAX-SEC-006): validate the branch name against a strict
+        // pattern before checkout to prevent git argument injection via a
+        // configured branch name containing shell/arg metacharacters.
+        // Security (PR8-3): must start alphanumeric so a leading `-` can
+        // never be parsed as a git option.
+        var branch = String(this.manifest.metadata.site.git.branch);
+        if (GIT_BRANCH_PATTERN.test(branch)) {
+          await git.checkout(branch);
+          await git.push();
         }
       }
+    } catch (e) {}
+    return true;
+  }
+  /**
+   * Basic wrapper to revert top commit of the site
+   */
+  async gitRevert(count = 1) {
+    try {
+      const git = new GitPlus({
+        dir: this.siteDirectory,
+        cliVersion: await this.gitTest(),
+      });
+      await git.revert(count);
+    } catch (e) {}
+    return true;
+  }
+  /**
+   * Basic wrapper to commit current changes to version control of the site
+   */
+  async gitPush() {
+    try {
+      const git = new GitPlus({
+        dir: this.siteDirectory,
+        cliVersion: await this.gitTest(),
+      });
+      await git.add();
+      await git.commit("commit forced");
+      await git.push();
+    } catch (e) {}
+    return true;
+  }
+
+  /**
+   * Basic wrapper to commit current changes to version control of the site
+   *
+   * @var git a stdClass containing repo details
+   */
+  async gitSetRemote(gitDetails) {
+    // Security (PR8-3): previously referenced an undefined `repo` and always
+    // threw (silently swallowed). Validate the URL before it reaches
+    // git-interface (which splits the command on whitespace) and use the
+    // GitPlus instance. Mirrors PHP set_remote (`git remote add origin`),
+    // falling back to `remote set-url` when origin already exists.
+    const url =
+      gitDetails && typeof gitDetails.url === "string"
+        ? gitDetails.url.trim()
+        : "";
+    if (!isSafeGitRemoteUrl(url)) {
+      console.warn(
+        "HAXcms: refusing to set git remote: URL must start with https:// or git@ and contain no whitespace, quotes or ext:: transport",
+      );
       return false;
     }
-    /**
-     * Get a social sharing image based on context of page or site having media
-     * @var string page page to mine the image from or attempt to
-     * @return string full URL to an image
-     */
-    getSocialShareImage(page = null) {
-      // resolve a JOS Item vs null
-      let id = null;
-      if (page != null) {
-        id = page.id;
+    try {
+      const git = new GitPlus({
+        dir: this.siteDirectory,
+        cliVersion: await this.gitTest(),
+      });
+      try {
+        await git.addRemote("origin", url);
+      } catch (e) {
+        await git.setRemote("origin", url);
       }
-      let fileName;
-      if (!(fileName)) {
-        if (page == null) {
-          page = this.loadNodeByLocation();
+    } catch (e) {
+      return false;
+    }
+    return true;
+  }
+  /**
+   * Add a page to the site's file system and reflect it in the outine schema.
+   *
+   * @var parent JSONOutlineSchemaItem representing a parent to add this page under
+   * @var title title of the new page to create
+   * @var template string which boilerplate page template / directory to load
+   *
+   * @return page repesented as JSONOutlineSchemaItem
+   */
+  async addPage(
+    parent = null,
+    title = "New page",
+    template = "default",
+    slug = "welcome",
+    id = null,
+    indent = null,
+    html = "<p></p>",
+    order = null,
+    metadata = null,
+  ) {
+    // draft an outline schema item
+    let page = new JSONOutlineSchemaItem();
+    // support direct ID setting, useful for parent associations calculated ahead of time
+    if (id) {
+      // Security (N1/N5 parity): sanitize caller-supplied id before it is
+      // used to build the on-disk page location (same defense as
+      // itemFromParams / PHP HAXCMSSite::addPage), so a crafted id such as
+      // `../../othersite` cannot escape the site pages directory.
+      page.id = HAXCMS.generateMachineName(id);
+    }
+    // set a crappy default title
+    // Security (SEC-SANITIZE): title can come straight from a request
+    // (createNode items[]); store plain text like saveOutline / PHP
+    title = toPlainText(title);
+    if (title === "") {
+      title = "New page";
+    }
+    page.title = title;
+    if (parent == null) {
+      page.parent = null;
+      page.indent = 0;
+    } else if (typeof parent === "string" || parent instanceof String) {
+      // set to the parent id
+      page.parent = parent;
+      // move it one indentation below the parent; this can be changed later if desired
+      page.indent = indent;
+    } else {
+      // set to the parent id
+      page.parent = parent.id;
+      // move it one indentation below the parent; this can be changed later if desired
+      page.indent = parent.indent + 1;
+    }
+    // set order to the page's count for default add to end ordering
+    if (order || order === 0) {
+      page.order = order;
+    } else {
+      page.order = this.manifest.items.length;
+    }
+    // location is the html file we just copied and renamed
+    page.location = "pages/" + page.id + "/index.html";
+    // sanitize slug but dont trust it was anything
+    if (slug == "") {
+      slug = title;
+    }
+    page.slug = this.getUniqueSlugName(HAXCMS.cleanTitle(slug));
+    // support presetting multiple metadata attributes like tags, pageType, etc
+    // Security (SEC-SANITIZE): metadata can come straight from a request
+    // (createNode items[]); apply saveNode's per-field rules
+    if (metadata) {
+      applyPageMetadata(page, metadata, { themes: HAXCMS.getThemes() });
+    }
+    page.metadata.created = Math.floor(Date.now() / 1000);
+    page.metadata.updated = Math.floor(Date.now() / 1000);
+    let location = path.join(this.siteDirectory, "pages", page.id);
+    // copy the page we use for simplicity (or later complexity if we want)
+    switch (template) {
+      case "course":
+      case "glossary":
+      case "collection":
+      case "init":
+      case "lesson":
+      case "default":
+        await HAXCMS.recurseCopy(
+          HAXCMS.boilerplatePath + "page/" + template,
+          location,
+          [],
+          this.siteDirectory,
+        );
+        break;
+      // didn't understand it, just go default
+      default:
+        await HAXCMS.recurseCopy(
+          HAXCMS.boilerplatePath + "page/default",
+          location,
+          [],
+          this.siteDirectory,
+        );
+        break;
+    }
+    this.manifest.addItem(page);
+    this.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
+    await this.manifest.save();
+    // support direct HTML setting
+    let alternateContent = "";
+    if (template == "html") {
+      // now this should exist if it didn't a minute ago
+      const { html: rewritten, uuids } = await materializeInlineImages(
+        html,
+        this,
+        {
+          pageTitle: title,
+        },
+      );
+      alternateContent = sanitizeHTMLForStorage(rewritten);
+      let bytes = page.writeLocation(alternateContent, this.siteDirectory);
+      // #3043: imported files are referenced by their FileEntity uuid
+      // (the same source saveNode uses), sourced directly from the
+      // Entity API by materializeInlineImages. Set page.metadata.files
+      // from those uuids rather than re-scanning the content: mammoth
+      // docx output carries images as data URIs (which the helper just
+      // saved), not pre-existing files/ refs, so the entity uuids are
+      // the complete set. Pre-existing files/ refs in imported HTML are
+      // reconciled by saveNode's content scan on the next edit.
+      if (!page.metadata) {
+        page.metadata = {};
+      }
+      page.metadata.files = uuids;
+      if (uuids.length > 0) {
+        await this.manifest.save();
+      }
+    }
+    this.writePageAlternateFormats(page, alternateContent);
+    this.updateAlternateFormats();
+    return page;
+  }
+  /**
+   * Save the site, though this basically is just a mapping to the manifest site.json saving
+   */
+  async save(reorder = true) {
+    await this.manifest.save(reorder);
+  }
+  /**
+   * Update RSS, Atom feeds, site map, legacy outline, search index
+   * which are physical files and need rebuilt on chnages to data structure
+   */
+  async updateAlternateFormats(format = null) {
+    let rss = new FeedMe();
+    let domain = null;
+    if (this.manifest.metadata.site.domain) {
+      domain = this.manifest.metadata.site.domain;
+    }
+    if (domain == null || domain == "") {
+      // mirror PHP fallback behavior for generated feeds
+      let fallbackDomain = HAXCMS.getDomain();
+      const siteBasePath = this.getDefaultSiteBasePath();
+      if (!fallbackDomain || fallbackDomain == "") {
+        domain = siteBasePath;
+      } else {
+        fallbackDomain = fallbackDomain.replace("iam.", "oer.");
+        if (!/^https?:\/\//.test(fallbackDomain)) {
+          fallbackDomain = "https://" + fallbackDomain;
         }
-        // #3043: page.metadata.files is now an array of uuid strings.
-        // Resolve each uuid to its files.json record and return the first
-        // image record's fullUrl. Tolerate legacy object-shape entries on
-        // old pages (read .type/.fullUrl directly) until those pages are
-        // re-saved and converge to uuid-shape.
-        if (page && page.metadata && page.metadata.files) {
-          const FilesDataStore = require('./FilesDataStore.js');
-          const dataStore = new FilesDataStore(this);
-          for (var key in page.metadata.files) {
-            let entry = page.metadata.files[key];
-            // uuid-string shape (Phase 2)
-            if (typeof entry === 'string') {
-              const record = dataStore.getByUuid(entry);
-              if (record) {
-                const mimetype = record.mimetype ? String(record.mimetype) : '';
-                if (mimetype.indexOf('image/') === 0 && mimetype !== 'image/svg+xml') {
-                  fileName = record.fullUrl ? record.fullUrl : null;
-                  break;
-                }
-              }
-            }
-            // legacy object shape (old pages)
-            else if (entry && typeof entry === 'object') {
-              const type = entry.type ? String(entry.type) : '';
-              if (type.indexOf('image/') === 0 && type !== 'image/svg+xml') {
-                fileName = entry.fullUrl ? entry.fullUrl : null;
+        domain =
+          fallbackDomain.replace(/\/$/, "") +
+          "/" +
+          siteBasePath.replace(/^\//, "");
+      }
+    }
+    if (format == null || format == "rss") {
+      try {
+        fs.writeFileSync(
+          this.siteDirectory + "/rss.xml",
+          rss.getRSSFeed(this, domain),
+        );
+        fs.writeFileSync(
+          this.siteDirectory + "/atom.xml",
+          rss.getAtomFeed(this, domain),
+        );
+      } catch (e) {
+        // keep parity with PHP behavior: never hard fail a save on feed serialization
+      }
+    }
+    if (format == null || format == "sitemap") {
+      try {
+        if (domain != null && domain != "") {
+          fs.writeFileSync(
+            this.siteDirectory + "/sitemap.xml",
+            rss.getSitemap(this, domain),
+          );
+          fs.writeFileSync(
+            this.siteDirectory + "/sitemap-index.xml",
+            rss.getSitemapIndex(domain),
+          );
+        }
+      } catch (e) {
+        // keep parity with PHP behavior: never hard fail a save on sitemap serialization
+      }
+    }
+    if (format == null || format == "search") {
+      // now generate the search index
+      await fs.writeFileSync(
+        this.siteDirectory + "/lunrSearchIndex.json",
+        json_encode(await this.lunrSearchIndex(this.manifest.items)),
+      );
+    }
+    if (format == null || format == "llms") {
+      try {
+        fs.writeFileSync(
+          this.siteDirectory + "/llms.txt",
+          this.getLLMSTxt(domain),
+        );
+      } catch (e) {
+        // keep parity with PHP behavior: never hard fail a save on llms serialization
+      }
+    }
+  }
+  /**
+   * Generate llms.txt content based on site structure and generated markdown pages.
+   */
+  getLLMSTxt(domain = "") {
+    let title = this.getLLMSSafeText(this.manifest.title);
+    if (title == "") {
+      title = this.getLLMSSafeText(this.name);
+    }
+    if (title == "") {
+      title = "HAXcms site";
+    }
+    let lines = ["# " + title];
+    let description = this.getLLMSSafeText(this.manifest.description);
+    if (description != "") {
+      lines.push("");
+      lines.push("> " + description);
+    }
+    lines.push("");
+    lines.push(
+      "HAXcms is a file-based CMS: authored pages and metadata are stored as portable files, not locked into a database-only workflow.",
+    );
+    lines.push(
+      "The canonical site structure is `site.json`, represented in JSON Outline Schema (`id`, `parent`, `order`, `slug`, `location`, and `metadata`).",
+    );
+    lines.push(
+      "Use HAX CLI and ecosystem tooling to maintain human-authored content while keeping machine-readable outputs synchronized.",
+    );
+    lines.push(
+      "Managed files (feeds, search indexes, manifests, and this `llms.txt`) are generated artifacts and should be rebuilt by tooling.",
+    );
+    lines.push("");
+    lines.push("## Core resources");
+    lines.push(
+      "- [site.json](" +
+        this.getLLMSResourceURL(domain, "site.json") +
+        "): Canonical site manifest and navigation tree in JSON Outline Schema format.",
+    );
+    lines.push(
+      "- [llms.txt](" +
+        this.getLLMSResourceURL(domain, "llms.txt") +
+        "): LLM-oriented guide to this site and its machine-readable resources.",
+    );
+    lines.push(
+      "- [llms-full.txt](" +
+        this.getLLMSResourceURL(domain, "llms-full.txt") +
+        "): The whole site as one markdown document, in outline order.",
+    );
+    lines.push(
+      "- [Whole site as HTML](" +
+        this.getLLMSResourceURL(domain, "x/api/v1/site/export/html") +
+        "): Every page in one HTML document.",
+    );
+    // haxtheweb/issues#3116: point agents at AGENTS.md (older sites may not have one)
+    if (
+      this.siteDirectory &&
+      fs.existsSync(path.join(this.siteDirectory, "AGENTS.md"))
+    ) {
+      lines.push(
+        "- [AGENTS.md](" +
+          this.getLLMSResourceURL(domain, "AGENTS.md") +
+          "): Instructions for AI agents working on this site's files.",
+      );
+    }
+    lines.push("");
+    lines.push("## Pages");
+    let items = [];
+    if (this.manifest && this.manifest.items) {
+      items = this.manifest.orderTree(this.manifest.items);
+    }
+    let hasPages = false;
+    const regionItemIds = this.getThemeRegionItemIds();
+    for (let key in items) {
+      let item = items[key];
+      if (!item || !item.location) {
+        continue;
+      }
+      // agents only see what an anonymous visitor can open: skip unpublished
+      // and hidden pages, plus theme-region content (header/footer blocks)
+      if (!this.isItemListedForAgents(item, regionItemIds)) {
+        continue;
+      }
+      let markdownLocation = this.getPageAlternateLocation(item.location, "md");
+      if (markdownLocation == "") {
+        continue;
+      }
+      let itemTitle = this.getLLMSSafeLinkText(
+        item.title || item.slug || item.id || "Untitled page",
+      );
+      let itemDescription = this.getLLMSPageSummary(
+        item,
+        this.getLLMSSafeText(item.description),
+        markdownLocation,
+      );
+      let line =
+        "- [" +
+        itemTitle +
+        "](" +
+        this.getLLMSResourceURL(domain, markdownLocation) +
+        ")";
+      if (itemDescription != "") {
+        line += ": " + itemDescription;
+      }
+      lines.push(line);
+      hasPages = true;
+    }
+    if (!hasPages) {
+      lines.push(
+        "- [Site outline](" +
+          this.getLLMSResourceURL(domain, "site.json") +
+          "): No page markdown files are currently available.",
+      );
+    }
+    lines.push("");
+    lines.push("## Optional");
+    lines.push(
+      "- [Search index](" +
+        this.getLLMSResourceURL(domain, "lunrSearchIndex.json") +
+        "): Lunr corpus for quick full-text retrieval.",
+    );
+    lines.push(
+      "- [RSS feed](" +
+        this.getLLMSResourceURL(domain, "rss.xml") +
+        "): Site updates in RSS format.",
+    );
+    lines.push(
+      "- [Atom feed](" +
+        this.getLLMSResourceURL(domain, "atom.xml") +
+        "): Site updates in Atom format.",
+    );
+    lines.push(
+      "- [Sitemap](" +
+        this.getLLMSResourceURL(domain, "sitemap.xml") +
+        "): URL-level discovery map for the published site.",
+    );
+    lines.push(
+      "- [Agent skills](" +
+        this.getLLMSResourceURL(domain, ".well-known/agent-skills/index.json") +
+        "): Agent Skills discovery index (agentskills.io v0.2.0) listing skills that teach an agent how to read, author, audit, and remix this site.",
+    );
+    return lines.join("\n") + "\n";
+  }
+  /**
+   * Item ids placed in theme regions (manifest.metadata.theme.regions), e.g.
+   * header and footer content. These render inside every page rather than
+   * as pages of their own, so they are left out of llms.txt.
+   * Mirrors PHP HAXCMSSite::getThemeRegionItemIds.
+   */
+  getThemeRegionItemIds() {
+    const ids = new Set();
+    const regions =
+      this.manifest && this.manifest.metadata && this.manifest.metadata.theme
+        ? this.manifest.metadata.theme.regions
+        : null;
+    if (!regions || typeof regions !== "object") {
+      return ids;
+    }
+    for (const key of Object.keys(regions)) {
+      const regionItems = regions[key];
+      if (typeof regionItems === "string" && regionItems !== "") {
+        ids.add(regionItems);
+      } else if (regionItems && typeof regionItems === "object") {
+        for (const regionItemId of Object.values(regionItems)) {
+          if (typeof regionItemId === "string" && regionItemId !== "") {
+            ids.add(regionItemId);
+          }
+        }
+      }
+    }
+    return ids;
+  }
+  /**
+   * Whether a page belongs in llms.txt: visible to anonymous visitors (same
+   * rule as the site API: published and not hidden from the menu) and not
+   * theme-region content. Mirrors PHP HAXCMSSite::isItemListedForAgents.
+   */
+  isItemListedForAgents(item, regionItemIds = new Set()) {
+    // lazy require: siteRouteUtils requires this module
+    const {
+      isItemVisibleToAnonymous,
+    } = require("../siteRoutes/v1/siteRouteUtils.js");
+    if (!isItemVisibleToAnonymous(item)) {
+      return false;
+    }
+    if (item && item.id && regionItemIds.has(String(item.id))) {
+      return false;
+    }
+    return true;
+  }
+  /**
+   * One-line page summary for llms.txt. Stored descriptions are often the
+   * first N characters of the page cut mid-word; when the description does
+   * not end a sentence, rebuild it from the page's first full sentence(s).
+   * Mirrors PHP HAXCMSSite::getLLMSPageSummary.
+   */
+  getLLMSPageSummary(item, description = "", markdownLocation = "") {
+    description = String(description || "").trim();
+    if (description !== "" && /[.!?…]["'”’)\]]?$/u.test(description)) {
+      return description;
+    }
+    let source = "";
+    if (
+      markdownLocation &&
+      markdownLocation.indexOf("..") === -1 &&
+      this.siteDirectory
+    ) {
+      try {
+        source = this.getLLMSPlainTextFromMarkdown(
+          fs.readFileSync(
+            path.join(this.siteDirectory, markdownLocation.replace(/^\/+/, "")),
+            "utf8",
+          ),
+        );
+      } catch (e) {}
+    }
+    if (
+      source === "" &&
+      item &&
+      item.location &&
+      item.location.indexOf("..") === -1 &&
+      this.siteDirectory
+    ) {
+      try {
+        // Security (N1/N5 parity): containment-checked read
+        const resolvedLocation = this.resolvePageLocationRealPath(
+          item.location,
+        );
+        if (resolvedLocation === false) {
+          throw new Error("invalid page location");
+        }
+        const html = fs.readFileSync(resolvedLocation, "utf8");
+        source = this.getLLMSSafeText(
+          decodeLLMSEntities(String(html).replace(/<[^>]+>/g, " ")),
+        );
+      } catch (e) {}
+    }
+    const summary = this.getLLMSLeadingSentences(source);
+    if (summary !== "") {
+      return summary;
+    }
+    return this.getLLMSWordBoundaryTrim(description, 240);
+  }
+  /**
+   * Strip markdown syntax down to readable text for summaries.
+   */
+  getLLMSPlainTextFromMarkdown(markdown = "") {
+    let text = String(markdown || "");
+    text = text.replace(/```[\s\S]*?```/g, " ");
+    text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
+    text = text.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+    text = text.replace(/<[^>]+>/g, " ");
+    // headings label sections rather than summarize them
+    text = text.replace(/^\s{0,3}#{1,6}\s.*$/gm, " ");
+    text = text.replace(/^\s{0,3}(>|[-*+]|\d+\.)\s+/gm, "");
+    text = text.replace(/\*\*|__|`/g, "");
+    return this.getLLMSSafeText(decodeLLMSEntities(text));
+  }
+  /**
+   * First full sentence(s) of a text, at least ~60 and at most 240
+   * characters; long first sentences are cut at a word boundary.
+   */
+  getLLMSLeadingSentences(text = "", max = 240) {
+    text = String(text || "").trim();
+    if (text === "") {
+      return "";
+    }
+    const sentences = text.split(/(?<=[.!?])\s+(?=[A-Z0-9"“([])/u);
+    let summary = "";
+    for (const sentence of sentences) {
+      const candidate = (
+        summary === "" ? sentence : summary + " " + sentence
+      ).trim();
+      if ([...candidate].length > max) {
+        break;
+      }
+      summary = candidate;
+      if ([...summary].length >= 60) {
+        break;
+      }
+    }
+    if (summary === "") {
+      return this.getLLMSWordBoundaryTrim(text, max);
+    }
+    return summary;
+  }
+  /**
+   * Trim to max characters on a word boundary, adding an ellipsis when cut.
+   */
+  getLLMSWordBoundaryTrim(text = "", max = 240) {
+    text = String(text || "").trim();
+    const chars = [...text];
+    if (text === "" || chars.length <= max) {
+      return text;
+    }
+    let cut = chars.slice(0, max).join("");
+    const space = cut.lastIndexOf(" ");
+    if (space !== -1 && space > max / 2) {
+      cut = cut.substring(0, space);
+    }
+    return cut.replace(/[ ,;:-]+$/, "") + "…";
+  }
+  /**
+   * Build a normalized llms.txt link URL from domain/base and a relative resource path.
+   */
+  getLLMSResourceURL(domain = "", location = "") {
+    let baseURL = this.getLLMSBaseURL(domain);
+    let cleanLocation = "";
+    if (typeof location === "string") {
+      cleanLocation = location.replace(/\\/g, "/").replace(/^\/+/, "");
+    }
+    if (cleanLocation == "") {
+      return baseURL;
+    }
+    if (baseURL == "/") {
+      return "/" + cleanLocation;
+    }
+    return baseURL + cleanLocation;
+  }
+  /**
+   * Normalize domain/base values into a URL-safe prefix for llms.txt links.
+   */
+  getLLMSBaseURL(domain = "") {
+    let baseURL = "";
+    if (typeof domain === "string") {
+      baseURL = domain.trim();
+    }
+    if (baseURL == "") {
+      return "/";
+    }
+    if (!/^https?:\/\//.test(baseURL) && baseURL.substring(0, 1) != "/") {
+      baseURL = "/" + baseURL;
+    }
+    if (baseURL.substring(baseURL.length - 1) != "/") {
+      baseURL += "/";
+    }
+    return baseURL;
+  }
+  /**
+   * Normalize text for llms.txt body content.
+   */
+  getLLMSSafeText(value = "") {
+    if (value == null || typeof value === "undefined") {
+      return "";
+    }
+    let text = String(value);
+    return text
+      .replace(/\r/g, " ")
+      .replace(/\n/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  /**
+   * Normalize markdown link text and escape bracket characters.
+   */
+  getLLMSSafeLinkText(value = "") {
+    let text = this.getLLMSSafeText(value);
+    if (text == "") {
+      text = "Untitled page";
+    }
+    return text.replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+  }
+  /**
+   * Create Lunr.js style search index
+   */
+  async lunrSearchIndex(items) {
+    let data = [];
+    let textData;
+    for (var key in items) {
+      let item = items[key];
+      let created = Math.floor(Date.now() / 1000);
+      if (item.metadata && item.metadata.created) {
+        created = item.metadata.created;
+      }
+      textData = "";
+      try {
+        // Security (N1/N5 parity): read via containment-checked resolver
+        const resolvedLocation = this.resolvePageLocationRealPath(
+          item.location,
+        );
+        if (resolvedLocation === false) {
+          throw new Error("invalid page location");
+        }
+        textData = await fs.readFileSync(resolvedLocation, {
+          encoding: "utf8",
+          flag: "r",
+        });
+        textData = this.cleanSearchData(textData);
+        // may seem silly but IDs in lunr have a size limit for some reason in our context..
+        data.push({
+          id: item.id.replace("-", "").replace("item-", "").substring(0, 29),
+          title: item.title,
+          created: created,
+          location: item.slug,
+          description: item.description,
+          text: textData,
+        });
+      } catch (e) {}
+    }
+    return data;
+  }
+  /**
+   * Clean up data from a file and make it easy for us to index on the front end
+   */
+  cleanSearchData(text) {
+    if (text == "" || text == null || !text) {
+      return "";
+    }
+    // clean up initial, small, trim, replace end lines, utf8 no tags
+    text = utf8.encode(
+      text
+        .replace(/(<([^>]+)>)/gi, "")
+        .replace("\n", " ")
+        .toLowerCase()
+        .trim(),
+    );
+    // all weird chars
+    text = text.replace("/[^a-z0-9']/", " ");
+    text = text.replace("'", "");
+    // all words 1 to 4 letters long
+    text = text.replace("~\b[a-z]{1,4}\bs*~", "");
+    // all excess white space
+    text = text.replace("/s+/", " ");
+    // crush string to array and back to make an unique index
+    text = implode(" ", array_unique(explode(" ", text)));
+    return text;
+  }
+  /**
+   * Sort items by a certain key value. Must be in the included list for safety of the sort
+   * @var string key - the key name to sort on, only some supported
+   * @var string dir - direction to sort, ASC default or DESC to reverse
+   * @return array items - sorted items based on the key used
+   */
+  sortItems(key, dir = "ASC") {
+    let items = [];
+    if (Array.isArray(this.manifest.items)) {
+      for (var itemKey in this.manifest.items) {
+        let item = this.manifest.items[itemKey];
+        if (item && typeof item === "object") {
+          items.push(item);
+        }
+      }
+    } else if (this.manifest.items && typeof this.manifest.items === "object") {
+      for (var objKey in this.manifest.items) {
+        let item = this.manifest.items[objKey];
+        if (item && typeof item === "object") {
+          items.push(item);
+        }
+      }
+    }
+    let sortDir = "ASC";
+    if (dir == "DESC") {
+      sortDir = "DESC";
+    }
+    switch (key) {
+      case "created":
+      case "updated":
+      case "readtime":
+        usort(items, function (a, b) {
+          let aMeta = {};
+          let bMeta = {};
+          if (a.metadata && typeof a.metadata === "object") {
+            aMeta = a.metadata;
+          }
+          if (b.metadata && typeof b.metadata === "object") {
+            bMeta = b.metadata;
+          }
+          let aValue = Number(aMeta[key]);
+          let bValue = Number(bMeta[key]);
+          if (isNaN(aValue)) {
+            aValue = 0;
+          }
+          if (isNaN(bValue)) {
+            bValue = 0;
+          }
+          if (aValue === bValue) {
+            return 0;
+          }
+          if (sortDir == "DESC") {
+            return aValue > bValue ? -1 : 1;
+          }
+          return aValue < bValue ? -1 : 1;
+        });
+        break;
+      case "id":
+      case "title":
+      case "indent":
+      case "location":
+      case "order":
+      case "parent":
+      case "description":
+        usort(items, function (a, b) {
+          let aValue = "";
+          let bValue = "";
+          if (typeof a[key] !== "undefined" && a[key] !== null) {
+            aValue = String(a[key]);
+          }
+          if (typeof b[key] !== "undefined" && b[key] !== null) {
+            bValue = String(b[key]);
+          }
+          if (aValue === bValue) {
+            return 0;
+          }
+          if (sortDir == "DESC") {
+            return aValue > bValue ? -1 : 1;
+          }
+          return aValue < bValue ? -1 : 1;
+        });
+        break;
+    }
+    return items;
+  }
+  /**
+   * Build a JOS into a tree of links recursively
+   */
+  treeToNodes(current, rendered = [], html = "") {
+    let loc = "";
+    for (var key in current) {
+      let item = this.manifest.items[key];
+      if (!array_search(item.id, rendered)) {
+        loc += `<li><a href="${item.location}" target="content">${item.title}</a>`;
+        rendered.push(item.id);
+        let children = [];
+        for (var key2 in this.manifest.items) {
+          let child = this.manifest.items[key2];
+          if (child.parent == item.id) {
+            children.push(child);
+          }
+        }
+        // sort the kids
+        usort(children, function (a, b) {
+          return a.order > b.order;
+        });
+        // only walk deeper if there were children for this page
+        if (children.length > 0) {
+          loc += this.treeToNodes(children, rendered);
+        }
+        loc += "</li>";
+      }
+    }
+    // make sure we aren't empty here before wrapping
+    if (loc != "") {
+      loc = "<ul>" + loc + "</ul>";
+    }
+    return html + loc;
+  }
+  /**
+   * Load node by unique id
+   */
+  loadNode(uuid) {
+    for (var key in this.manifest.items) {
+      let item = this.manifest.items[key];
+      if (item.id == uuid) {
+        return item;
+      }
+    }
+    return false;
+  }
+  /**
+   * Get a social sharing image based on context of page or site having media
+   * @var string page page to mine the image from or attempt to
+   * @return string full URL to an image
+   */
+  getSocialShareImage(page = null) {
+    // resolve a JOS Item vs null
+    let id = null;
+    if (page != null) {
+      id = page.id;
+    }
+    let fileName;
+    if (!fileName) {
+      if (page == null) {
+        page = this.loadNodeByLocation();
+      }
+      // #3043: page.metadata.files is now an array of uuid strings.
+      // Resolve each uuid to its files.json record and return the first
+      // image record's fullUrl. Tolerate legacy object-shape entries on
+      // old pages (read .type/.fullUrl directly) until those pages are
+      // re-saved and converge to uuid-shape.
+      if (page && page.metadata && page.metadata.files) {
+        const FilesDataStore = require("./FilesDataStore.js");
+        const dataStore = new FilesDataStore(this);
+        for (var key in page.metadata.files) {
+          let entry = page.metadata.files[key];
+          // uuid-string shape (Phase 2)
+          if (typeof entry === "string") {
+            const record = dataStore.getByUuid(entry);
+            if (record) {
+              const mimetype = record.mimetype ? String(record.mimetype) : "";
+              if (
+                mimetype.indexOf("image/") === 0 &&
+                mimetype !== "image/svg+xml"
+              ) {
+                fileName = record.fullUrl ? record.fullUrl : null;
                 break;
               }
             }
           }
-        }
-        // a page's own image wins; otherwise the theme banner
-        if (!fileName && this.manifest.metadata.theme && this.manifest.metadata.theme.variables && this.manifest.metadata.theme.variables.image) {
-          fileName = this.manifest.metadata.theme.variables.image;
+          // legacy object shape (old pages)
+          else if (entry && typeof entry === "object") {
+            const type = entry.type ? String(entry.type) : "";
+            if (type.indexOf("image/") === 0 && type !== "image/svg+xml") {
+              fileName = entry.fullUrl ? entry.fullUrl : null;
+              break;
+            }
+          }
         }
       }
-      return fileName || '';
+      // a page's own image wins; otherwise the theme banner
+      if (
+        !fileName &&
+        this.manifest.metadata.theme &&
+        this.manifest.metadata.theme.variables &&
+        this.manifest.metadata.theme.variables.image
+      ) {
+        fileName = this.manifest.metadata.theme.variables.image;
+      }
     }
-    /**
-     * Social share image with the site logo as the last fallback (never the
-     * generic HAX icon). Async because logo sizes are generated on demand.
-     * Mirrors the fallback order in PHP HAXCMSSite::getSocialShareImage.
-     */
-    async getSocialShareImageWithFallback(page = null) {
-      const image = this.getSocialShareImage(page);
-      if (image) {
-        return image;
-      }
-      const logo = this.manifest && this.manifest.metadata && this.manifest.metadata.site
+    return fileName || "";
+  }
+  /**
+   * Social share image with the site logo as the last fallback (never the
+   * generic HAX icon). Async because logo sizes are generated on demand.
+   * Mirrors the fallback order in PHP HAXCMSSite::getSocialShareImage.
+   */
+  async getSocialShareImageWithFallback(page = null) {
+    const image = this.getSocialShareImage(page);
+    if (image) {
+      return image;
+    }
+    const logo =
+      this.manifest && this.manifest.metadata && this.manifest.metadata.site
         ? this.manifest.metadata.site.logo
-        : '';
-      if (logo && logo !== 'null') {
-        return (await this.getLogoSize('512', '512')) || '';
-      }
-      return '';
+        : "";
+    if (logo && logo !== "null") {
+      return (await this.getLogoSize("512", "512")) || "";
     }
-    /**
-     * Return attributes for the site
-     * @todo make this mirror the drupal get attributes method
-     * @return string eventually, array of data keyed by type of information
-     */
-    getSitePageAttributes() {
-      return 'vocab="http://schema.org/" prefix="oer:http://oerschema.org cc:http://creativecommons.org/ns dc:http://purl.org/dc/terms/"';
+    return "";
+  }
+  /**
+   * Return attributes for the site
+   * @todo make this mirror the drupal get attributes method
+   * @return string eventually, array of data keyed by type of information
+   */
+  getSitePageAttributes() {
+    return 'vocab="http://schema.org/" prefix="oer:http://oerschema.org cc:http://creativecommons.org/ns dc:http://purl.org/dc/terms/"';
+  }
+  /**
+   * Return the base tag accurately which helps with the PWA / SW side of things
+   * @return string HTML blob for hte <base> tag
+   */
+  getBaseTag() {
+    return '<base href="' + this.getPWAScopePath() + '" />';
+  }
+  /**
+   * Return a standard service worker that takes into account
+   * the context of the page it's been placed on.
+   * @todo this will need additional vetting based on the context applied
+   * @return string <script> tag that will be a rather standard service worker
+   */
+  getServiceWorkerScript(basePath = null, ignoreDevMode = false, addSW = true) {
+    // because this can screw with caching, let's make sure we
+    // can throttle it locally for developers as needed
+    if (!addSW || (HAXCMS.developerMode && !ignoreDevMode)) {
+      return "\n  <!-- Service worker disabled via settings -->\n";
     }
-    /**
-     * Return the base tag accurately which helps with the PWA / SW side of things
-     * @return string HTML blob for hte <base> tag
-     */
-    getBaseTag() {
-      return '<base href="' + this.getPWAScopePath() + '" />';
+    // support dynamic calculation
+    if (basePath == null) {
+      basePath = this.getPWAScopePath();
     }
-    /**
-     * Return a standard service worker that takes into account
-     * the context of the page it's been placed on.
-     * @todo this will need additional vetting based on the context applied
-     * @return string <script> tag that will be a rather standard service worker
-     */
-    getServiceWorkerScript(basePath = null, ignoreDevMode = false, addSW = true) {
-      // because this can screw with caching, let's make sure we
-      // can throttle it locally for developers as needed
-      if (!addSW || (HAXCMS.developerMode && !ignoreDevMode)) {
-        return "\n  <!-- Service worker disabled via settings -->\n";
-      }
-      // support dynamic calculation
-      if (basePath == null) {
-        basePath = this.getPWAScopePath();
-      }
-      return `
+    return `
       <script>
         if ('serviceWorker' in navigator) {
           var sitePath = ${JSON.stringify(basePath)};
@@ -2004,698 +2246,829 @@ class HAXCMSSite
           });
         }
       </script>`;
+  }
+  /**
+   * Load content of this page
+   * @var JSONOutlineSchemaItem page - a loaded page object
+   * @return string HTML / contents of the page object
+   */
+  async getPageContent(page) {
+    if (page.location && page.location != "") {
+      // Security (N1/N5 parity): read via the containment-checked resolver
+      // so a poisoned site.json location cannot read outside the site dir.
+      const resolved = this.resolvePageLocationRealPath(page.location);
+      if (resolved === false) {
+        return "";
+      }
+      return filter_var(
+        await fs.readFileSync(resolved, { encoding: "utf8", flag: "r" }),
+      );
     }
-    /**
-     * Load content of this page
-     * @var JSONOutlineSchemaItem page - a loaded page object
-     * @return string HTML / contents of the page object
-     */
-    async getPageContent(page) {
-      if ((page.location) && page.location != '') {
-        // Security (N1/N5 parity): read via the containment-checked resolver
-        // so a poisoned site.json location cannot read outside the site dir.
-        const resolved = this.resolvePageLocationRealPath(page.location);
-        if (resolved === false) {
-          return '';
-        }
-        return filter_var(await fs.readFileSync(resolved,
-        {encoding:'utf8', flag:'r'}));
-      }
+  }
+  /**
+   * Security (N1/N5 parity): resolve a page location to its real path and
+   * prove it stays inside this site's directory. Returns false for NUL
+   * bytes, `..` segments, missing files, or anything (incl. symlinks) that
+   * resolves outside the site. Port of PHP
+   * HAXCMSSite::resolvePageLocationRealPath.
+   */
+  resolvePageLocationRealPath(location) {
+    if (!this.siteDirectory) {
+      return false;
     }
-    /**
-     * Security (N1/N5 parity): resolve a page location to its real path and
-     * prove it stays inside this site's directory. Returns false for NUL
-     * bytes, `..` segments, missing files, or anything (incl. symlinks) that
-     * resolves outside the site. Port of PHP
-     * HAXCMSSite::resolvePageLocationRealPath.
-     */
-    resolvePageLocationRealPath(location) {
-      if (!this.siteDirectory) {
-        return false;
-      }
-      const resolved = resolveContainedPath(this.siteDirectory, location);
-      if (resolved === false || !fs.existsSync(resolved)) {
-        return false;
-      }
-      return resolved;
+    const resolved = resolveContainedPath(this.siteDirectory, location);
+    if (resolved === false || !fs.existsSync(resolved)) {
+      return false;
     }
-    /**
-     * Validate that a page's location is in a valid space (aka
-     * pages/whatever/index.html) and not outside the current site directory.
-     */
-    validatePageLocation(location) {
-      return this.resolvePageLocationRealPath(location) !== false;
+    return resolved;
+  }
+  /**
+   * Validate that a page's location is in a valid space (aka
+   * pages/whatever/index.html) and not outside the current site directory.
+   */
+  validatePageLocation(location) {
+    return this.resolvePageLocationRealPath(location) !== false;
+  }
+  /**
+   * Generate per-page alternate formats in the same folder as index.html.
+   * This is best-effort and never throws.
+   */
+  async writePageAlternateFormats(page, htmlContent = "") {
+    if (!page || !page.location || page.location == "" || !this.siteDirectory) {
+      return false;
     }
-    /**
-     * Generate per-page alternate formats in the same folder as index.html.
-     * This is best-effort and never throws.
-     */
-    async writePageAlternateFormats(page, htmlContent = '') {
-      if (!page || !page.location || page.location == '' || !this.siteDirectory) {
-        return false;
-      }
-      // Security (N1/N5 parity): sidecars are written beside the page file,
-      // so refuse when the page location itself escapes the site directory.
-      if (this.resolvePageLocationRealPath(page.location) === false) {
-        return false;
-      }
-      let content = '';
-      if (typeof htmlContent === 'string' && htmlContent != '') {
-        content = htmlContent;
-      }
-      else {
-        try {
-          content = await this.getPageContent(page);
-        }
-        catch (e) {
-          content = '';
-        }
-      }
-      if (typeof content !== 'string' || content == '') {
-        content = '<p></p>';
-      }
-      // Markdown
+    // Security (N1/N5 parity): sidecars are written beside the page file,
+    // so refuse when the page location itself escapes the site directory.
+    if (this.resolvePageLocationRealPath(page.location) === false) {
+      return false;
+    }
+    let content = "";
+    if (typeof htmlContent === "string" && htmlContent != "") {
+      content = htmlContent;
+    } else {
       try {
-        let markdown = turndownService.turndown(content);
-        let markdownLocation = this.getPageAlternateLocation(page.location, 'md');
-        fs.writeFileSync(path.join(this.siteDirectory, markdownLocation), markdown);
+        content = await this.getPageContent(page);
+      } catch (e) {
+        content = "";
       }
-      catch (e) {}
-      // JSON
-      try {
-        let jsonPayload = this.getPageAlternatePayload(page, content, 'json');
-        fs.writeFileSync(
-          path.join(this.siteDirectory, jsonPayload.location),
-          JSON.stringify(jsonPayload, null, 2)
-        );
-      }
-      catch (e) {}
-      // YAML
-      try {
-        let yamlPayload = this.getPageAlternatePayload(page, content, 'yaml');
-        fs.writeFileSync(
-          path.join(this.siteDirectory, yamlPayload.location),
-          jsyaml.dump(yamlPayload)
-        );
-      }
-      catch (e) {}
-      // XML
-      try {
-        let xmlPayload = this.getPageAlternatePayload(page, content, 'xml');
-        fs.writeFileSync(
-          path.join(this.siteDirectory, xmlPayload.location),
-          this.getPageAlternateXML(xmlPayload)
-        );
-      }
-      catch (e) {}
-      return true;
     }
-    /**
-     * Build structured payload with location set for extension.
-     */
-    getPageAlternatePayload(page, content, extension = 'json') {
-      let payload = {};
-      try {
-        payload = JSON.parse(JSON.stringify(page));
-      }
-      catch (e) {
-        payload = {};
-      }
-      payload.location = this.getPageAlternateLocation(page.location, extension);
-      payload.content = content;
-      return payload;
+    if (typeof content !== "string" || content == "") {
+      content = "<p></p>";
     }
-    /**
-     * Derive alternate file location from page location.
-     */
-    getPageAlternateLocation(location = '', extension = 'json') {
-      if (typeof location !== 'string' || location == '') {
-        return '';
-      }
-      let cleanExtension = String(extension).replace(/^\./, '').toLowerCase();
-      let normalizedLocation = location.replace(/\\/g, '/');
-      if (/\.html?$/i.test(normalizedLocation)) {
-        return normalizedLocation.replace(/\.html?$/i, '.' + cleanExtension);
-      }
-      return normalizedLocation + '.' + cleanExtension;
+    // Markdown
+    try {
+      let markdown = turndownService.turndown(content);
+      let markdownLocation = this.getPageAlternateLocation(page.location, "md");
+      fs.writeFileSync(
+        path.join(this.siteDirectory, markdownLocation),
+        markdown,
+      );
+    } catch (e) {}
+    // JSON
+    try {
+      let jsonPayload = this.getPageAlternatePayload(page, content, "json");
+      fs.writeFileSync(
+        path.join(this.siteDirectory, jsonPayload.location),
+        JSON.stringify(jsonPayload, null, 2),
+      );
+    } catch (e) {}
+    // YAML
+    try {
+      let yamlPayload = this.getPageAlternatePayload(page, content, "yaml");
+      fs.writeFileSync(
+        path.join(this.siteDirectory, yamlPayload.location),
+        jsyaml.dump(yamlPayload),
+      );
+    } catch (e) {}
+    // XML
+    try {
+      let xmlPayload = this.getPageAlternatePayload(page, content, "xml");
+      fs.writeFileSync(
+        path.join(this.siteDirectory, xmlPayload.location),
+        this.getPageAlternateXML(xmlPayload),
+      );
+    } catch (e) {}
+    return true;
+  }
+  /**
+   * Build structured payload with location set for extension.
+   */
+  getPageAlternatePayload(page, content, extension = "json") {
+    let payload = {};
+    try {
+      payload = JSON.parse(JSON.stringify(page));
+    } catch (e) {
+      payload = {};
     }
-    /**
-     * Build HTML <link rel="alternate"> tags for available page sidecar formats.
-     */
-    getPageAlternateLinkTags(page = null, canonicalPath = '') {
+    payload.location = this.getPageAlternateLocation(page.location, extension);
+    payload.content = content;
+    return payload;
+  }
+  /**
+   * Derive alternate file location from page location.
+   */
+  getPageAlternateLocation(location = "", extension = "json") {
+    if (typeof location !== "string" || location == "") {
+      return "";
+    }
+    let cleanExtension = String(extension).replace(/^\./, "").toLowerCase();
+    let normalizedLocation = location.replace(/\\/g, "/");
+    if (/\.html?$/i.test(normalizedLocation)) {
+      return normalizedLocation.replace(/\.html?$/i, "." + cleanExtension);
+    }
+    return normalizedLocation + "." + cleanExtension;
+  }
+  /**
+   * Build HTML <link rel="alternate"> tags for available page sidecar formats.
+   */
+  getPageAlternateLinkTags(page = null, canonicalPath = "") {
+    if (
+      !page ||
+      !page.slug ||
+      typeof page.slug !== "string" ||
+      page.slug == "" ||
+      !this.siteDirectory
+    ) {
+      return "";
+    }
+    let basePath = canonicalPath;
+    if (typeof basePath !== "string" || basePath == "") {
+      basePath =
+        "/" + String(page.slug).replace(/^\/+/, "").replace(/\/+$/, "");
+    }
+    basePath = String(basePath).replace(/\/+$/, "");
+    if (basePath == "") {
+      return "";
+    }
+    const formatMimeMap = {
+      html: "text/html",
+      md: "text/markdown",
+      json: "application/json",
+      yaml: "application/yaml",
+      xml: "application/xml",
+    };
+    let tags = "";
+    for (let format in formatMimeMap) {
+      let variantLocation = this.getPageAlternateLocation(
+        page.location,
+        format,
+      );
+      if (!variantLocation) {
+        continue;
+      }
+      let variantPath = path.join(this.siteDirectory, variantLocation);
       if (
-        !page ||
-        !page.slug ||
-        typeof page.slug !== 'string' ||
-        page.slug == '' ||
-        !this.siteDirectory
+        fs.pathExistsSync(variantPath) &&
+        fs.lstatSync(variantPath).isFile()
       ) {
-        return '';
+        tags +=
+          '  <link rel="alternate" type="' +
+          escapeHTMLAttribute(formatMimeMap[format]) +
+          '" href="' +
+          escapeHTMLAttribute(basePath + "." + format) +
+          '" />' +
+          "\n";
       }
-      let basePath = canonicalPath;
-      if (typeof basePath !== 'string' || basePath == '') {
-        basePath = '/' + String(page.slug).replace(/^\/+/, '').replace(/\/+$/, '');
-      }
-      basePath = String(basePath).replace(/\/+$/, '');
-      if (basePath == '') {
-        return '';
-      }
-      const formatMimeMap = {
-        html: 'text/html',
-        md: 'text/markdown',
-        json: 'application/json',
-        yaml: 'application/yaml',
-        xml: 'application/xml',
-      };
-      let tags = '';
-      for (let format in formatMimeMap) {
-        let variantLocation = this.getPageAlternateLocation(page.location, format);
-        if (!variantLocation) {
-          continue;
-        }
-        let variantPath = path.join(this.siteDirectory, variantLocation);
-        if (fs.pathExistsSync(variantPath) && fs.lstatSync(variantPath).isFile()) {
-          tags +=
-            '  <link rel="alternate" type="' +
-            escapeHTMLAttribute(formatMimeMap[format]) +
-            '" href="' +
-            escapeHTMLAttribute(basePath + '.' + format) +
-            '" />' +
-            "\n";
-        }
-      }
-      return tags;
     }
-    /**
-     * Generate XML output for per-page structured payload.
-     */
-    getPageAlternateXML(payload = {}) {
-      let xml = '<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<item>';
-      for (let key in payload) {
-        xml += this.getPageAlternateXMLNode(key, payload[key]);
-      }
-      xml += '\n</item>\n';
-      return xml;
+    return tags;
+  }
+  /**
+   * Generate XML output for per-page structured payload.
+   */
+  getPageAlternateXML(payload = {}) {
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<item>';
+    for (let key in payload) {
+      xml += this.getPageAlternateXMLNode(key, payload[key]);
     }
-    /**
-     * Serialize a payload node to XML recursively.
-     */
-    getPageAlternateXMLNode(key, value) {
-      let tagName = this.getSafeXMLTagName(key);
-      if (key == 'content') {
-        return '\n<' + tagName + '><![CDATA[' + this.getSafeCDATA(value) + ']]></' + tagName + '>';
-      }
-      if (Array.isArray(value)) {
-        let output = '';
-        for (let i = 0; i < value.length; i++) {
-          output += this.getPageAlternateXMLNode('item', value[i]);
-        }
-        return '\n<' + tagName + '>' + output + '\n</' + tagName + '>';
-      }
-      if (value && typeof value === 'object') {
-        let output = '';
-        for (let childKey in value) {
-          output += this.getPageAlternateXMLNode(childKey, value[childKey]);
-        }
-        return '\n<' + tagName + '>' + output + '\n</' + tagName + '>';
-      }
-      if (value === null || typeof value === 'undefined') {
-        return '\n<' + tagName + '></' + tagName + '>';
-      }
-      return '\n<' + tagName + '>' + escapeXMLValue(String(value)) + '</' + tagName + '>';
+    xml += "\n</item>\n";
+    return xml;
+  }
+  /**
+   * Serialize a payload node to XML recursively.
+   */
+  getPageAlternateXMLNode(key, value) {
+    let tagName = this.getSafeXMLTagName(key);
+    if (key == "content") {
+      return (
+        "\n<" +
+        tagName +
+        "><![CDATA[" +
+        this.getSafeCDATA(value) +
+        "]]></" +
+        tagName +
+        ">"
+      );
     }
-    /**
-     * Ensure XML tags are valid and deterministic.
-     */
-    getSafeXMLTagName(name = '') {
-      let tagName = String(name).replace(/[^a-zA-Z0-9_-]/g, '-');
-      if (tagName == '') {
-        tagName = 'item';
+    if (Array.isArray(value)) {
+      let output = "";
+      for (let i = 0; i < value.length; i++) {
+        output += this.getPageAlternateXMLNode("item", value[i]);
       }
-      if (/^[0-9]/.test(tagName)) {
-        tagName = 'item-' + tagName;
-      }
-      return tagName;
+      return "\n<" + tagName + ">" + output + "\n</" + tagName + ">";
     }
-    /**
-     * Prevent CDATA breakouts.
-     */
-    getSafeCDATA(value = '') {
-      return String(value).replace(/\]\]>/g, ']]]]><![CDATA[>');
+    if (value && typeof value === "object") {
+      let output = "";
+      for (let childKey in value) {
+        output += this.getPageAlternateXMLNode(childKey, value[childKey]);
+      }
+      return "\n<" + tagName + ">" + output + "\n</" + tagName + ">";
     }
-    /**
-     * Generate the stub of a well formed site.json item
-     * based on parameters
-     */
-    itemFromParams(params) {
-      // get a new item prototype
-      let item = HAXCMS.outlineSchema.newItem();
-      let cleanTitle = '';
-      // set the title
-      item.title = params['node']['title'].replace("\n", '');
-      if ((params['node']['id']) && params['node']['id'] != '' && params['node']['id'] != null) {
-          // Security (N1/N5 parity): sanitize a client-supplied id before
-          // composing the on-disk location. generateMachineName strips '..',
-          // slashes and NUL bytes (mirrors PHP HAXCMSSite::itemFromParams), so
-          // an id such as `../../othertenant` cannot escape the pages dir when
-          // recurseCopy/writeLocation build a path from it. Existing
-          // `item-<uuid>` ids pass through unchanged.
-          item.id = HAXCMS.generateMachineName(params['node']['id']);
-      }
-      item.location = 'pages/' + item.id + '/index.html';
-      if ((params['indent']) && params['indent'] != '' && params['indent'] != null) {
-          item.indent = params['indent'];
-      }
-      if ((params['order']) && params['order'] != '' && params['order'] != null) {
-          item.order = params['order'];
-      }
-      if ((params['parent']) && params['parent'] != '' && params['parent'] != null) {
-          item.parent = params['parent'];
-      } else {
-          item.parent = null;
-      }
-      if ((params['description']) && params['description'] != '' && params['description'] != null) {
-          item.description = params['description'].replace("\n", '');
-      }
-      if ((params['metadata']) && params['metadata'] != '' && params['metadata'] != null) {
-          item.metadata = params['metadata'];
-      }
-      if (typeof params['node']['location'] !== 'undefined' && params['node']['location'] != '' && params['node']['location'] != null) {
-        cleanTitle = HAXCMS.cleanTitle(params['node']['location']);
-        item.slug = this.getUniqueSlugName(cleanTitle);
-      } else {
-        cleanTitle = HAXCMS.cleanTitle(item.title);
-        item.slug = this.getUniqueSlugName(cleanTitle, item, true);
-      }
-      item.metadata.created = Math.floor(Date.now() / 1000);
-      item.metadata.updated = Math.floor(Date.now() / 1000);
-      return item;
+    if (value === null || typeof value === "undefined") {
+      return "\n<" + tagName + "></" + tagName + ">";
     }
-    /**
-     * Return accurate, rendered site metadata
-     * @var JSONOutlineSchemaItem page - a loaded page object, most likely whats active
-     * @return string an html chunk of tags for the head section
-     * @todo move this to a render function / section / engine
-     */
-    async getSiteMetadata(page = null, domain = null, cdn = '', canonicalPath = '') {
-      const escapeHtml = (value) => escapeHTMLAttribute(value);
-      const sanitizeUrl = (value) => sanitizeURLValue(value, '');
-      if (page == null) {
-        page = new JSONOutlineSchemaItem();
-      }
-      // domain's need to inject their own full path for OG metadata (which is edge case)
-      // most of the time this is the actual usecase so use the active path
-      if (domain == null) {
-        domain = HAXCMS.getURI();
-      }
-      // support preconnecting CDNs, sets us up for dynamic CDN switching too
-      let preconnect = '';
-      let base = './';
-      if (cdn == '' && HAXCMS.cdn != './') {
-        preconnect = `<link rel="preconnect" crossorigin href="${escapeHtml(sanitizeUrl(HAXCMS.cdn))}" />`;
-        cdn = HAXCMS.cdn;
-      }
-      if (cdn != '') {
-        // preconnect for faster DNS lookup
-        preconnect = `<link rel="preconnect" crossorigin href="${escapeHtml(sanitizeUrl(cdn))}" />`;
-        // preload rewrite correctly
-        base = sanitizeUrl(cdn);
-      }
-      let title = page.title;
-      let siteTitle = this.manifest.title + ' | ' + page.title;
-      let description = page.description;
-      let hexCode = HAXCMS.HAXCMS_FALLBACK_HEX;
-      let robots;
-      let canonical;
-      if (description == '') {
-        description = this.manifest.description;
-      }
-      if (title == '' || title == 'New item') {
-        title = this.manifest.title;
-        siteTitle = this.manifest.title;
-      }
-      if (this.manifest.metadata.theme && this.manifest.metadata.theme.variables && this.manifest.metadata.theme.variables.hexCode) {
-          hexCode = this.manifest.metadata.theme.variables.hexCode;
-      }
-      // if we have a privacy flag, then tell robots not to index this were it to be found
-      // which in HAXiam this isn't possible
-      if (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.private) {
-        robots = '<meta name="robots" content="none" />';
-      }
-      else {
-        robots = '<meta name="robots" content="index, follow" />';
-      }
-      // canonical flag, if set we use domain and canonicalPath context
-      let canonicalBase = sanitizeUrl(domain);
-      if (this.manifest.metadata.site.domain && this.manifest.metadata.site.domain != '') {
-        canonicalBase = sanitizeUrl(this.manifest.metadata.site.domain);
-      }
-      let canonicalUrl = canonicalBase;
-      if (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.canonical) {
-        if (canonicalPath && canonicalPath != '') {
-          const normalizedCanonicalPath = String(canonicalPath).substring(0, 1) === '/'
+    return (
+      "\n<" +
+      tagName +
+      ">" +
+      escapeXMLValue(String(value)) +
+      "</" +
+      tagName +
+      ">"
+    );
+  }
+  /**
+   * Ensure XML tags are valid and deterministic.
+   */
+  getSafeXMLTagName(name = "") {
+    let tagName = String(name).replace(/[^a-zA-Z0-9_-]/g, "-");
+    if (tagName == "") {
+      tagName = "item";
+    }
+    if (/^[0-9]/.test(tagName)) {
+      tagName = "item-" + tagName;
+    }
+    return tagName;
+  }
+  /**
+   * Prevent CDATA breakouts.
+   */
+  getSafeCDATA(value = "") {
+    return String(value).replace(/\]\]>/g, "]]]]><![CDATA[>");
+  }
+  /**
+   * Generate the stub of a well formed site.json item
+   * based on parameters
+   */
+  itemFromParams(params) {
+    // get a new item prototype
+    let item = HAXCMS.outlineSchema.newItem();
+    let cleanTitle = "";
+    // set the title
+    item.title = params["node"]["title"].replace("\n", "");
+    if (
+      params["node"]["id"] &&
+      params["node"]["id"] != "" &&
+      params["node"]["id"] != null
+    ) {
+      // Security (N1/N5 parity): sanitize a client-supplied id before
+      // composing the on-disk location. generateMachineName strips '..',
+      // slashes and NUL bytes (mirrors PHP HAXCMSSite::itemFromParams), so
+      // an id such as `../../othertenant` cannot escape the pages dir when
+      // recurseCopy/writeLocation build a path from it. Existing
+      // `item-<uuid>` ids pass through unchanged.
+      item.id = HAXCMS.generateMachineName(params["node"]["id"]);
+    }
+    item.location = "pages/" + item.id + "/index.html";
+    if (
+      params["indent"] &&
+      params["indent"] != "" &&
+      params["indent"] != null
+    ) {
+      item.indent = params["indent"];
+    }
+    if (params["order"] && params["order"] != "" && params["order"] != null) {
+      item.order = params["order"];
+    }
+    if (
+      params["parent"] &&
+      params["parent"] != "" &&
+      params["parent"] != null
+    ) {
+      item.parent = params["parent"];
+    } else {
+      item.parent = null;
+    }
+    if (
+      params["description"] &&
+      params["description"] != "" &&
+      params["description"] != null
+    ) {
+      item.description = params["description"].replace("\n", "");
+    }
+    if (
+      params["metadata"] &&
+      params["metadata"] != "" &&
+      params["metadata"] != null
+    ) {
+      item.metadata = params["metadata"];
+    }
+    if (
+      typeof params["node"]["location"] !== "undefined" &&
+      params["node"]["location"] != "" &&
+      params["node"]["location"] != null
+    ) {
+      cleanTitle = HAXCMS.cleanTitle(params["node"]["location"]);
+      item.slug = this.getUniqueSlugName(cleanTitle);
+    } else {
+      cleanTitle = HAXCMS.cleanTitle(item.title);
+      item.slug = this.getUniqueSlugName(cleanTitle, item, true);
+    }
+    item.metadata.created = Math.floor(Date.now() / 1000);
+    item.metadata.updated = Math.floor(Date.now() / 1000);
+    return item;
+  }
+  /**
+   * Return accurate, rendered site metadata
+   * @var JSONOutlineSchemaItem page - a loaded page object, most likely whats active
+   * @return string an html chunk of tags for the head section
+   * @todo move this to a render function / section / engine
+   */
+  async getSiteMetadata(
+    page = null,
+    domain = null,
+    cdn = "",
+    canonicalPath = "",
+  ) {
+    const escapeHtml = (value) => escapeHTMLAttribute(value);
+    const sanitizeUrl = (value) => sanitizeURLValue(value, "");
+    if (page == null) {
+      page = new JSONOutlineSchemaItem();
+    }
+    // domain's need to inject their own full path for OG metadata (which is edge case)
+    // most of the time this is the actual usecase so use the active path
+    if (domain == null) {
+      domain = HAXCMS.getURI();
+    }
+    // support preconnecting CDNs, sets us up for dynamic CDN switching too
+    let preconnect = "";
+    let base = "./";
+    if (cdn == "" && HAXCMS.cdn != "./") {
+      preconnect = `<link rel="preconnect" crossorigin href="${escapeHtml(sanitizeUrl(HAXCMS.cdn))}" />`;
+      cdn = HAXCMS.cdn;
+    }
+    if (cdn != "") {
+      // preconnect for faster DNS lookup
+      preconnect = `<link rel="preconnect" crossorigin href="${escapeHtml(sanitizeUrl(cdn))}" />`;
+      // preload rewrite correctly
+      base = sanitizeUrl(cdn);
+    }
+    let title = page.title;
+    let siteTitle = this.manifest.title + " | " + page.title;
+    let description = page.description;
+    let hexCode = HAXCMS.HAXCMS_FALLBACK_HEX;
+    let robots;
+    let canonical;
+    if (description == "") {
+      description = this.manifest.description;
+    }
+    if (title == "" || title == "New item") {
+      title = this.manifest.title;
+      siteTitle = this.manifest.title;
+    }
+    if (
+      this.manifest.metadata.theme &&
+      this.manifest.metadata.theme.variables &&
+      this.manifest.metadata.theme.variables.hexCode
+    ) {
+      hexCode = this.manifest.metadata.theme.variables.hexCode;
+    }
+    // if we have a privacy flag, then tell robots not to index this were it to be found
+    // which in HAXiam this isn't possible
+    if (
+      this.manifest.metadata.site.settings &&
+      this.manifest.metadata.site.settings.private
+    ) {
+      robots = '<meta name="robots" content="none" />';
+    } else {
+      robots = '<meta name="robots" content="index, follow" />';
+    }
+    // canonical flag, if set we use domain and canonicalPath context
+    let canonicalBase = sanitizeUrl(domain);
+    if (
+      this.manifest.metadata.site.domain &&
+      this.manifest.metadata.site.domain != ""
+    ) {
+      canonicalBase = sanitizeUrl(this.manifest.metadata.site.domain);
+    }
+    let canonicalUrl = canonicalBase;
+    if (
+      this.manifest.metadata.site.settings &&
+      this.manifest.metadata.site.settings.canonical
+    ) {
+      if (canonicalPath && canonicalPath != "") {
+        const normalizedCanonicalPath =
+          String(canonicalPath).substring(0, 1) === "/"
             ? String(canonicalPath)
-            : '/' + String(canonicalPath);
-          if (/^https?:\/\//i.test(canonicalBase)) {
-            const originMatch = String(canonicalBase).match(/^https?:\/\/[^/]+/i);
-            if (originMatch && originMatch[0]) {
-              canonicalUrl = sanitizeUrl(originMatch[0] + normalizedCanonicalPath);
-            }
-            else {
-              canonicalUrl = sanitizeUrl(String(canonicalBase).replace(/\/+$/, '') + normalizedCanonicalPath);
-            }
+            : "/" + String(canonicalPath);
+        if (/^https?:\/\//i.test(canonicalBase)) {
+          const originMatch = String(canonicalBase).match(/^https?:\/\/[^/]+/i);
+          if (originMatch && originMatch[0]) {
+            canonicalUrl = sanitizeUrl(
+              originMatch[0] + normalizedCanonicalPath,
+            );
+          } else {
+            canonicalUrl = sanitizeUrl(
+              String(canonicalBase).replace(/\/+$/, "") +
+                normalizedCanonicalPath,
+            );
           }
-          else {
-            canonicalUrl = sanitizeUrl(String(canonicalBase).replace(/\/+$/, '') + normalizedCanonicalPath);
-          }
-        }
-        else if (
-          this.manifest.metadata.site.domain &&
-          this.manifest.metadata.site.domain != '' &&
-          page.slug &&
-          page.slug != ''
-        ) {
+        } else {
           canonicalUrl = sanitizeUrl(
-            String(this.manifest.metadata.site.domain).replace(/\/+$/, '') +
-            '/' +
-            String(page.slug).replace(/^\/+/, '')
+            String(canonicalBase).replace(/\/+$/, "") + normalizedCanonicalPath,
           );
         }
-        canonical = '  <link rel="canonical" href="' + escapeHtml(canonicalUrl) + '" />' + "\n";
-      }
-      else {
-        canonical = '';
-      }
-      let prevResource = '';
-      let nextResource = '';
-      // if we have a place in the array bc it's a page, then we can get next / prev
-      if (page.id && this.manifest.getItemKeyById(page.id) !== false) {
-        let currentId = this.manifest.getItemKeyById(page.id);
-        if (currentId > 0 && this.manifest.items[currentId-1] && this.manifest.items[currentId-1].slug) {
-          prevResource = '  <link rel="prev" href="' + escapeHtml(String(this.manifest.items[currentId - 1].slug)) + '" />' + "\n";
-        }
-        if (currentId < this.manifest.items.length-1 && this.manifest.items[currentId+1] && this.manifest.items[currentId+1].slug) {
-          nextResource = '  <link rel="next" href="' + escapeHtml(String(this.manifest.items[currentId + 1].slug)) + '" />' + "\n";
-        }
-      }
-      const alternateLinks = this.getPageAlternateLinkTags(page, canonicalPath);
-      canonical += alternateLinks;
-      const safeSiteTitle = escapeHtml(siteTitle);
-      const safeTitle = escapeHtml(title);
-      const safeDescription = escapeHtml(description);
-      const safeManifestTitle = escapeHtml(this.manifest.title);
-      const safeDomain = escapeHtml(sanitizeUrl(canonicalUrl || domain));
-      // social cards need an absolute image URL; relative paths resolve
-      // against the site domain when one is set
-      let socialImageUrl = sanitizeUrl(await this.getSocialShareImageWithFallback(page));
-      if (socialImageUrl && !/^https?:\/\//i.test(socialImageUrl) && /^https?:\/\//i.test(String(canonicalBase || ''))) {
-        socialImageUrl = String(canonicalBase).replace(/\/+$/, '') + '/' + socialImageUrl.replace(/^\/+/, '');
-      }
-      const safeSocialShareImage = escapeHtml(socialImageUrl);
-      const safeHexCode = escapeHtml(hexCode);
-      const joinUrl = (baseValue = '', segmentValue = '') => {
-        const normalizedBase = String(baseValue || '');
-        const normalizedSegment = String(segmentValue || '');
-        if (normalizedSegment == '') {
-          return normalizedBase;
-        }
-        if (/^https?:\/\//i.test(normalizedSegment)) {
-          return normalizedSegment;
-        }
-        if (normalizedBase == '') {
-          return normalizedSegment;
-        }
-        return normalizedBase.replace(/\/+$/, '') + '/' + normalizedSegment.replace(/^\/+/, '');
-      };
-      let inLanguage = 'en-US';
-      if (
-        this.manifest &&
-        this.manifest.metadata &&
-        this.manifest.metadata.site &&
-        this.manifest.metadata.site.settings &&
-        this.manifest.metadata.site.settings.lang &&
-        String(this.manifest.metadata.site.settings.lang).trim() != ''
+      } else if (
+        this.manifest.metadata.site.domain &&
+        this.manifest.metadata.site.domain != "" &&
+        page.slug &&
+        page.slug != ""
       ) {
-        inLanguage = String(this.manifest.metadata.site.settings.lang).trim();
+        canonicalUrl = sanitizeUrl(
+          String(this.manifest.metadata.site.domain).replace(/\/+$/, "") +
+            "/" +
+            String(page.slug).replace(/^\/+/, ""),
+        );
       }
-      let pageUrlForStructuredData = sanitizeUrl(canonicalUrl || domain);
-      let siteUrlForStructuredData = sanitizeUrl(canonicalBase || domain);
-      if (siteUrlForStructuredData == '') {
-        siteUrlForStructuredData = pageUrlForStructuredData;
+      canonical =
+        '  <link rel="canonical" href="' +
+        escapeHtml(canonicalUrl) +
+        '" />' +
+        "\n";
+    } else {
+      canonical = "";
+    }
+    let prevResource = "";
+    let nextResource = "";
+    // if we have a place in the array bc it's a page, then we can get next / prev
+    if (page.id && this.manifest.getItemKeyById(page.id) !== false) {
+      let currentId = this.manifest.getItemKeyById(page.id);
+      if (
+        currentId > 0 &&
+        this.manifest.items[currentId - 1] &&
+        this.manifest.items[currentId - 1].slug
+      ) {
+        prevResource =
+          '  <link rel="prev" href="' +
+          escapeHtml(String(this.manifest.items[currentId - 1].slug)) +
+          '" />' +
+          "\n";
       }
-      if (pageUrlForStructuredData == '') {
-        pageUrlForStructuredData = siteUrlForStructuredData;
+      if (
+        currentId < this.manifest.items.length - 1 &&
+        this.manifest.items[currentId + 1] &&
+        this.manifest.items[currentId + 1].slug
+      ) {
+        nextResource =
+          '  <link rel="next" href="' +
+          escapeHtml(String(this.manifest.items[currentId + 1].slug)) +
+          '" />' +
+          "\n";
       }
-      const toAbsoluteStructuredDataUrl = (value = '') => {
-        const sanitizedValue = sanitizeUrl(value);
-        if (sanitizedValue == '') {
-          return '';
-        }
-        if (/^https?:\/\//i.test(sanitizedValue)) {
-          return sanitizedValue;
-        }
-        if (siteUrlForStructuredData != '') {
-          return sanitizeUrl(joinUrl(siteUrlForStructuredData, sanitizedValue));
-        }
+    }
+    const alternateLinks = this.getPageAlternateLinkTags(page, canonicalPath);
+    canonical += alternateLinks;
+    const safeSiteTitle = escapeHtml(siteTitle);
+    const safeTitle = escapeHtml(title);
+    const safeDescription = escapeHtml(description);
+    const safeManifestTitle = escapeHtml(this.manifest.title);
+    const safeDomain = escapeHtml(sanitizeUrl(canonicalUrl || domain));
+    // social cards need an absolute image URL; relative paths resolve
+    // against the site domain when one is set
+    let socialImageUrl = sanitizeUrl(
+      await this.getSocialShareImageWithFallback(page),
+    );
+    if (
+      socialImageUrl &&
+      !/^https?:\/\//i.test(socialImageUrl) &&
+      /^https?:\/\//i.test(String(canonicalBase || ""))
+    ) {
+      socialImageUrl =
+        String(canonicalBase).replace(/\/+$/, "") +
+        "/" +
+        socialImageUrl.replace(/^\/+/, "");
+    }
+    const safeSocialShareImage = escapeHtml(socialImageUrl);
+    const safeHexCode = escapeHtml(hexCode);
+    const joinUrl = (baseValue = "", segmentValue = "") => {
+      const normalizedBase = String(baseValue || "");
+      const normalizedSegment = String(segmentValue || "");
+      if (normalizedSegment == "") {
+        return normalizedBase;
+      }
+      if (/^https?:\/\//i.test(normalizedSegment)) {
+        return normalizedSegment;
+      }
+      if (normalizedBase == "") {
+        return normalizedSegment;
+      }
+      return (
+        normalizedBase.replace(/\/+$/, "") +
+        "/" +
+        normalizedSegment.replace(/^\/+/, "")
+      );
+    };
+    let inLanguage = "en-US";
+    if (
+      this.manifest &&
+      this.manifest.metadata &&
+      this.manifest.metadata.site &&
+      this.manifest.metadata.site.settings &&
+      this.manifest.metadata.site.settings.lang &&
+      String(this.manifest.metadata.site.settings.lang).trim() != ""
+    ) {
+      inLanguage = String(this.manifest.metadata.site.settings.lang).trim();
+    }
+    let pageUrlForStructuredData = sanitizeUrl(canonicalUrl || domain);
+    let siteUrlForStructuredData = sanitizeUrl(canonicalBase || domain);
+    if (siteUrlForStructuredData == "") {
+      siteUrlForStructuredData = pageUrlForStructuredData;
+    }
+    if (pageUrlForStructuredData == "") {
+      pageUrlForStructuredData = siteUrlForStructuredData;
+    }
+    const toAbsoluteStructuredDataUrl = (value = "") => {
+      const sanitizedValue = sanitizeUrl(value);
+      if (sanitizedValue == "") {
+        return "";
+      }
+      if (/^https?:\/\//i.test(sanitizedValue)) {
         return sanitizedValue;
-      };
-      let socialShareImageForStructuredData = toAbsoluteStructuredDataUrl(
-        await this.getSocialShareImageWithFallback(page),
+      }
+      if (siteUrlForStructuredData != "") {
+        return sanitizeUrl(joinUrl(siteUrlForStructuredData, sanitizedValue));
+      }
+      return sanitizedValue;
+    };
+    let socialShareImageForStructuredData = toAbsoluteStructuredDataUrl(
+      await this.getSocialShareImageWithFallback(page),
+    );
+    let siteLogoForStructuredData = toAbsoluteStructuredDataUrl(
+      await this.getLogoSize("512", "512"),
+    );
+    let pageUpdatedISO = "";
+    let pageCreatedISO = "";
+    if (
+      page &&
+      page.metadata &&
+      typeof page.metadata.updated !== "undefined" &&
+      page.metadata.updated !== null &&
+      page.metadata.updated !== ""
+    ) {
+      let updatedTimestamp = parseInt(page.metadata.updated, 10);
+      if (!isNaN(updatedTimestamp) && updatedTimestamp > 0) {
+        pageUpdatedISO = new Date(updatedTimestamp * 1000).toISOString();
+      }
+    }
+    if (
+      page &&
+      page.metadata &&
+      typeof page.metadata.created !== "undefined" &&
+      page.metadata.created !== null &&
+      page.metadata.created !== ""
+    ) {
+      let createdTimestamp = parseInt(page.metadata.created, 10);
+      if (!isNaN(createdTimestamp) && createdTimestamp > 0) {
+        pageCreatedISO = new Date(createdTimestamp * 1000).toISOString();
+      }
+    }
+    const manifestAuthor =
+      this.manifest && this.manifest.metadata && this.manifest.metadata.author
+        ? this.manifest.metadata.author
+        : {};
+    let authorName = "";
+    if (manifestAuthor && manifestAuthor.name) {
+      authorName = String(manifestAuthor.name).trim();
+    } else if (
+      this.manifest &&
+      typeof this.manifest.author === "string" &&
+      String(this.manifest.author).trim() != ""
+    ) {
+      authorName = String(this.manifest.author).trim();
+    } else if (
+      this.manifest &&
+      this.manifest.author &&
+      this.manifest.author.name
+    ) {
+      authorName = String(this.manifest.author.name).trim();
+    }
+    // author email is deliberately not published in structured data;
+    // it only feeds address harvesters
+    let authorSocialLink = "";
+    if (manifestAuthor && manifestAuthor.socialLink) {
+      authorSocialLink = sanitizeUrl(String(manifestAuthor.socialLink).trim());
+    } else if (
+      this.manifest &&
+      this.manifest.author &&
+      this.manifest.author.socialLink
+    ) {
+      authorSocialLink = sanitizeUrl(
+        String(this.manifest.author.socialLink).trim(),
       );
-      let siteLogoForStructuredData = toAbsoluteStructuredDataUrl(
-        await this.getLogoSize('512', '512'),
+    }
+    let authorImageForStructuredData = "";
+    if (manifestAuthor && manifestAuthor.image) {
+      authorImageForStructuredData = toAbsoluteStructuredDataUrl(
+        manifestAuthor.image,
       );
-      let pageUpdatedISO = '';
-      let pageCreatedISO = '';
+    } else if (
+      this.manifest &&
+      this.manifest.author &&
+      this.manifest.author.image
+    ) {
+      authorImageForStructuredData = toAbsoluteStructuredDataUrl(
+        this.manifest.author.image,
+      );
+    }
+    let breadcrumbTrail = [];
+    if (page && page.id && this.manifest && this.manifest.items) {
+      let itemBuilder = page;
+      if (typeof itemBuilder.title === "undefined" || itemBuilder.title == "") {
+        let activeItemIndex = this.manifest.getItemKeyById(page.id);
+        if (activeItemIndex !== false && this.manifest.items[activeItemIndex]) {
+          itemBuilder = this.manifest.items[activeItemIndex];
+        }
+      }
+      let safetyCounter = 0;
+      while (itemBuilder && safetyCounter < 200) {
+        breadcrumbTrail.unshift(itemBuilder);
+        if (itemBuilder.parent == null) {
+          break;
+        }
+        itemBuilder = this.manifest.items.find(
+          (i) => i.id == itemBuilder.parent,
+        );
+        safetyCounter++;
+      }
+    } else if (page && (page.title || page.slug)) {
+      breadcrumbTrail = [page];
+    }
+    let breadcrumbListElements = [];
+    let breadcrumbPosition = 1;
+    if (siteUrlForStructuredData != "") {
+      breadcrumbListElements.push({
+        "@type": "ListItem",
+        position: breadcrumbPosition,
+        name:
+          this.manifest && this.manifest.title
+            ? String(this.manifest.title)
+            : "Home",
+        item: siteUrlForStructuredData,
+      });
+      breadcrumbPosition++;
+    }
+    for (let index = 0; index < breadcrumbTrail.length; index++) {
+      let breadcrumbItem = breadcrumbTrail[index];
+      if (!breadcrumbItem) {
+        continue;
+      }
+      let breadcrumbName = "";
+      if (breadcrumbItem.title && String(breadcrumbItem.title).trim() != "") {
+        breadcrumbName = String(breadcrumbItem.title).trim();
+      } else if (
+        breadcrumbItem.slug &&
+        String(breadcrumbItem.slug).trim() != ""
+      ) {
+        breadcrumbName = String(breadcrumbItem.slug).trim();
+      } else {
+        breadcrumbName = safeTitle;
+      }
+      let breadcrumbUrl = "";
+      if (breadcrumbItem.slug && String(breadcrumbItem.slug).trim() != "") {
+        breadcrumbUrl = toAbsoluteStructuredDataUrl(breadcrumbItem.slug);
+      }
+      if (breadcrumbUrl == "" && index === breadcrumbTrail.length - 1) {
+        breadcrumbUrl = pageUrlForStructuredData;
+      }
+      if (breadcrumbUrl == "") {
+        breadcrumbUrl = siteUrlForStructuredData;
+      }
       if (
-        page &&
-        page.metadata &&
-        typeof page.metadata.updated !== 'undefined' &&
-        page.metadata.updated !== null &&
-        page.metadata.updated !== ''
+        breadcrumbPosition === 2 &&
+        siteUrlForStructuredData != "" &&
+        breadcrumbUrl == siteUrlForStructuredData
       ) {
-        let updatedTimestamp = parseInt(page.metadata.updated, 10);
-        if (!isNaN(updatedTimestamp) && updatedTimestamp > 0) {
-          pageUpdatedISO = new Date(updatedTimestamp * 1000).toISOString();
-        }
+        continue;
       }
-      if (
-        page &&
-        page.metadata &&
-        typeof page.metadata.created !== 'undefined' &&
-        page.metadata.created !== null &&
-        page.metadata.created !== ''
-      ) {
-        let createdTimestamp = parseInt(page.metadata.created, 10);
-        if (!isNaN(createdTimestamp) && createdTimestamp > 0) {
-          pageCreatedISO = new Date(createdTimestamp * 1000).toISOString();
-        }
+      if (breadcrumbUrl == "") {
+        continue;
       }
-      const manifestAuthor =
-        this.manifest &&
-        this.manifest.metadata &&
-        this.manifest.metadata.author
-          ? this.manifest.metadata.author
-          : {};
-      let authorName = '';
-      if (manifestAuthor && manifestAuthor.name) {
-        authorName = String(manifestAuthor.name).trim();
-      } else if (
-        this.manifest &&
-        typeof this.manifest.author === 'string' &&
-        String(this.manifest.author).trim() != ''
-      ) {
-        authorName = String(this.manifest.author).trim();
-      } else if (
-        this.manifest &&
-        this.manifest.author &&
-        this.manifest.author.name
-      ) {
-        authorName = String(this.manifest.author.name).trim();
-      }
-      // author email is deliberately not published in structured data;
-      // it only feeds address harvesters
-      let authorSocialLink = '';
-      if (manifestAuthor && manifestAuthor.socialLink) {
-        authorSocialLink = sanitizeUrl(String(manifestAuthor.socialLink).trim());
-      } else if (
-        this.manifest &&
-        this.manifest.author &&
-        this.manifest.author.socialLink
-      ) {
-        authorSocialLink = sanitizeUrl(
-          String(this.manifest.author.socialLink).trim(),
+      breadcrumbListElements.push({
+        "@type": "ListItem",
+        position: breadcrumbPosition,
+        name: breadcrumbName,
+        item: breadcrumbUrl,
+      });
+      breadcrumbPosition++;
+    }
+    // Phase 1: graph-driven shell modulepreload + per-tag content preload
+    // (parity with PHP backend). Reads wc-registry-graph.json (emitted by
+    // the ubiquity gulp task) to emit a capped (<=12, depth<=2) shell+theme
+    // modulepreload set, then scans page content for custom-element tags
+    // and emits per-tag preloads deduped against the shell set. Falls back
+    // to the fixed shell list when the graph artifact is absent.
+    let themePath = "";
+    if (
+      this.manifest &&
+      this.manifest.metadata &&
+      this.manifest.metadata.theme &&
+      this.manifest.metadata.theme.path
+    ) {
+      themePath = String(this.manifest.metadata.theme.path).replace(
+        "@lrnwebcomponents/",
+        "@haxtheweb/",
+      );
+    }
+    const shellPaths = HAXCMS.buildShellModulepreloadPaths(
+      this,
+      base,
+      themePath,
+    );
+    let shellModulepreload = "";
+    const shellSet = {};
+    for (const sp of shellPaths) {
+      const sps = String(sp);
+      shellSet[sps] = true;
+      shellModulepreload +=
+        '  <link rel="modulepreload" href="' +
+        base +
+        "build/es6/node_modules/" +
+        sps +
+        '" crossorigin="anonymous" />\n';
+    }
+    shellModulepreload = shellModulepreload.replace(/\n$/, "");
+    // per-tag content preload (entry only), deduped against the shell set.
+    // mirrors the PHP getSiteMetadata content scan so both backends match.
+    let contentPreload = "";
+    const contentSeen = {};
+    const preloadTags = {};
+    try {
+      const pageContent = await this.getPageContent(page);
+      if (pageContent && typeof pageContent === "string") {
+        const tagMatches = pageContent.match(
+          /<(?:"[^"]*"['"]*|'[^']*'['"]*|[^'">])+>/g,
         );
-      }
-      let authorImageForStructuredData = '';
-      if (manifestAuthor && manifestAuthor.image) {
-        authorImageForStructuredData = toAbsoluteStructuredDataUrl(
-          manifestAuthor.image,
-        );
-      } else if (
-        this.manifest &&
-        this.manifest.author &&
-        this.manifest.author.image
-      ) {
-        authorImageForStructuredData = toAbsoluteStructuredDataUrl(
-          this.manifest.author.image,
-        );
-      }
-      let breadcrumbTrail = [];
-      if (page && page.id && this.manifest && this.manifest.items) {
-        let itemBuilder = page;
-        if (typeof itemBuilder.title === 'undefined' || itemBuilder.title == '') {
-          let activeItemIndex = this.manifest.getItemKeyById(page.id);
-          if (
-            activeItemIndex !== false &&
-            this.manifest.items[activeItemIndex]
-          ) {
-            itemBuilder = this.manifest.items[activeItemIndex];
-          }
-        }
-        let safetyCounter = 0;
-        while (itemBuilder && safetyCounter < 200) {
-          breadcrumbTrail.unshift(itemBuilder);
-          if (itemBuilder.parent == null) {
-            break;
-          }
-          itemBuilder = this.manifest.items.find((i) => i.id == itemBuilder.parent);
-          safetyCounter++;
-        }
-      } else if (page && (page.title || page.slug)) {
-        breadcrumbTrail = [page];
-      }
-      let breadcrumbListElements = [];
-      let breadcrumbPosition = 1;
-      if (siteUrlForStructuredData != '') {
-        breadcrumbListElements.push({
-          '@type': 'ListItem',
-          'position': breadcrumbPosition,
-          'name':
-            this.manifest && this.manifest.title
-              ? String(this.manifest.title)
-              : 'Home',
-          'item': siteUrlForStructuredData,
-        });
-        breadcrumbPosition++;
-      }
-      for (let index = 0; index < breadcrumbTrail.length; index++) {
-        let breadcrumbItem = breadcrumbTrail[index];
-        if (!breadcrumbItem) {
-          continue;
-        }
-        let breadcrumbName = '';
-        if (breadcrumbItem.title && String(breadcrumbItem.title).trim() != '') {
-          breadcrumbName = String(breadcrumbItem.title).trim();
-        } else if (
-          breadcrumbItem.slug &&
-          String(breadcrumbItem.slug).trim() != ''
-        ) {
-          breadcrumbName = String(breadcrumbItem.slug).trim();
-        } else {
-          breadcrumbName = safeTitle;
-        }
-        let breadcrumbUrl = '';
-        if (breadcrumbItem.slug && String(breadcrumbItem.slug).trim() != '') {
-          breadcrumbUrl = toAbsoluteStructuredDataUrl(breadcrumbItem.slug);
-        }
-        if (breadcrumbUrl == '' && index === breadcrumbTrail.length - 1) {
-          breadcrumbUrl = pageUrlForStructuredData;
-        }
-        if (breadcrumbUrl == '') {
-          breadcrumbUrl = siteUrlForStructuredData;
-        }
-        if (
-          breadcrumbPosition === 2 &&
-          siteUrlForStructuredData != '' &&
-          breadcrumbUrl == siteUrlForStructuredData
-        ) {
-          continue;
-        }
-        if (breadcrumbUrl == '') {
-          continue;
-        }
-        breadcrumbListElements.push({
-          '@type': 'ListItem',
-          'position': breadcrumbPosition,
-          'name': breadcrumbName,
-          'item': breadcrumbUrl,
-        });
-        breadcrumbPosition++;
-      }
-      // Phase 1: graph-driven shell modulepreload + per-tag content preload
-      // (parity with PHP backend). Reads wc-registry-graph.json (emitted by
-      // the ubiquity gulp task) to emit a capped (<=12, depth<=2) shell+theme
-      // modulepreload set, then scans page content for custom-element tags
-      // and emits per-tag preloads deduped against the shell set. Falls back
-      // to the fixed shell list when the graph artifact is absent.
-      let themePath = '';
-      if (this.manifest && this.manifest.metadata && this.manifest.metadata.theme && this.manifest.metadata.theme.path) {
-        themePath = String(this.manifest.metadata.theme.path).replace('@lrnwebcomponents/', '@haxtheweb/');
-      }
-      const shellPaths = HAXCMS.buildShellModulepreloadPaths(this, base, themePath);
-      let shellModulepreload = '';
-      const shellSet = {};
-      for (const sp of shellPaths) {
-        const sps = String(sp);
-        shellSet[sps] = true;
-        shellModulepreload += '  <link rel="modulepreload" href="' + base + 'build/es6/node_modules/' + sps + '" crossorigin="anonymous" />\n';
-      }
-      shellModulepreload = shellModulepreload.replace(/\n$/, '');
-      // per-tag content preload (entry only), deduped against the shell set.
-      // mirrors the PHP getSiteMetadata content scan so both backends match.
-      let contentPreload = '';
-      const contentSeen = {};
-      const preloadTags = {};
-      try {
-        const pageContent = await this.getPageContent(page);
-        if (pageContent && typeof pageContent === 'string') {
-          const tagMatches = pageContent.match(/<(?:"[^"]*"['"]*|'[^']*'['"]*|[^'">])+>/g);
-          if (tagMatches) {
-            for (const match of tagMatches) {
-              if (match.indexOf('-') !== -1) {
-                // mirror PHP: strip '</' then '>'; opening tags keep a leading
-                // '<' so only closing-tag forms match the registry, identically
-                let tag = match.replace(/<\//g, '').replace(/>/g, '');
-                preloadTags[tag] = tag;
-              }
+        if (tagMatches) {
+          for (const match of tagMatches) {
+            if (match.indexOf("-") !== -1) {
+              // mirror PHP: strip '</' then '>'; opening tags keep a leading
+              // '<' so only closing-tag forms match the registry, identically
+              let tag = match.replace(/<\//g, "").replace(/>/g, "");
+              preloadTags[tag] = tag;
             }
           }
         }
       }
-      catch (e) {}
-      for (const tag in preloadTags) {
-        const tagPath = HAXCMS.getContentTagPath(this, base, tag);
-        if (tagPath === false) {
-          continue;
-        }
-        const tagPathStr = String(tagPath);
-        if (shellSet[tagPathStr] || contentSeen[tagPathStr]) {
-          continue;
-        }
-        contentSeen[tagPathStr] = true;
-        contentPreload += '\n  <link rel="preload" href="' + base + 'build/es6/node_modules/' + tagPathStr + '" as="script" crossorigin="anonymous" />' +
-          '\n  <link rel="modulepreload" href="' + base + 'build/es6/node_modules/' + tagPathStr + '" />';
+    } catch (e) {}
+    for (const tag in preloadTags) {
+      const tagPath = HAXCMS.getContentTagPath(this, base, tag);
+      if (tagPath === false) {
+        continue;
       }
-      let themePreload = '';
-      if (themePath) {
-        if (themePath.charAt(0) === '@') {
-          // registry theme: modulepreload is already in the shell set above;
-          // keep only the preload-as-script hint so the theme fetch is
-          // prioritized early.
-          themePreload = '  <link rel="preload" href="' + base + 'build/es6/node_modules/' + themePath + '" as="script" crossorigin="anonymous" />';
-        }
-        else {
-          // custom theme: site-relative path (e.g. ./custom/build/custom.es6.js)
-          // loaded directly by build-haxcms.js. Emit the hrefs verbatim so they
-          // match the real module request instead of 404ing behind the registry
-          // prefix. Escaped like every other URL emitted in this block.
-          const safeCustomThemePath = escapeHtml(themePath);
-          themePreload = '  <link rel="modulepreload" href="' + safeCustomThemePath + '" crossorigin="anonymous" />\n' +
-            '  <link rel="preload" href="' + safeCustomThemePath + '" as="script" crossorigin="anonymous" />';
-        }
+      const tagPathStr = String(tagPath);
+      if (shellSet[tagPathStr] || contentSeen[tagPathStr]) {
+        continue;
       }
-      let metadata = `<meta charset="utf-8" />
+      contentSeen[tagPathStr] = true;
+      contentPreload +=
+        '\n  <link rel="preload" href="' +
+        base +
+        "build/es6/node_modules/" +
+        tagPathStr +
+        '" as="script" crossorigin="anonymous" />' +
+        '\n  <link rel="modulepreload" href="' +
+        base +
+        "build/es6/node_modules/" +
+        tagPathStr +
+        '" />';
+    }
+    let themePreload = "";
+    if (themePath) {
+      if (themePath.charAt(0) === "@") {
+        // registry theme: modulepreload is already in the shell set above;
+        // keep only the preload-as-script hint so the theme fetch is
+        // prioritized early.
+        themePreload =
+          '  <link rel="preload" href="' +
+          base +
+          "build/es6/node_modules/" +
+          themePath +
+          '" as="script" crossorigin="anonymous" />';
+      } else {
+        // custom theme: site-relative path (e.g. ./custom/build/custom.es6.js)
+        // loaded directly by build-haxcms.js. Emit the hrefs verbatim so they
+        // match the real module request instead of 404ing behind the registry
+        // prefix. Escaped like every other URL emitted in this block.
+        const safeCustomThemePath = escapeHtml(themePath);
+        themePreload =
+          '  <link rel="modulepreload" href="' +
+          safeCustomThemePath +
+          '" crossorigin="anonymous" />\n' +
+          '  <link rel="preload" href="' +
+          safeCustomThemePath +
+          '" as="script" crossorigin="anonymous" />';
+      }
+    }
+    let metadata = `<meta charset="utf-8" />
   ${preconnect}
   <link rel="preconnect" crossorigin href="https://fonts.googleapis.com">
   <link rel="preconnect" crossorigin href="https://cdnjs.cloudflare.com">
@@ -2716,7 +3089,7 @@ ${themePreload}${contentPreload}
   <link rel="manifest" href="manifest.json" />
   <meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, user-scalable=yes">
   <title>${safeSiteTitle}</title>
-  <link rel="icon" href="${escapeHtml(sanitizeUrl(await this.getLogoSize('16', '16')))}">
+  <link rel="icon" href="${escapeHtml(sanitizeUrl(await this.getLogoSize("16", "16")))}">
   <meta name="theme-color" content="${safeHexCode}">
   ${robots}
   <meta name="mobile-web-app-capable" content="yes">
@@ -2726,653 +3099,732 @@ ${themePreload}${contentPreload}
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="${safeTitle}">
 
-  <link rel=\"apple-touch-icon\" sizes=\"48x48\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('48', '48')))}\">
-  <link rel=\"apple-touch-icon\" sizes=\"72x72\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('72', '72')))}\">
-  <link rel=\"apple-touch-icon\" sizes=\"96x96\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('96', '96')))}\">
-  <link rel=\"apple-touch-icon\" sizes=\"144x144\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('144', '144')))}\">
-  <link rel=\"apple-touch-icon\" sizes=\"192x192\" href=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('192', '192')))}\">
+  <link rel="apple-touch-icon" sizes="48x48" href="${escapeHtml(sanitizeUrl(await this.getLogoSize("48", "48")))}">
+  <link rel="apple-touch-icon" sizes="72x72" href="${escapeHtml(sanitizeUrl(await this.getLogoSize("72", "72")))}">
+  <link rel="apple-touch-icon" sizes="96x96" href="${escapeHtml(sanitizeUrl(await this.getLogoSize("96", "96")))}">
+  <link rel="apple-touch-icon" sizes="144x144" href="${escapeHtml(sanitizeUrl(await this.getLogoSize("144", "144")))}">
+  <link rel="apple-touch-icon" sizes="192x192" href="${escapeHtml(sanitizeUrl(await this.getLogoSize("192", "192")))}">
 
-  <meta name=\"msapplication-TileImage\" content=\"${escapeHtml(sanitizeUrl(await this.getLogoSize('144', '144')))}\">
-  <meta name=\"msapplication-TileColor\" content=\"${safeHexCode}\">
+  <meta name="msapplication-TileImage" content="${escapeHtml(sanitizeUrl(await this.getLogoSize("144", "144")))}">
+  <meta name="msapplication-TileColor" content="${safeHexCode}">
   <meta name="msapplication-tap-highlight" content="no">
         
-  <meta name=\"description\" content=\"${safeDescription}\" />
-  <meta name=\"og:site_name\" property=\"og:site_name\" content=\"${safeManifestTitle}\" />
-  <meta name=\"og:title\" property=\"og:title\" content=\"${safeTitle}\" />
+  <meta name="description" content="${safeDescription}" />
+  <meta name="og:site_name" property="og:site_name" content="${safeManifestTitle}" />
+  <meta name="og:title" property="og:title" content="${safeTitle}" />
   <meta name="og:type" property="og:type" content="article" />
-  <meta name=\"og:url\" property=\"og:url\" content=\"${safeDomain}\" />
-  <meta name=\"og:description\" property=\"og:description\" content=\"${safeDescription}\" />
-${safeSocialShareImage ? `  <meta name="og:image" property="og:image" content="${safeSocialShareImage}" />
-` : ''}  <meta name="twitter:card" property="twitter:card" content="summary_large_image" />
-  <meta name=\"twitter:site\" property=\"twitter:site\" content=\"${safeDomain}\" />
-  <meta name=\"twitter:title\" property=\"twitter:title\" content=\"${safeTitle}\" />
-  <meta name=\"twitter:description\" property=\"twitter:description\" content=\"${safeDescription}\" />
-${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" content="${safeSocialShareImage}" />` : ''}`;  
-      metadata = metadata.replace(new RegExp('\\\\+"', 'g'), '"');
-      let structuredDataBaseUrl = siteUrlForStructuredData || pageUrlForStructuredData;
-      let siteStructuredDataId = String(siteUrlForStructuredData).replace(/\/$/, '') + '#website';
-      let pageStructuredDataId = String(pageUrlForStructuredData).replace(/\/$/, '') + '#webpage';
-      let breadcrumbStructuredDataId = String(pageUrlForStructuredData).replace(/\/$/, '') + '#breadcrumb';
-      let authorStructuredDataId = String(structuredDataBaseUrl).replace(/\/$/, '') + '#author';
-      let publisherStructuredDataId = String(structuredDataBaseUrl).replace(/\/$/, '') + '#publisher';
-      let licenseUrlForStructuredData = '';
-      const licenseLookup = this.getLicenseData('all');
-      if (typeof this.manifest.license === 'string' && licenseLookup[this.manifest.license] && licenseLookup[this.manifest.license].link) {
-        licenseUrlForStructuredData = sanitizeUrl(licenseLookup[this.manifest.license].link);
+  <meta name="og:url" property="og:url" content="${safeDomain}" />
+  <meta name="og:description" property="og:description" content="${safeDescription}" />
+${
+  safeSocialShareImage
+    ? `  <meta name="og:image" property="og:image" content="${safeSocialShareImage}" />
+`
+    : ""
+}  <meta name="twitter:card" property="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" property="twitter:site" content="${safeDomain}" />
+  <meta name="twitter:title" property="twitter:title" content="${safeTitle}" />
+  <meta name="twitter:description" property="twitter:description" content="${safeDescription}" />
+${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" content="${safeSocialShareImage}" />` : ""}`;
+    metadata = metadata.replace(new RegExp('\\\\+"', "g"), '"');
+    let structuredDataBaseUrl =
+      siteUrlForStructuredData || pageUrlForStructuredData;
+    let siteStructuredDataId =
+      String(siteUrlForStructuredData).replace(/\/$/, "") + "#website";
+    let pageStructuredDataId =
+      String(pageUrlForStructuredData).replace(/\/$/, "") + "#webpage";
+    let breadcrumbStructuredDataId =
+      String(pageUrlForStructuredData).replace(/\/$/, "") + "#breadcrumb";
+    let authorStructuredDataId =
+      String(structuredDataBaseUrl).replace(/\/$/, "") + "#author";
+    let publisherStructuredDataId =
+      String(structuredDataBaseUrl).replace(/\/$/, "") + "#publisher";
+    let licenseUrlForStructuredData = "";
+    const licenseLookup = this.getLicenseData("all");
+    if (
+      typeof this.manifest.license === "string" &&
+      licenseLookup[this.manifest.license] &&
+      licenseLookup[this.manifest.license].link
+    ) {
+      licenseUrlForStructuredData = sanitizeUrl(
+        licenseLookup[this.manifest.license].link,
+      );
+    }
+    let jsonLdGraph = [];
+    let authorNode = null;
+    let publisherNode = null;
+    if (
+      authorName != "" ||
+      authorSocialLink != "" ||
+      authorImageForStructuredData != ""
+    ) {
+      authorNode = {
+        "@type": "Person",
+        "@id": authorStructuredDataId,
+      };
+      if (authorName != "") {
+        authorNode.name = authorName;
       }
-      let jsonLdGraph = [];
-      let authorNode = null;
-      let publisherNode = null;
+      if (authorSocialLink != "") {
+        authorNode.sameAs = [authorSocialLink];
+      }
+      if (authorImageForStructuredData != "") {
+        authorNode.image = {
+          "@type": "ImageObject",
+          url: authorImageForStructuredData,
+        };
+      }
+      jsonLdGraph.push(authorNode);
+    }
+    if (siteUrlForStructuredData != "") {
+      publisherNode = {
+        "@type": "Organization",
+        "@id": publisherStructuredDataId,
+        url: siteUrlForStructuredData,
+        name:
+          this.manifest && this.manifest.title
+            ? String(this.manifest.title)
+            : title,
+      };
+      if (siteLogoForStructuredData != "") {
+        publisherNode.logo = {
+          "@type": "ImageObject",
+          url: siteLogoForStructuredData,
+        };
+      }
+      if (authorNode && authorNode["@id"]) {
+        publisherNode.founder = {
+          "@id": authorNode["@id"],
+        };
+      }
+      jsonLdGraph.push(publisherNode);
+    }
+    if (siteUrlForStructuredData != "") {
+      let webSiteNode = {
+        "@type": "WebSite",
+        "@id": siteStructuredDataId,
+        url: siteUrlForStructuredData,
+        name:
+          this.manifest && this.manifest.title
+            ? String(this.manifest.title)
+            : title,
+        inLanguage: inLanguage,
+      };
+      let searchTargetUrl = sanitizeUrl(
+        joinUrl(siteUrlForStructuredData, "x/search") +
+          "?search={search_term_string}",
+      );
+      if (searchTargetUrl != "") {
+        webSiteNode.potentialAction = {
+          "@type": "SearchAction",
+          target: {
+            "@type": "EntryPoint",
+            urlTemplate: searchTargetUrl,
+          },
+          "query-input": "required name=search_term_string",
+        };
+      }
+      if (publisherNode && publisherNode["@id"]) {
+        webSiteNode.publisher = {
+          "@id": publisherNode["@id"],
+        };
+      }
+      if (authorNode && authorNode["@id"]) {
+        webSiteNode.author = {
+          "@id": authorNode["@id"],
+        };
+      }
+      if (licenseUrlForStructuredData != "") {
+        webSiteNode.license = licenseUrlForStructuredData;
+      }
+      if (siteLogoForStructuredData != "") {
+        webSiteNode.image = {
+          "@type": "ImageObject",
+          url: siteLogoForStructuredData,
+        };
+      }
+      jsonLdGraph.push(webSiteNode);
+    }
+    if (breadcrumbListElements.length > 0 && pageUrlForStructuredData != "") {
+      jsonLdGraph.push({
+        "@type": "BreadcrumbList",
+        "@id": breadcrumbStructuredDataId,
+        itemListElement: breadcrumbListElements,
+      });
+    }
+    if (pageUrlForStructuredData != "") {
+      let webPageNode = {
+        "@type": "WebPage",
+        "@id": pageStructuredDataId,
+        url: pageUrlForStructuredData,
+        name: title,
+        description: description,
+        inLanguage: inLanguage,
+      };
+      if (siteUrlForStructuredData != "") {
+        webPageNode.isPartOf = {
+          "@id": siteStructuredDataId,
+        };
+      }
+      if (socialShareImageForStructuredData != "") {
+        webPageNode.primaryImageOfPage = {
+          "@type": "ImageObject",
+          url: socialShareImageForStructuredData,
+        };
+        webPageNode.image = socialShareImageForStructuredData;
+      }
+      if (pageCreatedISO != "") {
+        webPageNode.datePublished = pageCreatedISO;
+      }
+      if (pageUpdatedISO != "") {
+        webPageNode.dateModified = pageUpdatedISO;
+      }
+      if (authorNode && authorNode["@id"]) {
+        webPageNode.author = {
+          "@id": authorNode["@id"],
+        };
+      }
+      if (publisherNode && publisherNode["@id"]) {
+        webPageNode.publisher = {
+          "@id": publisherNode["@id"],
+        };
+      }
+      if (breadcrumbListElements.length > 0) {
+        webPageNode.breadcrumb = {
+          "@id": breadcrumbStructuredDataId,
+        };
+      }
+      if (licenseUrlForStructuredData != "") {
+        webPageNode.license = licenseUrlForStructuredData;
+      }
+      if (page && page.id) {
+        webPageNode.identifier = String(page.id);
+      }
+      jsonLdGraph.push(webPageNode);
+    }
+    if (jsonLdGraph.length > 0) {
+      let jsonLdMetadata = {
+        "@context": "https://schema.org",
+        "@graph": jsonLdGraph,
+      };
+      let jsonLdString = JSON.stringify(jsonLdMetadata).replace(
+        /</g,
+        "\\u003c",
+      );
+      metadata +=
+        '\n  <script type="application/ld+json">' + jsonLdString + "</script>";
+    }
+    // mix in license metadata if we have it
+    let licenseData = this.getLicenseData("all");
+    if (this.manifest.license && licenseData[this.manifest.license]) {
+      // rel="license" belongs on <link>, not <meta>
+      metadata +=
+        "\n" +
+        '  <link rel="license" href="' +
+        escapeHtml(sanitizeUrl(licenseData[this.manifest.license]["link"])) +
+        '" title="' +
+        escapeHtml(licenseData[this.manifest.license]["name"]) +
+        '" />' +
+        "\n";
+    }
+    // add in X link if they provided one
+    if (
+      this.manifest.metadata.author.socialLink &&
+      (this.manifest.metadata.author.socialLink.indexOf(
+        "https://twitter.com/",
+      ) === 0 ||
+        this.manifest.metadata.author.socialLink.indexOf("https://x.com/") ===
+          0)
+    ) {
+      metadata +=
+        "\n" +
+        '  <meta name="twitter:creator" content="' +
+        escapeHtml(
+          this.manifest.metadata.author.socialLink
+            .replace("https://twitter.com/", "@")
+            .replace("https://x.com/", "@"),
+        ) +
+        '" />';
+    }
+    return metadata;
+  }
+  /**
+   * Load a node based on a path
+   * @var path the path to try loading based on or search for the active from address
+   * @return new JSONOutlineSchemaItem() a blank JOS item
+   */
+  loadNodeByLocation(path = null) {
+    // load from the active address if we have one
+    if (path == null) {
+      path = path
+        .resolve(__dirname)
+        .replace("/" + HAXCMS.sitesDirectory + "/" + this.name + "/", "");
+    }
+    path += "/index.html";
+    // failsafe in case someone had closing /
+    path = "pages/" + path.replace("//", "/");
+    for (var key in this.manifest.files) {
+      let item = this.manifest.items[key];
+      if (item.location == path) {
+        return item;
+      }
+    }
+    return new JSONOutlineSchemaItem();
+  }
+  /**
+   * Generate or load the path to variations on the logo
+   * @var string height height of the icon as a string
+   * @var string width width of the icon as a string
+   * @return string path to the image (web visible) that was created or pulled together
+   */
+  async getLogoSize(height, width) {
+    let fileName;
+    if (!fileName) {
+      // if no logo, just bail with an easy standard one
       if (
-        authorName != '' ||
-        authorSocialLink != '' ||
-        authorImageForStructuredData != ''
+        !this.manifest.metadata.site.logo ||
+        (this.manifest.metadata.site &&
+          (this.manifest.metadata.site.logo == "" ||
+            this.manifest.metadata.site.logo == null ||
+            this.manifest.metadata.site.logo == "null"))
       ) {
-        authorNode = {
-          '@type': 'Person',
-          '@id': authorStructuredDataId,
-        };
-        if (authorName != '') {
-          authorNode.name = authorName;
-        }
-        if (authorSocialLink != '') {
-          authorNode.sameAs = [authorSocialLink];
-        }
-        if (authorImageForStructuredData != '') {
-          authorNode.image = {
-            '@type': 'ImageObject',
-            'url': authorImageForStructuredData,
-          };
-        }
-        jsonLdGraph.push(authorNode);
-      }
-      if (siteUrlForStructuredData != '') {
-        publisherNode = {
-          '@type': 'Organization',
-          '@id': publisherStructuredDataId,
-          'url': siteUrlForStructuredData,
-          'name':
-            this.manifest && this.manifest.title
-              ? String(this.manifest.title)
-              : title,
-        };
-        if (siteLogoForStructuredData != '') {
-          publisherNode.logo = {
-            '@type': 'ImageObject',
-            'url': siteLogoForStructuredData,
-          };
-        }
-        if (authorNode && authorNode['@id']) {
-          publisherNode.founder = {
-            '@id': authorNode['@id'],
-          };
-        }
-        jsonLdGraph.push(publisherNode);
-      }
-      if (siteUrlForStructuredData != '') {
-        let webSiteNode = {
-          '@type': 'WebSite',
-          '@id': siteStructuredDataId,
-          'url': siteUrlForStructuredData,
-          'name':
-            this.manifest && this.manifest.title
-              ? String(this.manifest.title)
-              : title,
-          'inLanguage': inLanguage,
-        };
-        let searchTargetUrl = sanitizeUrl(
-          joinUrl(siteUrlForStructuredData, 'x/search') +
-            '?search={search_term_string}',
+        fileName = "assets/icon-" + height + "x" + width + ".png";
+      } else {
+        // ensure this path exists otherwise let's create it on the fly
+        let path = this.siteDirectory + "/";
+        fileName = this.manifest.metadata.site.logo.replace(
+          "files/",
+          "files/haxcms-managed/" + height + "x" + width + "-",
         );
-        if (searchTargetUrl != '') {
-          webSiteNode.potentialAction = {
-            '@type': 'SearchAction',
-            'target': {
-              '@type': 'EntryPoint',
-              'urlTemplate': searchTargetUrl,
-            },
-            'query-input': 'required name=search_term_string',
-          };
-        }
-        if (publisherNode && publisherNode['@id']) {
-          webSiteNode.publisher = {
-            '@id': publisherNode['@id'],
-          };
-        }
-        if (authorNode && authorNode['@id']) {
-          webSiteNode.author = {
-            '@id': authorNode['@id'],
-          };
-        }
-        if (licenseUrlForStructuredData != '') {
-          webSiteNode.license = licenseUrlForStructuredData;
-        }
-        if (siteLogoForStructuredData != '') {
-          webSiteNode.image = {
-            '@type': 'ImageObject',
-            'url': siteLogoForStructuredData,
-          };
-        }
-        jsonLdGraph.push(webSiteNode);
-      }
-      if (breadcrumbListElements.length > 0 && pageUrlForStructuredData != '') {
-        jsonLdGraph.push({
-          '@type': 'BreadcrumbList',
-          '@id': breadcrumbStructuredDataId,
-          'itemListElement': breadcrumbListElements,
-        });
-      }
-      if (pageUrlForStructuredData != '') {
-        let webPageNode = {
-          '@type': 'WebPage',
-          '@id': pageStructuredDataId,
-          'url': pageUrlForStructuredData,
-          'name': title,
-          'description': description,
-          'inLanguage': inLanguage,
-        };
-        if (siteUrlForStructuredData != '') {
-          webPageNode.isPartOf = {
-            '@id': siteStructuredDataId,
-          };
-        }
-        if (socialShareImageForStructuredData != '') {
-          webPageNode.primaryImageOfPage = {
-            '@type': 'ImageObject',
-            'url': socialShareImageForStructuredData,
-          };
-          webPageNode.image = socialShareImageForStructuredData;
-        }
-        if (pageCreatedISO != '') {
-          webPageNode.datePublished = pageCreatedISO;
-        }
-        if (pageUpdatedISO != '') {
-          webPageNode.dateModified = pageUpdatedISO;
-        }
-        if (authorNode && authorNode['@id']) {
-          webPageNode.author = {
-            '@id': authorNode['@id'],
-          };
-        }
-        if (publisherNode && publisherNode['@id']) {
-          webPageNode.publisher = {
-            '@id': publisherNode['@id'],
-          };
-        }
-        if (breadcrumbListElements.length > 0) {
-          webPageNode.breadcrumb = {
-            '@id': breadcrumbStructuredDataId,
-          };
-        }
-        if (licenseUrlForStructuredData != '') {
-          webPageNode.license = licenseUrlForStructuredData;
-        }
-        if (page && page.id) {
-          webPageNode.identifier = String(page.id);
-        }
-        jsonLdGraph.push(webPageNode);
-      }
-      if (jsonLdGraph.length > 0) {
-        let jsonLdMetadata = {
-          '@context': 'https://schema.org',
-          '@graph': jsonLdGraph,
-        };
-        let jsonLdString = JSON.stringify(jsonLdMetadata).replace(/</g, '\\u003c');
-        metadata += "\n  <script type=\"application/ld+json\">" + jsonLdString + "</script>";
-      }
-      // mix in license metadata if we have it
-      let licenseData = this.getLicenseData('all');
-      if ((this.manifest.license) && (licenseData[this.manifest.license])) {
-          // rel="license" belongs on <link>, not <meta>
-          metadata += "\n" + '  <link rel="license" href="' + escapeHtml(sanitizeUrl(licenseData[this.manifest.license]['link'])) + '" title="' + escapeHtml(licenseData[this.manifest.license]['name']) + '" />' + "\n";
-      }
-      // add in X link if they provided one
-      if ((this.manifest.metadata.author.socialLink) && (this.manifest.metadata.author.socialLink.indexOf('https://twitter.com/') === 0 || this.manifest.metadata.author.socialLink.indexOf('https://x.com/') === 0)) {
-          metadata += "\n" + '  <meta name="twitter:creator" content="' + escapeHtml(this.manifest.metadata.author.socialLink.replace('https://twitter.com/', '@').replace('https://x.com/', '@')) + '" />';
-      }
-      return metadata;
-    }
-    /**
-     * Load a node based on a path
-     * @var path the path to try loading based on or search for the active from address
-     * @return new JSONOutlineSchemaItem() a blank JOS item
-     */
-    loadNodeByLocation(path = null) {
-        // load from the active address if we have one
-        if (path == null) {
-          path = path.resolve(__dirname).replace('/' + HAXCMS.sitesDirectory + '/' + this.name + '/', '');
-        }
-        path += "/index.html";
-        // failsafe in case someone had closing /
-        path = 'pages/' + path.replace('//', '/');
-        for (var key in this.manifest.files) {
-          let item = this.manifest.items[key];
-          if (item.location == path) {
-              return item;
+        if (
+          fs.pathExistsSync(path + this.manifest.metadata.site.logo) &&
+          fs.lstatSync(path + this.manifest.metadata.site.logo).isFile() &&
+          !fs.pathExistsSync(path + fileName)
+        ) {
+          // make folder if doesnt exist
+          if (!fs.pathExistsSync(path + "files/haxcms-managed")) {
+            fs.mkdirSync(path + "files/haxcms-managed");
           }
-        }
-       return new JSONOutlineSchemaItem();
-    }
-    /**
-     * Generate or load the path to variations on the logo
-     * @var string height height of the icon as a string
-     * @var string width width of the icon as a string
-     * @return string path to the image (web visible) that was created or pulled together
-     */
-    async getLogoSize(height, width) {
-      let fileName;
-      if (!(fileName)) {
-        // if no logo, just bail with an easy standard one
-        if (!(this.manifest.metadata.site.logo) || ((this.manifest.metadata.site) && (this.manifest.metadata.site.logo == '' || this.manifest.metadata.site.logo == null || this.manifest.metadata.site.logo == "null"))) {
-            fileName = 'assets/icon-' + height + 'x' + width + '.png';
-        }
-        else {
-          // ensure this path exists otherwise let's create it on the fly
-          let path = this.siteDirectory + '/';
-          fileName = this.manifest.metadata.site.logo.replace('files/', 'files/haxcms-managed/' + height + 'x' + width + '-');
-          if (fs.pathExistsSync(path + this.manifest.metadata.site.logo) &&
-              fs.lstatSync(path + this.manifest.metadata.site.logo).isFile() && 
-              !fs.pathExistsSync(path + fileName)) {
-              // make folder if doesnt exist
-              if (!fs.pathExistsSync(path + 'files/haxcms-managed')) {
-                fs.mkdirSync(path + 'files/haxcms-managed');
-              }
-              const image = await sharp(path + this.manifest.metadata.site.logo)
-              .metadata()
-              .then(({ width }) => sharp(path + this.manifest.metadata.site.logo)
+          const image = await sharp(path + this.manifest.metadata.site.logo)
+            .metadata()
+            .then(({ width }) =>
+              sharp(path + this.manifest.metadata.site.logo)
                 .resize({
                   width: parseInt(width),
                   height: parseInt(height),
                 })
-                .toFile(path + fileName)
-              );
-          }
+                .toFile(path + fileName),
+            );
         }
       }
-      return fileName;
     }
-    /**
-     * Load field schema for a page
-     * Field cascade always follows Core + Deploy + Theme + Site
-     * Anything downstream can always override upstream but no one can remove fields
-     */
-    async loadNodeFieldSchema(page)
-    {
-        let fields = {
-            'configure':{},
-            'advanced':{}
-        };
-        // load core fields
-        // it may seem silly but we seek to not brick any usecase so if this file is gone.. don't die
-        if (fs.pathExistsSync(HAXCMS.coreConfigPath + 'nodeFields.json') &&
-            fs.lstatSync(HAXCMS.coreConfigPath + 'nodeFields.json').isFile()) {
-            let coreFields = JSON.parse(
-              await fs.readFileSync(
-                    HAXCMS.coreConfigPath + 'nodeFields.json',
-                    {encoding:'utf8', flag:'r'}
-                )
-            );
-            let themes = {};
-            let hThemes = HAXCMS.getThemes();
-            for (var key in hThemes) {
-              let item = hThemes[key];
-              themes[key] = item.name;
-              themes['key'] = key;
-            }
-            // this needs to be set dynamically
-              for (var key in coreFields.advanced) {
-                let item = coreFields.advanced[key];
-                if (item.property === 'theme') {
-                  coreFields.advanced[key].options = themes;
-                }
-            }
-            // CORE fields
-            if ((coreFields.configure)) {
-              for (var key in coreFields.configure) {
-                let item = coreFields.configure[key];
-                // edge case for pathauto
-                if (item.property == 'location' && (this.manifest.metadata.site.settings && this.manifest.metadata.site.settings.pathauto) && this.manifest.metadata.site.settings.pathauto) {
-                  // skip this core field if we have pathauto on
-                  item.required = false;
-                  item.disabled = true;
-                }
-                fields['configure'].push(item);
-              }
-            }
-            if (coreFields.advanced) {
-              for (var key in coreFields.advanced) {
-                let item = coreFields.advanced[key];
-                fields['advanced'].push(item);
-              }
-            }
+    return fileName;
+  }
+  /**
+   * Load field schema for a page
+   * Field cascade always follows Core + Deploy + Theme + Site
+   * Anything downstream can always override upstream but no one can remove fields
+   */
+  async loadNodeFieldSchema(page) {
+    let fields = {
+      configure: {},
+      advanced: {},
+    };
+    // load core fields
+    // it may seem silly but we seek to not brick any usecase so if this file is gone.. don't die
+    if (
+      fs.pathExistsSync(HAXCMS.coreConfigPath + "nodeFields.json") &&
+      fs.lstatSync(HAXCMS.coreConfigPath + "nodeFields.json").isFile()
+    ) {
+      let coreFields = JSON.parse(
+        await fs.readFileSync(HAXCMS.coreConfigPath + "nodeFields.json", {
+          encoding: "utf8",
+          flag: "r",
+        }),
+      );
+      let themes = {};
+      let hThemes = HAXCMS.getThemes();
+      for (var key in hThemes) {
+        let item = hThemes[key];
+        themes[key] = item.name;
+        themes["key"] = key;
+      }
+      // this needs to be set dynamically
+      for (var key in coreFields.advanced) {
+        let item = coreFields.advanced[key];
+        if (item.property === "theme") {
+          coreFields.advanced[key].options = themes;
         }
-        // fields can live globally in config
-        if ((HAXCMS.config.node.fields)) {
-            if ((HAXCMS.config.node.fields.configure)) {
-                for (var key in HAXCMS.config.node.fields.configure) {
-                    fields['configure'].push(HAXCMS.config.node.fields.configure[key]);
-                }
-            }
-            if ((HAXCMS.config.node.fields.advanced)) {
-              for (var key in HAXCMS.config.node.fields.advanced) {
-                fields['advanced'].push(HAXCMS.config.node.fields.advanced[key]);
-              }
-            }
-        }
-        // fields can live in the theme
-        if (
-            (this.manifest.metadata.theme.fields) &&
-            fs.pathExistsSync(HAXCMS.HAXCMS_ROOT +
-              'build/es6/node_modules/' +
-              this.manifest.metadata.theme.fields) &&
-            fs.lstatSync(
-                HAXCMS.HAXCMS_ROOT +
-                    'build/es6/node_modules/' +
-                    this.manifest.metadata.theme.fields
-            ).isFile()
-        ) {
-            // @todo think of how to make this less brittle
-            // not a fan of pegging loading this definition to our file system's publishing structure
-            themeFields = JSON.parse(
-              await fs.readFileSync(
-                    HAXCMS.HAXCMS_ROOT +
-                        'build/es6/node_modules/' +
-                        this.manifest.metadata.theme.fields,
-                        {encoding:'utf8', flag:'r'}
-                )
-            );
-            if ((themeFields.configure)) {
-                for (var key in themeFields.configure) {
-                  fields['configure'].push(themeFields.configure[key]);
-                }
-            }
-            if ((themeFields.advanced)) {
-              for (var key in themeFields.advanced) {
-                fields['advanced'].push(themeFields.advanced[key]);
-              }
-            }
-        }
-        // fields can live in the site itself
-        if (this.manifest.metadata.node.fields) {
-            if (this.manifest.metadata.node.fields.configure) {
-                for (var key in this.manifest.metadata.node.fields.configure) {
-                    fields['configure'].push(this.manifest.metadata.node.fields.configure[key]);
-                }
-            }
-            if (this.manifest.metadata.node.fields.advanced) {
-              for (var key in this.manifest.metadata.node.fields.advanced) {
-                fields['advanced'].push(this.manifest.metadata.node.fields.advanced[key]);
-              }
-            }
-        }
-        // core values that live outside of the fields area
-        let values = {
-          'title': page.title,
-          'location': page.location.replace('pages/','').replace('/index.html', ''),
-          'description':page.description,
-          'created':((page.metadata.created) ? page.metadata.created : 54),
-          'published':((page.metadata.published) ? page.metadata.published : true),
-        };
-        // now get the field data from the page
-        if ((page.metadata.fields)) {
-          for (var key in page.metadata.fields) {
-            let item = page.metadata.fields[key];
-            if (key == 'theme') {
-              values[key] = item['key'];
-            } else {
-              values[key] = item;
-            }
+      }
+      // CORE fields
+      if (coreFields.configure) {
+        for (var key in coreFields.configure) {
+          let item = coreFields.configure[key];
+          // edge case for pathauto
+          if (
+            item.property == "location" &&
+            this.manifest.metadata.site.settings &&
+            this.manifest.metadata.site.settings.pathauto &&
+            this.manifest.metadata.site.settings.pathauto
+          ) {
+            // skip this core field if we have pathauto on
+            item.required = false;
+            item.disabled = true;
           }
+          fields["configure"].push(item);
         }
-        // response as schema and values
-        response = {};
-        response.haxSchema = fields;
-        response.values = values;
-        return response;
+      }
+      if (coreFields.advanced) {
+        for (var key in coreFields.advanced) {
+          let item = coreFields.advanced[key];
+          fields["advanced"].push(item);
+        }
+      }
     }
-    /**
-     * License data for common open license
-     */
-    getLicenseData(type = 'select')
-    {
-        let list = {
-            "by":{
-                'name':"Creative Commons: Attribution",
-                'link':"https://creativecommons.org/licenses/by/4.0/",
-                'image':"https://i.creativecommons.org/l/by/4.0/88x31.png"
-            },
-            "by-sa":{
-                'name':"Creative Commons: Attribution Share a like",
-                'link':"https://creativecommons.org/licenses/by-sa/4.0/",
-                'image':"https://i.creativecommons.org/l/by-sa/4.0/88x31.png"
-            },
-            "by-nd":{
-                'name':"Creative Commons: Attribution No derivatives",
-                'link':"https://creativecommons.org/licenses/by-nd/4.0/",
-                'image':"https://i.creativecommons.org/l/by-nd/4.0/88x31.png"
-            },
-            "by-nc":{
-                'name':"Creative Commons: Attribution non-commercial",
-                'link':"https://creativecommons.org/licenses/by-nc/4.0/",
-                'image':"https://i.creativecommons.org/l/by-nc/4.0/88x31.png"
-            },
-            "by-nc-sa":{
-                'name' :
-                    "Creative Commons: Attribution non-commercial share a like",
-                'link':"https://creativecommons.org/licenses/by-nc-sa/4.0/",
-                'image' :
-                    "https://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png"
-            },
-            "by-nc-nd":{
-                'name' :
-                    "Creative Commons: Attribution Non-commercial No derivatives",
-                'link':"https://creativecommons.org/licenses/by-nc-nd/4.0/",
-                'image' :
-                    "https://i.creativecommons.org/l/by-nc-nd/4.0/88x31.png"
-            }
-        };
-        let data = {};
-        if (type == 'select') {
-            for (var key in list) {
-              data[key] = list[key]['name'];
-            }
+    // fields can live globally in config
+    if (HAXCMS.config.node.fields) {
+      if (HAXCMS.config.node.fields.configure) {
+        for (var key in HAXCMS.config.node.fields.configure) {
+          fields["configure"].push(HAXCMS.config.node.fields.configure[key]);
         }
-        else {
-            data = list;
+      }
+      if (HAXCMS.config.node.fields.advanced) {
+        for (var key in HAXCMS.config.node.fields.advanced) {
+          fields["advanced"].push(HAXCMS.config.node.fields.advanced[key]);
         }
-        return data;
+      }
     }
-    /**
-     * Update page in the manifest list of items. useful if updating some
-     * data about an existing entry.
-     * @return JSONOutlineSchemaItem or false
-     */
-    async updateNode(page)
-    {
+    // fields can live in the theme
+    if (
+      this.manifest.metadata.theme.fields &&
+      fs.pathExistsSync(
+        HAXCMS.HAXCMS_ROOT +
+          "build/es6/node_modules/" +
+          this.manifest.metadata.theme.fields,
+      ) &&
+      fs
+        .lstatSync(
+          HAXCMS.HAXCMS_ROOT +
+            "build/es6/node_modules/" +
+            this.manifest.metadata.theme.fields,
+        )
+        .isFile()
+    ) {
+      // @todo think of how to make this less brittle
+      // not a fan of pegging loading this definition to our file system's publishing structure
+      themeFields = JSON.parse(
+        await fs.readFileSync(
+          HAXCMS.HAXCMS_ROOT +
+            "build/es6/node_modules/" +
+            this.manifest.metadata.theme.fields,
+          { encoding: "utf8", flag: "r" },
+        ),
+      );
+      if (themeFields.configure) {
+        for (var key in themeFields.configure) {
+          fields["configure"].push(themeFields.configure[key]);
+        }
+      }
+      if (themeFields.advanced) {
+        for (var key in themeFields.advanced) {
+          fields["advanced"].push(themeFields.advanced[key]);
+        }
+      }
+    }
+    // fields can live in the site itself
+    if (this.manifest.metadata.node.fields) {
+      if (this.manifest.metadata.node.fields.configure) {
+        for (var key in this.manifest.metadata.node.fields.configure) {
+          fields["configure"].push(
+            this.manifest.metadata.node.fields.configure[key],
+          );
+        }
+      }
+      if (this.manifest.metadata.node.fields.advanced) {
+        for (var key in this.manifest.metadata.node.fields.advanced) {
+          fields["advanced"].push(
+            this.manifest.metadata.node.fields.advanced[key],
+          );
+        }
+      }
+    }
+    // core values that live outside of the fields area
+    let values = {
+      title: page.title,
+      location: page.location.replace("pages/", "").replace("/index.html", ""),
+      description: page.description,
+      created: page.metadata.created ? page.metadata.created : 54,
+      published: page.metadata.published ? page.metadata.published : true,
+    };
+    // now get the field data from the page
+    if (page.metadata.fields) {
+      for (var key in page.metadata.fields) {
+        let item = page.metadata.fields[key];
+        if (key == "theme") {
+          values[key] = item["key"];
+        } else {
+          values[key] = item;
+        }
+      }
+    }
+    // response as schema and values
+    response = {};
+    response.haxSchema = fields;
+    response.values = values;
+    return response;
+  }
+  /**
+   * License data for common open license
+   */
+  getLicenseData(type = "select") {
+    let list = {
+      by: {
+        name: "Creative Commons: Attribution",
+        link: "https://creativecommons.org/licenses/by/4.0/",
+        image: "https://i.creativecommons.org/l/by/4.0/88x31.png",
+      },
+      "by-sa": {
+        name: "Creative Commons: Attribution Share a like",
+        link: "https://creativecommons.org/licenses/by-sa/4.0/",
+        image: "https://i.creativecommons.org/l/by-sa/4.0/88x31.png",
+      },
+      "by-nd": {
+        name: "Creative Commons: Attribution No derivatives",
+        link: "https://creativecommons.org/licenses/by-nd/4.0/",
+        image: "https://i.creativecommons.org/l/by-nd/4.0/88x31.png",
+      },
+      "by-nc": {
+        name: "Creative Commons: Attribution non-commercial",
+        link: "https://creativecommons.org/licenses/by-nc/4.0/",
+        image: "https://i.creativecommons.org/l/by-nc/4.0/88x31.png",
+      },
+      "by-nc-sa": {
+        name: "Creative Commons: Attribution non-commercial share a like",
+        link: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+        image: "https://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png",
+      },
+      "by-nc-nd": {
+        name: "Creative Commons: Attribution Non-commercial No derivatives",
+        link: "https://creativecommons.org/licenses/by-nc-nd/4.0/",
+        image: "https://i.creativecommons.org/l/by-nc-nd/4.0/88x31.png",
+      },
+    };
+    let data = {};
+    if (type == "select") {
+      for (var key in list) {
+        data[key] = list[key]["name"];
+      }
+    } else {
+      data = list;
+    }
+    return data;
+  }
+  /**
+   * Update page in the manifest list of items. useful if updating some
+   * data about an existing entry.
+   * @return JSONOutlineSchemaItem or false
+   */
+  async updateNode(page) {
+    for (var key in this.manifest.items) {
+      let item = this.manifest.items[key];
+      if (item.id === page.id) {
+        this.manifest.items[key] = page;
+        await this.manifest.save(false);
+        await this.updateAlternateFormats();
+        return page;
+      }
+    }
+    return false;
+  }
+  /**
+   * Delete a page from the manifest
+   * @return JSONOutlineSchemaItem or false
+   */
+  async deleteNode(page) {
+    for (var key in this.manifest.items) {
+      let item = this.manifest.items[key];
+      if (item.id === page.id) {
+        this.manifest.items.splice(key, 1);
+        await this.manifest.save(false);
+        await this.updateAlternateFormats();
+        return true;
+      }
+    }
+    return false;
+  }
+  /**
+   * Change the directory this site is located in
+   */
+  async changeName(newName) {
+    newName = newName.replace("./", "").replace("../", "");
+    // attempt to shift it on the file system
+    if (newName != this.manifest.metadata.site.name) {
+      this.manifest.metadata.site.name = newName;
+      return await fs.rename(this.manifest.metadata.site.name, newName);
+    }
+  }
+  /**
+   * Test and ensure the name being returned is a slug currently unused
+   */
+  getUniqueSlugName(slug, page = null, pathAuto = false) {
+    let rSlug = slug;
+    // check for pathauto setting and this having a parent
+    if (page != null && page.parent != null && page.parent != "" && pathAuto) {
+      let item = { ...page };
+      let pieces = [slug];
+      let tmp = "";
+      while ((item = this.manifest.getItemById(item.parent))) {
+        tmp = explode("/", item.slug);
+        array_unshift(pieces, tmp.pop());
+      }
+      slug = implode("/", pieces);
+      rSlug = slug;
+    }
+    // trap for a / as 1st character if we had empty pieces
+    while (rSlug.substring(0, 1) == "/") {
+      rSlug = rSlug.substring(1);
+    }
+    let loop = 0;
+    let ready = false;
+    // while not ready, keep checking
+    while (!ready) {
+      ready = true;
+      // loop through items
       for (var key in this.manifest.items) {
         let item = this.manifest.items[key];
-        if (item.id === page.id) {
-          this.manifest.items[key] = page;
-          await this.manifest.save(false);
-          await this.updateAlternateFormats();
-          return page;
-        }
-      }
-      return false;
-    }
-    /**
-     * Delete a page from the manifest
-     * @return JSONOutlineSchemaItem or false
-     */
-    async deleteNode(page)
-    {
-          for (var key in this.manifest.items) {
-            let item = this.manifest.items[key];
-            if (item.id === page.id) {
-                this.manifest.items.splice(key, 1);
-                await this.manifest.save(false);
-                await this.updateAlternateFormats();
-                return true;
-            }
-        }
-        return false;
-    }
-    /**
-     * Change the directory this site is located in
-     */
-    async changeName(newName)
-    {
-        newName = newName.replace('./', '').replace('../', '');
-        // attempt to shift it on the file system
-        if (newName != this.manifest.metadata.site.name) {
-            this.manifest.metadata.site.name = newName;
-            return await fs.rename(this.manifest.metadata.site.name, newName);
-        }
-    }
-    /**
-     * Test and ensure the name being returned is a slug currently unused
-     */
-    getUniqueSlugName(slug, page = null, pathAuto = false)
-    {
-      let rSlug = slug;
-      // check for pathauto setting and this having a parent
-      if (page != null && page.parent != null && page.parent != '' && pathAuto) {
-        let item = {...page};
-        let pieces = [slug];
-        let tmp = '';
-        while (item = this.manifest.getItemById(item.parent)) {
-          tmp = explode('/', item.slug);
-          array_unshift(pieces, tmp.pop());
-        }
-        slug = implode('/', pieces);
-        rSlug = slug;
-      }
-      // trap for a / as 1st character if we had empty pieces
-      while (rSlug.substring(0, 1) == "/") {
-        rSlug = rSlug.substring(1);
-      }
-      let loop = 0;
-      let ready = false;
-      // while not ready, keep checking
-      while (!ready) {
-        ready = true;
-        // loop through items
-        for (var key in this.manifest.items) {
-          let item = this.manifest.items[key];
-          // if our slug matches an existing
-          if (rSlug == item.slug) {
-            // if we have a page, and it matches that, bail out cause we have it already
-            if (page != null && item.id == page.id) {
-              return rSlug;
-            }
-            else {
-              // increment the number
-              loop++;
-              // append to the new slug
-              rSlug = slug + '-' + loop;
-              // force a new test
-              ready = false;
-            }
+        // if our slug matches an existing
+        if (rSlug == item.slug) {
+          // if we have a page, and it matches that, bail out cause we have it already
+          if (page != null && item.id == page.id) {
+            return rSlug;
+          } else {
+            // increment the number
+            loop++;
+            // append to the new slug
+            rSlug = slug + "-" + loop;
+            // force a new test
+            ready = false;
           }
         }
       }
-      return rSlug;
     }
-    
-    /**
-     * Handle style guide save operation through saveNode endpoint
-     * @param object bodyParams The request body parameters
-     * @return object Response object with status and data
-     */
-    async handleStyleGuideSave(bodyParams) {
-      const styleGuideFile = path.join(this.siteDirectory, 'theme', 'style-guide.html');
-      
-      // Extract content from node body (saveNode endpoint)
-      let content = null;
-      if (bodyParams['node'] && bodyParams['node']['body']) {
-        content = bodyParams['node']['body'];
-      }
-      
-      // validate that we have content to save
-      if (!content) {
-        return { 'status': 400, 'data': { 'message': 'Content parameter is required' } };
-      }
-      
-      // validate content is a string and has some actual content
-      if (typeof content !== 'string') {
-        return { 'status': 400, 'data': { 'message': 'Content must be a string' } };
-      }
-      
-      // basic validation - ensure we have some HTML-like content
-      const cleanContent = content.trim();
-      if (!cleanContent) {
-        return { 'status': 400, 'data': { 'message': 'Content cannot be empty' } };
-      }
-      
-      // validate that content appears to be HTML by checking for basic HTML patterns
-      // this follows similar pattern to how saveNode validates content structure
-      if (!/<[^>]+>/.test(cleanContent)) {
-        return { 'status': 400, 'data': { 'message': 'Content must be valid HTML' } };
-      }
-      
-      // check if the theme directory exists, if not create it
-      const themeDirectory = path.join(this.siteDirectory, 'theme');
-      if (!fs.existsSync(themeDirectory)) {
-        try {
-          await fs.ensureDir(themeDirectory);
-        } catch (error) {
-          return { 'status': 500, 'data': { 'message': 'Failed to create theme directory' } };
-        }
-      }
-      
-      // ensure the site's style guide setting allows writing to the default location
-      // only allow writing to the default location (theme/style-guide.html)
-      // if user has changed the styleGuide setting to an external URL, block writes
-      if (this.manifest.metadata.theme && 
-          this.manifest.metadata.theme.styleGuide && 
-          this.manifest.metadata.theme.styleGuide !== null && 
-          this.manifest.metadata.theme.styleGuide !== '') {
-        return { 'status': 403, 'data': { 'message': 'Style guide is configured to use external source. Cannot edit through HAXcms.' } };
-      }
-      
-      // write the content to the style guide file
-      // Security (SEC-SANITIZE): sanitize the style-guide HTML before writing,
-      // matching saveNode and PHP (SEC-08), so an editor cannot inject <script>
-      // into theme/style-guide.html (served to every site visitor).
-      const sanitizedContent = sanitizeHTMLForStorage(cleanContent);
-      try {
-        await fs.writeFile(styleGuideFile, sanitizedContent);
-      } catch (error) {
-        return { 'status': 500, 'data': { 'message': 'Failed to write style guide file' } };
-      }
-      
-      // commit to git
-      await this.gitCommit('Style guide updated');
-      
+    return rSlug;
+  }
+
+  /**
+   * Handle style guide save operation through saveNode endpoint
+   * @param object bodyParams The request body parameters
+   * @return object Response object with status and data
+   */
+  async handleStyleGuideSave(bodyParams) {
+    const styleGuideFile = path.join(
+      this.siteDirectory,
+      "theme",
+      "style-guide.html",
+    );
+
+    // Extract content from node body (saveNode endpoint)
+    let content = null;
+    if (bodyParams["node"] && bodyParams["node"]["body"]) {
+      content = bodyParams["node"]["body"];
+    }
+
+    // validate that we have content to save
+    if (!content) {
       return {
-        'status': 200,
-        'data': {
-          'message': 'Style guide saved successfully',
-          'file': 'theme/style-guide.html'
-        }
+        status: 400,
+        data: { message: "Content parameter is required" },
       };
     }
+
+    // validate content is a string and has some actual content
+    if (typeof content !== "string") {
+      return { status: 400, data: { message: "Content must be a string" } };
+    }
+
+    // basic validation - ensure we have some HTML-like content
+    const cleanContent = content.trim();
+    if (!cleanContent) {
+      return { status: 400, data: { message: "Content cannot be empty" } };
+    }
+
+    // validate that content appears to be HTML by checking for basic HTML patterns
+    // this follows similar pattern to how saveNode validates content structure
+    if (!/<[^>]+>/.test(cleanContent)) {
+      return { status: 400, data: { message: "Content must be valid HTML" } };
+    }
+
+    // check if the theme directory exists, if not create it
+    const themeDirectory = path.join(this.siteDirectory, "theme");
+    if (!fs.existsSync(themeDirectory)) {
+      try {
+        await fs.ensureDir(themeDirectory);
+      } catch (error) {
+        return {
+          status: 500,
+          data: { message: "Failed to create theme directory" },
+        };
+      }
+    }
+
+    // ensure the site's style guide setting allows writing to the default location
+    // only allow writing to the default location (theme/style-guide.html)
+    // if user has changed the styleGuide setting to an external URL, block writes
+    if (
+      this.manifest.metadata.theme &&
+      this.manifest.metadata.theme.styleGuide &&
+      this.manifest.metadata.theme.styleGuide !== null &&
+      this.manifest.metadata.theme.styleGuide !== ""
+    ) {
+      return {
+        status: 403,
+        data: {
+          message:
+            "Style guide is configured to use external source. Cannot edit through HAXcms.",
+        },
+      };
+    }
+
+    // write the content to the style guide file
+    // Security (SEC-SANITIZE): sanitize the style-guide HTML before writing,
+    // matching saveNode and PHP (SEC-08), so an editor cannot inject <script>
+    // into theme/style-guide.html (served to every site visitor).
+    const sanitizedContent = sanitizeHTMLForStorage(cleanContent);
+    try {
+      await fs.writeFile(styleGuideFile, sanitizedContent);
+    } catch (error) {
+      return {
+        status: 500,
+        data: { message: "Failed to write style guide file" },
+      };
+    }
+
+    // commit to git
+    await this.gitCommit("Style guide updated");
+
+    return {
+      status: 200,
+      data: {
+        message: "Style guide saved successfully",
+        file: "theme/style-guide.html",
+      },
+    };
+  }
 }
 // HAXcms core
 class HAXCMSClass {
   safeStringCompare(stored, submitted) {
-    if (typeof stored !== 'string' || typeof submitted !== 'string') {
+    if (typeof stored !== "string" || typeof submitted !== "string") {
       return false;
     }
-    const storedBuffer = Buffer.from(stored, 'utf8');
-    const submittedBuffer = Buffer.from(submitted, 'utf8');
+    const storedBuffer = Buffer.from(stored, "utf8");
+    const submittedBuffer = Buffer.from(submitted, "utf8");
     if (storedBuffer.length !== submittedBuffer.length) {
       return false;
     }
     return crypto.timingSafeEqual(storedBuffer, submittedBuffer);
   }
   hasDefaultCredentials() {
-    if (!this.user || this.user.name !== 'admin') {
+    if (!this.user || this.user.name !== "admin") {
       return false;
     }
     // Security (HAX-SEC-001): a hashed password is never the default 'admin'
@@ -3380,62 +3832,64 @@ class HAXCMSClass {
     if (this.isPasswordHashed(this.user.password)) {
       return false;
     }
-    return this.user.password === 'admin';
+    return this.user.password === "admin";
   }
   shouldAllowDefaultCredentials() {
     if (!process.env.HAXCMS_ALLOW_DEFAULT_CREDS) {
       return false;
     }
-    const allowedValues = ['1', 'true', 'yes'];
-    return allowedValues.indexOf(String(process.env.HAXCMS_ALLOW_DEFAULT_CREDS).toLowerCase()) !== -1;
+    const allowedValues = ["1", "true", "yes"];
+    return (
+      allowedValues.indexOf(
+        String(process.env.HAXCMS_ALLOW_DEFAULT_CREDS).toLowerCase(),
+      ) !== -1
+    );
   }
   getRuntimeCredentialOverride() {
-    if (typeof globalThis === 'undefined' || !globalThis) {
+    if (typeof globalThis === "undefined" || !globalThis) {
       return null;
     }
-    let runtimeUserName = '';
-    let runtimePassword = '';
+    let runtimeUserName = "";
+    let runtimePassword = "";
     if (
       globalThis.HAXCMS_RUNTIME_CREDENTIALS &&
-      typeof globalThis.HAXCMS_RUNTIME_CREDENTIALS === 'object'
+      typeof globalThis.HAXCMS_RUNTIME_CREDENTIALS === "object"
     ) {
       const runtimeCredentials = globalThis.HAXCMS_RUNTIME_CREDENTIALS;
       if (
-        typeof runtimeCredentials.username === 'string' &&
-        runtimeCredentials.username.trim() !== ''
+        typeof runtimeCredentials.username === "string" &&
+        runtimeCredentials.username.trim() !== ""
       ) {
         runtimeUserName = runtimeCredentials.username.trim();
-      }
-      else if (
-        typeof runtimeCredentials.name === 'string' &&
-        runtimeCredentials.name.trim() !== ''
+      } else if (
+        typeof runtimeCredentials.name === "string" &&
+        runtimeCredentials.name.trim() !== ""
       ) {
         runtimeUserName = runtimeCredentials.name.trim();
       }
       if (
-        typeof runtimeCredentials.password === 'string' &&
-        runtimeCredentials.password.trim() !== ''
+        typeof runtimeCredentials.password === "string" &&
+        runtimeCredentials.password.trim() !== ""
       ) {
         runtimePassword = runtimeCredentials.password;
-      }
-      else if (
-        typeof runtimeCredentials.pass === 'string' &&
-        runtimeCredentials.pass.trim() !== ''
+      } else if (
+        typeof runtimeCredentials.pass === "string" &&
+        runtimeCredentials.pass.trim() !== ""
       ) {
         runtimePassword = runtimeCredentials.pass;
       }
     }
     if (
-      runtimeUserName === '' &&
-      typeof globalThis.HAXCMS_RUNTIME_USERNAME === 'string' &&
-      globalThis.HAXCMS_RUNTIME_USERNAME.trim() !== ''
+      runtimeUserName === "" &&
+      typeof globalThis.HAXCMS_RUNTIME_USERNAME === "string" &&
+      globalThis.HAXCMS_RUNTIME_USERNAME.trim() !== ""
     ) {
       runtimeUserName = globalThis.HAXCMS_RUNTIME_USERNAME.trim();
     }
     if (
-      runtimePassword === '' &&
-      typeof globalThis.HAXCMS_RUNTIME_PASSWORD === 'string' &&
-      globalThis.HAXCMS_RUNTIME_PASSWORD.trim() !== ''
+      runtimePassword === "" &&
+      typeof globalThis.HAXCMS_RUNTIME_PASSWORD === "string" &&
+      globalThis.HAXCMS_RUNTIME_PASSWORD.trim() !== ""
     ) {
       runtimePassword = globalThis.HAXCMS_RUNTIME_PASSWORD;
     }
@@ -3443,24 +3897,24 @@ class HAXCMSClass {
     // injected as environment variables rather than JS globals). Same names,
     // lowest precedence: explicit globalThis values set above always win.
     if (
-      runtimeUserName === '' &&
-      typeof process !== 'undefined' &&
+      runtimeUserName === "" &&
+      typeof process !== "undefined" &&
       process.env &&
-      typeof process.env.HAXCMS_RUNTIME_USERNAME === 'string' &&
-      process.env.HAXCMS_RUNTIME_USERNAME.trim() !== ''
+      typeof process.env.HAXCMS_RUNTIME_USERNAME === "string" &&
+      process.env.HAXCMS_RUNTIME_USERNAME.trim() !== ""
     ) {
       runtimeUserName = process.env.HAXCMS_RUNTIME_USERNAME.trim();
     }
     if (
-      runtimePassword === '' &&
-      typeof process !== 'undefined' &&
+      runtimePassword === "" &&
+      typeof process !== "undefined" &&
       process.env &&
-      typeof process.env.HAXCMS_RUNTIME_PASSWORD === 'string' &&
-      process.env.HAXCMS_RUNTIME_PASSWORD.trim() !== ''
+      typeof process.env.HAXCMS_RUNTIME_PASSWORD === "string" &&
+      process.env.HAXCMS_RUNTIME_PASSWORD.trim() !== ""
     ) {
       runtimePassword = process.env.HAXCMS_RUNTIME_PASSWORD;
     }
-    if (runtimeUserName === '' || runtimePassword === '') {
+    if (runtimeUserName === "" || runtimePassword === "") {
       return null;
     }
     return {
@@ -3488,7 +3942,7 @@ class HAXCMSClass {
     return true;
   }
   generateSecurePassword() {
-    return crypto.randomBytes(16).toString('hex');
+    return crypto.randomBytes(16).toString("hex");
   }
   /**
    * Security (HAX-SEC-001): hash a plaintext password with scrypt (NIST-approved
@@ -3504,12 +3958,17 @@ class HAXCMSClass {
    * matters.
    */
   hashPassword(plaintext) {
-    if (typeof plaintext !== 'string' || plaintext === '') {
-      return '';
+    if (typeof plaintext !== "string" || plaintext === "") {
+      return "";
     }
     var salt = crypto.randomBytes(16);
-    var hash = crypto.scryptSync(plaintext, salt, 32, { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 });
-    return 'scrypt$' + salt.toString('hex') + '$' + hash.toString('hex');
+    var hash = crypto.scryptSync(plaintext, salt, 32, {
+      N: 16384,
+      r: 8,
+      p: 1,
+      maxmem: 32 * 1024 * 1024,
+    });
+    return "scrypt$" + salt.toString("hex") + "$" + hash.toString("hex");
   }
   /**
    * Security (HAX-SEC-001): return true if a stored credential is a scrypt hash
@@ -3517,7 +3976,7 @@ class HAXCMSClass {
    * path and by hasDefaultCredentials to skip hashed values.
    */
   isPasswordHashed(stored) {
-    return typeof stored === 'string' && stored.indexOf('scrypt$') === 0;
+    return typeof stored === "string" && stored.indexOf("scrypt$") === 0;
   }
   /**
    * Security (HAX-SEC-001): verify a submitted password against a stored
@@ -3528,27 +3987,36 @@ class HAXCMSClass {
    * password_get_info + password_verify for the same detect-and-verify pattern.
    */
   verifyStoredPassword(stored, submitted) {
-    if (typeof stored !== 'string' || stored === '' || typeof submitted !== 'string' || submitted === '') {
+    if (
+      typeof stored !== "string" ||
+      stored === "" ||
+      typeof submitted !== "string" ||
+      submitted === ""
+    ) {
       return false;
     }
     if (this.isPasswordHashed(stored)) {
-      var parts = stored.split('$');
+      var parts = stored.split("$");
       if (parts.length !== 3) {
         return false;
       }
       var salt;
       var expected;
       try {
-        salt = Buffer.from(parts[1], 'hex');
-        expected = Buffer.from(parts[2], 'hex');
-      }
-      catch (e) {
+        salt = Buffer.from(parts[1], "hex");
+        expected = Buffer.from(parts[2], "hex");
+      } catch (e) {
         return false;
       }
       if (salt.length === 0 || expected.length === 0) {
         return false;
       }
-      var computed = crypto.scryptSync(submitted, salt, expected.length, { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 });
+      var computed = crypto.scryptSync(submitted, salt, expected.length, {
+        N: 16384,
+        r: 8,
+        p: 1,
+        maxmem: 32 * 1024 * 1024,
+      });
       if (computed.length !== expected.length) {
         return false;
       }
@@ -3572,23 +4040,26 @@ class HAXCMSClass {
     if (!this.credentialsLoadedFromDisk) {
       return;
     }
-    if (account !== 'user') {
+    if (account !== "user") {
       return;
     }
     var stored = this.user && this.user.password;
-    if (!this.isPasswordHashed(stored) && typeof stored === 'string' && stored !== '') {
+    if (
+      !this.isPasswordHashed(stored) &&
+      typeof stored === "string" &&
+      stored !== ""
+    ) {
       var hash = this.hashPassword(submitted);
-      if (hash === '') {
+      if (hash === "") {
         return;
       }
       this.user.password = hash;
       try {
         this.writeSecretFile(
-          path.join(this.configDirectory, '.user'),
-          JSON.stringify({ name: this.user.name, password: hash }, null, 2)
+          path.join(this.configDirectory, ".user"),
+          JSON.stringify({ name: this.user.name, password: hash }, null, 2),
         );
-      }
-      catch (e) {
+      } catch (e) {
         // non-fatal: in-memory hash is set; file will be retried next login
       }
     }
@@ -3622,14 +4093,29 @@ class HAXCMSClass {
       cfg = this.config.security.loginRateLimit;
     }
     let enabled = defaults.enabled;
-    if (typeof cfg.enabled !== 'undefined') {
+    if (typeof cfg.enabled !== "undefined") {
       enabled = cfg.enabled === true;
     }
     return {
       enabled: enabled,
-      windowMs: this.getIntConfigValue(cfg.windowMs, defaults.windowMs, 10 * 1000, 24 * 60 * 60 * 1000),
-      maxAttempts: this.getIntConfigValue(cfg.maxAttempts, defaults.maxAttempts, 1, 1000),
-      blockMs: this.getIntConfigValue(cfg.blockMs, defaults.blockMs, 10 * 1000, 24 * 60 * 60 * 1000),
+      windowMs: this.getIntConfigValue(
+        cfg.windowMs,
+        defaults.windowMs,
+        10 * 1000,
+        24 * 60 * 60 * 1000,
+      ),
+      maxAttempts: this.getIntConfigValue(
+        cfg.maxAttempts,
+        defaults.maxAttempts,
+        1,
+        1000,
+      ),
+      blockMs: this.getIntConfigValue(
+        cfg.blockMs,
+        defaults.blockMs,
+        10 * 1000,
+        24 * 60 * 60 * 1000,
+      ),
     };
   }
   // Security (F3): rate-limit settings for authenticated file-mutation
@@ -3655,25 +4141,32 @@ class HAXCMSClass {
       cfg = this.config.security.fileOpsRateLimit;
     }
     let enabled = defaults.enabled;
-    if (typeof cfg.enabled !== 'undefined') {
+    if (typeof cfg.enabled !== "undefined") {
       enabled = cfg.enabled === true;
     }
     return {
       enabled: enabled,
-      windowMs: this.getIntConfigValue(cfg.windowMs, defaults.windowMs, 10 * 1000, 24 * 60 * 60 * 1000),
+      windowMs: this.getIntConfigValue(
+        cfg.windowMs,
+        defaults.windowMs,
+        10 * 1000,
+        24 * 60 * 60 * 1000,
+      ),
       max: this.getIntConfigValue(cfg.max, defaults.max, 1, 100000),
-      blockMs: this.getIntConfigValue(cfg.blockMs, defaults.blockMs, 10 * 1000, 24 * 60 * 60 * 1000),
+      blockMs: this.getIntConfigValue(
+        cfg.blockMs,
+        defaults.blockMs,
+        10 * 1000,
+        24 * 60 * 60 * 1000,
+      ),
     };
   }
   // Express `trust proxy` setting, sourced from config so deployments behind a
   // reverse proxy can opt in to forwarded client IPs. Defaults to false (do not
   // trust any proxy), which keeps single-host/local setups using the socket IP.
   getTrustProxySetting() {
-    if (
-      this.config &&
-      this.config.security
-    ) {
-      if (typeof this.config.security.trustProxy !== 'undefined') {
+    if (this.config && this.config.security) {
+      if (typeof this.config.security.trustProxy !== "undefined") {
         return this.normalizeTrustProxyValue(this.config.security.trustProxy);
       }
       // PHP parity (M2): honor config.security.trustedProxies (array of proxy
@@ -3702,23 +4195,30 @@ class HAXCMSClass {
         console.warn(msg);
       }
     };
-    if (value === true || (typeof value === 'string' && value.trim().toLowerCase() === 'true')) {
-      warnOnce('[HAXcms] config.security.trustProxy=true trusts every proxy hop and lets clients spoof X-Forwarded-* headers; ignoring it (trust proxy disabled). Set a hop count (e.g. 1) or a list of proxy IPs/CIDRs instead.');
+    if (
+      value === true ||
+      (typeof value === "string" && value.trim().toLowerCase() === "true")
+    ) {
+      warnOnce(
+        "[HAXcms] config.security.trustProxy=true trusts every proxy hop and lets clients spoof X-Forwarded-* headers; ignoring it (trust proxy disabled). Set a hop count (e.g. 1) or a list of proxy IPs/CIDRs instead.",
+      );
       return false;
     }
-    if (value === false || value === null || typeof value === 'undefined') {
+    if (value === false || value === null || typeof value === "undefined") {
       return false;
     }
-    if (typeof value === 'number') {
+    if (typeof value === "number") {
       if (Number.isInteger(value) && value >= 0) {
         return value;
       }
-      warnOnce('[HAXcms] config.security.trustProxy must be a non-negative integer hop count, an IP/CIDR list, or false; ignoring invalid value.');
+      warnOnce(
+        "[HAXcms] config.security.trustProxy must be a non-negative integer hop count, an IP/CIDR list, or false; ignoring invalid value.",
+      );
       return false;
     }
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       const trimmed = value.trim();
-      if (trimmed === '' || trimmed.toLowerCase() === 'false') {
+      if (trimmed === "" || trimmed.toLowerCase() === "false") {
         return false;
       }
       return trimmed;
@@ -3726,13 +4226,15 @@ class HAXCMSClass {
     if (Array.isArray(value)) {
       const cleaned = [];
       for (let i = 0; i < value.length; i++) {
-        if (typeof value[i] === 'string' && value[i].trim() !== '') {
+        if (typeof value[i] === "string" && value[i].trim() !== "") {
           cleaned.push(value[i].trim());
         }
       }
       return cleaned.length > 0 ? cleaned : false;
     }
-    warnOnce('[HAXcms] config.security.trustProxy has an unsupported type; ignoring it (trust proxy disabled).');
+    warnOnce(
+      "[HAXcms] config.security.trustProxy has an unsupported type; ignoring it (trust proxy disabled).",
+    );
     return false;
   }
   // PHP parity (M4): read the allowed-host allowlist from
@@ -3743,15 +4245,19 @@ class HAXCMSClass {
   // URLs (canonical/alternate Link headers, getSiteMetadata).
   getAllowedHosts() {
     var hosts = [];
-    if (this.config && this.config.security && this.config.security.allowedHosts) {
+    if (
+      this.config &&
+      this.config.security &&
+      this.config.security.allowedHosts
+    ) {
       var raw = this.config.security.allowedHosts;
-      if (typeof raw === 'string') {
+      if (typeof raw === "string") {
         raw = [raw];
       }
       if (Array.isArray(raw)) {
         for (var i = 0; i < raw.length; i++) {
-          var h = String(raw[i] || '').trim();
-          if (h !== '') {
+          var h = String(raw[i] || "").trim();
+          if (h !== "") {
             hosts.push(h);
           }
         }
@@ -3765,14 +4271,22 @@ class HAXCMSClass {
   // uses one trust-proxy-aware implementation and cannot drift apart. Mirrors
   // PHP's resolveTrustedProtocol (HAXCMS.php:1578-1607).
   resolveTrustedProtocol(req) {
-    var trustProxyEnabled = !!(this.getTrustProxySetting && this.getTrustProxySetting());
-    if (trustProxyEnabled && req && req.headers && typeof req.headers['x-forwarded-proto'] === 'string' && req.headers['x-forwarded-proto'] !== '') {
-      return req.headers['x-forwarded-proto'].split(',')[0].trim();
+    var trustProxyEnabled = !!(
+      this.getTrustProxySetting && this.getTrustProxySetting()
+    );
+    if (
+      trustProxyEnabled &&
+      req &&
+      req.headers &&
+      typeof req.headers["x-forwarded-proto"] === "string" &&
+      req.headers["x-forwarded-proto"] !== ""
+    ) {
+      return req.headers["x-forwarded-proto"].split(",")[0].trim();
     }
-    if (req && typeof req.protocol === 'string' && req.protocol !== '') {
+    if (req && typeof req.protocol === "string" && req.protocol !== "") {
       return req.protocol;
     }
-    return 'http';
+    return "http";
   }
   // PHP parity (M4): resolve the request Host, trusting X-Forwarded-Host only
   // when behind a configured trusted proxy, and validating against
@@ -3781,17 +4295,24 @@ class HAXCMSClass {
   // preserved (opt-in), matching PHP's re-finalize-only-when-configured guard.
   // Mirrors PHP's resolveTrustedHost (HAXCMS.php:1616-1641).
   resolveTrustedHost(req) {
-    var trustProxyEnabled = !!(this.getTrustProxySetting && this.getTrustProxySetting());
-    var host = '';
-    if (trustProxyEnabled && req && req.headers && typeof req.headers['x-forwarded-host'] === 'string' && req.headers['x-forwarded-host'] !== '') {
-      host = req.headers['x-forwarded-host'].split(',')[0].trim();
-    }
-    else if (req && req.headers && typeof req.headers.host === 'string') {
+    var trustProxyEnabled = !!(
+      this.getTrustProxySetting && this.getTrustProxySetting()
+    );
+    var host = "";
+    if (
+      trustProxyEnabled &&
+      req &&
+      req.headers &&
+      typeof req.headers["x-forwarded-host"] === "string" &&
+      req.headers["x-forwarded-host"] !== ""
+    ) {
+      host = req.headers["x-forwarded-host"].split(",")[0].trim();
+    } else if (req && req.headers && typeof req.headers.host === "string") {
       host = req.headers.host;
     }
     var allowedHosts = this.getAllowedHosts();
     if (allowedHosts.length > 0) {
-      if (host === '' || allowedHosts.indexOf(host) === -1) {
+      if (host === "" || allowedHosts.indexOf(host) === -1) {
         host = allowedHosts[0];
       }
     }
@@ -3801,17 +4322,17 @@ class HAXCMSClass {
   // to enable hardened defaults (e.g. Secure cookies) without impacting local
   // development, which never sets NODE_ENV to production.
   isProductionRuntime() {
-    return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+    return String(process.env.NODE_ENV || "").toLowerCase() === "production";
   }
   // Allowed CORS origin for browser clients. Config-driven so deployments can
   // lock responses to a known origin; falls back to the provided default (the
   // local dev origin) to preserve existing behavior when unset.
-  getCorsAllowedOrigin(defaultOrigin = '') {
+  getCorsAllowedOrigin(defaultOrigin = "") {
     if (
       this.config &&
       this.config.security &&
-      typeof this.config.security.allowedOrigin === 'string' &&
-      this.config.security.allowedOrigin.trim() !== ''
+      typeof this.config.security.allowedOrigin === "string" &&
+      this.config.security.allowedOrigin.trim() !== ""
     ) {
       return this.config.security.allowedOrigin.trim();
     }
@@ -3824,7 +4345,7 @@ class HAXCMSClass {
   // key encryption) is deferred for parity, this is the primary at-rest
   // protection for the shared apiKeys.json alongside the web-serving block.
   writeSecretFile(filePath, data) {
-    if (process.platform === 'win32') {
+    if (process.platform === "win32") {
       fs.writeFileSync(filePath, data);
       return;
     }
@@ -3841,42 +4362,48 @@ class HAXCMSClass {
   // could not be written).
   announceSeededCredentials(userName, password, options) {
     const opts = options || {};
-    const log = typeof opts.log === 'function' ? opts.log : console.error;
-    const isTTY = typeof opts.isTTY === 'boolean'
-      ? opts.isTTY
-      : !!(process.stderr && process.stderr.isTTY);
-    const passwordFile = path.join(this.configDirectory, SEEDED_PASSWORD_FILENAME);
+    const log = typeof opts.log === "function" ? opts.log : console.error;
+    const isTTY =
+      typeof opts.isTTY === "boolean"
+        ? opts.isTTY
+        : !!(process.stderr && process.stderr.isTTY);
+    const passwordFile = path.join(
+      this.configDirectory,
+      SEEDED_PASSWORD_FILENAME,
+    );
     let wroteFile = false;
     try {
       this.writeSecretFile(
         passwordFile,
-        `username: ${userName}\npassword: ${password}\n`
-          + '# Generated on first start. Log in, change the password, then delete this file.\n',
+        `username: ${userName}\npassword: ${password}\n` +
+          "# Generated on first start. Log in, change the password, then delete this file.\n",
       );
       // writeFileSync's mode only applies on create; enforce it if the file
       // already existed from an earlier seed
       this.chmodSecretFile(passwordFile);
       wroteFile = true;
-    }
-    catch (e) {
+    } catch (e) {
       wroteFile = false;
     }
-    log('***************************************************************');
-    log('\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user');
-    log('\n*** HAXcms admin seeded credentials ***');
+    log("***************************************************************");
+    log("\nHAXcms USER CONFIGURATION FILE NOT FOUND, creating default user");
+    log("\n*** HAXcms admin seeded credentials ***");
     log(`username: ${userName}`);
     if (isTTY) {
       log(`password: ${password}`);
     }
     if (wroteFile) {
       log(`password written to (mode 0600): ${passwordFile}`);
+    } else if (!isTTY) {
+      log(
+        "password could not be written to the config directory; set HAXCMS_RUNTIME_USERNAME/HAXCMS_RUNTIME_PASSWORD or create .user manually.",
+      );
     }
-    else if (!isTTY) {
-      log('password could not be written to the config directory; set HAXCMS_RUNTIME_USERNAME/HAXCMS_RUNTIME_PASSWORD or create .user manually.');
-    }
-    log(`\nCredentials (hashed) saved to: ${path.join(this.configDirectory, ".user")}`);
-    log('Change this password immediately for production use.');
-    log('\n***************************************************************');
+    log(
+      `\nCredentials (hashed) saved to: ${path.join(this.configDirectory, ".user")}`,
+    );
+    log("Change this password immediately for production use.");
+    log("\n***************************************************************");
     return wroteFile ? passwordFile : null;
   }
   // Security (HAX-SEC-011): best-effort chmod of an existing secret file to
@@ -3884,19 +4411,18 @@ class HAXCMSClass {
   // umask. Non-fatal: failures (read-only fs, locked-down env) are swallowed.
   // Skipped on Windows where POSIX modes are ignored.
   chmodSecretFile(filePath) {
-    if (process.platform === 'win32') {
+    if (process.platform === "win32") {
       return;
     }
     try {
       fs.chmodSync(filePath, 0o600);
-    }
-    catch (e) {
+    } catch (e) {
       // non-fatal
     }
   }
   async gitTest() {
     try {
-      const { stdout, stderr } = await exec('git --version');
+      const { stdout, stderr } = await exec("git --version");
       return stdout;
     } catch (e) {
       return null;
@@ -3906,35 +4432,35 @@ class HAXCMSClass {
     this.developerMode = false;
     this.developerModeAdminOnly = false;
     this.cliWritePath = null;
-    this.cdn = './';
+    this.cdn = "./";
     this.sessionJwt = null;
     // Security (HAX-SEC-001): tracks whether credentials came from .user on disk
     // (true) or were seeded/runtime-overridden (false). Controls whether
     // maybeUpgradePlaintextPassword is allowed to rewrite .user on next login.
     this.credentialsLoadedFromDisk = false;
-    this.protocol = 'http';
-    this.domain = 'localhost';
+    this.protocol = "http";
+    this.domain = "localhost";
     this.siteListing = {
-      attr: '',
-      slot: '',
+      attr: "",
+      slot: "",
     };
-    this.basePath = '/';
+    this.basePath = "/";
     this.config = {};
     /**
      * @todo need a way to define these on node side as PHP settings won't carry
      */
     this.superUser = {
-      name: 'admin',
-      password: 'admin',
+      name: "admin",
+      password: "admin",
     };
     this.user = {
-      name: 'admin',
-      password: 'admin',
+      name: "admin",
+      password: "admin",
     };
     this.HAXCMS_ROOT = HAXCMS_ROOT;
     this.HAXCMS_DEFAULT_THEME = HAXCMS_DEFAULT_THEME;
     this.HAXCMS_FALLBACK_HEX = HAXCMS_FALLBACK_HEX;
-    this.systemRequestBase = 'system/api/';
+    this.systemRequestBase = "system/api/";
     this.acceptedHAXFileTypes = [
       "audio",
       "image",
@@ -3955,9 +4481,9 @@ class HAXCMSClass {
     // - skeletons: deployment-level overrides
     // - user/skeletons: per-user skeletons created via UI
     try {
-      const skelDir = path.join(this.configDirectory, 'skeletons');
-      const userSkelDir = path.join(this.configDirectory, 'user', 'skeletons');
-      const settingsDir = path.join(this.configDirectory, 'settings');
+      const skelDir = path.join(this.configDirectory, "skeletons");
+      const userSkelDir = path.join(this.configDirectory, "user", "skeletons");
+      const settingsDir = path.join(this.configDirectory, "settings");
       if (!fs.existsSync(skelDir)) {
         fs.mkdirSync(skelDir, { recursive: true, mode: 0o700 });
       }
@@ -3967,29 +4493,27 @@ class HAXCMSClass {
       if (!fs.existsSync(settingsDir)) {
         fs.mkdirSync(settingsDir, { recursive: true, mode: 0o700 });
       }
-    }
-    catch (e) {
+    } catch (e) {
       // non-fatal; directory creation can fail in some locked-down environments
     }
     // these are relative to the current path
-    this.coreConfigPath = __dirname + '/../coreConfig/';
-    this.boilerplatePath = __dirname + '/../boilerplate/';
+    this.coreConfigPath = __dirname + "/../coreConfig/";
+    this.boilerplatePath = __dirname + "/../boilerplate/";
     // these are relative to root which is cwd
-    this.sitesDirectory = '_sites';
+    this.sitesDirectory = "_sites";
     // CLI's do not operate in multisite mode default folder creator
     if (!systemStructureContext() && !this.isCLI()) {
-      this.operatingContext = 'multisite';
+      this.operatingContext = "multisite";
       // verify exists
       if (!fs.existsSync(path.join(HAXCMS_ROOT, this.sitesDirectory))) {
         fs.mkdirSync(path.join(HAXCMS_ROOT, this.sitesDirectory));
       }
+    } else {
+      this.operatingContext = "single";
     }
-    else {
-      this.operatingContext = 'single';
-    }
-    this.archivedDirectory = '_archived';
-    this.publishedDirectory = '_published';
-    
+    this.archivedDirectory = "_archived";
+    this.publishedDirectory = "_published";
+
     // makes it easier to request a new item from the schema factory
     this.outlineSchema = new JSONOutlineSchema();
     // Safeguard (haxtheweb/issues#2967): never write, copy, or overwrite
@@ -4002,22 +4526,21 @@ class HAXCMSClass {
     }
     if (!this.config.deploymentProfile) {
       if (this.config.iam) {
-        this.config.deploymentProfile = 'haxiam-managed';
-      }
-      else if (this.operatingContext === 'multisite') {
-        this.config.deploymentProfile = 'self-hosted-multi-site';
-      }
-      else {
-        this.config.deploymentProfile = 'single-site';
+        this.config.deploymentProfile = "haxiam-managed";
+      } else if (this.operatingContext === "multisite") {
+        this.config.deploymentProfile = "self-hosted-multi-site";
+      } else {
+        this.config.deploymentProfile = "single-site";
       }
     }
     if (!this.config.mcp) {
       this.config.mcp = {};
     }
-    if (typeof this.config.mcp.enabled === 'undefined') {
-      this.config.mcp.enabled = this.getDeploymentProfile() !== 'haxiam-managed';
+    if (typeof this.config.mcp.enabled === "undefined") {
+      this.config.mcp.enabled =
+        this.getDeploymentProfile() !== "haxiam-managed";
     }
-    if (typeof this.config.mcp.readOnly === 'undefined') {
+    if (typeof this.config.mcp.readOnly === "undefined") {
       this.config.mcp.readOnly = true;
     }
     if (!this.config.appJWTConnectionSettings) {
@@ -4036,18 +4559,23 @@ class HAXCMSClass {
       this.config.localization = {};
     }
     if (!this.config.localization.defaultLanguage) {
-      this.config.localization.defaultLanguage = 'en-US';
+      this.config.localization.defaultLanguage = "en-US";
     }
     // load in core theme data
-    let themeData = JSON.parse(fs.readFileSync(path.join(this.coreConfigPath, "themes.json"),
-      {encoding:'utf8', flag:'r'}, 'utf8'));
+    let themeData = JSON.parse(
+      fs.readFileSync(
+        path.join(this.coreConfigPath, "themes.json"),
+        { encoding: "utf8", flag: "r" },
+        "utf8",
+      ),
+    );
     for (var name in themeData) {
       this.config.themes[name] = themeData[name];
     }
     // node
     if (!this.config.node) {
       this.config.node = {
-        fields: {}
+        fields: {},
       };
     }
     // publishing endpoints
@@ -4056,14 +4584,19 @@ class HAXCMSClass {
         settings: {},
         git: {},
         static: {},
-      }
+      };
     }
     if (!this.config.site.publishers) {
       this.config.site.publishers = {};
     }
     // load in core publishing data
-    let publishingData = JSON.parse(fs.readFileSync(path.join(this.coreConfigPath, "publishers.json"),
-      {encoding:'utf8', flag:'r'}, 'utf8'));
+    let publishingData = JSON.parse(
+      fs.readFileSync(
+        path.join(this.coreConfigPath, "publishers.json"),
+        { encoding: "utf8", flag: "r" },
+        "utf8",
+      ),
+    );
     for (var name in publishingData) {
       this.config.site.publishers[name] = publishingData[name];
     }
@@ -4071,8 +4604,13 @@ class HAXCMSClass {
     if (!this.config.site.fields) {
       this.config.site.fields = [{}];
     }
-    let fieldsData = JSON.parse(fs.readFileSync(path.join(this.coreConfigPath, "siteFields.json"),
-      {encoding:'utf8', flag:'r'}, 'utf8'));
+    let fieldsData = JSON.parse(
+      fs.readFileSync(
+        path.join(this.coreConfigPath, "siteFields.json"),
+        { encoding: "utf8", flag: "r" },
+        "utf8",
+      ),
+    );
     for (var name in fieldsData) {
       this.config.site.fields[0][name] = fieldsData[name];
     }
@@ -4087,52 +4625,78 @@ class HAXCMSClass {
       themeSelect[name] = theme.name;
     }
     // @todo this is VERY hacky specific placement of the theme options
-    this.config.site.fields[0].properties[1].properties[0].options = themeSelect;
-    
+    this.config.site.fields[0].properties[1].properties[0].options =
+      themeSelect;
+
     // so you can modify them via the UI
     if (!fs.existsSync(path.join(this.configDirectory, "userData.json"))) {
-      fs.copyFileSync(path.join(__dirname, '/../boilerplate/systemsetup/userData.json'), path.join(this.configDirectory, 'userData.json'));
+      fs.copyFileSync(
+        path.join(__dirname, "/../boilerplate/systemsetup/userData.json"),
+        path.join(this.configDirectory, "userData.json"),
+      );
     }
-    this.userData = JSON.parse(fs.readFileSync(path.join(this.configDirectory, "userData.json"),
-    {encoding:'utf8', flag:'r'}, 'utf8'));
+    this.userData = JSON.parse(
+      fs.readFileSync(
+        path.join(this.configDirectory, "userData.json"),
+        { encoding: "utf8", flag: "r" },
+        "utf8",
+      ),
+    );
 
     // security related files for hashing. if they don't exist, build them on the fly
     try {
-      this.salt = fs.readFileSync(path.join(this.configDirectory, "SALT.txt"),
-      {encoding:'utf8', flag:'r'}, 'utf8');  
-    }
-    catch (e) {
-      this.salt = crypto.randomBytes(32).toString('hex');
-      this.writeSecretFile(path.join(this.configDirectory, "SALT.txt"), this.salt);
+      this.salt = fs.readFileSync(
+        path.join(this.configDirectory, "SALT.txt"),
+        { encoding: "utf8", flag: "r" },
+        "utf8",
+      );
+    } catch (e) {
+      this.salt = crypto.randomBytes(32).toString("hex");
+      this.writeSecretFile(
+        path.join(this.configDirectory, "SALT.txt"),
+        this.salt,
+      );
     }
     // pk/rpk test for files that can contain these
     try {
-      this.privateKey = fs.readFileSync(path.join(this.configDirectory, ".pk"),
-      {encoding:'utf8', flag:'r'}, 'utf8');
-    }
-    catch (e) {
-      this.privateKey = crypto.randomBytes(32).toString('hex');
-      this.writeSecretFile(path.join(this.configDirectory, ".pk"), this.privateKey);
+      this.privateKey = fs.readFileSync(
+        path.join(this.configDirectory, ".pk"),
+        { encoding: "utf8", flag: "r" },
+        "utf8",
+      );
+    } catch (e) {
+      this.privateKey = crypto.randomBytes(32).toString("hex");
+      this.writeSecretFile(
+        path.join(this.configDirectory, ".pk"),
+        this.privateKey,
+      );
     }
     try {
-      this.refreshPrivateKey = fs.readFileSync(path.join(this.configDirectory, ".rpk"),
-      {encoding:'utf8', flag:'r'}, 'utf8');
-    }
-    catch (e) {
-      this.refreshPrivateKey = crypto.randomBytes(32).toString('hex');
-      this.writeSecretFile(path.join(this.configDirectory, ".rpk"), this.refreshPrivateKey);
+      this.refreshPrivateKey = fs.readFileSync(
+        path.join(this.configDirectory, ".rpk"),
+        { encoding: "utf8", flag: "r" },
+        "utf8",
+      );
+    } catch (e) {
+      this.refreshPrivateKey = crypto.randomBytes(32).toString("hex");
+      this.writeSecretFile(
+        path.join(this.configDirectory, ".rpk"),
+        this.refreshPrivateKey,
+      );
     }
     // allow for loading in user defined config
     // pk/rpk test for files that can contain these
     try {
-      this.user = JSON.parse(fs.readFileSync(path.join(this.configDirectory, ".user")),
-      {encoding:'utf8', flag:'r'}, 'utf8');
-      this.superUser = {...this.user};
+      this.user = JSON.parse(
+        fs.readFileSync(path.join(this.configDirectory, ".user")),
+        { encoding: "utf8", flag: "r" },
+        "utf8",
+      );
+      this.superUser = { ...this.user };
       // Security (HAX-SEC-001): credentials loaded from disk — allow lazy
       // plaintext-to-hash migration on next successful login.
       this.credentialsLoadedFromDisk = true;
-    }
-    catch (e) {
+    } catch (e) {
       // create a default user with secure random password
       const seededPassword = this.generateSecurePassword();
       // Security (HAX-SEC-001): store a scrypt hash, never the plaintext. The
@@ -4141,22 +4705,26 @@ class HAXCMSClass {
       // .user. Mirrors PHP install.php:360.
       const seededHash = this.hashPassword(seededPassword);
       this.superUser = {
-        name: 'admin',
+        name: "admin",
         password: seededHash,
       };
       this.user = {
-        name: 'admin',
+        name: "admin",
         password: seededHash,
       };
-      this.writeSecretFile(path.join(this.configDirectory, ".user"), JSON.stringify(this.user, null, 2));
+      this.writeSecretFile(
+        path.join(this.configDirectory, ".user"),
+        JSON.stringify(this.user, null, 2),
+      );
       if (!this.isCLI()) {
         if (this.getRuntimeCredentialOverride()) {
           // Security (SEC-DEPLOY): runtime credentials replace the seeded
           // user below, so the random password is never usable — do not
           // write or print it.
-          console.error('HAXcms: no .user found; a random admin was seeded but HAXCMS_RUNTIME_* credentials are in effect.');
-        }
-        else {
+          console.error(
+            "HAXcms: no .user found; a random admin was seeded but HAXCMS_RUNTIME_* credentials are in effect.",
+          );
+        } else {
           this.announceSeededCredentials(this.user.name, seededPassword);
         }
       }
@@ -4172,85 +4740,97 @@ class HAXCMSClass {
     // allow runtime overrides for isolated testing or orchestration scenarios
     this.applyRuntimeCredentialOverride();
     // refuse to start web runtime with known default credentials unless explicitly overridden
-    if (this.hasDefaultCredentials() && !this.isCLI() && !this.shouldAllowDefaultCredentials()) {
-      console.error('***************************************************************');
-      console.error('\n*** Refusing to start HAXcms ***');
-      console.error('Default credentials were detected in .user:');
+    if (
+      this.hasDefaultCredentials() &&
+      !this.isCLI() &&
+      !this.shouldAllowDefaultCredentials()
+    ) {
+      console.error(
+        "***************************************************************",
+      );
+      console.error("\n*** Refusing to start HAXcms ***");
+      console.error("Default credentials were detected in .user:");
       console.error(` ${path.join(this.configDirectory, ".user")}`);
-      console.error('Set a strong password and restart.');
-      console.error('To override temporarily for emergency scenarios, set HAXCMS_ALLOW_DEFAULT_CREDS=1.');
-      console.error('\n***************************************************************');
-      throw new Error('HAXcms startup blocked due to default credentials.');
+      console.error("Set a strong password and restart.");
+      console.error(
+        "To override temporarily for emergency scenarios, set HAXCMS_ALLOW_DEFAULT_CREDS=1.",
+      );
+      console.error(
+        "\n***************************************************************",
+      );
+      throw new Error("HAXcms startup blocked due to default credentials.");
     }
   }
   /**
    * Load a site off the file system with option to create
    */
-  async loadSite(name, create = false, domain = null, build = null)
-    {
-      let tmpname = decodeURIComponent(name);
-      tmpname = this.cleanTitle(tmpname, false);
-      // check if this exists, load but fallback for creating on the fly
-      let singleSiteTest = await systemStructureContext();
-      if (singleSiteTest && !create) {
-        return singleSiteTest;
-      }
-      else if (fs.existsSync(this.HAXCMS_ROOT + this.sitesDirectory + '/' + tmpname) && 
-        fs.lstatSync(this.HAXCMS_ROOT + this.sitesDirectory + '/' + tmpname).isDirectory() && !create
-      ) {
-          let site = new HAXCMSSite();
-          await site.load(this.HAXCMS_ROOT + this.sitesDirectory,
-              this.basePath + this.sitesDirectory + '/',
-              tmpname);
-          await site.maybeUpgradeLegacyBootstrap();
-          return site;
-      }
-      else if (create) {
-        // attempt to create site
-        return await this.createSite(name, domain, null, build);
-      }
-      return false;
+  async loadSite(name, create = false, domain = null, build = null) {
+    let tmpname = decodeURIComponent(name);
+    tmpname = this.cleanTitle(tmpname, false);
+    // check if this exists, load but fallback for creating on the fly
+    let singleSiteTest = await systemStructureContext();
+    if (singleSiteTest && !create) {
+      return singleSiteTest;
+    } else if (
+      fs.existsSync(this.HAXCMS_ROOT + this.sitesDirectory + "/" + tmpname) &&
+      fs
+        .lstatSync(this.HAXCMS_ROOT + this.sitesDirectory + "/" + tmpname)
+        .isDirectory() &&
+      !create
+    ) {
+      let site = new HAXCMSSite();
+      await site.load(
+        this.HAXCMS_ROOT + this.sitesDirectory,
+        this.basePath + this.sitesDirectory + "/",
+        tmpname,
+      );
+      await site.maybeUpgradeLegacyBootstrap();
+      return site;
+    } else if (create) {
+      // attempt to create site
+      return await this.createSite(name, domain, null, build);
+    }
+    return false;
   }
   /**
-     * Attempt to create a new site on the file system
-     *
-     * @var name name of the new site to create
-     * @var domain optional domain name to utilize during setup
-     * @var git git object details
-     *
-     * @return boolean true for success, false for failed
-     */
-   async createSite(name, domain = null, git = null, build = null)
-   {
-       // try and make the folder
-       var site = new HAXCMSSite();
-       // see if we can get a remote setup on the fly
-       if (git && !git.url && this.config.site.git) {
-           git = this.config.site.git;
-           // getting really into fallback mode here
-           if (git['url']) {
-               git['url'] += '/' + name + '.git';
-           }
-       }
-       let writePath = HAXCMS_ROOT + this.sitesDirectory;
-       // allow CLI operations to overwrite write location
-       if (HAXCMS.cliWritePath && this.isCLI()) {
-        writePath = HAXCMS.cliWritePath;
-       }
-       if (
-           await site.newSite(
-               writePath,
-               this.basePath + this.sitesDirectory + '/',
-               name,
-               git,
-               domain,
-               build
-           )
-       ) {
-           return site;
-       }
-       return false;
-   }
+   * Attempt to create a new site on the file system
+   *
+   * @var name name of the new site to create
+   * @var domain optional domain name to utilize during setup
+   * @var git git object details
+   *
+   * @return boolean true for success, false for failed
+   */
+  async createSite(name, domain = null, git = null, build = null) {
+    // try and make the folder
+    var site = new HAXCMSSite();
+    // see if we can get a remote setup on the fly
+    if (git && !git.url && this.config.site.git) {
+      git = this.config.site.git;
+      // getting really into fallback mode here
+      if (git["url"]) {
+        git["url"] += "/" + name + ".git";
+      }
+    }
+    let writePath = HAXCMS_ROOT + this.sitesDirectory;
+    // allow CLI operations to overwrite write location
+    if (HAXCMS.cliWritePath && this.isCLI()) {
+      writePath = HAXCMS.cliWritePath;
+    }
+    if (
+      await site.newSite(
+        writePath,
+        this.basePath + this.sitesDirectory + "/",
+        name,
+        git,
+        domain,
+        build,
+      )
+    ) {
+      return site;
+    }
+    return false;
+  }
   /**
    * Need to support CLI indentification
    */
@@ -4262,14 +4842,18 @@ class HAXCMSClass {
    */
   getDeploymentProfile() {
     if (!this.config || !this.config.deploymentProfile) {
-      return 'single-site';
+      return "single-site";
     }
     const profile = String(this.config.deploymentProfile).toLowerCase();
-    const validProfiles = ['single-site', 'self-hosted-multi-site', 'haxiam-managed'];
+    const validProfiles = [
+      "single-site",
+      "self-hosted-multi-site",
+      "haxiam-managed",
+    ];
     if (validProfiles.indexOf(profile) !== -1) {
       return profile;
     }
-    return 'single-site';
+    return "single-site";
   }
   /**
    * MCP availability policy.
@@ -4303,36 +4887,35 @@ class HAXCMSClass {
    * Generate machine name
    */
   generateMachineName(name) {
-      // mirror hardened PHP generateMachineName behavior
-      if (name === undefined || name === null) {
-        return 'default';
-      }
-      let n = String(name);
-      // Remove null bytes
-      n = n.replace(/\0/g, '');
-      // URL decode to catch encoded traversal attempts
-      try {
-        n = decodeURIComponent(n);
-      }
-      catch (e) {
-        // if decode fails, fall back to original string
-      }
-      // Remove any path traversal sequences completely
-      n = n.replace(/\.{2,}/g, ''); // remove .. sequences
-      n = n.replace(/[\\/]/g, ''); // remove all slashes
-      // Only allow alphanumeric, hyphens, and underscores
-      n = n.replace(/[^a-zA-Z0-9_-]+/g, '-');
-      // Clean up multiple consecutive hyphens/underscores
-      n = n.replace(/[-_]{2,}/g, '-');
-      // Remove leading/trailing hyphens/underscores
-      n = n.replace(/^[-_]+|[-_]+$/g, '');
-      // Convert to lowercase
-      n = n.toLowerCase();
-      // Fallback for empty result
-      if (!n) {
-        n = 'default';
-      }
-      return n;
+    // mirror hardened PHP generateMachineName behavior
+    if (name === undefined || name === null) {
+      return "default";
+    }
+    let n = String(name);
+    // Remove null bytes
+    n = n.replace(/\0/g, "");
+    // URL decode to catch encoded traversal attempts
+    try {
+      n = decodeURIComponent(n);
+    } catch (e) {
+      // if decode fails, fall back to original string
+    }
+    // Remove any path traversal sequences completely
+    n = n.replace(/\.{2,}/g, ""); // remove .. sequences
+    n = n.replace(/[\\/]/g, ""); // remove all slashes
+    // Only allow alphanumeric, hyphens, and underscores
+    n = n.replace(/[^a-zA-Z0-9_-]+/g, "-");
+    // Clean up multiple consecutive hyphens/underscores
+    n = n.replace(/[-_]{2,}/g, "-");
+    // Remove leading/trailing hyphens/underscores
+    n = n.replace(/^[-_]+|[-_]+$/g, "");
+    // Convert to lowercase
+    n = n.toLowerCase();
+    // Fallback for empty result
+    if (!n) {
+      n = "default";
+    }
+    return n;
   }
 
   /**
@@ -4340,37 +4923,36 @@ class HAXCMSClass {
    */
   generateSlugName(name) {
     if (name === undefined || name === null) {
-      return '';
+      return "";
     }
     let n = String(name);
     // Remove null bytes
-    n = n.replace(/\0/g, '');
+    n = n.replace(/\0/g, "");
     // URL decode to catch encoded traversal attempts
     try {
       n = decodeURIComponent(n);
-    }
-    catch (e) {
+    } catch (e) {
       // ignore decode errors, keep original string
     }
     // Remove path traversal sequences while preserving forward slashes for URLs
-    n = n.replace(/\.{2,}[\\/]*?/g, ''); // remove ../ and .. sequences
-    n = n.replace(/\\/g, ''); // remove backslashes
+    n = n.replace(/\.{2,}[\\/]*?/g, ""); // remove ../ and .. sequences
+    n = n.replace(/\\/g, ""); // remove backslashes
     // Convert to lowercase first
     let slug = n.toLowerCase();
     // Allow word chars, hyphens, and forward slashes; normalize others to '-'
-    slug = slug.replace(/[^\w\-\/]+/g, '-');
+    slug = slug.replace(/[^\w\-/]+/g, "-");
     // Clean up multiple consecutive hyphens
-    slug = slug.replace(/-{2,}/g, '-');
+    slug = slug.replace(/-{2,}/g, "-");
     // Clean up multiple consecutive slashes
-    slug = slug.replace(/\/{2,}/g, '/');
+    slug = slug.replace(/\/{2,}/g, "/");
     // Remove leading/trailing hyphens and slashes
-    slug = slug.replace(/^[-/]+|[-/]+$/g, '');
+    slug = slug.replace(/^[-/]+|[-/]+$/g, "");
     // Ensure no path traversal sequences remain after processing
-    if (slug.indexOf('..') !== -1) {
-      slug = slug.replace(/\.+/g, '');
+    if (slug.indexOf("..") !== -1) {
+      slug = slug.replace(/\.+/g, "");
     }
     // slugs CAN NOT start with / but otherwise it should be allowed
-    while (slug.substring(0, 1) === '/') {
+    while (slug.substring(0, 1) === "/") {
       slug = slug.substring(1);
     }
     return slug;
@@ -4384,315 +4966,322 @@ class HAXCMSClass {
   /**
    * Clean up a title / sanitize the input string for file system usage
    */
-  cleanTitle(value, stripPage = true)
-  {
-      let cleanTitle = value.trim();
-      // strips off the identifies for a page on the file system
-      if (stripPage) {
-          cleanTitle = cleanTitle.replace('pages/', '').replace('/index.html', '');
-      }
-      cleanTitle = cleanTitle.replace(/ /g, '-').toLowerCase();
-      cleanTitle = cleanTitle.replace(/[^\w\-\/]+/gu, '-');
-      cleanTitle = cleanTitle.replace(/--+/gu, '-');
-      // ensure we don't return an empty title or it could break downstream things
-      if (cleanTitle == '') {
-          cleanTitle = 'blank';
-      }
-      return cleanTitle;
+  cleanTitle(value, stripPage = true) {
+    let cleanTitle = value.trim();
+    // strips off the identifies for a page on the file system
+    if (stripPage) {
+      cleanTitle = cleanTitle.replace("pages/", "").replace("/index.html", "");
+    }
+    cleanTitle = cleanTitle.replace(/ /g, "-").toLowerCase();
+    cleanTitle = cleanTitle.replace(/[^\w\-/]+/gu, "-");
+    cleanTitle = cleanTitle.replace(/--+/gu, "-");
+    // ensure we don't return an empty title or it could break downstream things
+    if (cleanTitle == "") {
+      cleanTitle = "blank";
+    }
+    return cleanTitle;
   }
   /**
    * Validate that a request token is accurate
    */
-  validateRequestToken(token = null, value = '', query = {})
-    {
-      if (this.isCLI() || (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())) {
-          return true;
-      }
-      // default token is POST
-      if (token == null && query['token']) {
-        token = query['token'];
-      }
-      if (token != null) {
-        if (this.safeStringCompare(this.getRequestToken(value), String(token))) {
-          return true;
-        }
-      }
-      return false;
+  validateRequestToken(token = null, value = "", query = {}) {
+    if (
+      this.isCLI() ||
+      (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())
+    ) {
+      return true;
     }
-    /**
-     * Get the active user name based on the session
-     * or the super user if the session is not set
-     */
-    getActiveUserName() {
-      if (this.user.name != null && this.user.name != '') {
-        return this.user.name;
-      }
-      else if (this.superUser.name) {
-        return this.superUser.name;
+    // default token is POST
+    if (token == null && query["token"]) {
+      token = query["token"];
+    }
+    if (token != null) {
+      if (this.safeStringCompare(this.getRequestToken(value), String(token))) {
+        return true;
       }
     }
-    /**
-     * Security (SEC-SESSION): true when HAXiam multi-tenant mode is enabled
-     * (config.iam). All IAM-only checks below are no-ops otherwise, so the
-     * default self-hosted / single-site behaviour is unchanged.
-     */
-    isIAMEnabled() {
-      return !!(this.config && this.config.iam);
+    return false;
+  }
+  /**
+   * Get the active user name based on the session
+   * or the super user if the session is not set
+   */
+  getActiveUserName() {
+    if (this.user.name != null && this.user.name != "") {
+      return this.user.name;
+    } else if (this.superUser.name) {
+      return this.superUser.name;
     }
-    /**
-     * Resolve IAM path username from the request path (/<username>/system/api/...).
-     * Port of PHP getRequestPathUserName (HAXCMS.php).
-     */
-    getRequestPathUserName(req = null) {
-      let rawPath = '';
-      if (req && typeof req.originalUrl === 'string' && req.originalUrl !== '') {
-        rawPath = req.originalUrl;
-      }
-      else if (req && typeof req.url === 'string') {
-        rawPath = req.url;
-      }
-      if (rawPath === '') {
-        return null;
-      }
-      let pathOnly = rawPath.split('?')[0].split('#')[0];
-      if (pathOnly === '') {
-        return null;
-      }
-      const basePath = String(this.basePath || '').trim();
-      if (basePath !== '' && basePath !== '/') {
-        const normalizedBase = '/' + basePath.replace(/^\/+|\/+$/g, '');
-        if (pathOnly.indexOf(normalizedBase) === 0) {
-          pathOnly = pathOnly.substring(normalizedBase.length);
-        }
-      }
-      const segments = pathOnly.replace(/^\/+|\/+$/g, '').split('/');
-      if (!segments.length || segments[0] === '') {
-        return null;
-      }
-      // non-IAM routes like /system/api/* do not include a tenant user segment
-      if (segments[0] === 'system') {
-        return null;
-      }
-      return this.generateMachineName(segments[0]);
+  }
+  /**
+   * Security (SEC-SESSION): true when HAXiam multi-tenant mode is enabled
+   * (config.iam). All IAM-only checks below are no-ops otherwise, so the
+   * default self-hosted / single-site behaviour is unchanged.
+   */
+  isIAMEnabled() {
+    return !!(this.config && this.config.iam);
+  }
+  /**
+   * Resolve IAM path username from the request path (/<username>/system/api/...).
+   * Port of PHP getRequestPathUserName (HAXCMS.php).
+   */
+  getRequestPathUserName(req = null) {
+    let rawPath = "";
+    if (req && typeof req.originalUrl === "string" && req.originalUrl !== "") {
+      rawPath = req.originalUrl;
+    } else if (req && typeof req.url === "string") {
+      rawPath = req.url;
     }
-    /**
-     * Resolve the active IAM tenant username from the loaded root path, falling
-     * back to the request path. Port of PHP getIAMTenantUserName.
-     */
-    getIAMTenantUserName(req = null) {
-      if (!this.isIAMEnabled()) {
-        return null;
-      }
-      const root = String(this.HAXCMS_ROOT || '').replace(/\\/g, '/');
-      const match = root.match(/\/users\/([^\/]+)/);
-      if (match && match[1]) {
-        return this.generateMachineName(match[1]);
-      }
-      return this.getRequestPathUserName(req);
+    if (rawPath === "") {
+      return null;
     }
-    /**
-     * Security (SEC-SESSION): validate IAM authorization by binding the
-     * authenticated principal to the resolved IAM tenant identity. Port of PHP
-     * validateIAMRouteAuthorization. Returns { allowed, status, message }.
-     * Non-IAM deployments always get { allowed: true }.
-     */
-    validateIAMRouteAuthorization(requireAuthenticatedUser = true, req = null) {
-      const allow = { allowed: true, status: 200, message: '' };
-      const deny = { allowed: false, status: 403, message: 'Access denied' };
-      if (!this.isIAMEnabled()) {
-        return allow;
+    let pathOnly = rawPath.split("?")[0].split("#")[0];
+    if (pathOnly === "") {
+      return null;
+    }
+    const basePath = String(this.basePath || "").trim();
+    if (basePath !== "" && basePath !== "/") {
+      const normalizedBase = "/" + basePath.replace(/^\/+|\/+$/g, "");
+      if (pathOnly.indexOf(normalizedBase) === 0) {
+        pathOnly = pathOnly.substring(normalizedBase.length);
       }
-      const tenantUser = this.getIAMTenantUserName(req);
-      const pathUser = this.getRequestPathUserName(req);
-      // If both are present they must agree.
-      if (tenantUser && pathUser && tenantUser !== pathUser) {
-        return deny;
-      }
-      const rawAuthenticated = this.getRequestAuthenticatedUserName(req);
-      const authenticatedUser = rawAuthenticated ? this.generateMachineName(rawAuthenticated) : '';
-      if (requireAuthenticatedUser && authenticatedUser === '') {
-        return deny;
-      }
-      if (tenantUser && (authenticatedUser === '' || authenticatedUser !== tenantUser)) {
-        return deny;
-      }
+    }
+    const segments = pathOnly.replace(/^\/+|\/+$/g, "").split("/");
+    if (!segments.length || segments[0] === "") {
+      return null;
+    }
+    // non-IAM routes like /system/api/* do not include a tenant user segment
+    if (segments[0] === "system") {
+      return null;
+    }
+    return this.generateMachineName(segments[0]);
+  }
+  /**
+   * Resolve the active IAM tenant username from the loaded root path, falling
+   * back to the request path. Port of PHP getIAMTenantUserName.
+   */
+  getIAMTenantUserName(req = null) {
+    if (!this.isIAMEnabled()) {
+      return null;
+    }
+    const root = String(this.HAXCMS_ROOT || "").replace(/\\/g, "/");
+    const match = root.match(/\/users\/([^/]+)/);
+    if (match && match[1]) {
+      return this.generateMachineName(match[1]);
+    }
+    return this.getRequestPathUserName(req);
+  }
+  /**
+   * Security (SEC-SESSION): validate IAM authorization by binding the
+   * authenticated principal to the resolved IAM tenant identity. Port of PHP
+   * validateIAMRouteAuthorization. Returns { allowed, status, message }.
+   * Non-IAM deployments always get { allowed: true }.
+   */
+  validateIAMRouteAuthorization(requireAuthenticatedUser = true, req = null) {
+    const allow = { allowed: true, status: 200, message: "" };
+    const deny = { allowed: false, status: 403, message: "Access denied" };
+    if (!this.isIAMEnabled()) {
       return allow;
     }
-    /**
-     * Security (SEC-SESSION, PHP F2/IDOR-001 parity): object-level
-     * authorization on a named site. Port of PHP userCanAccessSite.
-     * - Non-IAM: any authenticated user can access any existing site.
-     * - HAXiam: the site must exist within the authenticated user's sites
-     *   directory (a real directory = owned, a symlink = shared).
-     */
-    async userCanAccessSite(siteName, req = null) {
-      if (typeof siteName !== 'string' || siteName.trim() === '') {
-        return false;
-      }
-      let site = false;
-      try {
-        site = await this.loadSite(siteName);
-      }
-      catch (e) {
-        site = false;
-      }
-      if (
-        !site ||
-        !site.manifest ||
-        !site.manifest.metadata ||
-        !site.manifest.metadata.site ||
-        !site.manifest.metadata.site.name
-      ) {
-        return false;
-      }
-      if (!this.isIAMEnabled()) {
-        return true;
-      }
-      const rawUser = req ? this.getRequestAuthenticatedUserName(req) : '';
-      const activeUser = rawUser ? this.generateMachineName(rawUser) : '';
-      if (activeUser === '') {
-        return false;
-      }
-      const siteMachineName = String(site.manifest.metadata.site.name);
-      const root = String(this.HAXCMS_ROOT || '').replace(/\\/g, '/');
-      const escapedUser = activeUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      // HAXCMS_ROOT already scoped to the active user (site-scoped route in IAM)
-      if (new RegExp('/users/' + escapedUser + '(/|$)').test(root)) {
-        return true;
-      }
-      const candidates = [
-        '/var/www/sites/' + activeUser + '/sites/' + siteMachineName,
-      ];
-      if (/\/users\/[^\/]+/.test(root)) {
-        const userRoot = root.replace(/\/users\/[^\/]+/, '/users/' + activeUser).replace(/\/+$/, '');
-        candidates.push(userRoot + '/' + String(this.sitesDirectory).replace(/^\/+|\/+$/g, '') + '/' + siteMachineName);
-      }
-      for (let i = 0; i < candidates.length; i++) {
-        if (fs.existsSync(candidates[i])) {
-          return true;
-        }
-      }
+    const tenantUser = this.getIAMTenantUserName(req);
+    const pathUser = this.getRequestPathUserName(req);
+    // If both are present they must agree.
+    if (tenantUser && pathUser && tenantUser !== pathUser) {
+      return deny;
+    }
+    const rawAuthenticated = this.getRequestAuthenticatedUserName(req);
+    const authenticatedUser = rawAuthenticated
+      ? this.generateMachineName(rawAuthenticated)
+      : "";
+    if (requireAuthenticatedUser && authenticatedUser === "") {
+      return deny;
+    }
+    if (
+      tenantUser &&
+      (authenticatedUser === "" || authenticatedUser !== tenantUser)
+    ) {
+      return deny;
+    }
+    return allow;
+  }
+  /**
+   * Security (SEC-SESSION, PHP F2/IDOR-001 parity): object-level
+   * authorization on a named site. Port of PHP userCanAccessSite.
+   * - Non-IAM: any authenticated user can access any existing site.
+   * - HAXiam: the site must exist within the authenticated user's sites
+   *   directory (a real directory = owned, a symlink = shared).
+   */
+  async userCanAccessSite(siteName, req = null) {
+    if (typeof siteName !== "string" || siteName.trim() === "") {
       return false;
     }
-    getRequestToken(value = '')
-    {
-        return this.hmacBase64(value, this.privateKey + this.salt);
+    let site = false;
+    try {
+      site = await this.loadSite(siteName);
+    } catch (e) {
+      site = false;
     }
-    hmacBase64(data, key)
-    {
-      return crypto
-        .createHmac('sha256', key)
-        .update(data)
-        .digest('base64')
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/, '');
+    if (
+      !site ||
+      !site.manifest ||
+      !site.manifest.metadata ||
+      !site.manifest.metadata.site ||
+      !site.manifest.metadata.site.name
+    ) {
+      return false;
     }
-    /**
-     * load form and spitting out HAXschema + values in our standard transmission method
-     */
-    async loadForm(form_id, context = []) {
-      let fields = {};
-      let value = {};
-      // @todo add future support for dependency injection as far as allowed forms
-      if (typeof this[form_id + "Form"] === "function") {
-        fields = await this[form_id + "Form"](context);
+    if (!this.isIAMEnabled()) {
+      return true;
+    }
+    const rawUser = req ? this.getRequestAuthenticatedUserName(req) : "";
+    const activeUser = rawUser ? this.generateMachineName(rawUser) : "";
+    if (activeUser === "") {
+      return false;
+    }
+    const siteMachineName = String(site.manifest.metadata.site.name);
+    const root = String(this.HAXCMS_ROOT || "").replace(/\\/g, "/");
+    const escapedUser = activeUser.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // HAXCMS_ROOT already scoped to the active user (site-scoped route in IAM)
+    if (new RegExp("/users/" + escapedUser + "(/|$)").test(root)) {
+      return true;
+    }
+    const candidates = [
+      "/var/www/sites/" + activeUser + "/sites/" + siteMachineName,
+    ];
+    if (/\/users\/[^/]+/.test(root)) {
+      const userRoot = root
+        .replace(/\/users\/[^/]+/, "/users/" + activeUser)
+        .replace(/\/+$/, "");
+      candidates.push(
+        userRoot +
+          "/" +
+          String(this.sitesDirectory).replace(/^\/+|\/+$/g, "") +
+          "/" +
+          siteMachineName,
+      );
+    }
+    for (let i = 0; i < candidates.length; i++) {
+      if (fs.existsSync(candidates[i])) {
+        return true;
       }
-      else {
-        fields = {
-          'status': 500,
-          'data': { 'message': form_id + ' does not exist' }
-        };
-      }
-      if (typeof this[form_id + "Value"] === 'function') {
-        value = await this[form_id + "Value"](context);
-      }
-      // ensure values are set for the hidden internal fields
-      value.haxcms_form_id = form_id;
-      value.haxcms_form_token = this.getRequestToken(form_id);
-      return {
-        'fields': fields,
-        'value': value,
+    }
+    return false;
+  }
+  getRequestToken(value = "") {
+    return this.hmacBase64(value, this.privateKey + this.salt);
+  }
+  hmacBase64(data, key) {
+    return crypto
+      .createHmac("sha256", key)
+      .update(data)
+      .digest("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  }
+  /**
+   * load form and spitting out HAXschema + values in our standard transmission method
+   */
+  async loadForm(form_id, context = []) {
+    let fields = {};
+    let value = {};
+    // @todo add future support for dependency injection as far as allowed forms
+    if (typeof this[form_id + "Form"] === "function") {
+      fields = await this[form_id + "Form"](context);
+    } else {
+      fields = {
+        status: 500,
+        data: { message: form_id + " does not exist" },
       };
     }
-    /**
-     * Process the form submission data
-     */
-    async processForm(form_id, params, context = []) {
-      // make sure we have the original value / key pairs for the form
-      if (this[form_id + "Value"]) {
-        value = await this[form_id + "Value"](context);
-      }
-      else {
-        fields = {
-          'status': 500,
-          'data': { 'message': form_id + ' does not exist' }
-        };
+    if (typeof this[form_id + "Value"] === "function") {
+      value = await this[form_id + "Value"](context);
+    }
+    // ensure values are set for the hidden internal fields
+    value.haxcms_form_id = form_id;
+    value.haxcms_form_token = this.getRequestToken(form_id);
+    return {
+      fields: fields,
+      value: value,
+    };
+  }
+  /**
+   * Process the form submission data
+   */
+  async processForm(form_id, params, context = []) {
+    // make sure we have the original value / key pairs for the form
+    if (this[form_id + "Value"]) {
+      value = await this[form_id + "Value"](context);
+    } else {
+      fields = {
+        status: 500,
+        data: { message: form_id + " does not exist" },
+      };
+    }
+  }
+  /**
+   * Magic function that will convert foo.bar.zzz into obj.foo.bar.zzz with look up.
+   */
+  deepObjectLookUp(obj, path) {
+    let thing = explode("-", path);
+    // while exists, pop off key and expand deeper in value assessment
+    let current = obj;
+    while (thing.length > 0) {
+      let key = thing.shift();
+      if (typeof current !== "undefined" && key) {
+        current = current[key];
       }
     }
-    /**
-     * Magic function that will convert foo.bar.zzz into obj.foo.bar.zzz with look up.
-     */
-    deepObjectLookUp(obj, path) {
-      let thing = explode('-', path);
-      // while exists, pop off key and expand deeper in value assessment
-      let current = obj;
-      while (thing.length > 0) {
-        let key = thing.shift();
-        if (typeof current !== 'undefined' && key) {
-          current = current[key];
-        }
-      }
-      return current;
-    }
+    return current;
+  }
 
-    /**
-     * Return the form for the siteSettings
-     */
-    async siteSettingsForm(context) {
-      let site = await this.loadSite(context['site']['name']);
-      return this.config.site.fields;
-    }
-    /**
-     * Build a selectorList for the front-end that has all values
-     * for selection keyed by item id: title, ordered based on
-     * hierarchy with -- for each level down
-     */
-    itemSelectorList() {
-      let items = site.manifest.orderTree(site.manifest.items);
-      itemValues = [
-        {
-          "text": "-- No page --",
-          "value": null,
+  /**
+   * Return the form for the siteSettings
+   */
+  async siteSettingsForm(context) {
+    let site = await this.loadSite(context["site"]["name"]);
+    return this.config.site.fields;
+  }
+  /**
+   * Build a selectorList for the front-end that has all values
+   * for selection keyed by item id: title, ordered based on
+   * hierarchy with -- for each level down
+   */
+  itemSelectorList() {
+    let items = site.manifest.orderTree(site.manifest.items);
+    itemValues = [
+      {
+        text: "-- No page --",
+        value: null,
+      },
+    ];
+    for (var key in items) {
+      let item = items[key];
+      // calculate -- depth so it looks like a tree
+      itemBuilder = item;
+      // walk back through parent tree
+      distance = "- ";
+      while (itemBuilder && itemBuilder.parent != null) {
+        itemBuilder = this.findParent(items, itemBuilder);
+        // double check structure is sound
+        if (itemBuilder) {
+          distance = "--" + distance;
         }
-      ];
-      for (var key in items) {
-        let item = items[key];
-        // calculate -- depth so it looks like a tree
-        itemBuilder = item;
-        // walk back through parent tree
-        distance = "- ";
-        while (itemBuilder && itemBuilder.parent != null) {
-          itemBuilder = this.findParent(items, itemBuilder);
-          // double check structure is sound
-          if (itemBuilder) {
-            distance = "--" + distance;
-          }
-        }
-        itemValues.push({
-          "text": distance + item.title,
-          "value": item.id,
-        })
       }
-      return itemValues;
+      itemValues.push({
+        text: distance + item.title,
+        value: item.id,
+      });
     }
-    /**
-     * Return the form for the siteSettings
-     */
-    async siteSettingsValue(context) {
-      let site = await this.loadSite(context['site']['name']);
-      // passing in as JSON for sanity
-      let jsonResponse = JSON.parse(`{
+    return itemValues;
+  }
+  /**
+   * Return the form for the siteSettings
+   */
+  async siteSettingsValue(context) {
+    let site = await this.loadSite(context["site"]["name"]);
+    // passing in as JSON for sanity
+    let jsonResponse = JSON.parse(`{
         "manifest": {
           "site": {
             "manifest-title": null,
@@ -4740,425 +5329,422 @@ class HAXCMSClass {
           }
         }
       }`);
-      // this will process the form values and engineer them out of
-      // the manifest based on key location to value found there (if any)
-      return this.populateManifestValues(site, jsonResponse);
-    }
-    /**
-     * Populate values based on the structure of the form schema values
-     * established previously. This REQUIRES that the key in the end
-     * is a string in the form of "manifest-what-ever-value-this-needs"
-     * which it then takes ANY structure and recursively populates it
-     * with the appropriate values to match
-     */
-    populateManifestValues(site, manifestKeys) {
-      for (var key in manifestKeys) {
-        let value = manifestKeys[key];
-        // cascade of our methodology for building out forms
-        // which peg to the internal workings of JSON outline schema
-        // while still being presented in a visually agnostic manner
-        // this is some crazy S..
-        // test if we have deeper items to traverse at this level
-
-        if (typeof value !== "string" && typeof value !== "boolean" && value && Object.keys(value).length > 0) {
-          manifestKeys[key] = this.populateManifestValues(site, value);
-        }
-        else if (typeof key === "string") {
-          let lookup = this.deepObjectLookUp(site, key);
-          if (lookup || lookup === '' || lookup === false) {
-            // special support for regions as front end form structure differs slightly from backend
-            // to support multiple attributes on a single object on front end
-            // even when it's a 1 to 1
-            if (key.indexOf('-regions-') !== -1) {
-              let tmp = [];
-              for (var rkey in lookup) {
-                let regionId = lookup[rkey];
-                if (regionId) {
-                  tmp.push({
-                    node: regionId
-                  })  
-                }
-              }
-              if (tmp.length > 0) {
-                manifestKeys[key] = tmp;
-              }
-            }
-            else {
-              manifestKeys[key] = lookup;
-            }
-          }     
-        }
-      }
-      // @todo needs to not be a hack :p
-      if ((manifestKeys["manifest-metadata-theme-variables-cssVariable"])) {
-        manifestKeys["manifest-metadata-theme-variables-cssVariable"] = manifestKeys["manifest-metadata-theme-variables-cssVariable"].replace('-7', '').replace("--simple-colors-default-theme-", '');
-      }
-      return manifestKeys;
-    }
-    /**
-     * Get input method for HAXSchema based on a data type
-     * @var type [string]
-     */
-    getInputMethod(type = null) {
-      switch (type) {
-        case 'string':
-          return 'textfield';
-        break;
-        case 'number':
-          return 'number';
-        break;
-        case 'date':
-          return 'datepicker';
-        break;
-        case 'boolean':
-          return 'boolean';
-        break;
-        default:
-          return 'textfield';
-        break;
-      }
-    }
-    /**
-     * Get the current version number
-     */
-    async getHAXCMSVersion()
-    {
-      let version = null;
-      if (!version) {
-        const versionFilePaths = [
-          path.join(__dirname, '/../.version'),
-          path.join(__dirname, '/../public', 'VERSION.txt'),
-        ];
-        for (let i = 0; i < versionFilePaths.length; i++) {
-          const versionFilePath = versionFilePaths[i];
-          if (!fs.existsSync(versionFilePath)) {
-            continue;
-          }
-          let vFile = await fs.readFileSync(
-            versionFilePath,
-            {encoding:'utf8', flag:'r'},
-            'utf8'
-          );
-          if (vFile) {
-            return filter_var(vFile);
-          }
-        }
-      }
-      return version;
-    }
-    /**
-     * Load theme location data as mix of config and system
-     */
-    getThemes()
-    {
-        return this.config.themes;
-    }
-    /**
-     * Build valid JSON Schema for the config we have knowledge of
-     */
-    getConfigSchema()
-    {
-        schema = {};
-        schema['schema'] = "http://json-schema.org/schema#";
-        schema.title = "HAXCMS Config";
-        schema.type = "object";
-        schema.properties = {};
-        schema.properties.publishing = {};
-        schema.properties.publishing.title = "Publishing settings";
-        schema.properties.publishing.type = "object";
-        schema.properties.publishing.properties = {};
-        schema.properties.apis = {};
-        schema.properties.apis.title = "API Connectivity";
-        schema.properties.apis.type = "object";
-        schema.properties.apis.properties = {};
-        // establish some defaults if nothing set internally
-        publishing = {
-            'vendor': {
-                'name': 'Vendor',
-                'description' :
-                    'Name for this provided (github currently supported)',
-                'value': 'github'
-            },
-            'branch': {
-                'name': 'Branch',
-                'description' :
-                    'Project code branch (like master or gh-pages)',
-                'value': 'gh-pages'
-            },
-            'url': {
-                'name': 'Repo url',
-                'description' :
-                    'Base address / organization that new sites will be saved under',
-                'value': 'git@github.com:elmsln'
-            },
-            'user': {
-                'name': 'User / Org',
-                'description': 'User name or organization to publish to',
-                'value': ''
-            },
-            'email': {
-                'name': 'Email',
-                'description': 'Email address of your github account',
-                'value': ''
-            },
-            'pass': {
-                'name': 'Password',
-                'description' :
-                    'Only use this if you want to automate SSH key setup. This is not stored',
-                'value': ''
-            },
-            'cdn': {
-                'name': 'CDN',
-                'description': 'A CDN address that supports HAXCMS',
-                'value': 'cdn.webcomponents.psu.edu'
-            }
-        };
-        // publishing
-        for (var key in publishing) {
-          let value = publishing[key];
-            props = {};
-            props.title = value['name'];
-            props.type = 'string';
-            if ((this.config.site.git[key])) {
-                props.value = this.config.site.git[key];
-            } else {
-                props.value = value['value'];
-            }
-            props.component = {};
-            props.component.name = "paper-input";
-            props.component.valueProperty = "value";
-            props.component.slot =
-                '<div slot="suffix">' + value['description'] + '</div>';
-            if (key == 'pass') {
-                props.component.attributes = {};
-                props.component.attributes.type = 'password';
-            }
-            if (key == 'pass' && (this.config.site.git.user)) {
-                // keep moving but if we already have a user name we don't need this
-                // we only ask for a password on the very first run through
-                schema.properties.publishing.properties.user.component.slot =
-                    '<div slot="suffix">Set, to change this manually edit config/config.json.</div>';
-                schema.properties.publishing.properties.user.component.attributes = {};
-                schema.properties.publishing.properties.user.component.attributes.disabled =
-                    'disabled';
-                schema.properties.publishing.properties.email.component.attributes = {};
-                schema.properties.publishing.properties.email.component.attributes.disabled =
-                    'disabled';
-                schema.properties.publishing.properties.email.component.slot =
-                    '<div slot="suffix">Set, to change this manually edit config/config.json.</div>';
-            } else {
-                schema.properties.publishing.properties[key] = props;
-            }
-        }
-        // API keys
-        hax = new HAXAppStoreService();
-        apiDocs = hax.baseSupportedApps();
-        for (var key in apiDocs) {
-            props = {};
-            props.title = key;
-            props.type = 'string';
-            // if we have this value loaded internally then set it
-            if ((this.config.appStore.apiKeys[key])) {
-                props.value = this.config.appStore.apiKeys[key];
-            }
-            props.component = {};
-            // look for our documentation object name
-            if ((apiDocs[key])) {
-                props.title = apiDocs[key]['name'];
-                props.component.slot =
-                    '<div slot="suffix"><a href="' +
-                    apiDocs[key]['docs'] +
-                    '" target="_blank">See ' +
-                    props.title +
-                    ' developer docs.</a></div>';
-            }
-            props.component.name = "paper-input";
-            props.component.valueProperty = "value";
-            schema.properties.apis.properties[key] = props;
-        }
-        return schema;
-    }
-    /**
-     * Set and validate config
-     */
-    setUserData(values)
-    {
-      // only support user picture for the moment
-      if ((values.userPicture)) {
-        this.userData.userPicture = values.userPicture;
-      }
-      this.saveUserDataFile();
-    }
-    /**
-     * Write configuration to the config file
-     */
-    async saveUserDataFile()
-    {
-      return await fs.writeFileSync(this.configDirectory + '/userData.json',
-        JSON.stringify(this.userData, null, 2)
-      );
-    }
-    /**
-     * Write configuration to the config file
-     */
-    async saveConfigFile()
-    {
-      return await fs.writeFileSync(this.configDirectory + '/config.json',
-        JSON.stringify(this.config, null, 2)
-      );
-    }
-    /**
-     * get SSH Key that was created during install
-     */
-    getSSHKey()
-    {
-        return false;
-    }
-    // russia strikes again
-    // https://stackoverflow.com/questions/3872423/php-problem-with-russian-language
-    html_to_obj(html) {
-      dom = new DOMDocument();
-      html = mb_convert_encoding(html, 'HTML-ENTITIES', "UTF-8");
-      dom.loadHTML(html);
-      return this.element_to_obj(dom.documentElement);
-    }
-    element_to_obj(element) {
-      obj = { "tag": element.tagName };
-      for (var attribute in element.attributes) {
-          obj[attribute.name] = attribute.value;
-      }
-      for (var subElement in element.childNodes) {
-          if (subElement.nodeType == XML_TEXT_NODE) {
-              obj["html"] = subElement.wholeText;
-          }
-          else {
-              obj["children"].push(this.element_to_obj(subElement));
-          }
-      }
-      return obj;
+    // this will process the form values and engineer them out of
+    // the manifest based on key location to value found there (if any)
+    return this.populateManifestValues(site, jsonResponse);
   }
-    /**
-     * parse attributes out of an HTML tag in a safer manner
-     */
-    parse_attributes(attr) {
-      let atList = [];
-      const regexp = /\s*(?:([a-z0-9-]+)\s*=\s*"([^"]*)")|(?:\s+([a-z0-9-]+)(?=\s*|>|\s+[a..z0-9]+))/ig;
-      const matches = [...attr.matchAll(regexp)];
-      for (var i in matches) {
-        if (matches[i][3])
-          atList[matches[i][3]] = null;
-        else
-          atList[matches[i][1]] = matches[i][2];
-      }
-      return atList;
-    }
-    /**
-     * Helper for parsing out and returning page-break's in a body of content
-     * to help support HAX multi-page editing / outlining capabilities
-     */
-    pageBreakParser(body = '<page-break></page-break>') {
-      body += '<page-break fakeendcap="fakeendcap"></page-break>';
-      let pageData = [];
-      // match all pages + content
-      const regexp = /(<page-break([\s\S]*?)>([\s\S]*?)<\/page-break>)([\s\S]*?)(?=<page-break)/g;
-      const matches = [...body.matchAll(regexp)];
-      for (var i in matches) {
-        // expand bare boolean attributes (published, locked) wherever they
-        // sit in the tag, but never inside a quoted value such as a title,
-        // and never when a value follows (published = "" stays as written)
-        let attrText = matches[i][2].replace(/("[^"]*")|(\s)(published|locked)(?!\s*=)(?=\s|\/|$)/g, (match, quoted, space, name) => {
-          return quoted ? quoted : space + name + '="' + name + '"';
-        });
-        let content = "<div " + attrText + "></div>";
-        let attrs = this.parse_attributes(content);
-        pageData[i] = {
-            "content": matches[i][4],
-            // this assumes that the attributes are well formed; make sure front end did this
-            // even for boolean attributes
-            "attributes": attrs
-        };
-      }
-      return pageData;
-    }
-    /**
-     * Generate a valid HAX App store specification schema for connecting to this site via JSON.
-     */
-    siteConnectionJSON(siteToken = '', siteName = '')
-    {
-        const isMultisite = (
-          this.operatingContext === 'multisite' ||
-          (
-            typeof this.getDeploymentProfile === 'function' &&
-            this.getDeploymentProfile() === 'self-hosted-multi-site'
-          )
-        );
-        const normalizedSiteName = String(siteName || '').trim();
-        let browseEndPoint = 'x/api/v1/files';
-        if (isMultisite && normalizedSiteName !== '') {
-          browseEndPoint =
-            this.sitesDirectory +
-            '/' +
-            encodeURIComponent(normalizedSiteName) +
-            '/x/api/v1/files';
-        }
-        return {
-      "details": {
-        "title": "Local files",
-        "icon": "perm-media",
-        "color": "light-blue",
-        "author": "HAXCMS",
-        "description": "HAXCMS integration for HAX",
-        "tags": ["media", "hax"]
-      },
-      "connection": {
-        "protocol": this.protocol,
-        "url": this.domain + this.basePath,
-        "headers": {
-          "X-HAXCMS-Site-Token": siteToken
-        },
-        "operations": {
-          "browse": {
-            "method": "GET",
-            "endPoint": browseEndPoint,
-            "pagination": {
-              "style": "link",
-              "props": {
-                "first": "page.first",
-                "next": "page.next",
-                "previous": "page.previous",
-                "last": "page.last"
-              }
-            },
-            "search": {
-              "filename": {
-                "title": "File name",
-                "type": "string"
-              }
-            },
-            "data": {
-              "__HAXAPPENDUPLOADENDPOINT__": true
-            },
-            "resultMap": {
-              "defaultGizmoType": "image",
-              "items": "data.files",
-              "preview": {
-                "title": "name",
-                "details": "mimetype",
-                "image": "fullUrl",
-                "id": "uuid"
-              },
-              "gizmo": {
-                "source": "url",
-                "id": "uuid",
-                "title": "name",
-                "mimetype": "mimetype"
+  /**
+   * Populate values based on the structure of the form schema values
+   * established previously. This REQUIRES that the key in the end
+   * is a string in the form of "manifest-what-ever-value-this-needs"
+   * which it then takes ANY structure and recursively populates it
+   * with the appropriate values to match
+   */
+  populateManifestValues(site, manifestKeys) {
+    for (var key in manifestKeys) {
+      let value = manifestKeys[key];
+      // cascade of our methodology for building out forms
+      // which peg to the internal workings of JSON outline schema
+      // while still being presented in a visually agnostic manner
+      // this is some crazy S..
+      // test if we have deeper items to traverse at this level
+
+      if (
+        typeof value !== "string" &&
+        typeof value !== "boolean" &&
+        value &&
+        Object.keys(value).length > 0
+      ) {
+        manifestKeys[key] = this.populateManifestValues(site, value);
+      } else if (typeof key === "string") {
+        let lookup = this.deepObjectLookUp(site, key);
+        if (lookup || lookup === "" || lookup === false) {
+          // special support for regions as front end form structure differs slightly from backend
+          // to support multiple attributes on a single object on front end
+          // even when it's a 1 to 1
+          if (key.indexOf("-regions-") !== -1) {
+            let tmp = [];
+            for (var rkey in lookup) {
+              let regionId = lookup[rkey];
+              if (regionId) {
+                tmp.push({
+                  node: regionId,
+                });
               }
             }
+            if (tmp.length > 0) {
+              manifestKeys[key] = tmp;
+            }
+          } else {
+            manifestKeys[key] = lookup;
+          }
+        }
+      }
+    }
+    // @todo needs to not be a hack :p
+    if (manifestKeys["manifest-metadata-theme-variables-cssVariable"]) {
+      manifestKeys["manifest-metadata-theme-variables-cssVariable"] =
+        manifestKeys["manifest-metadata-theme-variables-cssVariable"]
+          .replace("-7", "")
+          .replace("--simple-colors-default-theme-", "");
+    }
+    return manifestKeys;
+  }
+  /**
+   * Get input method for HAXSchema based on a data type
+   * @var type [string]
+   */
+  getInputMethod(type = null) {
+    switch (type) {
+      case "string":
+        return "textfield";
+        break;
+      case "number":
+        return "number";
+        break;
+      case "date":
+        return "datepicker";
+        break;
+      case "boolean":
+        return "boolean";
+        break;
+      default:
+        return "textfield";
+        break;
+    }
+  }
+  /**
+   * Get the current version number
+   */
+  async getHAXCMSVersion() {
+    let version = null;
+    if (!version) {
+      const versionFilePaths = [
+        path.join(__dirname, "/../.version"),
+        path.join(__dirname, "/../public", "VERSION.txt"),
+      ];
+      for (let i = 0; i < versionFilePaths.length; i++) {
+        const versionFilePath = versionFilePaths[i];
+        if (!fs.existsSync(versionFilePath)) {
+          continue;
+        }
+        let vFile = await fs.readFileSync(
+          versionFilePath,
+          { encoding: "utf8", flag: "r" },
+          "utf8",
+        );
+        if (vFile) {
+          return filter_var(vFile);
+        }
+      }
+    }
+    return version;
+  }
+  /**
+   * Load theme location data as mix of config and system
+   */
+  getThemes() {
+    return this.config.themes;
+  }
+  /**
+   * Build valid JSON Schema for the config we have knowledge of
+   */
+  getConfigSchema() {
+    schema = {};
+    schema["schema"] = "http://json-schema.org/schema#";
+    schema.title = "HAXCMS Config";
+    schema.type = "object";
+    schema.properties = {};
+    schema.properties.publishing = {};
+    schema.properties.publishing.title = "Publishing settings";
+    schema.properties.publishing.type = "object";
+    schema.properties.publishing.properties = {};
+    schema.properties.apis = {};
+    schema.properties.apis.title = "API Connectivity";
+    schema.properties.apis.type = "object";
+    schema.properties.apis.properties = {};
+    // establish some defaults if nothing set internally
+    publishing = {
+      vendor: {
+        name: "Vendor",
+        description: "Name for this provided (github currently supported)",
+        value: "github",
+      },
+      branch: {
+        name: "Branch",
+        description: "Project code branch (like master or gh-pages)",
+        value: "gh-pages",
+      },
+      url: {
+        name: "Repo url",
+        description:
+          "Base address / organization that new sites will be saved under",
+        value: "git@github.com:elmsln",
+      },
+      user: {
+        name: "User / Org",
+        description: "User name or organization to publish to",
+        value: "",
+      },
+      email: {
+        name: "Email",
+        description: "Email address of your github account",
+        value: "",
+      },
+      pass: {
+        name: "Password",
+        description:
+          "Only use this if you want to automate SSH key setup. This is not stored",
+        value: "",
+      },
+      cdn: {
+        name: "CDN",
+        description: "A CDN address that supports HAXCMS",
+        value: "cdn.webcomponents.psu.edu",
+      },
+    };
+    // publishing
+    for (var key in publishing) {
+      let value = publishing[key];
+      props = {};
+      props.title = value["name"];
+      props.type = "string";
+      if (this.config.site.git[key]) {
+        props.value = this.config.site.git[key];
+      } else {
+        props.value = value["value"];
+      }
+      props.component = {};
+      props.component.name = "paper-input";
+      props.component.valueProperty = "value";
+      props.component.slot =
+        '<div slot="suffix">' + value["description"] + "</div>";
+      if (key == "pass") {
+        props.component.attributes = {};
+        props.component.attributes.type = "password";
+      }
+      if (key == "pass" && this.config.site.git.user) {
+        // keep moving but if we already have a user name we don't need this
+        // we only ask for a password on the very first run through
+        schema.properties.publishing.properties.user.component.slot =
+          '<div slot="suffix">Set, to change this manually edit config/config.json.</div>';
+        schema.properties.publishing.properties.user.component.attributes = {};
+        schema.properties.publishing.properties.user.component.attributes.disabled =
+          "disabled";
+        schema.properties.publishing.properties.email.component.attributes = {};
+        schema.properties.publishing.properties.email.component.attributes.disabled =
+          "disabled";
+        schema.properties.publishing.properties.email.component.slot =
+          '<div slot="suffix">Set, to change this manually edit config/config.json.</div>';
+      } else {
+        schema.properties.publishing.properties[key] = props;
+      }
+    }
+    // API keys
+    hax = new HAXAppStoreService();
+    apiDocs = hax.baseSupportedApps();
+    for (var key in apiDocs) {
+      props = {};
+      props.title = key;
+      props.type = "string";
+      // if we have this value loaded internally then set it
+      if (this.config.appStore.apiKeys[key]) {
+        props.value = this.config.appStore.apiKeys[key];
+      }
+      props.component = {};
+      // look for our documentation object name
+      if (apiDocs[key]) {
+        props.title = apiDocs[key]["name"];
+        props.component.slot =
+          '<div slot="suffix"><a href="' +
+          apiDocs[key]["docs"] +
+          '" target="_blank">See ' +
+          props.title +
+          " developer docs.</a></div>";
+      }
+      props.component.name = "paper-input";
+      props.component.valueProperty = "value";
+      schema.properties.apis.properties[key] = props;
+    }
+    return schema;
+  }
+  /**
+   * Set and validate config
+   */
+  setUserData(values) {
+    // only support user picture for the moment
+    if (values.userPicture) {
+      this.userData.userPicture = values.userPicture;
+    }
+    this.saveUserDataFile();
+  }
+  /**
+   * Write configuration to the config file
+   */
+  async saveUserDataFile() {
+    return await fs.writeFileSync(
+      this.configDirectory + "/userData.json",
+      JSON.stringify(this.userData, null, 2),
+    );
+  }
+  /**
+   * Write configuration to the config file
+   */
+  async saveConfigFile() {
+    return await fs.writeFileSync(
+      this.configDirectory + "/config.json",
+      JSON.stringify(this.config, null, 2),
+    );
+  }
+  /**
+   * get SSH Key that was created during install
+   */
+  getSSHKey() {
+    return false;
+  }
+  // russia strikes again
+  // https://stackoverflow.com/questions/3872423/php-problem-with-russian-language
+  html_to_obj(html) {
+    dom = new DOMDocument();
+    html = mb_convert_encoding(html, "HTML-ENTITIES", "UTF-8");
+    dom.loadHTML(html);
+    return this.element_to_obj(dom.documentElement);
+  }
+  element_to_obj(element) {
+    obj = { tag: element.tagName };
+    for (var attribute in element.attributes) {
+      obj[attribute.name] = attribute.value;
+    }
+    for (var subElement in element.childNodes) {
+      if (subElement.nodeType == XML_TEXT_NODE) {
+        obj["html"] = subElement.wholeText;
+      } else {
+        obj["children"].push(this.element_to_obj(subElement));
+      }
+    }
+    return obj;
+  }
+  /**
+   * parse attributes out of an HTML tag in a safer manner
+   */
+  parse_attributes(attr) {
+    let atList = [];
+    const regexp =
+      /\s*(?:([a-z0-9-]+)\s*=\s*"([^"]*)")|(?:\s+([a-z0-9-]+)(?=\s*|>|\s+[a..z0-9]+))/gi;
+    const matches = [...attr.matchAll(regexp)];
+    for (var i in matches) {
+      if (matches[i][3]) atList[matches[i][3]] = null;
+      else atList[matches[i][1]] = matches[i][2];
+    }
+    return atList;
+  }
+  /**
+   * Helper for parsing out and returning page-break's in a body of content
+   * to help support HAX multi-page editing / outlining capabilities
+   */
+  pageBreakParser(body = "<page-break></page-break>") {
+    body += '<page-break fakeendcap="fakeendcap"></page-break>';
+    let pageData = [];
+    // match all pages + content
+    const regexp =
+      /(<page-break([\s\S]*?)>([\s\S]*?)<\/page-break>)([\s\S]*?)(?=<page-break)/g;
+    const matches = [...body.matchAll(regexp)];
+    for (var i in matches) {
+      // expand bare boolean attributes (published, locked) wherever they
+      // sit in the tag, but never inside a quoted value such as a title,
+      // and never when a value follows (published = "" stays as written)
+      let attrText = matches[i][2].replace(
+        /("[^"]*")|(\s)(published|locked)(?!\s*=)(?=\s|\/|$)/g,
+        (match, quoted, space, name) => {
+          return quoted ? quoted : space + name + '="' + name + '"';
+        },
+      );
+      let content = "<div " + attrText + "></div>";
+      let attrs = this.parse_attributes(content);
+      pageData[i] = {
+        content: matches[i][4],
+        // this assumes that the attributes are well formed; make sure front end did this
+        // even for boolean attributes
+        attributes: attrs,
+      };
+    }
+    return pageData;
+  }
+  /**
+   * Generate a valid HAX App store specification schema for connecting to this site via JSON.
+   */
+  siteConnectionJSON(siteToken = "", siteName = "") {
+    const isMultisite =
+      this.operatingContext === "multisite" ||
+      (typeof this.getDeploymentProfile === "function" &&
+        this.getDeploymentProfile() === "self-hosted-multi-site");
+    const normalizedSiteName = String(siteName || "").trim();
+    let browseEndPoint = "x/api/v1/files";
+    if (isMultisite && normalizedSiteName !== "") {
+      browseEndPoint =
+        this.sitesDirectory +
+        "/" +
+        encodeURIComponent(normalizedSiteName) +
+        "/x/api/v1/files";
+    }
+    return {
+      details: {
+        title: "Local files",
+        icon: "perm-media",
+        color: "light-blue",
+        author: "HAXCMS",
+        description: "HAXCMS integration for HAX",
+        tags: ["media", "hax"],
+      },
+      connection: {
+        protocol: this.protocol,
+        url: this.domain + this.basePath,
+        headers: {
+          "X-HAXCMS-Site-Token": siteToken,
+        },
+        operations: {
+          browse: {
+            method: "GET",
+            endPoint: browseEndPoint,
+            pagination: {
+              style: "link",
+              props: {
+                first: "page.first",
+                next: "page.next",
+                previous: "page.previous",
+                last: "page.last",
+              },
+            },
+            search: {
+              filename: {
+                title: "File name",
+                type: "string",
+              },
+            },
+            data: {
+              __HAXAPPENDUPLOADENDPOINT__: true,
+            },
+            resultMap: {
+              defaultGizmoType: "image",
+              items: "data.files",
+              preview: {
+                title: "name",
+                details: "mimetype",
+                image: "fullUrl",
+                id: "uuid",
+              },
+              gizmo: {
+                source: "url",
+                id: "uuid",
+                title: "name",
+                mimetype: "mimetype",
+              },
+            },
           },
-          "add": {
-            "method": "POST",
-            "endPoint": browseEndPoint,
-            "acceptsGizmoTypes": [
+          add: {
+            method: "POST",
+            endPoint: browseEndPoint,
+            acceptsGizmoTypes: [
               "audio",
               "image",
               "gif",
@@ -5171,57 +5757,60 @@ class HAXCMSClass {
               "document",
               "archive",
               "pptx",
-              "*"
+              "*",
             ],
-            "resultMap": {
-              "item": "data.file",
-              "defaultGizmoType": "image",
-              "gizmo": {
-                "source": "url",
-                "id": "uuid"
-              }
-            }
-          }
-        }
-      }
+            resultMap: {
+              item: "data.file",
+              defaultGizmoType: "image",
+              gizmo: {
+                source: "url",
+                id: "uuid",
+              },
+            },
+          },
+        },
+      },
     };
-    }
+  }
   /**
    * Return the active URI if it exists
    */
-   getURI() {
+  getURI() {
     if (HAXCMS && HAXCMS.request_url && HAXCMS.request_url.href) {
       return HAXCMS.request_url.href;
     }
-    return '';
+    return "";
   }
   /**
    * Return the active domain if it exists
    */
-   getDomain() {
+  getDomain() {
     return this.domain;
   }
   /**
    * Load wc-registry.json relative to the site in question
    */
-   getWCRegistryJson(site, base = './') {
+  getWCRegistryJson(site, base = "./") {
     let wcMap = {};
     let wcPath = null;
     let wcPathCandidates = [];
     // need to make the request relative to site
-    if (base == './') {
+    if (base == "./") {
       if (site && site.siteDirectory) {
-        wcPathCandidates.push(path.join(site.siteDirectory, 'wc-registry.json'));
+        wcPathCandidates.push(
+          path.join(site.siteDirectory, "wc-registry.json"),
+        );
       }
       // legacy expectation in project root
-      wcPathCandidates.push(path.join(HAXCMS_ROOT, 'wc-registry.json'));
+      wcPathCandidates.push(path.join(HAXCMS_ROOT, "wc-registry.json"));
       // repo-local location used in haxcms-nodejs
-      wcPathCandidates.push(path.join(HAXCMS_ROOT, 'src/public/wc-registry.json'));
+      wcPathCandidates.push(
+        path.join(HAXCMS_ROOT, "src/public/wc-registry.json"),
+      );
       // fallback relative to this file for edge runtime roots
-      wcPathCandidates.push(path.join(__dirname, '../public/wc-registry.json'));
-    }
-    else {
-      wcPathCandidates.push(path.join(base, 'wc-registry.json'));
+      wcPathCandidates.push(path.join(__dirname, "../public/wc-registry.json"));
+    } else {
+      wcPathCandidates.push(path.join(base, "wc-registry.json"));
     }
     for (const candidatePath of wcPathCandidates) {
       if (fs.existsSync(candidatePath)) {
@@ -5232,9 +5821,10 @@ class HAXCMSClass {
     // support private IP space which will block this ever going through
     if (!process.env.IAM_PRIVATE_ADDRESS_SPACE && wcPath) {
       try {
-        wcMap = JSON.parse(fs.readFileSync(wcPath, { encoding: 'utf8', flag: 'r' }));
-      }
-      catch (e) {
+        wcMap = JSON.parse(
+          fs.readFileSync(wcPath, { encoding: "utf8", flag: "r" }),
+        );
+      } catch (e) {
         wcMap = {};
       }
     }
@@ -5249,20 +5839,25 @@ class HAXCMSClass {
    * { paths: [...], adj: {"idx": [impIdx,...]}, tags: {"tagName": entryIdx} }.
    * NOT fetched by the browser. Mirrors the PHP getWCRegistryGraphJson.
    */
-  getWCRegistryGraphJson(site, base = './') {
+  getWCRegistryGraphJson(site, base = "./") {
     let graph = {};
     let gPath = null;
     let gPathCandidates = [];
-    if (base == './') {
+    if (base == "./") {
       if (site && site.siteDirectory) {
-        gPathCandidates.push(path.join(site.siteDirectory, 'wc-registry-graph.json'));
+        gPathCandidates.push(
+          path.join(site.siteDirectory, "wc-registry-graph.json"),
+        );
       }
-      gPathCandidates.push(path.join(HAXCMS_ROOT, 'wc-registry-graph.json'));
-      gPathCandidates.push(path.join(HAXCMS_ROOT, 'src/public/wc-registry-graph.json'));
-      gPathCandidates.push(path.join(__dirname, '../public/wc-registry-graph.json'));
-    }
-    else {
-      gPathCandidates.push(path.join(base, 'wc-registry-graph.json'));
+      gPathCandidates.push(path.join(HAXCMS_ROOT, "wc-registry-graph.json"));
+      gPathCandidates.push(
+        path.join(HAXCMS_ROOT, "src/public/wc-registry-graph.json"),
+      );
+      gPathCandidates.push(
+        path.join(__dirname, "../public/wc-registry-graph.json"),
+      );
+    } else {
+      gPathCandidates.push(path.join(base, "wc-registry-graph.json"));
     }
     for (const candidatePath of gPathCandidates) {
       if (fs.existsSync(candidatePath)) {
@@ -5272,9 +5867,10 @@ class HAXCMSClass {
     }
     if (!process.env.IAM_PRIVATE_ADDRESS_SPACE && gPath) {
       try {
-        graph = JSON.parse(fs.readFileSync(gPath, { encoding: 'utf8', flag: 'r' }));
-      }
-      catch (e) {
+        graph = JSON.parse(
+          fs.readFileSync(gPath, { encoding: "utf8", flag: "r" }),
+        );
+      } catch (e) {
         graph = {};
       }
     }
@@ -5291,26 +5887,23 @@ class HAXCMSClass {
    *
    * @return string[] registry-relative paths (e.g. "@haxtheweb/.../x.js")
    */
-  buildShellModulepreloadPaths(site, base = './', themePath = '', cap = 12) {
+  buildShellModulepreloadPaths(site, base = "./", themePath = "", cap = 12) {
     const shellEntries = [
-      '@haxtheweb/wc-autoload/wc-autoload.js',
-      '@haxtheweb/dynamic-import-registry/dynamic-import-registry.js',
-      '@haxtheweb/haxcms-elements/lib/core/haxcms-site-builder.js',
-      '@haxtheweb/haxcms-elements/lib/core/haxcms-site-store.js',
-      '@haxtheweb/haxcms-elements/lib/core/haxcms-site-router.js',
-      '@haxtheweb/haxcms-elements/lib/core/HAXCMSThemeWiring.js',
-      '@haxtheweb/haxcms-elements/lib/core/HAXCMSLitElementTheme.js',
-      '@haxtheweb/utils/utils.js',
+      "@haxtheweb/wc-autoload/wc-autoload.js",
+      "@haxtheweb/dynamic-import-registry/dynamic-import-registry.js",
+      "@haxtheweb/haxcms-elements/lib/core/haxcms-site-builder.js",
+      "@haxtheweb/haxcms-elements/lib/core/haxcms-site-store.js",
+      "@haxtheweb/haxcms-elements/lib/core/haxcms-site-router.js",
+      "@haxtheweb/haxcms-elements/lib/core/HAXCMSThemeWiring.js",
+      "@haxtheweb/haxcms-elements/lib/core/HAXCMSLitElementTheme.js",
+      "@haxtheweb/utils/utils.js",
     ];
     if (themePath) {
       themePath = String(themePath);
       // only registry-relative theme paths (e.g. "@haxtheweb/...") belong in
       // this list; custom theme paths (./custom/build/custom.es6.js) are
       // site-relative and must never gain the build/es6/node_modules/ prefix
-      if (
-        themePath.charAt(0) === '@' &&
-        !shellEntries.includes(themePath)
-      ) {
+      if (themePath.charAt(0) === "@" && !shellEntries.includes(themePath)) {
         shellEntries.push(themePath);
       }
     }
@@ -5352,7 +5945,8 @@ class HAXCMSClass {
               break;
             }
             const impIdx = imports[j];
-            const impPath = paths[impIdx] !== undefined ? String(paths[impIdx]) : '';
+            const impPath =
+              paths[impIdx] !== undefined ? String(paths[impIdx]) : "";
             if (impPath && !seen[impPath]) {
               seen[impPath] = true;
               result.push(impPath);
@@ -5380,980 +5974,1101 @@ class HAXCMSClass {
   /**
    * Test and ensure the name being returned is a location currently unused
    */
-  getUniqueName(name)
-  {
-      let location = name;
-      let loop = 0;
-      const original = location;
-      while (fs.existsSync(this.HAXCMS_ROOT + this.sitesDirectory + '/' + location)) {
-        loop++;
-        location = original + '-' + loop;
-      }
-      return location;
+  getUniqueName(name) {
+    let location = name;
+    let loop = 0;
+    const original = location;
+    while (
+      fs.existsSync(this.HAXCMS_ROOT + this.sitesDirectory + "/" + location)
+    ) {
+      loop++;
+      location = original + "-" + loop;
+    }
+    return location;
   }
-    /**
-     * Validate a JTW during POST
-     */
-    validateJWT(req, res)
-    {
-      if (this.isCLI() || (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())) {
-        return true;
+  /**
+   * Validate a JTW during POST
+   */
+  validateJWT(req, res) {
+    if (
+      this.isCLI() ||
+      (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())
+    ) {
+      return true;
+    }
+    var request = false;
+    if (this.sessionJwt && this.sessionJwt != null) {
+      request = this.decodeJWT(this.sessionJwt);
+    }
+    if (
+      request == false &&
+      req &&
+      req.headers &&
+      typeof req.headers.authorization === "string" &&
+      req.headers.authorization.trim() !== ""
+    ) {
+      const authorizationHeader = req.headers.authorization.trim();
+      if (authorizationHeader.toLowerCase().indexOf("bearer ") === 0) {
+        request = this.decodeJWT(authorizationHeader.substring(7).trim());
       }
-      var request = false;
-      if (this.sessionJwt && this.sessionJwt != null) {
-        request = this.decodeJWT(this.sessionJwt);
-      }
-      if (
-        request == false &&
-        req &&
-        req.headers &&
-        typeof req.headers.authorization === 'string' &&
-        req.headers.authorization.trim() !== ''
-      ) {
-        const authorizationHeader = req.headers.authorization.trim();
-        if (authorizationHeader.toLowerCase().indexOf('bearer ') === 0) {
-          request = this.decodeJWT(authorizationHeader.substring(7).trim());
+    }
+    // if we were able to find a valid JWT in that mess, try and validate it
+    if (
+      request != false &&
+      request.id &&
+      request.id == this.getRequestToken("user") &&
+      request.user &&
+      this.validateUser(request.user)
+    ) {
+      return true;
+    }
+    return false;
+  }
+  /**
+   * Get user's JWT
+   */
+  getJWT(name = null) {
+    let token = {};
+    token["id"] = this.getRequestToken("user");
+    let n = Math.floor(Date.now() / 1000);
+    // used at time
+    token["iat"] = n;
+    // expiration time, 15 minutes
+    token["exp"] = n + 15 * 60;
+    // if the user was supplied then add to token, if not it's relatively worthless but oh well :)
+    if (name) {
+      token["user"] = name;
+    }
+    return JWT.sign(token, this.privateKey + this.salt);
+  }
+  /**
+   * Decode the JWT to ensure accuracy, return false if an error happens
+   */
+  decodeJWT(key) {
+    // if it can decode, it'll be an object, otherwise it's false
+    try {
+      // Security (PHP parity): clockTolerance gives 60s leeway on exp/nbf
+      // so tokens issued near a boundary still validate. jsonwebtoken
+      // validates exp/nbf automatically; the iat-in-future check below mirrors
+      // PHP's validateAccessTokenClaims (HAXCMS.php:1793-1820).
+      var decoded = JWT.verify(key, this.privateKey + this.salt, {
+        algorithms: ["HS256"],
+        clockTolerance: 60,
+      });
+      if (decoded && decoded.iat) {
+        var now = Math.floor(Date.now() / 1000);
+        if (now + 60 < decoded.iat) {
+          return false;
         }
       }
-      // if we were able to find a valid JWT in that mess, try and validate it
-      if (  
-          request != false &&
-          request.id &&
-          request.id == this.getRequestToken('user') &&
-          request.user &&
-          this.validateUser(request.user)) {
-        return true;
-      }
+      return decoded;
+    } catch (e) {
       return false;
     }
-    /**
-     * Get user's JWT
-     */
-    getJWT(name = null)
-    {
-        let token = {};
-        token['id'] = this.getRequestToken('user');
-        let n = Math.floor(Date.now() / 1000);
-        // used at time
-        token['iat'] = n;
-        // expiration time, 15 minutes
-        token['exp'] = n + (15 * 60);
-        // if the user was supplied then add to token, if not it's relatively worthless but oh well :)
-        if (name) {
-            token['user'] = name;
-        }
-        return JWT.sign(token, this.privateKey + this.salt);
-    }
-    /**
-     * Decode the JWT to ensure accuracy, return false if an error happens
-     */
-    decodeJWT(key) {
-      // if it can decode, it'll be an object, otherwise it's false
+  }
+  /**
+   * Get user's Refresh Token.
+   * Security (H1 rotation): when storeRefreshSession=true the token is given a
+   * `family` (per login session) and `jti` (per issuance) and the jti hash is
+   * recorded server-side so a stolen old refresh token can be invalidated by
+   * the next rotation / logout. Mirrors PHP getRefreshToken/createRefreshSession.
+   */
+  getRefreshToken(name = null, storeRefreshSession = true) {
+    let token = {};
+    token["user"] = name;
+    let n = Math.floor(Date.now() / 1000);
+    token["iat"] = n;
+    token["exp"] = n + REFRESH_TOKEN_LIFETIME_SECONDS;
+    if (storeRefreshSession && name) {
+      token["family"] = uuidv4();
+      token["jti"] = uuidv4();
+      let recorded = false;
       try {
-        // Security (PHP parity): clockTolerance gives 60s leeway on exp/nbf
-        // so tokens issued near a boundary still validate. jsonwebtoken
-        // validates exp/nbf automatically; the iat-in-future check below mirrors
-        // PHP's validateAccessTokenClaims (HAXCMS.php:1793-1820).
-        var decoded = JWT.verify(key, this.privateKey + this.salt, {
-          algorithms: ['HS256'],
-          clockTolerance: 60,
-        });
-        if (decoded && decoded.iat) {
-          var now = Math.floor(Date.now() / 1000);
-          if ((now + 60) < decoded.iat) {
-            return false;
-          }
-        }
-        return decoded;
+        recorded = this.recordRefreshSession(
+          name,
+          token["family"],
+          token["jti"],
+          token["exp"],
+        );
+      } catch (e) {
+        recorded = false;
       }
-      catch (e) {
-        return false;
-      }
-    }
-    /**
-     * Get user's Refresh Token.
-     * Security (H1 rotation): when storeRefreshSession=true the token is given a
-     * `family` (per login session) and `jti` (per issuance) and the jti hash is
-     * recorded server-side so a stolen old refresh token can be invalidated by
-     * the next rotation / logout. Mirrors PHP getRefreshToken/createRefreshSession.
-     */
-    getRefreshToken(name = null, storeRefreshSession = true) {
-      let token = {};
-      token['user'] = name;
-      let n = Math.floor(Date.now() / 1000);
-      token['iat'] = n;
-      token['exp'] = n + REFRESH_TOKEN_LIFETIME_SECONDS;
-      if (storeRefreshSession && name) {
-        token['family'] = uuidv4();
-        token['jti'] = uuidv4();
-        let recorded = false;
-        try {
-          recorded = this.recordRefreshSession(name, token['family'], token['jti'], token['exp']);
-        }
-        catch (e) {
-          recorded = false;
-        }
-        // Security (SEC-SESSION): family-bearing tokens are only accepted when
-        // the store knows the family. If the store cannot be written (e.g. a
-        // read-only config dir) fall back to a legacy no-family token so login
-        // keeps working (stateless validation; logout writes a legacy tombstone
-        // when it can).
-        if (!recorded) {
-          delete token['family'];
-          delete token['jti'];
-        }
-      }
-      return JWT.sign(token, this.refreshPrivateKey + this.salt);
-    }
-    /**
-     * Decode the JWT to ensure accuracy, return false if an error happens
-     */
-    decodeRefreshToken(key) {
-      // if it can decode, it'll be an object, otherwise it's false
-      try {
-        var decoded = JWT.verify(key, this.refreshPrivateKey + this.salt, {
-          algorithms: ['HS256'],
-          clockTolerance: 60,
-        });
-        if (decoded && decoded.iat) {
-          var now = Math.floor(Date.now() / 1000);
-          if ((now + 60) < decoded.iat) {
-            return false;
-          }
-        }
-        return decoded;
-      }
-      catch (e) {
-        return false;
+      // Security (SEC-SESSION): family-bearing tokens are only accepted when
+      // the store knows the family. If the store cannot be written (e.g. a
+      // read-only config dir) fall back to a legacy no-family token so login
+      // keeps working (stateless validation; logout writes a legacy tombstone
+      // when it can).
+      if (!recorded) {
+        delete token["family"];
+        delete token["jti"];
       }
     }
-    /**
-     * Validate a refresh JWT from cookie.
-     * When endOnInvalid is true, this will send a 401 and clear the cookie
-     * using the provided res object. When false it will simply return false
-     * and let the caller decide what to do.
-     */
-    validateRefreshToken(endOnInvalid = true, req, res = null) {
-      if (this.isCLI() || (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())) {
-        return true;
-      }
-      // get the refresh token from cookie
-      let refreshToken = req.cookies['haxcms_refresh_token'];
-      // if there isn't one then we have to bail
-      if (!refreshToken) {
-        if (endOnInvalid && res) {
-          this.setRefreshTokenCookie(res, '', 1);
-          res.sendStatus(401);
-        }
-        return false;
-      }
-      // if there is a refresh token then decode it
-      let refreshTokenDecoded = this.decodeRefreshToken(refreshToken);
-      let n = Math.floor(Date.now() / 1000);
-      // validate the token
-      // make sure token has issued and expiration dates
-      if ((refreshTokenDecoded.iat) && (refreshTokenDecoded.exp)) {
-        // issued at date is less than or equal to now
-        if (refreshTokenDecoded.iat <= n) {
-          // expiration date is greater than now
-          if (n < refreshTokenDecoded.exp) {
-            // it's valid
-            return refreshTokenDecoded;
-          }
+    return JWT.sign(token, this.refreshPrivateKey + this.salt);
+  }
+  /**
+   * Decode the JWT to ensure accuracy, return false if an error happens
+   */
+  decodeRefreshToken(key) {
+    // if it can decode, it'll be an object, otherwise it's false
+    try {
+      var decoded = JWT.verify(key, this.refreshPrivateKey + this.salt, {
+        algorithms: ["HS256"],
+        clockTolerance: 60,
+      });
+      if (decoded && decoded.iat) {
+        var now = Math.floor(Date.now() / 1000);
+        if (now + 60 < decoded.iat) {
+          return false;
         }
       }
-      // kick back the end if it's invalid and we are asked to end here
+      return decoded;
+    } catch (e) {
+      return false;
+    }
+  }
+  /**
+   * Validate a refresh JWT from cookie.
+   * When endOnInvalid is true, this will send a 401 and clear the cookie
+   * using the provided res object. When false it will simply return false
+   * and let the caller decide what to do.
+   */
+  validateRefreshToken(endOnInvalid = true, req, res = null) {
+    if (
+      this.isCLI() ||
+      (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())
+    ) {
+      return true;
+    }
+    // get the refresh token from cookie
+    let refreshToken = req.cookies["haxcms_refresh_token"];
+    // if there isn't one then we have to bail
+    if (!refreshToken) {
       if (endOnInvalid && res) {
-        this.setRefreshTokenCookie(res, '', 1);
+        this.setRefreshTokenCookie(res, "", 1);
         res.sendStatus(401);
       }
       return false;
     }
-    /**
-     * PHP parity (M3): centralized refresh-token cookie helper so Secure /
-     * SameSite / HttpOnly / path flags are consistent across every set and
-     * clear site (login, logout, refresh, validateRefreshToken clears). secure
-     * is protocol-driven (isProductionRuntime) so non-TLS dev still works.
-     * Pass maxAge=1 to clear (expires immediately). Mirrors PHP's single
-     * setRefreshTokenCookie used by login.php, logout.php, and session refresh.
-     */
-    setRefreshTokenCookie(res, value, maxAge) {
-      if (!res || typeof res.cookie !== 'function') {
-        return;
-      }
-      var options = {
-        path: '/',
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: this.isProductionRuntime(),
-      };
-      if (typeof maxAge === 'number') {
-        options.maxAge = maxAge;
-      }
-      res.cookie('haxcms_refresh_token', value, options);
-    }
-    /**
-     * Security (H1 rotation + SEC-SESSION): refresh-session store. A
-     * file-backed JSON under the protected _config/settings directory. Only
-     * SHA-256 hashes of jti are stored, never raw token ids. This lets refresh
-     * rotate the token (a stolen old copy dies on the legitimate user's next
-     * refresh) and lets logout revoke a family server-side.
-     *
-     * Store shape (version 2, parity contract with PHP):
-     *   {
-     *     "version": 2,
-     *     "users": {
-     *       "<user>": {
-     *         "families": {
-     *           "<family>": { currentJtiHash, previousJtiHash, previousValidUntil, exp }   // live
-     *           "<family>": { revoked: true, revokedAt, exp }                              // tombstone
-     *         },
-     *         "legacyRevokedAt": <unix>,   // optional: legacy (no-family) tokens with iat <= this are rejected
-     *         "legacyRevokedExp": <unix>
-     *       }
-     *     }
-     *   }
-     * Families are tracked per login so several devices can be signed in at
-     * once. Revocation writes a tombstone instead of deleting, so a revoked
-     * (or never-recorded) family can never be re-seeded by presenting an old
-     * token. The legacy v1 shape ({ <user>: { family, currentJtiHash, ... } })
-     * is migrated on load so live sessions survive the upgrade.
-     * Grace window: the immediately previous jti stays valid for
-     * HAXCMS_REFRESH_GRACE_SECONDS so concurrent multi-tab refreshes don't
-     * mutually invalidate.
-     */
-    getRefreshSessionsPath() {
-      return path.join(this.configDirectory, 'settings', 'refreshSessions.json');
-    }
-    _hashJti(jti) {
-      return crypto.createHash('sha256').update(String(jti || '')).digest('hex');
-    }
-    _isSafeRefreshStoreKey(key) {
-      return typeof key === 'string' && key !== '' &&
-        key !== '__proto__' && key !== 'constructor' && key !== 'prototype';
-    }
-    _emptyRefreshStore() {
-      return { version: 2, users: {} };
-    }
-    // Normalize any parsed store (v1 or v2) into the v2 shape.
-    _normalizeRefreshStore(parsed) {
-      const store = this._emptyRefreshStore();
-      if (!parsed || typeof parsed !== 'object') {
-        return store;
-      }
-      if (parsed.version === 2 && parsed.users && typeof parsed.users === 'object') {
-        const userKeys = Object.keys(parsed.users);
-        for (let i = 0; i < userKeys.length; i++) {
-          const userKey = userKeys[i];
-          const userEntry = parsed.users[userKey];
-          if (!this._isSafeRefreshStoreKey(userKey) || !userEntry || typeof userEntry !== 'object') {
-            continue;
-          }
-          const normalizedUser = { families: {} };
-          const families = (userEntry.families && typeof userEntry.families === 'object') ? userEntry.families : {};
-          const familyKeys = Object.keys(families);
-          for (let j = 0; j < familyKeys.length; j++) {
-            const familyKey = familyKeys[j];
-            const familyEntry = families[familyKey];
-            if (this._isSafeRefreshStoreKey(familyKey) && familyEntry && typeof familyEntry === 'object') {
-              normalizedUser.families[familyKey] = familyEntry;
-            }
-          }
-          if (typeof userEntry.legacyRevokedAt === 'number') {
-            normalizedUser.legacyRevokedAt = userEntry.legacyRevokedAt;
-            normalizedUser.legacyRevokedExp = Number(userEntry.legacyRevokedExp) || 0;
-          }
-          store.users[userKey] = normalizedUser;
+    // if there is a refresh token then decode it
+    let refreshTokenDecoded = this.decodeRefreshToken(refreshToken);
+    let n = Math.floor(Date.now() / 1000);
+    // validate the token
+    // make sure token has issued and expiration dates
+    if (refreshTokenDecoded.iat && refreshTokenDecoded.exp) {
+      // issued at date is less than or equal to now
+      if (refreshTokenDecoded.iat <= n) {
+        // expiration date is greater than now
+        if (n < refreshTokenDecoded.exp) {
+          // it's valid
+          return refreshTokenDecoded;
         }
-        return store;
       }
-      // v1 migration: { <user>: { family, currentJtiHash, previousJtiHash, previousValidUntil, exp } }
-      const legacyKeys = Object.keys(parsed);
-      for (let i = 0; i < legacyKeys.length; i++) {
-        const userKey = legacyKeys[i];
-        const entry = parsed[userKey];
+    }
+    // kick back the end if it's invalid and we are asked to end here
+    if (endOnInvalid && res) {
+      this.setRefreshTokenCookie(res, "", 1);
+      res.sendStatus(401);
+    }
+    return false;
+  }
+  /**
+   * PHP parity (M3): centralized refresh-token cookie helper so Secure /
+   * SameSite / HttpOnly / path flags are consistent across every set and
+   * clear site (login, logout, refresh, validateRefreshToken clears). secure
+   * is protocol-driven (isProductionRuntime) so non-TLS dev still works.
+   * Pass maxAge=1 to clear (expires immediately). Mirrors PHP's single
+   * setRefreshTokenCookie used by login.php, logout.php, and session refresh.
+   */
+  setRefreshTokenCookie(res, value, maxAge) {
+    if (!res || typeof res.cookie !== "function") {
+      return;
+    }
+    var options = {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: this.isProductionRuntime(),
+    };
+    if (typeof maxAge === "number") {
+      options.maxAge = maxAge;
+    }
+    res.cookie("haxcms_refresh_token", value, options);
+  }
+  /**
+   * Security (H1 rotation + SEC-SESSION): refresh-session store. A
+   * file-backed JSON under the protected _config/settings directory. Only
+   * SHA-256 hashes of jti are stored, never raw token ids. This lets refresh
+   * rotate the token (a stolen old copy dies on the legitimate user's next
+   * refresh) and lets logout revoke a family server-side.
+   *
+   * Store shape (version 2, parity contract with PHP):
+   *   {
+   *     "version": 2,
+   *     "users": {
+   *       "<user>": {
+   *         "families": {
+   *           "<family>": { currentJtiHash, previousJtiHash, previousValidUntil, exp }   // live
+   *           "<family>": { revoked: true, revokedAt, exp }                              // tombstone
+   *         },
+   *         "legacyRevokedAt": <unix>,   // optional: legacy (no-family) tokens with iat <= this are rejected
+   *         "legacyRevokedExp": <unix>
+   *       }
+   *     }
+   *   }
+   * Families are tracked per login so several devices can be signed in at
+   * once. Revocation writes a tombstone instead of deleting, so a revoked
+   * (or never-recorded) family can never be re-seeded by presenting an old
+   * token. The legacy v1 shape ({ <user>: { family, currentJtiHash, ... } })
+   * is migrated on load so live sessions survive the upgrade.
+   * Grace window: the immediately previous jti stays valid for
+   * HAXCMS_REFRESH_GRACE_SECONDS so concurrent multi-tab refreshes don't
+   * mutually invalidate.
+   */
+  getRefreshSessionsPath() {
+    return path.join(this.configDirectory, "settings", "refreshSessions.json");
+  }
+  _hashJti(jti) {
+    return crypto
+      .createHash("sha256")
+      .update(String(jti || ""))
+      .digest("hex");
+  }
+  _isSafeRefreshStoreKey(key) {
+    return (
+      typeof key === "string" &&
+      key !== "" &&
+      key !== "__proto__" &&
+      key !== "constructor" &&
+      key !== "prototype"
+    );
+  }
+  _emptyRefreshStore() {
+    return { version: 2, users: {} };
+  }
+  // Normalize any parsed store (v1 or v2) into the v2 shape.
+  _normalizeRefreshStore(parsed) {
+    const store = this._emptyRefreshStore();
+    if (!parsed || typeof parsed !== "object") {
+      return store;
+    }
+    if (
+      parsed.version === 2 &&
+      parsed.users &&
+      typeof parsed.users === "object"
+    ) {
+      const userKeys = Object.keys(parsed.users);
+      for (let i = 0; i < userKeys.length; i++) {
+        const userKey = userKeys[i];
+        const userEntry = parsed.users[userKey];
         if (
           !this._isSafeRefreshStoreKey(userKey) ||
-          !entry ||
-          typeof entry !== 'object' ||
-          !this._isSafeRefreshStoreKey(entry.family)
+          !userEntry ||
+          typeof userEntry !== "object"
         ) {
           continue;
         }
-        store.users[userKey] = { families: {} };
-        store.users[userKey].families[entry.family] = {
-          currentJtiHash: entry.currentJtiHash || null,
-          previousJtiHash: entry.previousJtiHash || null,
-          previousValidUntil: Number(entry.previousValidUntil) || 0,
-          exp: Math.floor(Number(entry.exp) || 0),
-        };
+        const normalizedUser = { families: {} };
+        const families =
+          userEntry.families && typeof userEntry.families === "object"
+            ? userEntry.families
+            : {};
+        const familyKeys = Object.keys(families);
+        for (let j = 0; j < familyKeys.length; j++) {
+          const familyKey = familyKeys[j];
+          const familyEntry = families[familyKey];
+          if (
+            this._isSafeRefreshStoreKey(familyKey) &&
+            familyEntry &&
+            typeof familyEntry === "object"
+          ) {
+            normalizedUser.families[familyKey] = familyEntry;
+          }
+        }
+        if (typeof userEntry.legacyRevokedAt === "number") {
+          normalizedUser.legacyRevokedAt = userEntry.legacyRevokedAt;
+          normalizedUser.legacyRevokedExp =
+            Number(userEntry.legacyRevokedExp) || 0;
+        }
+        store.users[userKey] = normalizedUser;
       }
       return store;
     }
-    _loadRefreshSessions() {
-      const storePath = this.getRefreshSessionsPath();
-      try {
-        if (!fs.existsSync(storePath)) {
-          return this._emptyRefreshStore();
-        }
-        const raw = fs.readFileSync(storePath, { encoding: 'utf8', flag: 'r' });
-        return this._normalizeRefreshStore(JSON.parse(raw));
+    // v1 migration: { <user>: { family, currentJtiHash, previousJtiHash, previousValidUntil, exp } }
+    const legacyKeys = Object.keys(parsed);
+    for (let i = 0; i < legacyKeys.length; i++) {
+      const userKey = legacyKeys[i];
+      const entry = parsed[userKey];
+      if (
+        !this._isSafeRefreshStoreKey(userKey) ||
+        !entry ||
+        typeof entry !== "object" ||
+        !this._isSafeRefreshStoreKey(entry.family)
+      ) {
+        continue;
       }
-      catch (e) {
+      store.users[userKey] = { families: {} };
+      store.users[userKey].families[entry.family] = {
+        currentJtiHash: entry.currentJtiHash || null,
+        previousJtiHash: entry.previousJtiHash || null,
+        previousValidUntil: Number(entry.previousValidUntil) || 0,
+        exp: Math.floor(Number(entry.exp) || 0),
+      };
+    }
+    return store;
+  }
+  _loadRefreshSessions() {
+    const storePath = this.getRefreshSessionsPath();
+    try {
+      if (!fs.existsSync(storePath)) {
         return this._emptyRefreshStore();
       }
+      const raw = fs.readFileSync(storePath, { encoding: "utf8", flag: "r" });
+      return this._normalizeRefreshStore(JSON.parse(raw));
+    } catch (e) {
+      return this._emptyRefreshStore();
     }
-    // Returns true when the store was written, false on any failure.
-    _saveRefreshSessions(sessions) {
-      const storePath = this.getRefreshSessionsPath();
-      try {
-        const store = this._normalizeRefreshStore(sessions);
-        const dir = path.dirname(storePath);
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-        }
-        // prune expired live entries AND expired tombstones before writing
-        const now = Math.floor(Date.now() / 1000);
-        const cleaned = this._emptyRefreshStore();
-        const userKeys = Object.keys(store.users);
-        for (let i = 0; i < userKeys.length; i++) {
-          const userKey = userKeys[i];
-          const userEntry = store.users[userKey];
-          const keptUser = { families: {} };
-          let keep = false;
-          const familyKeys = Object.keys(userEntry.families);
-          for (let j = 0; j < familyKeys.length; j++) {
-            const familyEntry = userEntry.families[familyKeys[j]];
-            if (familyEntry && typeof familyEntry.exp === 'number' && familyEntry.exp > now) {
-              keptUser.families[familyKeys[j]] = familyEntry;
-              keep = true;
-            }
-          }
-          if (typeof userEntry.legacyRevokedAt === 'number' && Number(userEntry.legacyRevokedExp) > now) {
-            keptUser.legacyRevokedAt = userEntry.legacyRevokedAt;
-            keptUser.legacyRevokedExp = Number(userEntry.legacyRevokedExp);
+  }
+  // Returns true when the store was written, false on any failure.
+  _saveRefreshSessions(sessions) {
+    const storePath = this.getRefreshSessionsPath();
+    try {
+      const store = this._normalizeRefreshStore(sessions);
+      const dir = path.dirname(storePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      }
+      // prune expired live entries AND expired tombstones before writing
+      const now = Math.floor(Date.now() / 1000);
+      const cleaned = this._emptyRefreshStore();
+      const userKeys = Object.keys(store.users);
+      for (let i = 0; i < userKeys.length; i++) {
+        const userKey = userKeys[i];
+        const userEntry = store.users[userKey];
+        const keptUser = { families: {} };
+        let keep = false;
+        const familyKeys = Object.keys(userEntry.families);
+        for (let j = 0; j < familyKeys.length; j++) {
+          const familyEntry = userEntry.families[familyKeys[j]];
+          if (
+            familyEntry &&
+            typeof familyEntry.exp === "number" &&
+            familyEntry.exp > now
+          ) {
+            keptUser.families[familyKeys[j]] = familyEntry;
             keep = true;
           }
-          if (keep) {
-            cleaned.users[userKey] = keptUser;
-          }
         }
-        this.writeSecretFile(storePath, JSON.stringify(cleaned, null, 2));
-        this.chmodSecretFile(storePath);
-        return true;
-      }
-      catch (e) {
-        return false;
-      }
-    }
-    // Tombstones outlive every refresh token the family could have issued:
-    // any token in the family expires at most REFRESH_TOKEN_LIFETIME after now
-    // (+60s clock tolerance used by decodeRefreshToken).
-    _refreshTombstoneExp(existingExp = 0) {
-      const now = Math.floor(Date.now() / 1000);
-      return Math.max(Math.floor(Number(existingExp) || 0), now + REFRESH_TOKEN_LIFETIME_SECONDS + 60);
-    }
-    _getRefreshUserEntry(store, user, create = false) {
-      const key = String(user);
-      if (!this._isSafeRefreshStoreKey(key)) {
-        return null;
-      }
-      if (!Object.prototype.hasOwnProperty.call(store.users, key)) {
-        if (!create) {
-          return null;
-        }
-        store.users[key] = { families: {} };
-      }
-      return store.users[key];
-    }
-    /**
-     * Record a new refresh session (called on login / institutional issuance).
-     * Adds a live family for the user without touching the user's other
-     * families (other devices stay signed in). Returns true when persisted.
-     */
-    recordRefreshSession(user, family, jti, exp) {
-      if (!user || !family || !jti || !this._isSafeRefreshStoreKey(String(family))) {
-        return false;
-      }
-      const store = this._loadRefreshSessions();
-      const userEntry = this._getRefreshUserEntry(store, user, true);
-      if (!userEntry) {
-        return false;
-      }
-      userEntry.families[String(family)] = {
-        currentJtiHash: this._hashJti(jti),
-        previousJtiHash: null,
-        previousValidUntil: 0,
-        exp: Math.floor(Number(exp) || 0),
-      };
-      return this._saveRefreshSessions(store);
-    }
-    /**
-     * Security (SEC-SESSION): pure (non-mutating) store check for a decoded
-     * refresh token. Truth table (parity contract with PHP):
-     *   - no family claim (legacy token):  accept, unless iat <= the user's
-     *                                      legacyRevokedAt tombstone
-     *   - family claim but no jti:         reject ('invalid')
-     *   - family with no store entry:      reject ('no_entry')
-     *   - family tombstoned:               reject ('revoked')
-     *   - jti == current:                  accept
-     *   - jti == previous within grace:    accept
-     *   - any other jti:                   reject ('stale_jti'); callers
-     *                                      tombstone the family
-     * Returns { ok, reason, legacy }.
-     */
-    checkRefreshSession(decoded) {
-      if (!decoded || typeof decoded !== 'object' || !decoded.user) {
-        return { ok: false, reason: 'invalid', legacy: false };
-      }
-      const store = this._loadRefreshSessions();
-      const userEntry = this._getRefreshUserEntry(store, decoded.user, false);
-      const hasFamily = typeof decoded.family !== 'undefined' && decoded.family !== null && decoded.family !== '';
-      if (!hasFamily) {
         if (
-          userEntry &&
-          typeof userEntry.legacyRevokedAt === 'number' &&
-          (Number(decoded.iat) || 0) <= userEntry.legacyRevokedAt
+          typeof userEntry.legacyRevokedAt === "number" &&
+          Number(userEntry.legacyRevokedExp) > now
         ) {
-          return { ok: false, reason: 'revoked', legacy: true };
+          keptUser.legacyRevokedAt = userEntry.legacyRevokedAt;
+          keptUser.legacyRevokedExp = Number(userEntry.legacyRevokedExp);
+          keep = true;
         }
-        return { ok: true, reason: 'legacy', legacy: true };
-      }
-      if (typeof decoded.jti !== 'string' || decoded.jti === '' || typeof decoded.family !== 'string') {
-        return { ok: false, reason: 'invalid', legacy: false };
-      }
-      if (!userEntry || !Object.prototype.hasOwnProperty.call(userEntry.families, decoded.family)) {
-        return { ok: false, reason: 'no_entry', legacy: false };
-      }
-      const entry = userEntry.families[decoded.family];
-      if (!entry || entry.revoked === true) {
-        return { ok: false, reason: 'revoked', legacy: false };
-      }
-      const now = Math.floor(Date.now() / 1000);
-      const hash = this._hashJti(decoded.jti);
-      if (entry.currentJtiHash === hash) {
-        return { ok: true, reason: 'current', legacy: false };
-      }
-      if (entry.previousJtiHash === hash && now < (entry.previousValidUntil || 0)) {
-        return { ok: true, reason: 'previous', legacy: false };
-      }
-      return { ok: false, reason: 'stale_jti', legacy: false };
-    }
-    /**
-     * Rotate a refresh session: validate family/jti against the store, then move
-     * the current jti to previous (with a grace window) and record a new current.
-     * Returns true if the rotation was accepted, false otherwise.
-     * Security (SEC-SESSION): a missing store entry is NO LONGER accepted+seeded
-     * (that made revocation a no-op); a stale/reused jti tombstones the family.
-     * Legacy no-family tokens never reach this method — rotateRefreshTokenAndCookie
-     * seeds a brand new family for them via recordRefreshSession.
-     */
-    rotateRefreshSession(user, family, oldJti, newJti, newExp) {
-      if (!user || !family || !oldJti || !newJti) {
-        return false;
-      }
-      const check = this.checkRefreshSession({ user: user, family: String(family), jti: String(oldJti) });
-      if (!check.ok) {
-        if (check.reason === 'stale_jti') {
-          // possible token theft / replay of an older jti -> revoke the family
-          this.revokeRefreshSession(user, String(family));
+        if (keep) {
+          cleaned.users[userKey] = keptUser;
         }
-        return false;
       }
-      const store = this._loadRefreshSessions();
-      const userEntry = this._getRefreshUserEntry(store, user, false);
-      if (!userEntry || !userEntry.families[String(family)]) {
-        return false;
-      }
-      const now = Math.floor(Date.now() / 1000);
-      const next = userEntry.families[String(family)];
-      const newHash = this._hashJti(newJti);
-      // Security (SEC-SESSION): grace-path accept (the presented jti is the
-      // PREVIOUS one, i.e. a sibling tab already rotated from it). Callers
-      // derive newJti deterministically (successorJti), so the successor of
-      // the previous jti IS the current jti: re-issue it and leave
-      // current/previous untouched. Rotating again here would drop the jti the
-      // sibling tab just received; if the browser kept that cookie, its next
-      // refresh would be stale_jti and tombstone the whole family.
-      if (check.reason === 'previous' && next.currentJtiHash === newHash) {
-        next.exp = Math.max(Math.floor(Number(next.exp) || 0), Math.floor(Number(newExp) || 0));
-        return this._saveRefreshSessions(store);
-      }
-      // normal rotation from the current jti (or a grace accept on a family
-      // whose current jti was not derived deterministically, e.g. migrated
-      // from the v1 store: fall back to a normal rotation)
-      next.previousJtiHash = this._hashJti(oldJti);
-      next.previousValidUntil = now + HAXCMS_REFRESH_GRACE_SECONDS;
-      next.currentJtiHash = newHash;
-      next.exp = Math.floor(Number(newExp) || 0);
-      return this._saveRefreshSessions(store);
+      this.writeSecretFile(storePath, JSON.stringify(cleaned, null, 2));
+      this.chmodSecretFile(storePath);
+      return true;
+    } catch (e) {
+      return false;
     }
-    /**
-     * Security (SEC-SESSION): deterministic successor of a jti within a family
-     * (HMAC with the refresh signing key). Rotating from the same jti always
-     * yields the same successor, so two tabs that refresh concurrently with
-     * the same cookie both receive the SAME new jti and whichever Set-Cookie
-     * the browser keeps stays valid.
-     */
-    successorJti(family, jti) {
-      return crypto
-        .createHmac('sha256', this.refreshPrivateKey + this.salt)
-        .update('haxcms-refresh-successor:' + String(family) + ':' + String(jti))
-        .digest('hex')
-        .substring(0, 32);
+  }
+  // Tombstones outlive every refresh token the family could have issued:
+  // any token in the family expires at most REFRESH_TOKEN_LIFETIME after now
+  // (+60s clock tolerance used by decodeRefreshToken).
+  _refreshTombstoneExp(existingExp = 0) {
+    const now = Math.floor(Date.now() / 1000);
+    return Math.max(
+      Math.floor(Number(existingExp) || 0),
+      now + REFRESH_TOKEN_LIFETIME_SECONDS + 60,
+    );
+  }
+  _getRefreshUserEntry(store, user, create = false) {
+    const key = String(user);
+    if (!this._isSafeRefreshStoreKey(key)) {
+      return null;
     }
-    /**
-     * Revoke a refresh family (logout / theft detection). Writes a tombstone
-     * rather than deleting, so the family can never be re-seeded. When no
-     * family is given (legacy no-family token) a per-user legacy tombstone is
-     * written instead: every legacy token issued up to now is rejected.
-     * Best-effort.
-     */
-    revokeRefreshSession(user, family = null) {
-      if (!user) {
-        return;
-      }
-      const store = this._loadRefreshSessions();
-      const userEntry = this._getRefreshUserEntry(store, user, true);
-      if (!userEntry) {
-        return;
-      }
-      const now = Math.floor(Date.now() / 1000);
-      if (family !== null && typeof family !== 'undefined' && family !== '') {
-        const familyKey = String(family);
-        if (!this._isSafeRefreshStoreKey(familyKey)) {
-          return;
-        }
-        const existing = userEntry.families[familyKey];
-        userEntry.families[familyKey] = {
-          revoked: true,
-          revokedAt: now,
-          exp: this._refreshTombstoneExp(existing && existing.exp),
-        };
-      }
-      else {
-        userEntry.legacyRevokedAt = now;
-        userEntry.legacyRevokedExp = this._refreshTombstoneExp(userEntry.legacyRevokedExp);
-      }
-      this._saveRefreshSessions(store);
-    }
-    /**
-     * Validate a refresh token's family/jti against the store WITHOUT rotating.
-     * Used by connectionTest recovery and request authentication.
-     * Security (SEC-SESSION): only legacy tokens with NO family claim are
-     * accepted without a store entry (see checkRefreshSession truth table).
-     */
-    validateRefreshSession(user, family, jti, iat = 0) {
-      return this.checkRefreshSession({
-        user: user,
-        family: family,
-        jti: jti,
-        iat: iat,
-      }).ok;
-    }
-    /**
-     * Issue a rotated refresh token + cookie for a validated decoded refresh
-     * token, returning the new access JWT. Used by refreshAccessToken and
-     * connectionTest recovery. On any rotation failure returns null so callers
-     * can clear the cookie and 401. Legacy tokens (no family claim) that are not
-     * tombstoned are upgraded into a brand new family.
-     */
-    rotateRefreshTokenAndCookie(res, decodedRefresh) {
-      if (!decodedRefresh || typeof decodedRefresh !== 'object' || !decodedRefresh.user) {
+    if (!Object.prototype.hasOwnProperty.call(store.users, key)) {
+      if (!create) {
         return null;
       }
-      const user = decodedRefresh.user;
-      const isLegacy = typeof decodedRefresh.family === 'undefined' ||
-        decodedRefresh.family === null || decodedRefresh.family === '';
-      // Generate a fresh jti + iat/exp for the rotated token. We build the
-      // payload directly (not via getRefreshToken) so we preserve the existing
-      // family and avoid recording a competing session entry.
-      // Security (SEC-SESSION): family tokens rotate to a DETERMINISTIC
-      // successor jti (see successorJti / rotateRefreshSession grace path);
-      // legacy tokens start a new family with a random jti.
-      const newJti = isLegacy ? uuidv4() : this.successorJti(decodedRefresh.family, decodedRefresh.jti);
-      const newIat = Math.floor(Date.now() / 1000);
-      const newExp = newIat + REFRESH_TOKEN_LIFETIME_SECONDS;
-      let family = decodedRefresh.family;
-      if (isLegacy) {
-        const legacyCheck = this.checkRefreshSession(decodedRefresh);
-        if (!legacyCheck.ok) {
-          return null;
-        }
-        family = uuidv4();
-        if (!this.recordRefreshSession(user, family, newJti, newExp)) {
-          // store not writable: keep the session alive with another legacy
-          // (no-family) token rather than logging the user out
-          family = null;
-        }
-      }
-      else {
-        const ok = this.rotateRefreshSession(user, family, decodedRefresh.jti, newJti, newExp);
-        if (!ok) {
-          return null;
-        }
-      }
-      const payload = {
-        user: user,
-        iat: newIat,
-        exp: newExp,
-      };
-      if (family) {
-        payload.family = family;
-        payload.jti = newJti;
-      }
-      const rotated = JWT.sign(payload, this.refreshPrivateKey + this.salt);
-      this.setRefreshTokenCookie(res, rotated, REFRESH_TOKEN_LIFETIME_SECONDS * 1000);
-      return this.getJWT(user);
+      store.users[key] = { families: {} };
     }
-    /**
-     * Security (SEC-SESSION): config.security.requireSessionForRequestTokens,
-     * overridable by env HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS (truthy:
-     * 1/true/yes; any other non-empty value means false). Default TRUE: the
-     * front-end (webcomponents jwt-login / AppHaxBackendAPI / haxcms-backend-*)
-     * now stores the tokens returned by login, refresh and connection-test, so
-     * anonymous connection-settings loads no longer need them. Set the config
-     * value to false (or the env var to 0/false/no) to restore the old
-     * behaviour for a deployment still serving an older front-end build.
-     * Config: a boolean is used as-is, a string goes through the truthy list,
-     * anything else (unset, null, numbers) falls back to the default.
-     */
-    getRequireSessionForRequestTokens() {
-      const truthy = (value) => ['1', 'true', 'yes'].indexOf(String(value).trim().toLowerCase()) !== -1;
-      const envValue = process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS;
-      if (typeof envValue === 'string' && envValue.trim() !== '') {
-        return truthy(envValue);
-      }
-      if (this.config && this.config.security) {
-        const configured = this.config.security.requireSessionForRequestTokens;
-        if (typeof configured === 'boolean') {
-          return configured;
-        }
-        if (typeof configured === 'string' && configured.trim() !== '') {
-          return truthy(configured);
-        }
-      }
-      return true;
+    return store.users[key];
+  }
+  /**
+   * Record a new refresh session (called on login / institutional issuance).
+   * Adds a live family for the user without touching the user's other
+   * families (other devices stay signed in). Returns true when persisted.
+   */
+  recordRefreshSession(user, family, jti, exp) {
+    if (
+      !user ||
+      !family ||
+      !jti ||
+      !this._isSafeRefreshStoreKey(String(family))
+    ) {
+      return false;
     }
-    /**
-     * Security (SEC-SESSION): should connection-settings include siteToken /
-     * userToken (and the token header entries)? Evaluated in this order
-     * (parity contract with PHP):
-     *   1. Sec-Fetch-Site present and 'cross-site' or 'same-site' -> omit,
-     *      whatever the flag says (blocks cross-site script inclusion of the
-     *      JS payload).
-     *   2. caller authenticated (valid bearer, or a refresh cookie that passes
-     *      the session store check) -> include.
-     *   3. requireSessionForRequestTokens is true -> omit.
-     *   4. otherwise -> include (pre-existing behaviour; the shipped front-end
-     *      loads connection-settings once, before login, and its request layer
-     *      drops ALL auth headers when a required token is missing).
-     * Returns { include, authenticatedUser, reason }.
-     */
-    shouldIncludeRequestTokens(req) {
-      const fetchSite = req && req.headers && typeof req.headers['sec-fetch-site'] === 'string'
-        ? req.headers['sec-fetch-site'].trim().toLowerCase()
-        : '';
-      const authenticatedUser = this.getRequestAuthenticatedUserName(req);
-      if (fetchSite === 'cross-site' || fetchSite === 'same-site') {
-        return { include: false, authenticatedUser: authenticatedUser, reason: 'sec-fetch-site' };
-      }
-      if (authenticatedUser !== '') {
-        return { include: true, authenticatedUser: authenticatedUser, reason: 'authenticated' };
-      }
-      if (this.getRequireSessionForRequestTokens()) {
-        return { include: false, authenticatedUser: '', reason: 'session-required' };
-      }
-      return { include: true, authenticatedUser: '', reason: 'anonymous-allowed' };
+    const store = this._loadRefreshSessions();
+    const userEntry = this._getRefreshUserEntry(store, user, true);
+    if (!userEntry) {
+      return false;
     }
-    /**
-     * Security (SEC-SESSION): resolve the site context of a session request so
-     * an authenticated session response can carry a fresh siteToken. Order:
-     *   1. request body: site.name, then siteName
-     *   2. query: siteName
-     *   3. request path: <basePath><sitesDirectory>/<name>/...
-     *   4. Referer path: <basePath><sitesDirectory>/<name>/... (path only)
-     *   5. single-site context (cwd site.json metadata.site.name / name)
-     * Returns '' when no site context is resolvable. Only machine-name-safe
-     * values ([A-Za-z0-9_-]) are returned.
-     */
-    async resolveSessionSiteName(req) {
-      const safe = (value) => {
-        if (typeof value !== 'string') {
-          return '';
-        }
-        let v = value.trim();
-        try {
-          v = decodeURIComponent(v);
-        }
-        catch (e) {}
-        return /^[A-Za-z0-9_-]+$/.test(v) ? v : '';
-      };
-      if (req && req.body && typeof req.body === 'object') {
-        if (req.body.site && typeof req.body.site === 'object' && safe(req.body.site.name)) {
-          return safe(req.body.site.name);
-        }
-        if (safe(req.body.siteName)) {
-          return safe(req.body.siteName);
-        }
+    userEntry.families[String(family)] = {
+      currentJtiHash: this._hashJti(jti),
+      previousJtiHash: null,
+      previousValidUntil: 0,
+      exp: Math.floor(Number(exp) || 0),
+    };
+    return this._saveRefreshSessions(store);
+  }
+  /**
+   * Security (SEC-SESSION): pure (non-mutating) store check for a decoded
+   * refresh token. Truth table (parity contract with PHP):
+   *   - no family claim (legacy token):  accept, unless iat <= the user's
+   *                                      legacyRevokedAt tombstone
+   *   - family claim but no jti:         reject ('invalid')
+   *   - family with no store entry:      reject ('no_entry')
+   *   - family tombstoned:               reject ('revoked')
+   *   - jti == current:                  accept
+   *   - jti == previous within grace:    accept
+   *   - any other jti:                   reject ('stale_jti'); callers
+   *                                      tombstone the family
+   * Returns { ok, reason, legacy }.
+   */
+  checkRefreshSession(decoded) {
+    if (!decoded || typeof decoded !== "object" || !decoded.user) {
+      return { ok: false, reason: "invalid", legacy: false };
+    }
+    const store = this._loadRefreshSessions();
+    const userEntry = this._getRefreshUserEntry(store, decoded.user, false);
+    const hasFamily =
+      typeof decoded.family !== "undefined" &&
+      decoded.family !== null &&
+      decoded.family !== "";
+    if (!hasFamily) {
+      if (
+        userEntry &&
+        typeof userEntry.legacyRevokedAt === "number" &&
+        (Number(decoded.iat) || 0) <= userEntry.legacyRevokedAt
+      ) {
+        return { ok: false, reason: "revoked", legacy: true };
       }
-      if (req && req.query && typeof req.query === 'object' && safe(req.query.siteName)) {
-        return safe(req.query.siteName);
+      return { ok: true, reason: "legacy", legacy: true };
+    }
+    if (
+      typeof decoded.jti !== "string" ||
+      decoded.jti === "" ||
+      typeof decoded.family !== "string"
+    ) {
+      return { ok: false, reason: "invalid", legacy: false };
+    }
+    if (
+      !userEntry ||
+      !Object.prototype.hasOwnProperty.call(userEntry.families, decoded.family)
+    ) {
+      return { ok: false, reason: "no_entry", legacy: false };
+    }
+    const entry = userEntry.families[decoded.family];
+    if (!entry || entry.revoked === true) {
+      return { ok: false, reason: "revoked", legacy: false };
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const hash = this._hashJti(decoded.jti);
+    if (entry.currentJtiHash === hash) {
+      return { ok: true, reason: "current", legacy: false };
+    }
+    if (
+      entry.previousJtiHash === hash &&
+      now < (entry.previousValidUntil || 0)
+    ) {
+      return { ok: true, reason: "previous", legacy: false };
+    }
+    return { ok: false, reason: "stale_jti", legacy: false };
+  }
+  /**
+   * Rotate a refresh session: validate family/jti against the store, then move
+   * the current jti to previous (with a grace window) and record a new current.
+   * Returns true if the rotation was accepted, false otherwise.
+   * Security (SEC-SESSION): a missing store entry is NO LONGER accepted+seeded
+   * (that made revocation a no-op); a stale/reused jti tombstones the family.
+   * Legacy no-family tokens never reach this method — rotateRefreshTokenAndCookie
+   * seeds a brand new family for them via recordRefreshSession.
+   */
+  rotateRefreshSession(user, family, oldJti, newJti, newExp) {
+    if (!user || !family || !oldJti || !newJti) {
+      return false;
+    }
+    const check = this.checkRefreshSession({
+      user: user,
+      family: String(family),
+      jti: String(oldJti),
+    });
+    if (!check.ok) {
+      if (check.reason === "stale_jti") {
+        // possible token theft / replay of an older jti -> revoke the family
+        this.revokeRefreshSession(user, String(family));
       }
-      const sitePrefix = String(this.basePath || '/') + String(this.sitesDirectory || '') + '/';
-      const fromPath = (pathValue) => {
-        if (typeof pathValue !== 'string' || pathValue.indexOf(sitePrefix) !== 0) {
-          return '';
-        }
-        return safe(pathValue.substring(sitePrefix.length).split('/')[0]);
+      return false;
+    }
+    const store = this._loadRefreshSessions();
+    const userEntry = this._getRefreshUserEntry(store, user, false);
+    if (!userEntry || !userEntry.families[String(family)]) {
+      return false;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const next = userEntry.families[String(family)];
+    const newHash = this._hashJti(newJti);
+    // Security (SEC-SESSION): grace-path accept (the presented jti is the
+    // PREVIOUS one, i.e. a sibling tab already rotated from it). Callers
+    // derive newJti deterministically (successorJti), so the successor of
+    // the previous jti IS the current jti: re-issue it and leave
+    // current/previous untouched. Rotating again here would drop the jti the
+    // sibling tab just received; if the browser kept that cookie, its next
+    // refresh would be stale_jti and tombstone the whole family.
+    if (check.reason === "previous" && next.currentJtiHash === newHash) {
+      next.exp = Math.max(
+        Math.floor(Number(next.exp) || 0),
+        Math.floor(Number(newExp) || 0),
+      );
+      return this._saveRefreshSessions(store);
+    }
+    // normal rotation from the current jti (or a grace accept on a family
+    // whose current jti was not derived deterministically, e.g. migrated
+    // from the v1 store: fall back to a normal rotation)
+    next.previousJtiHash = this._hashJti(oldJti);
+    next.previousValidUntil = now + HAXCMS_REFRESH_GRACE_SECONDS;
+    next.currentJtiHash = newHash;
+    next.exp = Math.floor(Number(newExp) || 0);
+    return this._saveRefreshSessions(store);
+  }
+  /**
+   * Security (SEC-SESSION): deterministic successor of a jti within a family
+   * (HMAC with the refresh signing key). Rotating from the same jti always
+   * yields the same successor, so two tabs that refresh concurrently with
+   * the same cookie both receive the SAME new jti and whichever Set-Cookie
+   * the browser keeps stays valid.
+   */
+  successorJti(family, jti) {
+    return crypto
+      .createHmac("sha256", this.refreshPrivateKey + this.salt)
+      .update("haxcms-refresh-successor:" + String(family) + ":" + String(jti))
+      .digest("hex")
+      .substring(0, 32);
+  }
+  /**
+   * Revoke a refresh family (logout / theft detection). Writes a tombstone
+   * rather than deleting, so the family can never be re-seeded. When no
+   * family is given (legacy no-family token) a per-user legacy tombstone is
+   * written instead: every legacy token issued up to now is rejected.
+   * Best-effort.
+   */
+  revokeRefreshSession(user, family = null) {
+    if (!user) {
+      return;
+    }
+    const store = this._loadRefreshSessions();
+    const userEntry = this._getRefreshUserEntry(store, user, true);
+    if (!userEntry) {
+      return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    if (family !== null && typeof family !== "undefined" && family !== "") {
+      const familyKey = String(family);
+      if (!this._isSafeRefreshStoreKey(familyKey)) {
+        return;
+      }
+      const existing = userEntry.families[familyKey];
+      userEntry.families[familyKey] = {
+        revoked: true,
+        revokedAt: now,
+        exp: this._refreshTombstoneExp(existing && existing.exp),
       };
-      if (req) {
-        const rawPath = typeof req.originalUrl === 'string' && req.originalUrl !== ''
+    } else {
+      userEntry.legacyRevokedAt = now;
+      userEntry.legacyRevokedExp = this._refreshTombstoneExp(
+        userEntry.legacyRevokedExp,
+      );
+    }
+    this._saveRefreshSessions(store);
+  }
+  /**
+   * Validate a refresh token's family/jti against the store WITHOUT rotating.
+   * Used by connectionTest recovery and request authentication.
+   * Security (SEC-SESSION): only legacy tokens with NO family claim are
+   * accepted without a store entry (see checkRefreshSession truth table).
+   */
+  validateRefreshSession(user, family, jti, iat = 0) {
+    return this.checkRefreshSession({
+      user: user,
+      family: family,
+      jti: jti,
+      iat: iat,
+    }).ok;
+  }
+  /**
+   * Issue a rotated refresh token + cookie for a validated decoded refresh
+   * token, returning the new access JWT. Used by refreshAccessToken and
+   * connectionTest recovery. On any rotation failure returns null so callers
+   * can clear the cookie and 401. Legacy tokens (no family claim) that are not
+   * tombstoned are upgraded into a brand new family.
+   */
+  rotateRefreshTokenAndCookie(res, decodedRefresh) {
+    if (
+      !decodedRefresh ||
+      typeof decodedRefresh !== "object" ||
+      !decodedRefresh.user
+    ) {
+      return null;
+    }
+    const user = decodedRefresh.user;
+    const isLegacy =
+      typeof decodedRefresh.family === "undefined" ||
+      decodedRefresh.family === null ||
+      decodedRefresh.family === "";
+    // Generate a fresh jti + iat/exp for the rotated token. We build the
+    // payload directly (not via getRefreshToken) so we preserve the existing
+    // family and avoid recording a competing session entry.
+    // Security (SEC-SESSION): family tokens rotate to a DETERMINISTIC
+    // successor jti (see successorJti / rotateRefreshSession grace path);
+    // legacy tokens start a new family with a random jti.
+    const newJti = isLegacy
+      ? uuidv4()
+      : this.successorJti(decodedRefresh.family, decodedRefresh.jti);
+    const newIat = Math.floor(Date.now() / 1000);
+    const newExp = newIat + REFRESH_TOKEN_LIFETIME_SECONDS;
+    let family = decodedRefresh.family;
+    if (isLegacy) {
+      const legacyCheck = this.checkRefreshSession(decodedRefresh);
+      if (!legacyCheck.ok) {
+        return null;
+      }
+      family = uuidv4();
+      if (!this.recordRefreshSession(user, family, newJti, newExp)) {
+        // store not writable: keep the session alive with another legacy
+        // (no-family) token rather than logging the user out
+        family = null;
+      }
+    } else {
+      const ok = this.rotateRefreshSession(
+        user,
+        family,
+        decodedRefresh.jti,
+        newJti,
+        newExp,
+      );
+      if (!ok) {
+        return null;
+      }
+    }
+    const payload = {
+      user: user,
+      iat: newIat,
+      exp: newExp,
+    };
+    if (family) {
+      payload.family = family;
+      payload.jti = newJti;
+    }
+    const rotated = JWT.sign(payload, this.refreshPrivateKey + this.salt);
+    this.setRefreshTokenCookie(
+      res,
+      rotated,
+      REFRESH_TOKEN_LIFETIME_SECONDS * 1000,
+    );
+    return this.getJWT(user);
+  }
+  /**
+   * Security (SEC-SESSION): config.security.requireSessionForRequestTokens,
+   * overridable by env HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS (truthy:
+   * 1/true/yes; any other non-empty value means false). Default TRUE: the
+   * front-end (webcomponents jwt-login / AppHaxBackendAPI / haxcms-backend-*)
+   * now stores the tokens returned by login, refresh and connection-test, so
+   * anonymous connection-settings loads no longer need them. Set the config
+   * value to false (or the env var to 0/false/no) to restore the old
+   * behaviour for a deployment still serving an older front-end build.
+   * Config: a boolean is used as-is, a non-empty string goes through the
+   * truthy list, anything else (unset, null, numbers) falls back to the
+   * default.
+   */
+  getRequireSessionForRequestTokens() {
+    const truthy = (value) =>
+      ["1", "true", "yes"].indexOf(String(value).trim().toLowerCase()) !== -1;
+    const envValue = process.env.HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS;
+    if (typeof envValue === "string" && envValue.trim() !== "") {
+      return truthy(envValue);
+    }
+    if (this.config && this.config.security) {
+      const configured = this.config.security.requireSessionForRequestTokens;
+      if (typeof configured === "boolean") {
+        return configured;
+      }
+      if (typeof configured === "string" && configured.trim() !== "") {
+        return truthy(configured);
+      }
+    }
+    return true;
+  }
+  /**
+   * Security (SEC-SESSION): should connection-settings include siteToken /
+   * userToken (and the token header entries)? Evaluated in this order
+   * (parity contract with PHP):
+   *   1. Sec-Fetch-Site present and 'cross-site' or 'same-site' -> omit,
+   *      whatever the flag says (blocks cross-site script inclusion of the
+   *      JS payload).
+   *   2. caller authenticated (valid bearer, or a refresh cookie that passes
+   *      the session store check) -> include.
+   *   3. requireSessionForRequestTokens is true -> omit.
+   *   4. otherwise -> include (pre-existing behaviour; the shipped front-end
+   *      loads connection-settings once, before login, and its request layer
+   *      drops ALL auth headers when a required token is missing).
+   * Returns { include, authenticatedUser, reason }.
+   */
+  shouldIncludeRequestTokens(req) {
+    const fetchSite =
+      req && req.headers && typeof req.headers["sec-fetch-site"] === "string"
+        ? req.headers["sec-fetch-site"].trim().toLowerCase()
+        : "";
+    const authenticatedUser = this.getRequestAuthenticatedUserName(req);
+    if (fetchSite === "cross-site" || fetchSite === "same-site") {
+      return {
+        include: false,
+        authenticatedUser: authenticatedUser,
+        reason: "sec-fetch-site",
+      };
+    }
+    if (authenticatedUser !== "") {
+      return {
+        include: true,
+        authenticatedUser: authenticatedUser,
+        reason: "authenticated",
+      };
+    }
+    if (this.getRequireSessionForRequestTokens()) {
+      return {
+        include: false,
+        authenticatedUser: "",
+        reason: "session-required",
+      };
+    }
+    return {
+      include: true,
+      authenticatedUser: "",
+      reason: "anonymous-allowed",
+    };
+  }
+  /**
+   * Security (SEC-SESSION): resolve the site context of a session request so
+   * an authenticated session response can carry a fresh siteToken. Order:
+   *   1. request body: site.name, then siteName
+   *   2. query: siteName
+   *   3. request path: <basePath><sitesDirectory>/<name>/...
+   *   4. Referer path: <basePath><sitesDirectory>/<name>/... (path only)
+   *   5. single-site context (cwd site.json metadata.site.name / name)
+   * Returns '' when no site context is resolvable. Only machine-name-safe
+   * values ([A-Za-z0-9_-]) are returned.
+   */
+  async resolveSessionSiteName(req) {
+    const safe = (value) => {
+      if (typeof value !== "string") {
+        return "";
+      }
+      let v = value.trim();
+      try {
+        v = decodeURIComponent(v);
+      } catch (e) {}
+      return /^[A-Za-z0-9_-]+$/.test(v) ? v : "";
+    };
+    if (req && req.body && typeof req.body === "object") {
+      if (
+        req.body.site &&
+        typeof req.body.site === "object" &&
+        safe(req.body.site.name)
+      ) {
+        return safe(req.body.site.name);
+      }
+      if (safe(req.body.siteName)) {
+        return safe(req.body.siteName);
+      }
+    }
+    if (
+      req &&
+      req.query &&
+      typeof req.query === "object" &&
+      safe(req.query.siteName)
+    ) {
+      return safe(req.query.siteName);
+    }
+    const sitePrefix =
+      String(this.basePath || "/") + String(this.sitesDirectory || "") + "/";
+    const fromPath = (pathValue) => {
+      if (
+        typeof pathValue !== "string" ||
+        pathValue.indexOf(sitePrefix) !== 0
+      ) {
+        return "";
+      }
+      return safe(pathValue.substring(sitePrefix.length).split("/")[0]);
+    };
+    if (req) {
+      const rawPath =
+        typeof req.originalUrl === "string" && req.originalUrl !== ""
           ? req.originalUrl
-          : (typeof req.url === 'string' ? req.url : '');
-        const pathName = fromPath(rawPath.split('?')[0]);
-        if (pathName) {
-          return pathName;
-        }
+          : typeof req.url === "string"
+            ? req.url
+            : "";
+      const pathName = fromPath(rawPath.split("?")[0]);
+      if (pathName) {
+        return pathName;
       }
-      if (req && req.headers && typeof req.headers.referer === 'string' && req.headers.referer !== '') {
-        try {
-          const refererName = fromPath(new URL(req.headers.referer).pathname);
-          if (refererName) {
-            return refererName;
-          }
-        }
-        catch (e) {}
-      }
-      try {
-        const singleSite = await systemStructureContext();
-        if (
-          singleSite &&
-          singleSite.manifest &&
-          singleSite.manifest.metadata &&
-          singleSite.manifest.metadata.site &&
-          singleSite.manifest.metadata.site.name
-        ) {
-          return safe(String(singleSite.manifest.metadata.site.name));
-        }
-        if (singleSite && singleSite.name) {
-          return safe(String(singleSite.name));
-        }
-      }
-      catch (e) {}
-      return '';
     }
-    /**
-     * Security (SEC-SESSION): request tokens to hand back on a SUCCESSFUL,
-     * authenticated session response (login / refresh / connection-test) so
-     * an editor that booted anonymously (connection-settings omits tokens for
-     * anonymous callers) can pick them up without a page reload.
-     * Returns { userToken, siteToken? } -- siteToken only when a site context
-     * is resolvable (see resolveSessionSiteName). Tokens bind to the same
-     * user identity connection-settings uses (getActiveUserName).
-     */
-    async getSessionRequestTokens(req) {
-      const user = this.getActiveUserName();
-      const tokens = {
-        userToken: this.getRequestToken(user),
-      };
-      const siteName = await this.resolveSessionSiteName(req);
-      if (siteName !== '') {
-        tokens.siteToken = this.getRequestToken(user + ':' + siteName);
-      }
-      return tokens;
-    }
-    /**
-     * Security (EXPRESS-CSRF-001 / M1 + SEC-SESSION): same-origin gate for the
-     * cookie-authenticated, state-changing session endpoints (session/refresh
-     * and session/connection-test, which both rotate the refresh cookie).
-     * - Sec-Fetch-Site: 'cross-site' is always rejected when the browser sends it.
-     * - Origin (falling back to Referer) host[:port] must match the trusted
-     *   host. The scheme is deliberately NOT compared (PHP parity): behind a
-     *   TLS-terminating proxy without trusted-proxy config, or Apache plain
-     *   http with protossl forced, the server-side scheme differs from the
-     *   browser's and comparing it caused false 403s. Cross-site attackers
-     *   cannot forge the host part of Origin.
-     * - No Origin/Referer (non-browser clients, or same-origin omits) is allowed;
-     *   SameSite=Lax + no credentialed CORS remain the primary control.
-     * Returns true when the request may proceed.
-     */
-    isSameOriginRequest(req) {
-      if (req && req.headers && typeof req.headers['sec-fetch-site'] === 'string') {
-        if (req.headers['sec-fetch-site'].trim().toLowerCase() === 'cross-site') {
-          return false;
-        }
-      }
-      let originHeader = '';
-      if (req && req.headers && typeof req.headers.origin === 'string') {
-        originHeader = req.headers.origin.trim();
-      }
-      if (originHeader === '' && req && req.headers && typeof req.headers.referer === 'string') {
-        originHeader = req.headers.referer.trim();
-      }
-      if (originHeader === '') {
-        return true;
-      }
-      let parsed;
+    if (
+      req &&
+      req.headers &&
+      typeof req.headers.referer === "string" &&
+      req.headers.referer !== ""
+    ) {
       try {
-        parsed = new URL(originHeader);
+        const refererName = fromPath(new URL(req.headers.referer).pathname);
+        if (refererName) {
+          return refererName;
+        }
+      } catch (e) {}
+    }
+    try {
+      const singleSite = await systemStructureContext();
+      if (
+        singleSite &&
+        singleSite.manifest &&
+        singleSite.manifest.metadata &&
+        singleSite.manifest.metadata.site &&
+        singleSite.manifest.metadata.site.name
+      ) {
+        return safe(String(singleSite.manifest.metadata.site.name));
       }
-      catch (e) {
+      if (singleSite && singleSite.name) {
+        return safe(String(singleSite.name));
+      }
+    } catch (e) {}
+    return "";
+  }
+  /**
+   * Security (SEC-SESSION): request tokens to hand back on a SUCCESSFUL,
+   * authenticated session response (login / refresh / connection-test) so
+   * an editor that booted anonymously (connection-settings omits tokens for
+   * anonymous callers) can pick them up without a page reload.
+   * Returns { userToken, siteToken? } -- siteToken only when a site context
+   * is resolvable (see resolveSessionSiteName). Tokens bind to the same
+   * user identity connection-settings uses (getActiveUserName).
+   */
+  async getSessionRequestTokens(req) {
+    const user = this.getActiveUserName();
+    const tokens = {
+      userToken: this.getRequestToken(user),
+    };
+    const siteName = await this.resolveSessionSiteName(req);
+    if (siteName !== "") {
+      tokens.siteToken = this.getRequestToken(user + ":" + siteName);
+    }
+    return tokens;
+  }
+  /**
+   * Security (EXPRESS-CSRF-001 / M1 + SEC-SESSION): same-origin gate for the
+   * cookie-authenticated, state-changing session endpoints (session/refresh
+   * and session/connection-test, which both rotate the refresh cookie).
+   * - Sec-Fetch-Site: 'cross-site' is always rejected when the browser sends it.
+   * - Origin (falling back to Referer) host[:port] must match the trusted
+   *   host. The scheme is deliberately NOT compared (PHP parity): behind a
+   *   TLS-terminating proxy without trusted-proxy config, or Apache plain
+   *   http with protossl forced, the server-side scheme differs from the
+   *   browser's and comparing it caused false 403s. Cross-site attackers
+   *   cannot forge the host part of Origin.
+   * - No Origin/Referer (non-browser clients, or same-origin omits) is allowed;
+   *   SameSite=Lax + no credentialed CORS remain the primary control.
+   * Returns true when the request may proceed.
+   */
+  isSameOriginRequest(req) {
+    if (
+      req &&
+      req.headers &&
+      typeof req.headers["sec-fetch-site"] === "string"
+    ) {
+      if (req.headers["sec-fetch-site"].trim().toLowerCase() === "cross-site") {
         return false;
       }
-      if (!parsed || !parsed.host) {
-        return false;
-      }
-      const expectedHost = this.resolveTrustedHost(req);
-      if (parsed.host !== expectedHost) {
-        return false;
-      }
+    }
+    let originHeader = "";
+    if (req && req.headers && typeof req.headers.origin === "string") {
+      originHeader = req.headers.origin.trim();
+    }
+    if (
+      originHeader === "" &&
+      req &&
+      req.headers &&
+      typeof req.headers.referer === "string"
+    ) {
+      originHeader = req.headers.referer.trim();
+    }
+    if (originHeader === "") {
       return true;
     }
-    /**
-     * Security (SEC-SESSION): resolve the authenticated user for a request
-     * WITHOUT ending it: a valid Bearer access JWT and/or a refresh cookie that
-     * passes both signature/exp validation and the refresh-session store check
-     * (revoked / unknown families are NOT authenticated). If both are present
-     * they must agree. Returns '' when the caller is anonymous. Node port of
-     * PHP getAuthenticatedUserName (which now also consults the store).
-     */
-    getRequestAuthenticatedUserName(req) {
-      if (!req || typeof req !== 'object') {
-        return '';
+    let parsed;
+    try {
+      parsed = new URL(originHeader);
+    } catch (e) {
+      return false;
+    }
+    if (!parsed || !parsed.host) {
+      return false;
+    }
+    const expectedHost = this.resolveTrustedHost(req);
+    if (parsed.host !== expectedHost) {
+      return false;
+    }
+    return true;
+  }
+  /**
+   * Security (SEC-SESSION): resolve the authenticated user for a request
+   * WITHOUT ending it: a valid Bearer access JWT and/or a refresh cookie that
+   * passes both signature/exp validation and the refresh-session store check
+   * (revoked / unknown families are NOT authenticated). If both are present
+   * they must agree. Returns '' when the caller is anonymous. Node port of
+   * PHP getAuthenticatedUserName (which now also consults the store).
+   */
+  getRequestAuthenticatedUserName(req) {
+    if (!req || typeof req !== "object") {
+      return "";
+    }
+    let jwtUser = "";
+    let jwtToken = "";
+    if (req.headers && typeof req.headers.authorization === "string") {
+      const authorizationHeader = req.headers.authorization.trim();
+      if (authorizationHeader.toLowerCase().indexOf("bearer ") === 0) {
+        jwtToken = authorizationHeader.substring(7).trim();
       }
-      let jwtUser = '';
-      let jwtToken = '';
-      if (req.headers && typeof req.headers.authorization === 'string') {
-        const authorizationHeader = req.headers.authorization.trim();
-        if (authorizationHeader.toLowerCase().indexOf('bearer ') === 0) {
-          jwtToken = authorizationHeader.substring(7).trim();
-        }
+    }
+    if (jwtToken === "" && this.sessionJwt) {
+      jwtToken = this.sessionJwt;
+    }
+    if (jwtToken !== "") {
+      const decoded = this.decodeJWT(jwtToken);
+      if (
+        decoded &&
+        decoded.id &&
+        decoded.id == this.getRequestToken("user") &&
+        decoded.user &&
+        this.validateUser(decoded.user)
+      ) {
+        jwtUser = String(decoded.user);
       }
-      if (jwtToken === '' && this.sessionJwt) {
-        jwtToken = this.sessionJwt;
-      }
-      if (jwtToken !== '') {
-        const decoded = this.decodeJWT(jwtToken);
-        if (
-          decoded &&
-          decoded.id &&
-          decoded.id == this.getRequestToken('user') &&
-          decoded.user &&
-          this.validateUser(decoded.user)
-        ) {
-          jwtUser = String(decoded.user);
-        }
-      }
-      let refreshUser = '';
-      const refreshToken = req.cookies && typeof req.cookies.haxcms_refresh_token === 'string'
+    }
+    let refreshUser = "";
+    const refreshToken =
+      req.cookies && typeof req.cookies.haxcms_refresh_token === "string"
         ? req.cookies.haxcms_refresh_token
-        : '';
-      if (refreshToken !== '') {
-        const decodedRefresh = this.decodeRefreshToken(refreshToken);
-        const now = Math.floor(Date.now() / 1000);
-        if (
-          decodedRefresh &&
-          decodedRefresh.user &&
-          decodedRefresh.iat && decodedRefresh.exp &&
-          decodedRefresh.iat <= now && now < decodedRefresh.exp &&
-          this.validateUser(decodedRefresh.user) &&
-          this.checkRefreshSession(decodedRefresh).ok
-        ) {
-          refreshUser = String(decodedRefresh.user);
-        }
+        : "";
+    if (refreshToken !== "") {
+      const decodedRefresh = this.decodeRefreshToken(refreshToken);
+      const now = Math.floor(Date.now() / 1000);
+      if (
+        decodedRefresh &&
+        decodedRefresh.user &&
+        decodedRefresh.iat &&
+        decodedRefresh.exp &&
+        decodedRefresh.iat <= now &&
+        now < decodedRefresh.exp &&
+        this.validateUser(decodedRefresh.user) &&
+        this.checkRefreshSession(decodedRefresh).ok
+      ) {
+        refreshUser = String(decodedRefresh.user);
       }
-      if (jwtUser !== '' && refreshUser !== '' && jwtUser !== refreshUser) {
-        return '';
-      }
-      return jwtUser !== '' ? jwtUser : refreshUser;
     }
-    /**
-     * Validate that a user name that came across in a JWT decode is legit
-     */
-    validateUser(name)
-    {
-        if (
-            this.user.name === name
-        ) {
-            return true;
-        }
-        else if (
-            this.superUser.name === name
-        ) {
-            return true;
-        }
-        else {
-            let usr = {};
-            usr.name = name;
-            usr.grantAccess = false;
-            // fire custom event for things to respond to as needed
-            // this is for SaaS providers to provide global validation
-            return usr.grantAccess;
-        }
-        return false;
+    if (jwtUser !== "" && refreshUser !== "" && jwtUser !== refreshUser) {
+      return "";
     }
-    /**
-     * test the active user login based on session.
-     */
-    testLogin(name, pass, adminFallback = false)
-    {
-        if (
-            this.safeStringCompare(this.user.name, name) &&
-            this.verifyStoredPassword(this.user.password, pass)
-        ) {
-            // Security (HAX-SEC-001): migrate legacy plaintext to a scrypt hash
-            // on the first successful plaintext login (best-effort, skips
-            // runtime overrides). Mirrors PHP testLogin (HAXCMS.php:1754-1787).
-            this.maybeUpgradePlaintextPassword('user', pass);
-            return true;
-        }
-        // if fallback is allowed, meaning the super admin then let them in
-        // the default is to strictly test for the login in question
-        // the fallback being allowable is useful for managed environments
-        else if (
-            adminFallback &&
-            this.safeStringCompare(this.superUser.name, name) &&
-            this.verifyStoredPassword(this.superUser.password, pass)
-        ) {
-            return true;
-        }
-        else {
-            let usr = {};
-            usr.name = name;
-            usr.adminFallback = adminFallback;
-            usr.grantAccess = false;
-            // fire custom event for things to respond to as needed
-            return usr.grantAccess;
-        }
-        return false;
+    return jwtUser !== "" ? jwtUser : refreshUser;
+  }
+  /**
+   * Validate that a user name that came across in a JWT decode is legit
+   */
+  validateUser(name) {
+    if (this.user.name === name) {
+      return true;
+    } else if (this.superUser.name === name) {
+      return true;
+    } else {
+      let usr = {};
+      usr.name = name;
+      usr.grantAccess = false;
+      // fire custom event for things to respond to as needed
+      // this is for SaaS providers to provide global validation
+      return usr.grantAccess;
     }
-    /**
-     * Recursive copy to rename high level but copy all files
-     */
-    async recurseCopy(src, dst, skip = [], base = null)
-    {
-      // Security (N1/N5 parity): reject traversal in the destination before
-      // creating anything (mirrors PHP HAXCMSSite::recurseCopy). NUL bytes
-      // and any `..` segment are refused; when the caller supplies the
-      // directory the copy must land in (e.g. the site directory) the
-      // destination must also resolve inside it.
-      if (typeof dst !== 'string' || dst === '' || hasTraversal(dst)) {
-        return false;
-      }
-      if (base !== null && base !== undefined) {
-        const relativeDst = path.relative(path.resolve(base), path.resolve(dst));
-        if (
-          relativeDst === '' ||
-          path.isAbsolute(relativeDst) ||
-          resolveContainedPath(base, relativeDst) === false
-        ) {
-          return false;
-        }
-      }
-      await fs.copySync(src, dst);
+    return false;
+  }
+  /**
+   * test the active user login based on session.
+   */
+  testLogin(name, pass, adminFallback = false) {
+    if (
+      this.safeStringCompare(this.user.name, name) &&
+      this.verifyStoredPassword(this.user.password, pass)
+    ) {
+      // Security (HAX-SEC-001): migrate legacy plaintext to a scrypt hash
+      // on the first successful plaintext login (best-effort, skips
+      // runtime overrides). Mirrors PHP testLogin (HAXCMS.php:1754-1787).
+      this.maybeUpgradePlaintextPassword("user", pass);
       return true;
     }
+    // if fallback is allowed, meaning the super admin then let them in
+    // the default is to strictly test for the login in question
+    // the fallback being allowable is useful for managed environments
+    else if (
+      adminFallback &&
+      this.safeStringCompare(this.superUser.name, name) &&
+      this.verifyStoredPassword(this.superUser.password, pass)
+    ) {
+      return true;
+    } else {
+      let usr = {};
+      usr.name = name;
+      usr.adminFallback = adminFallback;
+      usr.grantAccess = false;
+      // fire custom event for things to respond to as needed
+      return usr.grantAccess;
+    }
+    return false;
+  }
+  /**
+   * Recursive copy to rename high level but copy all files
+   */
+  async recurseCopy(src, dst, skip = [], base = null) {
+    // Security (N1/N5 parity): reject traversal in the destination before
+    // creating anything (mirrors PHP HAXCMSSite::recurseCopy). NUL bytes
+    // and any `..` segment are refused; when the caller supplies the
+    // directory the copy must land in (e.g. the site directory) the
+    // destination must also resolve inside it.
+    if (typeof dst !== "string" || dst === "" || hasTraversal(dst)) {
+      return false;
+    }
+    if (base !== null && base !== undefined) {
+      const relativeDst = path.relative(path.resolve(base), path.resolve(dst));
+      if (
+        relativeDst === "" ||
+        path.isAbsolute(relativeDst) ||
+        resolveContainedPath(base, relativeDst) === false
+      ) {
+        return false;
+      }
+    }
+    await fs.copySync(src, dst);
+    return true;
+  }
 }
 const HAXCMS = new HAXCMSClass();
 
@@ -6369,10 +7084,22 @@ async function systemStructureContext(dir = null) {
       let site = new HAXCMSSite();
       await site.loadSingle(dir);
       return site;
-    }
-    catch(e) {}
+    } catch (e) {}
   }
   return null;
 }
 
-module.exports = { HAXCMS, HAXCMSClass, HAXCMSSite, systemStructureContext, loadConfigJson, sanitizeGitCommitMessage, isSafeGitRemoteUrl, GIT_BRANCH_PATTERN, sanitizeManagedTemplateText, escapeManagedTemplateText, managedTemplateVarsFor, MANAGED_TEMPLATE_TEXT_FORMATS };
+module.exports = {
+  HAXCMS,
+  HAXCMSClass,
+  HAXCMSSite,
+  systemStructureContext,
+  loadConfigJson,
+  sanitizeGitCommitMessage,
+  isSafeGitRemoteUrl,
+  GIT_BRANCH_PATTERN,
+  sanitizeManagedTemplateText,
+  escapeManagedTemplateText,
+  managedTemplateVarsFor,
+  MANAGED_TEMPLATE_TEXT_FORMATS,
+};

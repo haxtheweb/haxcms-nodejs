@@ -1,49 +1,53 @@
 #!/usr/bin/env node
-
 // lib dependencies
-var argv = require('minimist')(process.argv.slice(2));
-const express = require('express');
+var argv = require("minimist")(process.argv.slice(2));
+const express = require("express");
 // load config from dot files
-require('dotenv').config()
-const cookieParser = require('cookie-parser');
-const compression = require('compression');
-const helmet = require('helmet');
+require("dotenv").config();
+const cookieParser = require("cookie-parser");
+const compression = require("compression");
+const helmet = require("helmet");
 const app = express();
 // Security (EXPRESS-FINGERPRINT-001 / I3): disable X-Powered-By explicitly
 // at the Express layer so the header is never set, independent of helmet's
 // default middleware. Defense-in-depth that survives any future helmet config.
-app.disable('x-powered-by');
-const mime = require('mime');
-const path = require('path');
+app.disable("x-powered-by");
+const mime = require("mime");
+const path = require("path");
 const fs = require("fs-extra");
-const crypto = require('crypto');
-const YAML = require('yaml');
-const sslServer = require('./lib/sslServer.js');
+const crypto = require("crypto");
+const YAML = require("yaml");
+const sslServer = require("./lib/sslServer.js");
 const server = sslServer.createServer(app);
 const serverProtocol = sslServer.getServerProtocol();
 // Security (SEC-DEPLOY): interface selection for server.listen (loopback when
 // the no-login bypass is active, HAXCMS_HOST always wins).
-const { selectListenHost, getBypassExposureWarning, getBrowserHost } = require('./lib/listenHost.js');
+const {
+  selectListenHost,
+  getBypassExposureWarning,
+  getBrowserHost,
+} = require("./lib/listenHost.js");
 const PAGE_VARIANT_CONTENT_TYPES = {
-  html: 'text/html; charset=utf-8',
-  md: 'text/markdown; charset=utf-8',
-  json: 'application/json; charset=utf-8',
-  yaml: 'application/yaml; charset=utf-8',
-  xml: 'application/xml; charset=utf-8',
+  html: "text/html; charset=utf-8",
+  md: "text/markdown; charset=utf-8",
+  json: "application/json; charset=utf-8",
+  yaml: "application/yaml; charset=utf-8",
+  xml: "application/xml; charset=utf-8",
 };
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
-const { HAXCMS, systemStructureContext } = require('./lib/HAXCMS.js');
-const { resolveContainedPath } = require('./lib/pathConfinement.js');
-const loginRateLimiter = require('./lib/loginRateLimiter.js');
-const { haxcmsErrorHandler } = require('./lib/requestErrorHandler.js');
+const { HAXCMS, systemStructureContext } = require("./lib/HAXCMS.js");
+const { resolveContainedPath } = require("./lib/pathConfinement.js");
+const loginRateLimiter = require("./lib/loginRateLimiter.js");
+const { haxcmsErrorHandler } = require("./lib/requestErrorHandler.js");
+const { apiMessageCodesMiddleware } = require("./lib/apiMessageCodes.js");
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
 // colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
 // the plain `open: <url>` line when color is disabled (CI / non-TTY / NO_COLOR).
-const cliTheme = require('./lib/cliTheme.js');
+const cliTheme = require("./lib/cliTheme.js");
 // trust proxy is config-driven so forwarded client IPs (req.ip) are accurate
 // behind a reverse proxy; defaults to false for single-host/local setups.
-app.set('trust proxy', HAXCMS.getTrustProxySetting());
+app.set("trust proxy", HAXCMS.getTrustProxySetting());
 // default helmet policies for CSP. CSP is handled per-request (see the
 // cspNonceMiddleware below) so each served HTML response gets a unique
 // nonce in script-src, allowing 'unsafe-inline' to be dropped for scripts
@@ -73,7 +77,13 @@ var helmetPolicies = {
 // 'unsafe-inline'. If YouTube rotates that script the hash will need updating
 // (the browser reports the new hash in the CSP violation console message).
 var cspBaseDirectives = {
-  scriptSrc: ["'self'", "'unsafe-eval'", "'wasm-unsafe-eval'", "www.youtube.com", "'sha256-8eohedfRaQoWnH7igD20HvjedM7lPcYbqukJ7DEpMOk='"],
+  scriptSrc: [
+    "'self'",
+    "'unsafe-eval'",
+    "'wasm-unsafe-eval'",
+    "www.youtube.com",
+    "'sha256-8eohedfRaQoWnH7igD20HvjedM7lPcYbqukJ7DEpMOk='",
+  ],
   styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
   mediaSrc: ["'self'", "data:", "https:"],
   imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
@@ -102,20 +112,20 @@ function cspNonceMiddleware(req, res, next) {
     next();
     return;
   }
-  var nonce = crypto.randomBytes(16).toString('base64');
+  var nonce = crypto.randomBytes(16).toString("base64");
   req.haxcmsCspNonce = nonce;
   var directives = {};
   var directiveKeys = Object.keys(cspBaseDirectives);
   for (var i = 0; i < directiveKeys.length; i++) {
     var key = directiveKeys[i];
     var baseValue = cspBaseDirectives[key];
-    if (key === 'scriptSrc') {
+    if (key === "scriptSrc") {
       directives[key] = baseValue.concat(["'nonce-" + nonce + "'"]);
     } else {
       directives[key] = baseValue.slice();
     }
   }
-  res.setHeader('Content-Security-Policy', formatCspDirectives(directives));
+  res.setHeader("Content-Security-Policy", formatCspDirectives(directives));
   next();
 }
 
@@ -129,24 +139,30 @@ function formatCspDirectives(directives) {
   var keys = Object.keys(directives || {});
   for (var i = 0; i < keys.length; i++) {
     var key = keys[i];
-    var headerName = key.replace(/([A-Z])/g, function (_, ch) { return '-' + ch.toLowerCase(); });
+    var headerName = key.replace(/([A-Z])/g, function (_, ch) {
+      return "-" + ch.toLowerCase();
+    });
     var value = directives[key];
     if (!Array.isArray(value)) {
       value = value === undefined || value === null ? [] : [String(value)];
     }
-    parts.push(headerName + ' ' + value.join(' '));
+    parts.push(headerName + " " + value.join(" "));
   }
-  return parts.join('; ');
+  return parts.join("; ");
 }
 
 // flag in local development that disables security
 // this way you launch from local and don't need a U/P relationship
-if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT_CHECKS')) {
+if (
+  process.env.HAXCMS_DISABLE_JWT_CHECKS ||
+  argv._.includes("HAXCMS_DISABLE_JWT_CHECKS")
+) {
   if (HAXCMS.isProductionRuntime()) {
     // never honor the local-development security bypass in production
-    console.error('SECURITY: HAXCMS_DISABLE_JWT_CHECKS is ignored because NODE_ENV=production.');
-  }
-  else {
+    console.error(
+      "SECURITY: HAXCMS_DISABLE_JWT_CHECKS is ignored because NODE_ENV=production.",
+    );
+  } else {
     HAXCMS.HAXCMS_DISABLE_JWT_CHECKS = true;
     // disable security policies that would otherwise block local development
     // also enables webcontainer environments which is what our playground runs
@@ -164,8 +180,8 @@ if (process.env.HAXCMS_DISABLE_JWT_CHECKS || argv._.includes('HAXCMS_DISABLE_JWT
     // that omit CORP (e.g. CDN module/asset loads via the wc-registry magic
     // loader). 'require-corp' blocked those with
     // ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep.
-    helmetPolicies.crossOriginEmbedderPolicy = { policy: 'credentialless' };
-    helmetPolicies.crossOriginOpenerPolicy = { policy: 'same-origin' };
+    helmetPolicies.crossOriginEmbedderPolicy = { policy: "credentialless" };
+    helmetPolicies.crossOriginOpenerPolicy = { policy: "same-origin" };
   }
 }
 // routes with all requires
@@ -175,10 +191,10 @@ const {
   SystemRoutesMap,
   SystemV1OpenRoutes,
   SystemV1AdminRoutes,
-} = require('./lib/allRoutes.js');
+} = require("./lib/allRoutes.js");
 // app settings
-const multer = require('multer');
-const { crossOriginOpenerPolicy } = require('helmet');
+const multer = require("multer");
+const { crossOriginOpenerPolicy } = require("helmet");
 // Security (HAX-SEC-004): hard cap on upload size (1 GB per file, max 10
 // files) prevents unbounded DoS uploads. The site's configured
 // maxUploadSizeMb (if smaller) is additionally enforced at the app layer in
@@ -186,18 +202,20 @@ const { crossOriginOpenerPolicy } = require('helmet');
 // net; the reverse proxy should also cap client_max_body_size.
 const MAX_UPLOAD_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
 const MAX_UPLOAD_FILE_COUNT = 10;
-const UPLOAD_TEMP_DIRECTORY = path.join(HAXCMS.configDirectory, 'tmp/');
+const UPLOAD_TEMP_DIRECTORY = path.join(HAXCMS.configDirectory, "tmp/");
 const upload = multer({
   dest: UPLOAD_TEMP_DIRECTORY,
   limits: {
     fileSize: MAX_UPLOAD_FILE_SIZE_BYTES,
     files: MAX_UPLOAD_FILE_COUNT,
   },
-})
+});
 // Security (SEC-UPLOAD): upload temp-file lifecycle helpers (per-request
 // cleanup, stale temp sweeper, conversion cap, files/ force-download guard).
-const uploadSecurity = require('./lib/uploadSecurity.js');
-const uploadTempCleanup = uploadSecurity.createUploadTempCleanupMiddleware(UPLOAD_TEMP_DIRECTORY);
+const uploadSecurity = require("./lib/uploadSecurity.js");
+const uploadTempCleanup = uploadSecurity.createUploadTempCleanupMiddleware(
+  UPLOAD_TEMP_DIRECTORY,
+);
 // Security (SEC-UPLOAD): conversion actions/* routes accept a single document,
 // so they use a lower per-file cap (default 50 MB, config.json
 // security.conversionMaxUploadMb or HAXCMS_CONVERSION_MAX_UPLOAD_MB). Built
@@ -216,21 +234,22 @@ function getConversionUploadAnyParser() {
   return conversionUploadAnyParser;
 }
 function isMultipartRequest(req) {
-  const contentType = req && req.headers && typeof req.headers['content-type'] === 'string'
-    ? req.headers['content-type'].toLowerCase()
-    : '';
-  return contentType.indexOf('multipart/form-data') === 0;
+  const contentType =
+    req && req.headers && typeof req.headers["content-type"] === "string"
+      ? req.headers["content-type"].toLowerCase()
+      : "";
+  return contentType.indexOf("multipart/form-data") === 0;
 }
 const jsonRequestParser = express.json({
-  type: ['application/json', 'application/*+json'],
-  limit: '10mb'
+  type: ["application/json", "application/*+json"],
+  limit: "10mb",
 });
 // Security (HAX-SEC-012): urlencoded parser is scoped to routes that need it
 // (via formBodyParser below) rather than running globally on every request
 // including static/GET. Lower limit/parameterLimit than the previous global
 // 50mb/50000 to reduce the DoS surface.
 const urlencodedParser = express.urlencoded({
-  limit: '10mb',
+  limit: "10mb",
   extended: false,
   parameterLimit: 1000,
 });
@@ -251,7 +270,9 @@ function uploadAnyParser(req, res, next) {
   uploadTempCleanup(req, res, () => multerUploadAnyParser(req, res, next));
 }
 function conversionUploadParser(req, res, next) {
-  uploadTempCleanup(req, res, () => getConversionUploadAnyParser()(req, res, next));
+  uploadTempCleanup(req, res, () =>
+    getConversionUploadAnyParser()(req, res, next),
+  );
 }
 function parseSchemaFileOperationBody(req, res, next) {
   if (isMultipartRequest(req)) {
@@ -265,86 +286,79 @@ function parseConversionActionBody(req, res, next) {
   }
   return formBodyParser(req, res, next);
 }
-function getSiteApiRouteParser(method = 'get', route = '') {
-  const normalizedMethod = String(method || 'get').toLowerCase();
-  const normalizedRoute = String(route || '');
-  if (
-    normalizedMethod === 'post' &&
-    normalizedRoute === 'v1/files'
-  ) {
+function getSiteApiRouteParser(method = "get", route = "") {
+  const normalizedMethod = String(method || "get").toLowerCase();
+  const normalizedRoute = String(route || "");
+  if (normalizedMethod === "post" && normalizedRoute === "v1/files") {
     return uploadAnyParser;
   }
   if (
-    normalizedMethod === 'post' ||
-    normalizedMethod === 'put' ||
-    normalizedMethod === 'patch' ||
-    normalizedMethod === 'delete'
+    normalizedMethod === "post" ||
+    normalizedMethod === "put" ||
+    normalizedMethod === "patch" ||
+    normalizedMethod === "delete"
   ) {
     return formBodyParser;
   }
   return null;
 }
-function getSystemV1RouteParser(method = 'get', route = '') {
-  const normalizedMethod = String(method || 'get').toLowerCase();
-  const normalizedRoute = String(route || '');
+function getSystemV1RouteParser(method = "get", route = "") {
+  const normalizedMethod = String(method || "get").toLowerCase();
+  const normalizedRoute = String(route || "");
   // Security (SEC-UPLOAD): single-document conversion/import actions get the
   // lower conversion upload cap.
   if (
-    normalizedMethod === 'post' &&
-    (
-      normalizedRoute === 'actions/docx-to-html' ||
-      normalizedRoute === 'actions/html-to-docx' ||
-      normalizedRoute === 'actions/html-to-pdf' ||
-      normalizedRoute === 'actions/import-docx' ||
-      normalizedRoute === 'actions/import-pptx' ||
-      normalizedRoute === 'actions/import-html' ||
-      normalizedRoute === 'actions/import-xlsx' ||
-      normalizedRoute === 'actions/import-pdf' ||
-      normalizedRoute === 'actions/xlsx-to-csv' ||
-      normalizedRoute === 'actions/pdf-to-html' ||
-      normalizedRoute === 'actions/pptx-to-html' ||
-      normalizedRoute === 'actions/docx-to-pdf'
-    )
+    normalizedMethod === "post" &&
+    (normalizedRoute === "actions/docx-to-html" ||
+      normalizedRoute === "actions/html-to-docx" ||
+      normalizedRoute === "actions/html-to-pdf" ||
+      normalizedRoute === "actions/import-docx" ||
+      normalizedRoute === "actions/import-pptx" ||
+      normalizedRoute === "actions/import-html" ||
+      normalizedRoute === "actions/import-xlsx" ||
+      normalizedRoute === "actions/import-pdf" ||
+      normalizedRoute === "actions/xlsx-to-csv" ||
+      normalizedRoute === "actions/pdf-to-html" ||
+      normalizedRoute === "actions/pptx-to-html" ||
+      normalizedRoute === "actions/docx-to-pdf")
   ) {
     return parseConversionActionBody;
   }
   if (
-    normalizedMethod === 'post' &&
-    (
-      normalizedRoute === 'configuration/schema-files/operations' ||
-      normalizedRoute === 'configuration/skeletons' ||
-      normalizedRoute === 'skeletons' ||
-      normalizedRoute === 'site/import/:platform'
-    )
+    normalizedMethod === "post" &&
+    (normalizedRoute === "configuration/schema-files/operations" ||
+      normalizedRoute === "configuration/skeletons" ||
+      normalizedRoute === "skeletons" ||
+      normalizedRoute === "site/import/:platform")
   ) {
     return parseSchemaFileOperationBody;
   }
   if (
-    normalizedMethod === 'post' ||
-    normalizedMethod === 'put' ||
-    normalizedMethod === 'patch' ||
-    normalizedMethod === 'delete'
+    normalizedMethod === "post" ||
+    normalizedMethod === "put" ||
+    normalizedMethod === "patch" ||
+    normalizedMethod === "delete"
   ) {
     return formBodyParser;
   }
   return null;
 }
-let publicDir = path.join(__dirname, '/public');
-const WEBCOMPONENTS_ROOT_ENV_VAR = 'HAXCMS_WEBCOMPONENTS_ROOT';
+let publicDir = path.join(__dirname, "/public");
+const WEBCOMPONENTS_ROOT_ENV_VAR = "HAXCMS_WEBCOMPONENTS_ROOT";
 const linkedWebcomponentsRoot = getLinkedWebcomponentsRoot();
 const linkedWebcomponentsNodeModulesRoot = linkedWebcomponentsRoot
-  ? path.join(linkedWebcomponentsRoot, 'node_modules')
+  ? path.join(linkedWebcomponentsRoot, "node_modules")
   : null;
 const linkedDevImportMapMarkup = buildLinkedDevImportMapMarkup();
 const SITE_API_OPENAPI_SPEC_PATH = path.join(
   __dirname,
-  'openapi',
-  'site-spec.yaml',
+  "openapi",
+  "site-spec.yaml",
 );
 const SYSTEM_API_OPENAPI_SPEC_PATH = path.join(
   __dirname,
-  'openapi',
-  'system-spec.yaml',
+  "openapi",
+  "system-spec.yaml",
 );
 let siteApiAuthPoliciesByMethodAndRoute = null;
 let systemApiAuthPoliciesByMethodAndRoute = null;
@@ -355,12 +369,12 @@ function getLinkedWebcomponentsRoot() {
   }
   if (
     !process.env[WEBCOMPONENTS_ROOT_ENV_VAR] ||
-    String(process.env[WEBCOMPONENTS_ROOT_ENV_VAR]).trim() === ''
+    String(process.env[WEBCOMPONENTS_ROOT_ENV_VAR]).trim() === ""
   ) {
     return null;
   }
   const resolvedPath = path.resolve(
-    String(process.env[WEBCOMPONENTS_ROOT_ENV_VAR]).trim()
+    String(process.env[WEBCOMPONENTS_ROOT_ENV_VAR]).trim(),
   );
   if (!fs.existsSync(resolvedPath)) {
     return null;
@@ -371,16 +385,16 @@ function getLinkedWebcomponentsRoot() {
   return resolvedPath;
 }
 
-function isPathInsideDirectory(parentPath = '', targetPath = '') {
+function isPathInsideDirectory(parentPath = "", targetPath = "") {
   const relativePath = path.relative(parentPath, targetPath);
-  if (relativePath === '') {
+  if (relativePath === "") {
     return true;
   }
-  return relativePath.indexOf('..') !== 0 && !path.isAbsolute(relativePath);
+  return relativePath.indexOf("..") !== 0 && !path.isAbsolute(relativePath);
 }
 
-function getBuildAssetRequestPath(url = '') {
-  const requestPath = String(url || '').split('?')[0];
+function getBuildAssetRequestPath(url = "") {
+  const requestPath = String(url || "").split("?")[0];
   return requestPath
     .replace(/\/(.*?)\/build\//g, "build/")
     .replace(/\/(.*?)\/wc-registry.json/g, "wc-registry.json")
@@ -388,36 +402,36 @@ function getBuildAssetRequestPath(url = '') {
     .replace(/\/(.*?)\/build-haxcms.js/g, "build-haxcms.js");
 }
 
-function isBuildAssetRequest(url = '') {
-  const requestPath = String(url || '').split('?')[0];
+function isBuildAssetRequest(url = "") {
+  const requestPath = String(url || "").split("?")[0];
   return (
-    requestPath.indexOf('/build/') !== -1 ||
-    requestPath.indexOf('wc-registry.json') !== -1 ||
-    requestPath.indexOf('build.js') !== -1 ||
-    requestPath.indexOf('build-haxcms.js') !== -1
+    requestPath.indexOf("/build/") !== -1 ||
+    requestPath.indexOf("wc-registry.json") !== -1 ||
+    requestPath.indexOf("build.js") !== -1 ||
+    requestPath.indexOf("build-haxcms.js") !== -1
   );
 }
 
-function resolveLinkedNodeModuleAssetPath(modulePath = '') {
+function resolveLinkedNodeModuleAssetPath(modulePath = "") {
   if (!linkedWebcomponentsNodeModulesRoot) {
     return null;
   }
-  const normalizedModulePath = String(modulePath || '').replace(/^\/+/, '');
-  if (normalizedModulePath === '') {
+  const normalizedModulePath = String(modulePath || "").replace(/^\/+/, "");
+  if (normalizedModulePath === "") {
     return null;
   }
   const baseCandidatePath = path.join(
     linkedWebcomponentsNodeModulesRoot,
-    normalizedModulePath
+    normalizedModulePath,
   );
   const candidatePaths = [baseCandidatePath];
-  if (path.extname(normalizedModulePath) === '') {
+  if (path.extname(normalizedModulePath) === "") {
     candidatePaths.push(`${baseCandidatePath}.js`);
     candidatePaths.push(`${baseCandidatePath}.mjs`);
     candidatePaths.push(`${baseCandidatePath}.cjs`);
-    candidatePaths.push(path.join(baseCandidatePath, 'index.js'));
-    candidatePaths.push(path.join(baseCandidatePath, 'index.mjs'));
-    candidatePaths.push(path.join(baseCandidatePath, 'index.cjs'));
+    candidatePaths.push(path.join(baseCandidatePath, "index.js"));
+    candidatePaths.push(path.join(baseCandidatePath, "index.mjs"));
+    candidatePaths.push(path.join(baseCandidatePath, "index.cjs"));
     const packageEntryPath = resolvePackageEntryPath(baseCandidatePath);
     if (packageEntryPath) {
       candidatePaths.push(path.join(baseCandidatePath, packageEntryPath));
@@ -426,10 +440,7 @@ function resolveLinkedNodeModuleAssetPath(modulePath = '') {
   for (let i = 0; i < candidatePaths.length; i++) {
     const candidatePath = candidatePaths[i];
     if (
-      !isPathInsideDirectory(
-        linkedWebcomponentsNodeModulesRoot,
-        candidatePath
-      )
+      !isPathInsideDirectory(linkedWebcomponentsNodeModulesRoot, candidatePath)
     ) {
       continue;
     }
@@ -440,16 +451,16 @@ function resolveLinkedNodeModuleAssetPath(modulePath = '') {
   return null;
 }
 
-function resolveLinkedDevAssetPath(cleanFilePath = '') {
+function resolveLinkedDevAssetPath(cleanFilePath = "") {
   if (!linkedWebcomponentsRoot) {
     return null;
   }
-  const normalizedPath = String(cleanFilePath || '').replace(/^\/+/, '');
-  if (normalizedPath.indexOf('build/es6/node_modules/') === 0) {
+  const normalizedPath = String(cleanFilePath || "").replace(/^\/+/, "");
+  if (normalizedPath.indexOf("build/es6/node_modules/") === 0) {
     if (!linkedWebcomponentsNodeModulesRoot) {
       return null;
     }
-    const modulePath = normalizedPath.replace('build/es6/node_modules/', '');
+    const modulePath = normalizedPath.replace("build/es6/node_modules/", "");
     const resolvedModulePath = resolveLinkedNodeModuleAssetPath(modulePath);
     if (resolvedModulePath) {
       return resolvedModulePath;
@@ -457,9 +468,9 @@ function resolveLinkedDevAssetPath(cleanFilePath = '') {
     return null;
   }
   if (
-    normalizedPath === 'build.js' ||
-    normalizedPath === 'build-haxcms.js' ||
-    normalizedPath === 'wc-registry.json'
+    normalizedPath === "build.js" ||
+    normalizedPath === "build-haxcms.js" ||
+    normalizedPath === "wc-registry.json"
   ) {
     const candidatePath = path.join(linkedWebcomponentsRoot, normalizedPath);
     if (!isPathInsideDirectory(linkedWebcomponentsRoot, candidatePath)) {
@@ -472,7 +483,7 @@ function resolveLinkedDevAssetPath(cleanFilePath = '') {
   return null;
 }
 
-function serveBuildAssetFile(req, res, fallbackRoot = '') {
+function serveBuildAssetFile(req, res, fallbackRoot = "") {
   const cleanFilePath = getBuildAssetRequestPath(req.url);
   const linkedAssetPath = resolveLinkedDevAssetPath(cleanFilePath);
   if (linkedAssetPath) {
@@ -482,26 +493,24 @@ function serveBuildAssetFile(req, res, fallbackRoot = '') {
   res.sendFile(cleanFilePath, { root: fallbackRoot });
 }
 
-function safeReadJsonFile(filePath = '') {
+function safeReadJsonFile(filePath = "") {
   if (!filePath || !fs.existsSync(filePath)) {
     return null;
   }
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  }
-  catch (e) {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (e) {
     return null;
   }
 }
 
-function isDirectoryPath(targetPath = '') {
+function isDirectoryPath(targetPath = "") {
   if (!targetPath || !fs.existsSync(targetPath)) {
     return false;
   }
   try {
     return fs.statSync(targetPath).isDirectory();
-  }
-  catch (e) {
+  } catch (e) {
     return false;
   }
 }
@@ -510,26 +519,26 @@ function resolveExportsEntryPath(exportsField = null) {
   if (!exportsField) {
     return null;
   }
-  if (typeof exportsField === 'string') {
+  if (typeof exportsField === "string") {
     return exportsField;
   }
-  if (typeof exportsField !== 'object') {
+  if (typeof exportsField !== "object") {
     return null;
   }
-  if (Object.prototype.hasOwnProperty.call(exportsField, '.')) {
-    const rootEntry = resolveExportsEntryPath(exportsField['.']);
+  if (Object.prototype.hasOwnProperty.call(exportsField, ".")) {
+    const rootEntry = resolveExportsEntryPath(exportsField["."]);
     if (rootEntry) {
       return rootEntry;
     }
   }
   const preferredConditions = [
-    'import',
-    'browser',
-    'default',
-    'module',
-    'development',
-    'production',
-    'node'
+    "import",
+    "browser",
+    "default",
+    "module",
+    "development",
+    "production",
+    "node",
   ];
   for (let i = 0; i < preferredConditions.length; i++) {
     const condition = preferredConditions[i];
@@ -543,7 +552,7 @@ function resolveExportsEntryPath(exportsField = null) {
   const exportKeys = Object.keys(exportsField);
   for (let i = 0; i < exportKeys.length; i++) {
     const key = exportKeys[i];
-    if (key.indexOf('./') === 0) {
+    if (key.indexOf("./") === 0) {
       continue;
     }
     const entry = resolveExportsEntryPath(exportsField[key]);
@@ -554,25 +563,25 @@ function resolveExportsEntryPath(exportsField = null) {
   return null;
 }
 
-function normalizePackageEntryPath(entryPath = '') {
-  let normalizedPath = String(entryPath || '').replace(/\\/g, '/');
-  if (normalizedPath.indexOf('./') === 0) {
+function normalizePackageEntryPath(entryPath = "") {
+  let normalizedPath = String(entryPath || "").replace(/\\/g, "/");
+  if (normalizedPath.indexOf("./") === 0) {
     normalizedPath = normalizedPath.substring(2);
   }
-  if (normalizedPath.indexOf('/') === 0) {
+  if (normalizedPath.indexOf("/") === 0) {
     normalizedPath = normalizedPath.substring(1);
   }
-  if (normalizedPath === '') {
-    normalizedPath = 'index.js';
+  if (normalizedPath === "") {
+    normalizedPath = "index.js";
   }
-  if (normalizedPath.charAt(normalizedPath.length - 1) === '/') {
-    normalizedPath += 'index.js';
+  if (normalizedPath.charAt(normalizedPath.length - 1) === "/") {
+    normalizedPath += "index.js";
   }
   return normalizedPath;
 }
 
-function resolvePackageEntryPath(packageDirectory = '') {
-  const packageJsonPath = path.join(packageDirectory, 'package.json');
+function resolvePackageEntryPath(packageDirectory = "") {
+  const packageJsonPath = path.join(packageDirectory, "package.json");
   const packageJson = safeReadJsonFile(packageJsonPath);
   let entryPath = null;
   if (packageJson) {
@@ -580,41 +589,47 @@ function resolvePackageEntryPath(packageDirectory = '') {
     if (!entryPath && packageJson.module) {
       entryPath = packageJson.module;
     }
-    if (!entryPath && packageJson['jsnext:main']) {
-      entryPath = packageJson['jsnext:main'];
+    if (!entryPath && packageJson["jsnext:main"]) {
+      entryPath = packageJson["jsnext:main"];
     }
-    if (!entryPath && typeof packageJson.browser === 'string') {
+    if (!entryPath && typeof packageJson.browser === "string") {
       entryPath = packageJson.browser;
     }
     if (!entryPath && packageJson.main) {
       entryPath = packageJson.main;
     }
   }
-  entryPath = normalizePackageEntryPath(entryPath || 'index.js');
+  entryPath = normalizePackageEntryPath(entryPath || "index.js");
   let absoluteEntryPath = path.join(packageDirectory, entryPath);
-  if (fs.existsSync(absoluteEntryPath) && fs.statSync(absoluteEntryPath).isFile()) {
+  if (
+    fs.existsSync(absoluteEntryPath) &&
+    fs.statSync(absoluteEntryPath).isFile()
+  ) {
     return entryPath;
   }
-  if (path.extname(entryPath) === '') {
+  if (path.extname(entryPath) === "") {
     const extensionFallbacks = [
       `${entryPath}.js`,
       `${entryPath}.mjs`,
       `${entryPath}.cjs`,
-      path.join(entryPath, 'index.js'),
-      path.join(entryPath, 'index.mjs')
+      path.join(entryPath, "index.js"),
+      path.join(entryPath, "index.mjs"),
     ];
     for (let i = 0; i < extensionFallbacks.length; i++) {
       const candidate = extensionFallbacks[i];
       absoluteEntryPath = path.join(packageDirectory, candidate);
-      if (fs.existsSync(absoluteEntryPath) && fs.statSync(absoluteEntryPath).isFile()) {
-        return candidate.replace(/\\/g, '/');
+      if (
+        fs.existsSync(absoluteEntryPath) &&
+        fs.statSync(absoluteEntryPath).isFile()
+      ) {
+        return candidate.replace(/\\/g, "/");
       }
     }
   }
   return null;
 }
 
-function discoverNodeModulePackages(nodeModulesRoot = '') {
+function discoverNodeModulePackages(nodeModulesRoot = "") {
   const packages = [];
   if (!isDirectoryPath(nodeModulesRoot)) {
     return packages;
@@ -622,18 +637,18 @@ function discoverNodeModulePackages(nodeModulesRoot = '') {
   const topLevelEntries = fs.readdirSync(nodeModulesRoot);
   for (let i = 0; i < topLevelEntries.length; i++) {
     const entryName = topLevelEntries[i];
-    if (!entryName || entryName.charAt(0) === '.') {
+    if (!entryName || entryName.charAt(0) === ".") {
       continue;
     }
     const entryPath = path.join(nodeModulesRoot, entryName);
     if (!isDirectoryPath(entryPath)) {
       continue;
     }
-    if (entryName.charAt(0) === '@') {
+    if (entryName.charAt(0) === "@") {
       const scopedEntries = fs.readdirSync(entryPath);
       for (let j = 0; j < scopedEntries.length; j++) {
         const scopedName = scopedEntries[j];
-        if (!scopedName || scopedName.charAt(0) === '.') {
+        if (!scopedName || scopedName.charAt(0) === ".") {
           continue;
         }
         const scopedPath = path.join(entryPath, scopedName);
@@ -642,14 +657,13 @@ function discoverNodeModulePackages(nodeModulesRoot = '') {
         }
         packages.push({
           packageName: `${entryName}/${scopedName}`,
-          packageDirectory: scopedPath
+          packageDirectory: scopedPath,
         });
       }
-    }
-    else {
+    } else {
       packages.push({
         packageName: entryName,
-        packageDirectory: entryPath
+        packageDirectory: entryPath,
       });
     }
   }
@@ -658,10 +672,12 @@ function discoverNodeModulePackages(nodeModulesRoot = '') {
 
 function buildLinkedDevImportMapMarkup() {
   if (!linkedWebcomponentsNodeModulesRoot) {
-    return '';
+    return "";
   }
   const imports = {};
-  const packages = discoverNodeModulePackages(linkedWebcomponentsNodeModulesRoot);
+  const packages = discoverNodeModulePackages(
+    linkedWebcomponentsNodeModulesRoot,
+  );
   for (let i = 0; i < packages.length; i++) {
     const packageName = packages[i].packageName;
     const packageDirectory = packages[i].packageDirectory;
@@ -677,30 +693,30 @@ function buildLinkedDevImportMapMarkup() {
 
 function getLinkedDevDedupingFixMarkup() {
   if (!linkedWebcomponentsNodeModulesRoot) {
-    return '';
+    return "";
   }
   const dedupingFixPath = path.join(
     linkedWebcomponentsNodeModulesRoot,
-    '@haxtheweb',
-    'deduping-fix',
-    'deduping-fix.js'
+    "@haxtheweb",
+    "deduping-fix",
+    "deduping-fix.js",
   );
   if (!fs.existsSync(dedupingFixPath)) {
-    return '';
+    return "";
   }
   return '<script src="./build/es6/node_modules/@haxtheweb/deduping-fix/deduping-fix.js" data-haxcms-linked-dev-deduping-fix></script>';
 }
 
-function injectLinkedDevDedupingFix(indexFile = '') {
-  let output = String(indexFile || '');
-  if (output.indexOf('build-haxcms.js') !== -1) {
+function injectLinkedDevDedupingFix(indexFile = "") {
+  let output = String(indexFile || "");
+  if (output.indexOf("build-haxcms.js") !== -1) {
     return output;
   }
   const dedupingFixMarkup = getLinkedDevDedupingFixMarkup();
   if (!dedupingFixMarkup) {
     return output;
   }
-  if (output.indexOf('data-haxcms-linked-dev-deduping-fix') !== -1) {
+  if (output.indexOf("data-haxcms-linked-dev-deduping-fix") !== -1) {
     return output;
   }
   const earlyInjectionMarkers = [
@@ -708,7 +724,7 @@ function injectLinkedDevDedupingFix(indexFile = '') {
     'rel="modulepreload"',
     "rel='modulepreload'",
     'type="module"',
-    "type='module'"
+    "type='module'",
   ];
   let markerIndex = -1;
   for (let i = 0; i < earlyInjectionMarkers.length; i++) {
@@ -721,25 +737,21 @@ function injectLinkedDevDedupingFix(indexFile = '') {
     }
   }
   if (markerIndex !== -1) {
-    const tagStart = output.lastIndexOf('<', markerIndex);
+    const tagStart = output.lastIndexOf("<", markerIndex);
     if (tagStart !== -1) {
       return `${output.substring(0, tagStart)}${dedupingFixMarkup}\n${output.substring(tagStart)}`;
     }
   }
-  if (output.indexOf('</head>') !== -1) {
-    return output.replace('</head>', `${dedupingFixMarkup}\n</head>`);
+  if (output.indexOf("</head>") !== -1) {
+    return output.replace("</head>", `${dedupingFixMarkup}\n</head>`);
   }
   return `${dedupingFixMarkup}\n${output}`;
 }
 
-function extractImportMapJson(markup = '') {
-  const startIndex = markup.indexOf('>');
-  const endIndex = markup.lastIndexOf('</script>');
-  if (
-    startIndex === -1 ||
-    endIndex === -1 ||
-    endIndex <= startIndex
-  ) {
+function extractImportMapJson(markup = "") {
+  const startIndex = markup.indexOf(">");
+  const endIndex = markup.lastIndexOf("</script>");
+  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
     return null;
   }
   try {
@@ -749,7 +761,7 @@ function extractImportMapJson(markup = '') {
   }
 }
 
-function mergeImportMapMarkup(existingMarkup = '', linkedDevMarkup = '') {
+function mergeImportMapMarkup(existingMarkup = "", linkedDevMarkup = "") {
   const existingJson = extractImportMapJson(existingMarkup);
   const linkedDevJson = extractImportMapJson(linkedDevMarkup);
   if (!existingJson || !linkedDevJson) {
@@ -758,14 +770,40 @@ function mergeImportMapMarkup(existingMarkup = '', linkedDevMarkup = '') {
   const merged = {
     imports: {
       ...(existingJson.imports || {}),
-      ...(linkedDevJson.imports || {})
+      ...(linkedDevJson.imports || {}),
     },
     scopes: {
       ...(existingJson.scopes || {}),
-      ...(linkedDevJson.scopes || {})
-    }
+      ...(linkedDevJson.scopes || {}),
+    },
   };
   return `<script type="importmap" data-haxcms-linked-dev-importmap>${JSON.stringify(merged)}</script>`;
+}
+
+// Security (M1, 2026-10-19 audit): the ONE pattern used both to stamp the
+// per-request nonce (injectNonce) and to pre-mark untrusted page-content
+// scripts (neutralizeUntrustedScriptNonces). Sharing it guarantees every tag
+// injectNonce could stamp was already marked when it came from page content.
+var INLINE_SCRIPT_OPEN_TAG_PATTERN = /<script((?:\s[^>]*)?)>/gi;
+
+// Security (M1, 2026-10-19 audit): page HTML is read from disk and spliced
+// into the served index BEFORE injectNonce runs. Without this, any literal
+// <script> in a page file (legacy content, git/filesystem-synced sites,
+// another backend's writes) would receive the real nonce and execute, so the
+// nonce CSP would give no stored-XSS protection. Mark every script open tag
+// in untrusted content with an empty nonce: it can never match the real
+// nonce, and injectNonce skips tags that already carry a nonce attribute.
+function neutralizeUntrustedScriptNonces(html = "") {
+  return String(html || "").replace(
+    INLINE_SCRIPT_OPEN_TAG_PATTERN,
+    function (match, attrs) {
+      var attrsStr = String(attrs || "");
+      if (/\snonce\s*=/i.test(attrsStr)) {
+        return match;
+      }
+      return "<script" + attrsStr + ' nonce="">';
+    },
+  );
 }
 
 // Security (EXPRESS-HEADERS-001 / M2): stamp every inline <script> (and
@@ -785,34 +823,43 @@ function mergeImportMapMarkup(existingMarkup = '', linkedDevMarkup = '') {
 // attribute because browsers hide the nonce content attribute from
 // getAttribute/CSS selectors for security; a <meta> tag is not subject to
 // that hiding and is reliably readable by same-origin script.
-function injectNonce(indexFile = '', nonce = '') {
-  var cleanNonce = String(nonce || '').trim();
-  if (cleanNonce === '') {
-    return String(indexFile || '');
+function injectNonce(indexFile = "", nonce = "") {
+  var cleanNonce = String(nonce || "").trim();
+  if (cleanNonce === "") {
+    return String(indexFile || "");
   }
-  var output = String(indexFile || '');
+  var output = String(indexFile || "");
   // Stamp nonce="<n>" on inline <script> tags (including importmap). External
   // scripts (with src) are covered by script-src 'self' and skipped. Tags that
-  // already have a nonce are left alone.
-  output = output.replace(/<script((?:\s[^>]*)?)>/gi, function (match, attrs) {
-    var attrsStr = String(attrs || '');
-    if (/\snonce\s*=/i.test(attrsStr)) {
-      return match;
-    }
-    if (/\ssrc\s*=/i.test(attrsStr)) {
-      return match;
-    }
-    return '<script' + attrsStr + ' nonce="' + cleanNonce + '">';
-  });
+  // already have a nonce are left alone (this includes page-content scripts
+  // pre-marked by neutralizeUntrustedScriptNonces).
+  output = output.replace(
+    INLINE_SCRIPT_OPEN_TAG_PATTERN,
+    function (match, attrs) {
+      var attrsStr = String(attrs || "");
+      if (/\snonce\s*=/i.test(attrsStr)) {
+        return match;
+      }
+      if (/\ssrc\s*=/i.test(attrsStr)) {
+        return match;
+      }
+      return "<script" + attrsStr + ' nonce="' + cleanNonce + '">';
+    },
+  );
   // Expose the nonce to frontend JS via a <meta> tag so dynamically-created
   // inline scripts (e.g. speculation rules) can pick it up. Idempotent: if the
   // meta is already present, don't add a second one.
   var nonceMetaTag = '<meta name="csp-nonce" content="' + cleanNonce + '">';
-  if (output.indexOf('name="csp-nonce"') === -1) {
-    if (output.indexOf('<head') !== -1) {
+  // Security (M1): only look for an existing meta in the document head so
+  // page content in the body cannot suppress (or pre-empt) the real one.
+  var headEndIndex = output.search(/<\/head>/i);
+  var headRegion =
+    headEndIndex === -1 ? output : output.substring(0, headEndIndex);
+  if (headRegion.indexOf('name="csp-nonce"') === -1) {
+    if (output.indexOf("<head") !== -1) {
       // inject immediately after the <head ...> opening tag
       output = output.replace(/<head([^>]*)>/i, function (m, attrs) {
-        return '<head' + attrs + '>' + nonceMetaTag;
+        return "<head" + attrs + ">" + nonceMetaTag;
       });
     } else {
       // no <head> — prepend
@@ -830,56 +877,75 @@ function injectNonce(indexFile = '', nonce = '') {
 // plain res.sendFile if the file cannot be read (preserving prior behavior).
 function sendNonceIndex(res, req, absoluteFilePath) {
   try {
-    var indexFile = fs.readFileSync(absoluteFilePath, 'utf8');
+    var indexFile = fs.readFileSync(absoluteFilePath, "utf8");
     indexFile = injectNonce(indexFile, req && req.haxcmsCspNonce);
     setNoStoreResponseHeaders(res);
     res.send(indexFile);
-  }
-  catch (e) {
+  } catch (e) {
     setNoStoreResponseHeaders(res);
-    res.sendFile(path.basename(absoluteFilePath), { root: path.dirname(absoluteFilePath) });
+    res.sendFile(path.basename(absoluteFilePath), {
+      root: path.dirname(absoluteFilePath),
+    });
   }
 }
 
-function injectLinkedDevImportMap(indexFile = '') {
-  let output = String(indexFile || '');
+function injectLinkedDevImportMap(indexFile = "") {
+  let output = String(indexFile || "");
   if (!linkedDevImportMapMarkup) {
     return output;
   }
-  if (output.indexOf('data-haxcms-linked-dev-importmap') !== -1) {
+  if (output.indexOf("data-haxcms-linked-dev-importmap") !== -1) {
     return output;
   }
   const firstImportMapScriptIndex = output.indexOf('<script type="importmap"');
   if (firstImportMapScriptIndex !== -1) {
-    const firstImportMapScriptEndIndex = output.indexOf('</script>', firstImportMapScriptIndex);
+    const firstImportMapScriptEndIndex = output.indexOf(
+      "</script>",
+      firstImportMapScriptIndex,
+    );
     if (firstImportMapScriptEndIndex !== -1) {
-      const existingImportMap = output.substring(firstImportMapScriptIndex, firstImportMapScriptEndIndex + '</script>'.length);
-      const mergedMarkup = mergeImportMapMarkup(existingImportMap, linkedDevImportMapMarkup);
+      const existingImportMap = output.substring(
+        firstImportMapScriptIndex,
+        firstImportMapScriptEndIndex + "</script>".length,
+      );
+      const mergedMarkup = mergeImportMapMarkup(
+        existingImportMap,
+        linkedDevImportMapMarkup,
+      );
       if (mergedMarkup) {
-        return output.substring(0, firstImportMapScriptIndex) + mergedMarkup + output.substring(firstImportMapScriptEndIndex + '</script>'.length);
+        return (
+          output.substring(0, firstImportMapScriptIndex) +
+          mergedMarkup +
+          output.substring(firstImportMapScriptEndIndex + "</script>".length)
+        );
       }
       // fallback: prepend linked dev import map before the existing one
-      return output.substring(0, firstImportMapScriptIndex) + linkedDevImportMapMarkup + '\n' + output.substring(firstImportMapScriptIndex);
+      return (
+        output.substring(0, firstImportMapScriptIndex) +
+        linkedDevImportMapMarkup +
+        "\n" +
+        output.substring(firstImportMapScriptIndex)
+      );
     }
   }
   const earlyInjectionMarkers = [
     'rel="modulepreload"',
     "rel='modulepreload'",
     'type="module"',
-    "type='module'"
+    "type='module'",
   ];
   for (let i = 0; i < earlyInjectionMarkers.length; i++) {
     const marker = earlyInjectionMarkers[i];
     const markerIndex = output.indexOf(marker);
     if (markerIndex !== -1) {
-      const tagStart = output.lastIndexOf('<', markerIndex);
+      const tagStart = output.lastIndexOf("<", markerIndex);
       if (tagStart !== -1) {
         return `${output.substring(0, tagStart)}${linkedDevImportMapMarkup}\n${output.substring(tagStart)}`;
       }
     }
   }
-  if (output.indexOf('</head>') !== -1) {
-    return output.replace('</head>', `${linkedDevImportMapMarkup}\n</head>`);
+  if (output.indexOf("</head>") !== -1) {
+    return output.replace("</head>", `${linkedDevImportMapMarkup}\n</head>`);
   }
   return `${linkedDevImportMapMarkup}\n${output}`;
 }
@@ -890,12 +956,12 @@ if (process.env.NODE_ENV === "development") {
   const exec = util.promisify(child_process.exec);
   const ws = require("ws");
   const chokidar = require("chokidar");
-  const customSrcPath = path.join(process.cwd(), 'custom/src');
+  const customSrcPath = path.join(process.cwd(), "custom/src");
   const linkedElementsPath = linkedWebcomponentsRoot
-    ? path.join(linkedWebcomponentsRoot, 'elements')
+    ? path.join(linkedWebcomponentsRoot, "elements")
     : null;
 
-  const wsServer = new ws.Server({server: server});
+  const wsServer = new ws.Server({ server: server });
   const connectedClients = new Set();
 
   function sendReloadToConnectedClients() {
@@ -906,19 +972,18 @@ if (process.env.NODE_ENV === "development") {
     });
   }
 
-  async function handleWatchedFileChange(filePath = '') {
+  async function handleWatchedFileChange(filePath = "") {
     if (isPathInsideDirectory(customSrcPath, filePath)) {
       try {
         await exec("cd custom && npm run build");
-      }
-      catch (e) {}
+      } catch (e) {}
     }
     sendReloadToConnectedClients();
   }
 
   wsServer.on("connection", (socket) => {
     connectedClients.add(socket);
-    socket.on('close', () => {
+    socket.on("close", () => {
       connectedClients.delete(socket);
     });
   });
@@ -928,9 +993,9 @@ if (process.env.NODE_ENV === "development") {
     watchTargets.push(linkedElementsPath);
   }
   const watcher = chokidar.watch(watchTargets, { ignoreInitial: true });
-  watcher.on('change', handleWatchedFileChange);
-  watcher.on('add', handleWatchedFileChange);
-  watcher.on('unlink', handleWatchedFileChange);
+  watcher.on("change", handleWatchedFileChange);
+  watcher.on("add", handleWatchedFileChange);
+  watcher.on("unlink", handleWatchedFileChange);
 }
 // Security (HAX-SEC-012): express.urlencoded was previously applied globally
 // (including to static/GET requests). It is now scoped to POST/PUT/PATCH/
@@ -942,11 +1007,10 @@ app.use(helmet(helmetPolicies));
 app.use(cspNonceMiddleware);
 app.use(cookieParser());
 app.use(compression());
+// translatable API messages: add a `code` next to response messages (issues#3157)
+app.use(apiMessageCodesMiddleware);
 app.use((req, res, next) => {
-  if (
-    isSystemAdminApiRequest(req) ||
-    shouldDisableResponseCache(req)
-  ) {
+  if (isSystemAdminApiRequest(req) || shouldDisableResponseCache(req)) {
     setNoStoreResponseHeaders(res);
   }
   next();
@@ -960,7 +1024,7 @@ app.use((req, res, next) => {
 // X-Content-Type-Options: nosniff is set on every response by helmet.
 app.use((req, res, next) => {
   if (uploadSecurity.shouldForceDownloadFilesRequest(req.url)) {
-    res.setHeader('Content-Disposition', 'attachment');
+    res.setHeader("Content-Disposition", "attachment");
   }
   next();
 });
@@ -971,42 +1035,38 @@ app.use((req, res, next) => {
 // to its path segments and 404 anything targeting the config dir or a sensitive
 // file (mirrors the .htaccess protections used by the PHP backend).
 const SENSITIVE_STATIC_BASENAMES = [
-  '.pk',
-  '.rpk',
-  'salt.txt',
-  '.user',
-  'config.php',
-  'config.json',
-  '.htaccess',
-  '.ishaxcmsconfig',
+  ".pk",
+  ".rpk",
+  "salt.txt",
+  ".user",
+  "config.php",
+  "config.json",
+  ".htaccess",
+  ".ishaxcmsconfig",
   // Security (HAX-SEC / PHP [C1] parity): explicit defense-in-depth for
   // sensitive config files. These are also covered by the _config segment
   // rule below, but listing them explicitly protects against any future path
   // where they might be served from outside _config.
-  'userdata.json',
-  'apikeys.json',
+  "userdata.json",
+  "apikeys.json",
   // Security (SEC-DEPLOY): one-time seeded admin password file
-  '.initial-admin-password',
+  ".initial-admin-password",
 ];
-function isSensitiveStaticPath(url = '') {
-  let decodedPath = String(url || '').split('?')[0];
+function isSensitiveStaticPath(url = "") {
+  let decodedPath = String(url || "").split("?")[0];
   try {
     decodedPath = decodeURIComponent(decodedPath);
-  }
-  catch (e) {
+  } catch (e) {
     // fall back to the raw path if it cannot be decoded
   }
-  const segments = decodedPath
-    .replace(/\\/g, '/')
-    .toLowerCase()
-    .split('/');
+  const segments = decodedPath.replace(/\\/g, "/").toLowerCase().split("/");
   for (let i = 0; i < segments.length; i++) {
     const segment = segments[i];
-    if (segment === '') {
+    if (segment === "") {
       continue;
     }
     // the HAXcms config directory itself must never be web-served
-    if (segment === '_config') {
+    if (segment === "_config") {
       return true;
     }
     if (SENSITIVE_STATIC_BASENAMES.indexOf(segment) !== -1) {
@@ -1024,17 +1084,14 @@ app.use((req, res, next) => {
   next();
 });
 //pre-flight requests
-app.options('*', function(req, res, next) {
-	res.sendStatus(200);
+app.options("*", function (req, res, next) {
+  res.sendStatus(200);
 });
 if (linkedWebcomponentsRoot) {
   app.use((req, res, next) => {
-    if (
-      !req.url.includes('/custom/build/') &&
-      isBuildAssetRequest(req.url)
-    ) {
-      setStaticContentTypeWithCharset(res, req.url.split('?')[0], null);
-      serveBuildAssetFile(req, res, path.join(__dirname, '/public'));
+    if (!req.url.includes("/custom/build/") && isBuildAssetRequest(req.url)) {
+      setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
+      serveBuildAssetFile(req, res, path.join(__dirname, "/public"));
       return;
     }
     next();
@@ -1046,69 +1103,68 @@ if (linkedWebcomponentsRoot) {
 // builds / ubiquity not yet run), return an empty JSON stub instead of a 404
 // so the frontend editor-warmup no-ops cleanly without console noise.
 app.use((req, res, next) => {
-  if (req.url.indexOf('wc-registry-graph.json') === -1) {
+  if (req.url.indexOf("wc-registry-graph.json") === -1) {
     return next();
   }
   const candidates = [];
   if (linkedWebcomponentsRoot) {
-    candidates.push(path.join(linkedWebcomponentsRoot, 'wc-registry-graph.json'));
+    candidates.push(
+      path.join(linkedWebcomponentsRoot, "wc-registry-graph.json"),
+    );
   }
-  candidates.push(path.join(__dirname, 'public', 'wc-registry-graph.json'));
+  candidates.push(path.join(__dirname, "public", "wc-registry-graph.json"));
   for (let i = 0; i < candidates.length; i++) {
-    if (
-      fs.existsSync(candidates[i]) &&
-      fs.lstatSync(candidates[i]).isFile()
-    ) {
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    if (fs.existsSync(candidates[i]) && fs.lstatSync(candidates[i]).isFile()) {
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.sendFile(candidates[i]);
       return;
     }
   }
   // graceful degradation: empty graph so the frontend warmup finds no editor
   // tags and no-ops without a 404 in the console
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
   res.json({ paths: [], adj: {}, tags: {} });
 });
 // attempt to establish context of site vs multi-site environment
-const DEFAULT_PORT = 3000
-const MAX_PORT = 65535
-let currentPort = Number.parseInt(process.env.PORT, 10)
+const DEFAULT_PORT = 3000;
+const MAX_PORT = 65535;
+let currentPort = Number.parseInt(process.env.PORT, 10);
 if (Number.isNaN(currentPort)) {
-  currentPort = DEFAULT_PORT
+  currentPort = DEFAULT_PORT;
 }
-let resolveServerReady
+let resolveServerReady;
 const serverReady = new Promise((resolve) => {
-  resolveServerReady = resolve
-})
-let serverReadyResolved = false
+  resolveServerReady = resolve;
+});
+let serverReadyResolved = false;
 // Captured from systemStructureContext().then((site) => so the top-level
 // onServerListening() can include site name/theme in the banner.
-let activeSite = null
+let activeSite = null;
 // Best-effort one-time version read (sync) for the server banner.
-let HAXCMS_VERSION = null
+let HAXCMS_VERSION = null;
 try {
   const _versionPaths = [
-    path.join(__dirname, '/../.version'),
-    path.join(__dirname, '/../public', 'VERSION.txt'),
-  ]
+    path.join(__dirname, "/../.version"),
+    path.join(__dirname, "/../public", "VERSION.txt"),
+  ];
   for (let _i = 0; _i < _versionPaths.length; _i++) {
     if (fs.existsSync(_versionPaths[_i])) {
-      HAXCMS_VERSION = fs.readFileSync(_versionPaths[_i], 'utf8').trim()
-      break
+      HAXCMS_VERSION = fs.readFileSync(_versionPaths[_i], "utf8").trim();
+      break;
     }
   }
 } catch (e) {}
 function getRuntimePort() {
-  const address = server.address()
+  const address = server.address();
   if (
     address &&
-    typeof address === 'object' &&
-    typeof address.port === 'number'
+    typeof address === "object" &&
+    typeof address.port === "number"
   ) {
-    return address.port
+    return address.port;
   }
-  return currentPort
+  return currentPort;
 }
 systemStructureContext().then((site) => {
   // see if we have a single site context or if we need routes for multisite
@@ -1118,79 +1174,95 @@ systemStructureContext().then((site) => {
     // this assumes a site has already been made or is being navigated to to work on
     // works great w/ CLI in stand alone mode for local developer
     publicDir = site.siteDirectory;
-    HAXCMS.runtimeServerMode = 'single-site';
+    HAXCMS.runtimeServerMode = "single-site";
     activeSite = site;
     if (process.env.NODE_ENV === "development") {
       // express.static will only serve the original static index.html file
       // so dev builds need to set this ignore option to inject any edits
-      app.use(express.static(publicDir, { index: false, setHeaders: setManagedFileCharsetHeader }));
+      app.use(
+        express.static(publicDir, {
+          index: false,
+          setHeaders: setManagedFileCharsetHeader,
+        }),
+      );
     } else {
-      app.use(express.static(publicDir, { setHeaders: setManagedFileCharsetHeader }));
+      app.use(
+        express.static(publicDir, { setHeaders: setManagedFileCharsetHeader }),
+      );
     }
     if (process.env.NODE_ENV === "development") {
-      app.get('/.well-known/appspecific/com.chrome.devtools.json', (req, res) => {
-        res.setHeader('Content-Type', 'application/json');
-        res.json({
-          workspace: {
-            root: publicDir,
-            uuid: 'a1b2c3d4-e5f6-47a7-8c9d-0e1f2a3b4c5d'
-          }
-        });
-      });
+      app.get(
+        "/.well-known/appspecific/com.chrome.devtools.json",
+        (req, res) => {
+          res.setHeader("Content-Type", "application/json");
+          res.json({
+            workspace: {
+              root: publicDir,
+              uuid: "a1b2c3d4-e5f6-47a7-8c9d-0e1f2a3b4c5d",
+            },
+          });
+        },
+      );
     }
-    app.use('/', async (req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`${serverProtocol}://localhost:${currentPort}`));
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
-      res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
-      res.setHeader('Content-Type', 'application/json');
-      if (req.url.includes('/system/api/') || isSiteApiRequestPath(req.url)) {
-        next()
+    app.use("/", async (req, res, next) => {
+      res.setHeader(
+        "Access-Control-Allow-Origin",
+        HAXCMS.getCorsAllowedOrigin(
+          `${serverProtocol}://localhost:${currentPort}`,
+        ),
+      );
+      res.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET, POST, OPTIONS, PUT, PATCH, DELETE",
+      );
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "X-Requested-With, Content-Type, Accept",
+      );
+      res.setHeader("Content-Type", "application/json");
+      if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
+        next();
       }
       // previous will catch as json, undo that
       else if (
-        !req.url.includes('/custom/build/') && 
-        (
-          req.url.includes('/build/') || 
-          req.url.includes('wc-registry.json') ||
-          req.url.includes('build.js') ||
-          req.url.includes('build-haxcms.js')
-        )
+        !req.url.includes("/custom/build/") &&
+        (req.url.includes("/build/") ||
+          req.url.includes("wc-registry.json") ||
+          req.url.includes("build.js") ||
+          req.url.includes("build-haxcms.js"))
       ) {
-        setStaticContentTypeWithCharset(res, req.url.split('?')[0], null);
-        serveBuildAssetFile(req, res, path.join(__dirname, '/public'));
-      }
-      else if (
-        !req.url.includes('/x/') && (
-          req.url.includes('custom/build') || 
-          req.url.includes('/theme/') || 
-          req.url.includes('/assets/') || 
-          req.url.includes('/manifest.json') || 
-          req.url.includes('/robots.txt') ||
-          req.url.includes('/llms.txt') ||
-          req.url.includes('/rss.xml') ||
-          req.url.includes('/atom.xml') ||
-          req.url.includes('/sitemap.xml') ||
-          req.url.includes('/sitemap-index.xml') ||
-          req.url.includes('/.well-known/') ||
-          req.url.includes('/files/') || 
-          req.url.includes('/pages/') || 
-          req.url.includes('/site.json') ||
-          req.url.includes('/lunrSearchIndex.json') ||
-          req.url.includes('/service-worker.js') ||
-          req.url.includes('/offline.html') ||
-          req.url.includes('/browserconfig.xml') ||
-          req.url.includes('/push-manifest.json')
-        )
+        setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
+        serveBuildAssetFile(req, res, path.join(__dirname, "/public"));
+      } else if (
+        !req.url.includes("/x/") &&
+        (req.url.includes("custom/build") ||
+          req.url.includes("/theme/") ||
+          req.url.includes("/assets/") ||
+          req.url.includes("/manifest.json") ||
+          req.url.includes("/robots.txt") ||
+          req.url.includes("/llms.txt") ||
+          req.url.includes("/rss.xml") ||
+          req.url.includes("/atom.xml") ||
+          req.url.includes("/sitemap.xml") ||
+          req.url.includes("/sitemap-index.xml") ||
+          req.url.includes("/.well-known/") ||
+          req.url.includes("/files/") ||
+          req.url.includes("/pages/") ||
+          req.url.includes("/site.json") ||
+          req.url.includes("/lunrSearchIndex.json") ||
+          req.url.includes("/service-worker.js") ||
+          req.url.includes("/offline.html") ||
+          req.url.includes("/browserconfig.xml") ||
+          req.url.includes("/push-manifest.json"))
       ) {
         if (!setWellKnownContentType(res, req.url)) {
-          setStaticContentTypeWithCharset(res, req.url.split('?')[0]);
+          setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
         }
         res.sendFile(
-          decodeStaticRequestPath(req.url.split('?')[0]),
-          getStaticSendFileOptions(publicDir, req.url)
+          decodeStaticRequestPath(req.url.split("?")[0]),
+          getStaticSendFileOptions(publicDir, req.url),
         );
-      }
-      else {
+      } else {
         const requestPath = getRequestPathWithoutQuery(req.url);
         let variantResponse = {
           served: false,
@@ -1198,13 +1270,13 @@ systemStructureContext().then((site) => {
           canonicalPath: null,
           notFound: false,
         };
-        if (requestPath.indexOf('/x/') !== 0) {
+        if (requestPath.indexOf("/x/") !== 0) {
           variantResponse = await tryServePageVariantRequest(
             req,
             res,
             site,
             requestPath,
-            ''
+            "",
           );
           if (variantResponse.served) {
             return;
@@ -1214,7 +1286,7 @@ systemStructureContext().then((site) => {
               res,
               site,
               variantResponse.item,
-              variantResponse.canonicalPath
+              variantResponse.canonicalPath,
             );
           }
         }
@@ -1223,7 +1295,7 @@ systemStructureContext().then((site) => {
           res.status(404);
         }
         // all page calls just go to the index and the front end will render them
-        setStaticContentTypeWithCharset(res, req.url.split('?')[0]);
+        setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
         try {
           let indexFile = await renderDynamicSiteIndexResponse(
             req,
@@ -1231,7 +1303,7 @@ systemStructureContext().then((site) => {
             variantResponse.item,
             variantResponse.canonicalPath,
             pageMiss,
-            path.join(publicDir, 'index.html')
+            path.join(publicDir, "index.html"),
           );
           // injects a websocket for livereload support when developing custom components
           indexFile = injectLinkedDevDedupingFix(indexFile);
@@ -1242,70 +1314,103 @@ systemStructureContext().then((site) => {
           indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
           setNoStoreResponseHeaders(res);
           res.send(indexFile);
-        }
-        catch (e) {
-          console.warn('Runtime injection failed for single-site index, falling back to static delivery:', e);
+        } catch (e) {
+          console.warn(
+            "Runtime injection failed for single-site index, falling back to static delivery:",
+            e,
+          );
           // Security (M2): stamp the static fallback with the nonce too so its
           // inline scripts still execute under the nonce CSP.
-          sendNonceIndex(res, req, path.join(publicDir, 'index.html'));
+          sendNonceIndex(res, req, path.join(publicDir, "index.html"));
         }
       }
     });
-  }
-  else {
-    HAXCMS.runtimeServerMode = 'multisite';
+  } else {
+    HAXCMS.runtimeServerMode = "multisite";
     if (process.env.NODE_ENV === "development") {
-      app.use(express.static(publicDir, { index: false, setHeaders: setManagedFileCharsetHeader }));
-    }
-    else {
+      app.use(
+        express.static(publicDir, {
+          index: false,
+          setHeaders: setManagedFileCharsetHeader,
+        }),
+      );
+    } else {
       // Security (M2): index:false so the dashboard index.html is served by
       // the app.use('/') handler below (which stamps inline scripts with the
       // per-request CSP nonce) rather than by express.static streaming the
       // raw file (which would bypass the nonce and break under the nonce CSP).
       // Non-index assets are still served by express.static.
-      app.use(express.static(publicDir, { index: false, setHeaders: setManagedFileCharsetHeader }));
+      app.use(
+        express.static(publicDir, {
+          index: false,
+          setHeaders: setManagedFileCharsetHeader,
+        }),
+      );
     }
     // Deployment-root agent skills discovery (agentskills.io v0.2.0).
     // Serves the system-tier skill set from the project root .well-known/agent-skills/
     // so an agent discovering the HAXcms deployment itself can interface with the CMS.
     // Per-site agent-skills are served by the site .well-known route below; this is
     // only the deployment root. CORS open so browser-based agents can fetch it.
-    app.use('/.well-known/agent-skills', (req, res, next) => {
-      const asRoot = path.join(process.cwd(), '.well-known', 'agent-skills');
-      const reqPath = getRequestPathWithoutQuery(req.url).replace(/^\/+/, '');
+    app.use("/.well-known/agent-skills", (req, res, next) => {
+      const asRoot = path.join(process.cwd(), ".well-known", "agent-skills");
+      const reqPath = getRequestPathWithoutQuery(req.url).replace(/^\/+/, "");
       const targetFile = path.join(asRoot, reqPath);
-      if (!reqPath || !fs.existsSync(targetFile) || fs.statSync(targetFile).isDirectory()) {
+      if (
+        !reqPath ||
+        !fs.existsSync(targetFile) ||
+        fs.statSync(targetFile).isDirectory()
+      ) {
         next();
         return;
       }
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Vary', 'Origin');
-      setStaticContentTypeWithCharset(res, reqPath, 'text/plain; charset=utf-8');
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Vary", "Origin");
+      setStaticContentTypeWithCharset(
+        res,
+        reqPath,
+        "text/plain; charset=utf-8",
+      );
       res.sendFile(reqPath, { root: asRoot });
     });
-    app.use('/', (req, res, next) => {
-      res.setHeader('Access-Control-Allow-Origin', HAXCMS.getCorsAllowedOrigin(`${serverProtocol}://localhost:${currentPort}`));
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
-      res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept');
-      res.setHeader('Content-Type', 'application/json');
+    app.use("/", (req, res, next) => {
+      res.setHeader(
+        "Access-Control-Allow-Origin",
+        HAXCMS.getCorsAllowedOrigin(
+          `${serverProtocol}://localhost:${currentPort}`,
+        ),
+      );
+      res.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET, POST, OPTIONS, PUT, PATCH, DELETE",
+      );
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "X-Requested-With, Content-Type, Accept",
+      );
+      res.setHeader("Content-Type", "application/json");
       // advertise the deployment-root agent skills index to header-parsing agents
-      res.setHeader('Link', '</.well-known/agent-skills/index.json>; rel="https://agentskills.io/rels/skills-index"; type="application/json"');
+      res.setHeader(
+        "Link",
+        '</.well-known/agent-skills/index.json>; rel="https://agentskills.io/rels/skills-index"; type="application/json"',
+      );
       // dynamic step routes in HAXcms site list UI
       const requestPath = getRequestPathWithoutQuery(req.url);
-      const isDashboardIndexRequest = (
-        requestPath === '/' ||
-        requestPath === '/home' ||
-        requestPath === '/index.html' ||
-        requestPath.indexOf('/createSite-step-') === 0
-      );
+      const isDashboardIndexRequest =
+        requestPath === "/" ||
+        requestPath === "/home" ||
+        requestPath === "/index.html" ||
+        requestPath.indexOf("/createSite-step-") === 0;
       if (!isDashboardIndexRequest) {
         next();
-      }
-      else {
+      } else {
         setStaticContentTypeWithCharset(res, requestPath);
         if (process.env.NODE_ENV === "development") {
           try {
-            let indexFile = fs.readFileSync(path.join(publicDir, 'index.html'), 'utf8');
+            let indexFile = fs.readFileSync(
+              path.join(publicDir, "index.html"),
+              "utf8",
+            );
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
@@ -1315,99 +1420,104 @@ systemStructureContext().then((site) => {
             setNoStoreResponseHeaders(res);
             res.send(indexFile);
             return;
-          }
-          catch (e) {
-            console.warn('Runtime injection failed for dashboard index, falling back to static delivery:', e);
+          } catch (e) {
+            console.warn(
+              "Runtime injection failed for dashboard index, falling back to static delivery:",
+              e,
+            );
           }
         }
         // Security (M2): non-dev dashboard index. Read+nonce+send so inline
         // scripts are authorized under the nonce CSP (no 'unsafe-inline').
-        sendNonceIndex(res, req, path.join(publicDir, 'index.html'));
+        sendNonceIndex(res, req, path.join(publicDir, "index.html"));
       }
     });
     if (process.env.NODE_ENV === "development") {
-      app.get(`/${HAXCMS.sitesDirectory}/:site/.well-known/appspecific/com.chrome.devtools.json`, async (req, res) => {
-        const siteContext = await HAXCMS.loadSite(req.params.site);
-        if (siteContext && siteContext.siteDirectory) {
-          res.setHeader('Content-Type', 'application/json');
-          res.json({
-            workspace: {
-              root: siteContext.siteDirectory,
-              uuid: 'a1b2c3d4-e5f6-47a7-8c9d-0e1f2a3b4c5d'
-            }
-          });
-        } else {
-          res.status(404).end();
-        }
-      });
+      app.get(
+        `/${HAXCMS.sitesDirectory}/:site/.well-known/appspecific/com.chrome.devtools.json`,
+        async (req, res) => {
+          const siteContext = await HAXCMS.loadSite(req.params.site);
+          if (siteContext && siteContext.siteDirectory) {
+            res.setHeader("Content-Type", "application/json");
+            res.json({
+              workspace: {
+                root: siteContext.siteDirectory,
+                uuid: "a1b2c3d4-e5f6-47a7-8c9d-0e1f2a3b4c5d",
+              },
+            });
+          } else {
+            res.status(404).end();
+          }
+        },
+      );
     }
     // sites need rewriting to work with PWA routes without failing file location
     // similar to htaccess
     app.use(`/${HAXCMS.sitesDirectory}/`, async (req, res, next) => {
       const multisiteRequestPath = getRequestPathWithoutQuery(req.url);
-      if (multisiteRequestPath === '/' || multisiteRequestPath === '') {
-        const queryIndex = req.url.indexOf('?');
-        const querySuffix = queryIndex !== -1 ? req.url.substring(queryIndex) : '';
+      if (multisiteRequestPath === "/" || multisiteRequestPath === "") {
+        const queryIndex = req.url.indexOf("?");
+        const querySuffix =
+          queryIndex !== -1 ? req.url.substring(queryIndex) : "";
         res.redirect(302, `/${querySuffix}`);
         return;
       }
       if (/^\/[^/]+$/.test(multisiteRequestPath)) {
-        const queryIndex = req.url.indexOf('?');
-        const querySuffix = queryIndex !== -1 ? req.url.substring(queryIndex) : '';
-        res.redirect(301, `${req.baseUrl}${multisiteRequestPath}/${querySuffix}`);
+        const queryIndex = req.url.indexOf("?");
+        const querySuffix =
+          queryIndex !== -1 ? req.url.substring(queryIndex) : "";
+        res.redirect(
+          301,
+          `${req.baseUrl}${multisiteRequestPath}/${querySuffix}`,
+        );
         return;
       }
-      if (req.url.includes('/system/api/') || isSiteApiRequestPath(req.url)) {
-        next()
+      if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
+        next();
       }
       // previous will catch as json, undo that
       else if (
-        !req.url.includes('/custom/build/') && 
-        (
-          req.url.includes('/build/') || 
-          req.url.includes('wc-registry.json') ||
-          req.url.includes('build.js') ||
-          req.url.includes('build-haxcms.js')
-        )
+        !req.url.includes("/custom/build/") &&
+        (req.url.includes("/build/") ||
+          req.url.includes("wc-registry.json") ||
+          req.url.includes("build.js") ||
+          req.url.includes("build-haxcms.js"))
       ) {
-        setStaticContentTypeWithCharset(res, req.url.split('?')[0], null);
+        setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
         serveBuildAssetFile(req, res, publicDir);
-      }
-      else if (
-        !req.url.includes('/x/') && (
-          req.url.includes('custom/build') || 
-          req.url.includes('/theme/') || 
-          req.url.includes('/assets/') || 
-          req.url.includes('/manifest.json') || 
-          req.url.includes('/robots.txt') ||
-          req.url.includes('/llms.txt') ||
-          req.url.includes('/rss.xml') ||
-          req.url.includes('/atom.xml') ||
-          req.url.includes('/sitemap.xml') ||
-          req.url.includes('/sitemap-index.xml') ||
-          req.url.includes('/.well-known/') ||
-          req.url.includes('/files/') || 
-          req.url.includes('/pages/') || 
-          req.url.includes('/site.json') ||
-          req.url.includes('/lunrSearchIndex.json') ||
-          req.url.includes('/service-worker.js') ||
-          req.url.includes('/offline.html') ||
-          req.url.includes('/browserconfig.xml') ||
-          req.url.includes('/push-manifest.json')
-        )
+      } else if (
+        !req.url.includes("/x/") &&
+        (req.url.includes("custom/build") ||
+          req.url.includes("/theme/") ||
+          req.url.includes("/assets/") ||
+          req.url.includes("/manifest.json") ||
+          req.url.includes("/robots.txt") ||
+          req.url.includes("/llms.txt") ||
+          req.url.includes("/rss.xml") ||
+          req.url.includes("/atom.xml") ||
+          req.url.includes("/sitemap.xml") ||
+          req.url.includes("/sitemap-index.xml") ||
+          req.url.includes("/.well-known/") ||
+          req.url.includes("/files/") ||
+          req.url.includes("/pages/") ||
+          req.url.includes("/site.json") ||
+          req.url.includes("/lunrSearchIndex.json") ||
+          req.url.includes("/service-worker.js") ||
+          req.url.includes("/offline.html") ||
+          req.url.includes("/browserconfig.xml") ||
+          req.url.includes("/push-manifest.json"))
       ) {
         if (!setWellKnownContentType(res, req.url)) {
-          setStaticContentTypeWithCharset(res, req.url.split('?')[0]);
+          setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
         }
         res.sendFile(
-          decodeStaticRequestPath(req.url.split('?')[0]),
+          decodeStaticRequestPath(req.url.split("?")[0]),
           getStaticSendFileOptions(
             process.cwd() + `/${HAXCMS.sitesDirectory}`,
-            req.url
-          )
+            req.url,
+          ),
         );
-      }
-      else {
+      } else {
         const siteName = getMultisiteSiteName(multisiteRequestPath);
         let siteContext = null;
         let variantResponse = {
@@ -1419,32 +1529,32 @@ systemStructureContext().then((site) => {
         if (siteName) {
           siteContext = await HAXCMS.loadSite(siteName);
           const siteSubPath = getMultisiteSiteSubPath(multisiteRequestPath);
-          if (siteContext && siteSubPath.indexOf('/x/') !== 0) {
-              variantResponse = await tryServePageVariantRequest(
-                req,
+          if (siteContext && siteSubPath.indexOf("/x/") !== 0) {
+            variantResponse = await tryServePageVariantRequest(
+              req,
+              res,
+              siteContext,
+              siteSubPath,
+              `/${HAXCMS.sitesDirectory}/${siteName}`,
+            );
+            if (variantResponse.served) {
+              return;
+            }
+            if (variantResponse.item && variantResponse.canonicalPath) {
+              setPageAlternateHeaders(
                 res,
                 siteContext,
-                siteSubPath,
-                `/${HAXCMS.sitesDirectory}/${siteName}`
+                variantResponse.item,
+                variantResponse.canonicalPath,
               );
-              if (variantResponse.served) {
-                return;
-              }
-              if (variantResponse.item && variantResponse.canonicalPath) {
-                setPageAlternateHeaders(
-                  res,
-                  siteContext,
-                  variantResponse.item,
-                  variantResponse.canonicalPath
-                );
-              }
+            }
           }
         }
         const pageMiss = variantResponse.notFound === true;
         if (pageMiss) {
           res.status(404);
         }
-        setStaticContentTypeWithCharset(res, req.url.split('?')[0]);
+        setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
         if (siteContext && siteContext.siteDirectory) {
           try {
             let indexFile = await renderDynamicSiteIndexResponse(
@@ -1453,7 +1563,7 @@ systemStructureContext().then((site) => {
               variantResponse.item,
               variantResponse.canonicalPath,
               pageMiss,
-              path.join(siteContext.siteDirectory, 'index.html')
+              path.join(siteContext.siteDirectory, "index.html"),
             );
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
@@ -1464,24 +1574,32 @@ systemStructureContext().then((site) => {
             setNoStoreResponseHeaders(res);
             res.send(indexFile);
             return;
-          }
-          catch (e) {
-            console.warn('Runtime injection failed for site index, falling back to static delivery:', e);
+          } catch (e) {
+            console.warn(
+              "Runtime injection failed for site index, falling back to static delivery:",
+              e,
+            );
           }
         }
         // Security (M2): static index fallback — read+nonce+send so inline
         // scripts are authorized under the nonce CSP (no 'unsafe-inline').
         // Mirrors the prior res.sendFile path resolution.
-        var fallbackRelativePath = req.url.replace(/\/(.*?)\/(.*)/, `/${HAXCMS.sitesDirectory}/$1/index.html`);
-        sendNonceIndex(res, req, path.join(process.cwd(), fallbackRelativePath));
+        var fallbackRelativePath = req.url.replace(
+          /\/(.*?)\/(.*)/,
+          `/${HAXCMS.sitesDirectory}/$1/index.html`,
+        );
+        sendNonceIndex(
+          res,
+          req,
+          path.join(process.cwd(), fallbackRelativePath),
+        );
       }
     });
     // published directory route if it exists
-    app.use(`/${HAXCMS.publishedDirectory}/`,(req, res, next) => {
+    app.use(`/${HAXCMS.publishedDirectory}/`, (req, res, next) => {
       setStaticContentTypeWithCharset(res, req.url);
-      res.sendFile(decodeStaticRequestPath(req.url.split('?')[0]),
-      {
-        root: process.cwd() + `/${HAXCMS.publishedDirectory}`
+      res.sendFile(decodeStaticRequestPath(req.url.split("?")[0]), {
+        root: process.cwd() + `/${HAXCMS.publishedDirectory}`,
       });
     });
   }
@@ -1489,20 +1607,18 @@ systemStructureContext().then((site) => {
     allRoutes &&
     allRoutes.site &&
     allRoutes.site.map &&
-    typeof allRoutes.site.map === 'object'
+    typeof allRoutes.site.map === "object"
       ? allRoutes.site.map
       : SiteRoutesMap;
   const systemRouteRegistry =
     allRoutes &&
     allRoutes.system &&
     allRoutes.system.map &&
-    typeof allRoutes.system.map === 'object'
+    typeof allRoutes.system.map === "object"
       ? allRoutes.system.map
       : SystemRoutesMap;
   const systemV1OpenRouteRegistry =
-    allRoutes &&
-    allRoutes.system &&
-    Array.isArray(allRoutes.system.openRoutes)
+    allRoutes && allRoutes.system && Array.isArray(allRoutes.system.openRoutes)
       ? allRoutes.system.openRoutes
       : SystemV1OpenRoutes;
   // loop through scoped system API routes and register under /system/api/v1
@@ -1510,25 +1626,44 @@ systemStructureContext().then((site) => {
   for (let systemMethod in systemRouteRegistry) {
     for (let systemRoute in systemRouteRegistry[systemMethod]) {
       const systemRoutePath = `${systemApiV1BasePath}${systemRoute}`;
-      const systemRouteParser = getSystemV1RouteParser(systemMethod, systemRoute);
+      const systemRouteParser = getSystemV1RouteParser(
+        systemMethod,
+        systemRoute,
+      );
       const systemRouteHandler = async (req, res, next) => {
-        const op = req.route.path.replace(systemApiV1BasePath, '');
+        const op = req.route.path.replace(systemApiV1BasePath, "");
         const rMethod = req.method.toLowerCase();
         // Security (SEC-UPLOAD): auth decision shared with the multipart
         // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
         // result when it already ran for this request so basic credentials
         // are only checked once.
-        const auth = getSystemV1PreAuthResult(req, op) ||
-          evaluateSystemV1RouteAuthentication(req, res, op, systemV1OpenRouteRegistry);
+        const auth =
+          getSystemV1PreAuthResult(req, op) ||
+          evaluateSystemV1RouteAuthentication(
+            req,
+            res,
+            op,
+            systemV1OpenRouteRegistry,
+          );
         if (auth.authenticated) {
           const basicAuth = auth.basicAuth;
-          if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
+          if (
+            !enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)
+          ) {
             return;
           }
           // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
           // system routes (e.g. provider-search) so the router returns a
           // consistent 403 envelope instead of the handler doing the check.
-          if (!await enforceSystemApiSiteTokenPolicy(req, res, op, rMethod, basicAuth)) {
+          if (
+            !(await enforceSystemApiSiteTokenPolicy(
+              req,
+              res,
+              op,
+              rMethod,
+              basicAuth,
+            ))
+          ) {
             return;
           }
           return systemRouteRegistry[rMethod][op](req, res, next);
@@ -1538,31 +1673,50 @@ systemStructureContext().then((site) => {
       const siteScopedSystemRouteHandler = async (req, res, next) => {
         const op = req.route.path.replace(
           `/${HAXCMS.sitesDirectory}/*${systemApiV1BasePath}`,
-          '',
+          "",
         );
         const rMethod = req.method.toLowerCase();
         // Security (SEC-UPLOAD): auth decision shared with the multipart
         // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
         // result when it already ran for this request so basic credentials
         // are only checked once.
-        const auth = getSystemV1PreAuthResult(req, op) ||
-          evaluateSystemV1RouteAuthentication(req, res, op, systemV1OpenRouteRegistry);
+        const auth =
+          getSystemV1PreAuthResult(req, op) ||
+          evaluateSystemV1RouteAuthentication(
+            req,
+            res,
+            op,
+            systemV1OpenRouteRegistry,
+          );
         if (auth.authenticated) {
           const basicAuth = auth.basicAuth;
-          if (!enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)) {
+          if (
+            !enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)
+          ) {
             return;
           }
           // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
           // system routes (e.g. provider-search) so the router returns a
           // consistent 403 envelope instead of the handler doing the check.
-          if (!await enforceSystemApiSiteTokenPolicy(req, res, op, rMethod, basicAuth)) {
+          if (
+            !(await enforceSystemApiSiteTokenPolicy(
+              req,
+              res,
+              op,
+              rMethod,
+              basicAuth,
+            ))
+          ) {
             return;
           }
           return systemRouteRegistry[rMethod][op](req, res, next);
         }
         return sendSystemV1AuthFailure(res, auth);
       };
-      if (systemRouteParser && isMultipartCapableSystemRouteParser(systemRouteParser)) {
+      if (
+        systemRouteParser &&
+        isMultipartCapableSystemRouteParser(systemRouteParser)
+      ) {
         // Security (SEC-UPLOAD): multipart routes authenticate BEFORE multer
         // writes anything to <config>/tmp; failures short-circuit with the
         // exact status/envelope the handler would have returned.
@@ -1582,8 +1736,7 @@ systemStructureContext().then((site) => {
           systemRouteParser,
           siteScopedSystemRouteHandler,
         );
-      }
-      else if (systemRouteParser) {
+      } else if (systemRouteParser) {
         app[systemMethod](
           systemRoutePath,
           systemRouteParser,
@@ -1594,8 +1747,7 @@ systemStructureContext().then((site) => {
           systemRouteParser,
           siteScopedSystemRouteHandler,
         );
-      }
-      else {
+      } else {
         app[systemMethod](systemRoutePath, systemRouteHandler);
         app[systemMethod](
           `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
@@ -1608,15 +1760,19 @@ systemStructureContext().then((site) => {
   const siteApiBasePath = getSiteApiBasePath();
   for (let siteMethod in siteRouteRegistry) {
     for (let siteRoute in siteRouteRegistry[siteMethod]) {
-      const routeSuffix = siteRoute === '' ? '' : '/' + siteRoute;
+      const routeSuffix = siteRoute === "" ? "" : "/" + siteRoute;
       const siteRoutePath = `${siteApiBasePath}${routeSuffix}`;
       const siteRouteParser = getSiteApiRouteParser(siteMethod, siteRoute);
       const siteRouteHandler = async (req, res, next) => {
         try {
-          const access = await validateSiteApiRouteAccess(req, siteRoute, siteMethod);
+          const access = await validateSiteApiRouteAccess(
+            req,
+            siteRoute,
+            siteMethod,
+          );
           if (!access.allowed) {
             if (access.retryAfterSeconds && access.retryAfterSeconds > 0) {
-              res.set('Retry-After', String(access.retryAfterSeconds));
+              res.set("Retry-After", String(access.retryAfterSeconds));
             }
             return res.status(access.status).json({
               status: access.status,
@@ -1627,15 +1783,23 @@ systemStructureContext().then((site) => {
         } catch (e) {
           return res.status(500).json({
             status: 500,
-            data: { message: 'Unable to evaluate site API access policy' },
-            });
+            data: { message: "Unable to evaluate site API access policy" },
+          });
         }
       };
       if (siteRouteParser && siteRouteParser === uploadAnyParser) {
         // Security (SEC-UPLOAD): authenticate before multer writes the upload
         // to <config>/tmp (see createSiteApiUploadPreAuthMiddleware).
-        const siteUploadPreAuth = createSiteApiUploadPreAuthMiddleware(siteRoute, siteMethod);
-        app[siteMethod](siteRoutePath, siteUploadPreAuth, siteRouteParser, siteRouteHandler);
+        const siteUploadPreAuth = createSiteApiUploadPreAuthMiddleware(
+          siteRoute,
+          siteMethod,
+        );
+        app[siteMethod](
+          siteRoutePath,
+          siteUploadPreAuth,
+          siteRouteParser,
+          siteRouteHandler,
+        );
         app[siteMethod](
           `/${HAXCMS.sitesDirectory}/*${siteRoutePath}`,
           siteUploadPreAuth,
@@ -1666,14 +1830,24 @@ systemStructureContext().then((site) => {
   // method matches, the request falls through to the existing catch-all / 404.
   app.use((req, res, next) => {
     const requestPath = getRequestPathWithoutQuery(req.originalUrl || req.url);
-    const upperReqMethod = String(req.method || 'GET').toUpperCase();
+    const upperReqMethod = String(req.method || "GET").toUpperCase();
     // Check system API paths
-    if (requestPath.indexOf('/system/api/') !== -1) {
+    if (requestPath.indexOf("/system/api/") !== -1) {
       const systemSuffix = extractSystemApiRouteSuffixFromPath(requestPath);
       if (systemSuffix !== null) {
-        const allowedMethods = findAllowedMethodsForRouteSuffix(systemSuffix, systemRouteRegistry);
-        if (allowedMethods.length > 0 && allowedMethods.indexOf(upperReqMethod) === -1) {
-          return sendMethodNotAllowedResponse(res, systemSuffix, allowedMethods);
+        const allowedMethods = findAllowedMethodsForRouteSuffix(
+          systemSuffix,
+          systemRouteRegistry,
+        );
+        if (
+          allowedMethods.length > 0 &&
+          allowedMethods.indexOf(upperReqMethod) === -1
+        ) {
+          return sendMethodNotAllowedResponse(
+            res,
+            systemSuffix,
+            allowedMethods,
+          );
         }
       }
     }
@@ -1681,8 +1855,14 @@ systemStructureContext().then((site) => {
     if (isSiteApiRequestPath(requestPath)) {
       const siteSuffix = extractSiteApiRouteSuffixFromPath(requestPath);
       if (siteSuffix !== null) {
-        const allowedMethods = findAllowedMethodsForRouteSuffix(siteSuffix, siteRouteRegistry);
-        if (allowedMethods.length > 0 && allowedMethods.indexOf(upperReqMethod) === -1) {
+        const allowedMethods = findAllowedMethodsForRouteSuffix(
+          siteSuffix,
+          siteRouteRegistry,
+        );
+        if (
+          allowedMethods.length > 0 &&
+          allowedMethods.indexOf(upperReqMethod) === -1
+        ) {
           return sendMethodNotAllowedResponse(res, siteSuffix, allowedMethods);
         }
       }
@@ -1692,23 +1872,26 @@ systemStructureContext().then((site) => {
   // can't do this for a site context
   if (!site) {
     // catch anything called on homepage that doens't match and ensure it still goes through so that it 404s correctly
-    app.get('*', function(req, res, next) {
+    app.get("*", function (req, res, next) {
       if (
-        req.url !== '/' &&
-        !req.url.startsWith('/build') &&
-        !req.url.startsWith('/site.json') &&
-        !req.url.startsWith('/system') &&
-        !req.url.startsWith('/_sites') &&
-        !req.url.startsWith('/assets') &&
-        !req.url.startsWith('/wc-registry.json') &&
-        !req.url.startsWith('/favicon.ico') &&
-        !req.url.startsWith('/manifest.json') &&
-        !req.url.startsWith('/robots.txt') &&
-        !req.url.startsWith('/llms.txt')
+        req.url !== "/" &&
+        !req.url.startsWith("/build") &&
+        !req.url.startsWith("/site.json") &&
+        !req.url.startsWith("/system") &&
+        !req.url.startsWith("/_sites") &&
+        !req.url.startsWith("/assets") &&
+        !req.url.startsWith("/wc-registry.json") &&
+        !req.url.startsWith("/favicon.ico") &&
+        !req.url.startsWith("/manifest.json") &&
+        !req.url.startsWith("/robots.txt") &&
+        !req.url.startsWith("/llms.txt")
       ) {
         if (process.env.NODE_ENV === "development") {
           try {
-            let indexFile = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+            let indexFile = fs.readFileSync(
+              path.join(__dirname, "public", "index.html"),
+              "utf8",
+            );
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
@@ -1718,16 +1901,17 @@ systemStructureContext().then((site) => {
             setNoStoreResponseHeaders(res);
             res.send(indexFile);
             return;
-          }
-          catch (e) {
-            console.warn('Runtime injection failed for catch-all index, falling back to static delivery:', e);
+          } catch (e) {
+            console.warn(
+              "Runtime injection failed for catch-all index, falling back to static delivery:",
+              e,
+            );
           }
         }
         // Security (M2): non-dev catch-all fallback — read+nonce+send so inline
         // scripts are authorized under the nonce CSP (no 'unsafe-inline').
-        sendNonceIndex(res, req, path.join(__dirname, 'public', 'index.html'));
-      }
-      else {
+        sendNonceIndex(res, req, path.join(__dirname, "public", "index.html"));
+      } else {
         next();
       }
     });
@@ -1738,54 +1922,70 @@ systemStructureContext().then((site) => {
 });
 // Security (SEC-DEPLOY): resolved once at first listen so port-retry attempts
 // keep binding the same interface.
-var listenHost = null
-var listenHostResolved = false
-server.on('listening', onServerListening);
-server.on('error', handleServerError);
+var listenHost = null;
+var listenHostResolved = false;
+server.on("listening", onServerListening);
+server.on("error", handleServerError);
 // Security (SEC-UPLOAD): sweep stale multer temp files (>1h) and abandoned
 // tmp/imports staging entries (>24h) at startup and every 15 minutes. The
 // timer is unref'd and stopped when the server closes.
-const stopUploadTempSweeper = uploadSecurity.startUploadTempSweeper(UPLOAD_TEMP_DIRECTORY);
-server.on('close', stopUploadTempSweeper);
+const stopUploadTempSweeper = uploadSecurity.startUploadTempSweeper(
+  UPLOAD_TEMP_DIRECTORY,
+);
+server.on("close", stopUploadTempSweeper);
 startServer(currentPort);
 
 function startServer(portToTry) {
-  currentPort = Number(portToTry)
+  currentPort = Number(portToTry);
   if (!listenHostResolved) {
-    listenHostResolved = true
-    const jwtChecksDisabled = !!HAXCMS.HAXCMS_DISABLE_JWT_CHECKS
-    listenHost = selectListenHost({ env: process.env, jwtChecksDisabled })
-    const exposureWarning = getBypassExposureWarning(listenHost, jwtChecksDisabled)
+    listenHostResolved = true;
+    const jwtChecksDisabled = !!HAXCMS.HAXCMS_DISABLE_JWT_CHECKS;
+    listenHost = selectListenHost({ env: process.env, jwtChecksDisabled });
+    const exposureWarning = getBypassExposureWarning(
+      listenHost,
+      jwtChecksDisabled,
+    );
     if (exposureWarning) {
-      console.warn(exposureWarning)
+      console.warn(exposureWarning);
     }
   }
   if (listenHost) {
-    server.listen(currentPort, listenHost)
-  }
-  else {
-    server.listen(currentPort)
+    server.listen(currentPort, listenHost);
+  } else {
+    server.listen(currentPort);
   }
 }
 function onServerListening() {
-  const runtimePort = getRuntimePort()
-  currentPort = runtimePort
-  process.env.PORT = `${runtimePort}`
+  const runtimePort = getRuntimePort();
+  currentPort = runtimePort;
+  process.env.PORT = `${runtimePort}`;
   if (!serverReadyResolved) {
-    resolveServerReady(runtimePort)
-    serverReadyResolved = true
+    resolveServerReady(runtimePort);
+    serverReadyResolved = true;
   }
   let _siteName = null;
   let _themeName = null;
-  if (activeSite && activeSite.manifest && activeSite.manifest.metadata && activeSite.manifest.metadata.site && activeSite.manifest.metadata.site.name) {
+  if (
+    activeSite &&
+    activeSite.manifest &&
+    activeSite.manifest.metadata &&
+    activeSite.manifest.metadata.site &&
+    activeSite.manifest.metadata.site.name
+  ) {
     _siteName = activeSite.manifest.metadata.site.name;
   }
-  if (activeSite && activeSite.manifest && activeSite.manifest.metadata && activeSite.manifest.metadata.theme && activeSite.manifest.metadata.theme.element) {
+  if (
+    activeSite &&
+    activeSite.manifest &&
+    activeSite.manifest.metadata &&
+    activeSite.manifest.metadata.theme &&
+    activeSite.manifest.metadata.theme.element
+  ) {
     _themeName = activeSite.manifest.metadata.theme.element;
   }
   cliTheme.printServerBanner({
     url: `${serverProtocol}://${getBrowserHost(listenHost)}:${runtimePort}`,
-    mode: HAXCMS.runtimeServerMode || '',
+    mode: HAXCMS.runtimeServerMode || "",
     siteName: _siteName,
     theme: _themeName,
     version: HAXCMS_VERSION,
@@ -1822,48 +2022,51 @@ module.exports = {
   server,
   serverReady,
   serverProtocol,
-  getListenHost: () => listenHost
+  getListenHost: () => listenHost,
 };
 function isSiteScopedSystemApiRoutePattern(req) {
-  if (!req || !req.route || typeof req.route.path !== 'string') {
+  if (!req || !req.route || typeof req.route.path !== "string") {
     return false;
   }
   return req.route.path.indexOf(`/${HAXCMS.sitesDirectory}/`) === 0;
 }
 function isDashboardRefererRequest(req) {
-  if (!req || !req.headers || typeof req.headers.referer !== 'string') {
+  if (!req || !req.headers || typeof req.headers.referer !== "string") {
     return false;
   }
   return req.headers.referer.indexOf(`/${HAXCMS.sitesDirectory}/`) === -1;
 }
 function setNoStoreResponseHeaders(res) {
-  if (!res || typeof res.setHeader !== 'function') {
+  if (!res || typeof res.setHeader !== "function") {
     return;
   }
   res.setHeader(
-    'Cache-Control',
-    'no-store, no-cache, must-revalidate, proxy-revalidate',
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
   );
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  res.setHeader('Surrogate-Control', 'no-store');
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
 }
-function normalizePathForCacheMatching(value = '') {
-  let normalized = String(value || '');
-  if (normalized === '') {
-    return '/';
+function normalizePathForCacheMatching(value = "") {
+  let normalized = String(value || "");
+  if (normalized === "") {
+    return "/";
   }
-  normalized = normalized.replace(/\/+/g, '/');
-  if (normalized.charAt(0) !== '/') {
-    normalized = '/' + normalized;
+  normalized = normalized.replace(/\/+/g, "/");
+  if (normalized.charAt(0) !== "/") {
+    normalized = "/" + normalized;
   }
-  if (normalized.length > 1 && normalized.charAt(normalized.length - 1) === '/') {
+  if (
+    normalized.length > 1 &&
+    normalized.charAt(normalized.length - 1) === "/"
+  ) {
     normalized = normalized.substring(0, normalized.length - 1);
   }
   return normalized;
 }
 function hasQueryParameter(req, key) {
-  if (!req || !req.query || typeof req.query !== 'object') {
+  if (!req || !req.query || typeof req.query !== "object") {
     return false;
   }
   return Object.prototype.hasOwnProperty.call(req.query, key);
@@ -1876,25 +2079,24 @@ function isSystemAdminApiRequest(req) {
     getRequestPathWithoutQuery(req.originalUrl || req.url),
   );
   const systemRequestBasePath = normalizePathForCacheMatching(
-    '/' + String(HAXCMS.systemRequestBase || '').replace(/^\/+/, ''),
+    "/" + String(HAXCMS.systemRequestBase || "").replace(/^\/+/, ""),
   );
-  if (systemRequestBasePath === '/') {
+  if (systemRequestBasePath === "/") {
     return false;
   }
   if (requestPath === systemRequestBasePath) {
     return true;
   }
-  return requestPath.indexOf(systemRequestBasePath + '/') !== -1;
+  return requestPath.indexOf(systemRequestBasePath + "/") !== -1;
 }
 function shouldDisableResponseCache(req) {
   if (!req) {
     return false;
   }
-  return hasQueryParameter(req, 'cb') || hasQueryParameter(req, 't');
+  return hasQueryParameter(req, "cb") || hasQueryParameter(req, "t");
 }
 
-
-function validateSystemV1RouteAccess(req, op = '') {
+function validateSystemV1RouteAccess(req, op = "") {
   if (SystemV1AdminRoutes.indexOf(op) === -1) {
     return true;
   }
@@ -1910,12 +2112,17 @@ function validateSystemV1RouteAccess(req, op = '') {
 // from the route handlers so the multipart pre-auth middleware makes exactly
 // the same decision (and returns exactly the same status/envelope) before
 // multer runs. Order and messages are unchanged from the inline handler code.
-function evaluateSystemV1RouteAuthentication(req, res, op = '', openRoutes = []) {
+function evaluateSystemV1RouteAuthentication(
+  req,
+  res,
+  op = "",
+  openRoutes = [],
+) {
   if (!validateSystemV1RouteAccess(req, op)) {
     return {
       authenticated: false,
       status: 403,
-      message: 'system admin route requires system dashboard access',
+      message: "system admin route requires system dashboard access",
     };
   }
   let isAuthenticated = openRoutes.includes(op) || HAXCMS.validateJWT(req, res);
@@ -1926,7 +2133,7 @@ function evaluateSystemV1RouteAuthentication(req, res, op = '', openRoutes = [])
       return {
         authenticated: false,
         status: 429,
-        message: 'Too many failed login attempts. Please try again later.',
+        message: "Too many failed login attempts. Please try again later.",
         retryAfterSeconds: basicAuth.retryAfterSeconds || 0,
       };
     }
@@ -1942,29 +2149,29 @@ function evaluateSystemV1RouteAuthentication(req, res, op = '', openRoutes = [])
   // 401 for no creds or failed basic (fresh credential rejection);
   // 403 for a present-but-invalid bearer (refreshable). Envelope D1.
   // Message strings mirror PHP SystemApiSecurity so outputs are identical.
-  if (getBearerJwtFromRequest(req) !== '') {
+  if (getBearerJwtFromRequest(req) !== "") {
     return {
       authenticated: false,
       status: 403,
-      message: 'Invalid bearer token',
+      message: "Invalid bearer token",
     };
   }
   return {
     authenticated: false,
     status: 401,
-    message: 'Authentication required',
+    message: "Authentication required",
   };
 }
 function sendSystemV1AuthFailure(res, auth) {
   if (auth.status === 429) {
-    res.set('Retry-After', String(auth.retryAfterSeconds || 0));
+    res.set("Retry-After", String(auth.retryAfterSeconds || 0));
   }
   return res.status(auth.status).json({
     status: auth.status,
     data: { message: auth.message },
   });
 }
-function getSystemV1PreAuthResult(req, op = '') {
+function getSystemV1PreAuthResult(req, op = "") {
   if (
     req &&
     req.haxcmsSystemV1PreAuth &&
@@ -1977,13 +2184,16 @@ function getSystemV1PreAuthResult(req, op = '') {
   return null;
 }
 function isMultipartCapableSystemRouteParser(parser) {
-  return parser === parseConversionActionBody || parser === parseSchemaFileOperationBody;
+  return (
+    parser === parseConversionActionBody ||
+    parser === parseSchemaFileOperationBody
+  );
 }
 // Security (SEC-UPLOAD): runs before the multipart parser on system routes
 // that accept uploads. Unauthenticated multipart requests are rejected here so
 // multer never writes their file parts to disk. Non-multipart requests pass
 // through untouched (the handler performs the check as before).
-function createSystemV1UploadPreAuthMiddleware(op = '', openRoutes = []) {
+function createSystemV1UploadPreAuthMiddleware(op = "", openRoutes = []) {
   return function systemV1UploadPreAuth(req, res, next) {
     if (!isMultipartRequest(req)) {
       next();
@@ -2003,11 +2213,11 @@ function createSystemV1UploadPreAuthMiddleware(op = '', openRoutes = []) {
 // parsed. Any other denial is only final when the site name comes from the
 // request path.
 const SITE_API_UPLOAD_PRE_AUTH_FINAL_403_MESSAGES = [
-  'Invalid bearer token',
-  'Unable to resolve authenticated user context',
-  'X-HAXCMS-Site-Token header is required for this endpoint',
-  'X-HAXCMS-User-Token header is required for this endpoint',
-  'Invalid X-HAXCMS-User-Token header',
+  "Invalid bearer token",
+  "Unable to resolve authenticated user context",
+  "X-HAXCMS-Site-Token header is required for this endpoint",
+  "X-HAXCMS-User-Token header is required for this endpoint",
+  "Invalid X-HAXCMS-User-Token header",
 ];
 function isSiteApiUploadPreAuthDenialFinal(req, access) {
   if (!access || access.allowed) {
@@ -2022,16 +2232,18 @@ function isSiteApiUploadPreAuthDenialFinal(req, access) {
   ) {
     return true;
   }
-  return getSiteNameFromSiteApiRequestPath(
-    req && req.originalUrl ? req.originalUrl : req && req.url ? req.url : '',
-  ) !== '';
+  return (
+    getSiteNameFromSiteApiRequestPath(
+      req && req.originalUrl ? req.originalUrl : req && req.url ? req.url : "",
+    ) !== ""
+  );
 }
 // Security (SEC-UPLOAD): site API pre-auth for multipart upload routes
 // (POST v1/files). Uses validateSiteApiRouteAccess and short-circuits with the
 // same envelope as siteRouteHandler when the denial cannot depend on the
 // not-yet-parsed multipart body; otherwise defers to the handler (whose temp
 // file is still removed by the upload cleanup middleware).
-function createSiteApiUploadPreAuthMiddleware(route = '', method = 'post') {
+function createSiteApiUploadPreAuthMiddleware(route = "", method = "post") {
   return async function siteApiUploadPreAuth(req, res, next) {
     if (!isMultipartRequest(req)) {
       next();
@@ -2050,7 +2262,7 @@ function createSiteApiUploadPreAuthMiddleware(route = '', method = 'post') {
       return;
     }
     if (access.retryAfterSeconds && access.retryAfterSeconds > 0) {
-      res.set('Retry-After', String(access.retryAfterSeconds));
+      res.set("Retry-After", String(access.retryAfterSeconds));
     }
     res.status(access.status).json({
       status: access.status,
@@ -2058,35 +2270,35 @@ function createSiteApiUploadPreAuthMiddleware(route = '', method = 'post') {
     });
   };
 }
-function convertOpenApiPathToSiteRoute(openApiPath = '') {
-  let route = String(openApiPath || '');
-  if (route.indexOf('/x/api') !== 0) {
-    return '';
+function convertOpenApiPathToSiteRoute(openApiPath = "") {
+  let route = String(openApiPath || "");
+  if (route.indexOf("/x/api") !== 0) {
+    return "";
   }
-  route = route.replace(/^\/x\/api\/?/, '');
-  route = route.replace(/^\//, '');
-  route = route.replace(/\{([A-Za-z0-9_]+)\}/g, ':$1');
+  route = route.replace(/^\/x\/api\/?/, "");
+  route = route.replace(/^\//, "");
+  route = route.replace(/\{([A-Za-z0-9_]+)\}/g, ":$1");
   return route;
 }
 function normalizeSiteApiSecurityPolicy(securityConfig = null) {
   if (!Array.isArray(securityConfig)) {
-    return 'public';
+    return "public";
   }
   if (securityConfig.length === 0) {
-    return 'public';
+    return "public";
   }
   let requiresBearer = false;
   let requiresUserToken = false;
   for (let i = 0; i < securityConfig.length; i++) {
     const requirement = securityConfig[i];
-    if (!requirement || typeof requirement !== 'object') {
+    if (!requirement || typeof requirement !== "object") {
       continue;
     }
     const keys = Object.keys(requirement);
     if (keys.length === 0) {
-      return 'public';
+      return "public";
     }
-    if (Object.prototype.hasOwnProperty.call(requirement, 'siteTokenHeader')) {
+    if (Object.prototype.hasOwnProperty.call(requirement, "siteTokenHeader")) {
       // siteTokenHeader paired with bearerAuth (in the same requirement) is
       // 'authenticated-site' (bearer JWT + site token, e.g. provider-search,
       // site API mutations). siteTokenHeader alone is 'site-token-only' —
@@ -2094,25 +2306,25 @@ function normalizeSiteApiSecurityPolicy(securityConfig = null) {
       // the handler (e.g. generateAppStore), no bearer JWT required. This
       // mirrors the original handler-validated behavior and avoids requiring
       // a bearer JWT the front-end appStore fetch does not send.
-      if (Object.prototype.hasOwnProperty.call(requirement, 'bearerAuth')) {
-        return 'authenticated-site';
+      if (Object.prototype.hasOwnProperty.call(requirement, "bearerAuth")) {
+        return "authenticated-site";
       }
-      return 'site-token-only';
+      return "site-token-only";
     }
-    if (Object.prototype.hasOwnProperty.call(requirement, 'userTokenHeader')) {
+    if (Object.prototype.hasOwnProperty.call(requirement, "userTokenHeader")) {
       requiresUserToken = true;
     }
-    if (Object.prototype.hasOwnProperty.call(requirement, 'bearerAuth')) {
+    if (Object.prototype.hasOwnProperty.call(requirement, "bearerAuth")) {
       requiresBearer = true;
     }
   }
   if (requiresUserToken) {
-    return 'authenticated-user';
+    return "authenticated-user";
   }
   if (requiresBearer) {
-    return 'authenticated';
+    return "authenticated";
   }
-  return 'public';
+  return "public";
 }
 function readSiteApiAuthPoliciesFromOpenApiSpec() {
   const policies = {};
@@ -2121,73 +2333,87 @@ function readSiteApiAuthPoliciesFromOpenApiSpec() {
   }
   try {
     const openApiSpec = YAML.parse(
-      fs.readFileSync(SITE_API_OPENAPI_SPEC_PATH, 'utf8'),
+      fs.readFileSync(SITE_API_OPENAPI_SPEC_PATH, "utf8"),
     );
     if (
       !openApiSpec ||
-      typeof openApiSpec !== 'object' ||
+      typeof openApiSpec !== "object" ||
       !openApiSpec.paths ||
-      typeof openApiSpec.paths !== 'object'
+      typeof openApiSpec.paths !== "object"
     ) {
       return policies;
     }
-    const methods = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'];
+    const methods = [
+      "get",
+      "post",
+      "put",
+      "patch",
+      "delete",
+      "options",
+      "head",
+    ];
     const pathKeys = Object.keys(openApiSpec.paths);
     for (let p = 0; p < pathKeys.length; p++) {
       const openApiPath = pathKeys[p];
-      if (String(openApiPath).indexOf('/x/api') !== 0) {
+      if (String(openApiPath).indexOf("/x/api") !== 0) {
         continue;
       }
       const routeKey = convertOpenApiPathToSiteRoute(openApiPath);
       const pathConfig = openApiSpec.paths[openApiPath];
-      if (!pathConfig || typeof pathConfig !== 'object') {
+      if (!pathConfig || typeof pathConfig !== "object") {
         continue;
       }
-      const pathLevelPolicy = normalizeSiteApiSecurityPolicy(pathConfig.security);
+      const pathLevelPolicy = normalizeSiteApiSecurityPolicy(
+        pathConfig.security,
+      );
       for (let m = 0; m < methods.length; m++) {
         const method = methods[m];
         if (!Object.prototype.hasOwnProperty.call(pathConfig, method)) {
           continue;
         }
         const operation = pathConfig[method];
-        if (!operation || typeof operation !== 'object') {
+        if (!operation || typeof operation !== "object") {
           continue;
         }
         let policy = pathLevelPolicy;
-        if (Object.prototype.hasOwnProperty.call(operation, 'security')) {
+        if (Object.prototype.hasOwnProperty.call(operation, "security")) {
           policy = normalizeSiteApiSecurityPolicy(operation.security);
         }
         policies[`${method}:${routeKey}`] = policy;
       }
     }
   } catch (e) {
-    console.warn('Unable to parse site OpenAPI auth policy map', e);
+    console.warn("Unable to parse site OpenAPI auth policy map", e);
   }
   return policies;
 }
-function getSiteApiRouteAuthPolicy(route = '', method = 'get') {
+function getSiteApiRouteAuthPolicy(route = "", method = "get") {
   if (!siteApiAuthPoliciesByMethodAndRoute) {
-    siteApiAuthPoliciesByMethodAndRoute = readSiteApiAuthPoliciesFromOpenApiSpec();
+    siteApiAuthPoliciesByMethodAndRoute =
+      readSiteApiAuthPoliciesFromOpenApiSpec();
   }
-  const lookupKey = `${String(method || 'get').toLowerCase()}:${String(route || '')}`;
+  const lookupKey = `${String(method || "get").toLowerCase()}:${String(route || "")}`;
   if (
     siteApiAuthPoliciesByMethodAndRoute &&
-    Object.prototype.hasOwnProperty.call(siteApiAuthPoliciesByMethodAndRoute, lookupKey)
+    Object.prototype.hasOwnProperty.call(
+      siteApiAuthPoliciesByMethodAndRoute,
+      lookupKey,
+    )
   ) {
     return siteApiAuthPoliciesByMethodAndRoute[lookupKey];
   }
   // Fail closed: any site API route not explicitly declared in the OpenAPI
   // spec requires authentication rather than falling open to public access.
-  return 'authenticated';
+  return "authenticated";
 }
-function convertOpenApiPathToSystemRoute(openApiPath = '') {
-  let route = String(openApiPath || '');
-  if (route.indexOf('/system/api/v1') !== 0) {
-    return '';
+function convertOpenApiPathToSystemRoute(openApiPath = "") {
+  let route = String(openApiPath || "");
+  if (route.indexOf("/system/api/v1") !== 0) {
+    return "";
   }
-  route = route.replace(/^\/system\/api\/v1\/?/, '');
-  route = route.replace(/^\//, '');
-  route = route.replace(/\{([A-Za-z0-9_]+)\}/g, ':$1');
+  route = route.replace(/^\/system\/api\/v1\/?/, "");
+  route = route.replace(/^\//, "");
+  route = route.replace(/\{([A-Za-z0-9_]+)\}/g, ":$1");
   return route;
 }
 function readSystemApiAuthPoliciesFromOpenApiSpec() {
@@ -2197,64 +2423,78 @@ function readSystemApiAuthPoliciesFromOpenApiSpec() {
   }
   try {
     const openApiSpec = YAML.parse(
-      fs.readFileSync(SYSTEM_API_OPENAPI_SPEC_PATH, 'utf8'),
+      fs.readFileSync(SYSTEM_API_OPENAPI_SPEC_PATH, "utf8"),
     );
     if (
       !openApiSpec ||
-      typeof openApiSpec !== 'object' ||
+      typeof openApiSpec !== "object" ||
       !openApiSpec.paths ||
-      typeof openApiSpec.paths !== 'object'
+      typeof openApiSpec.paths !== "object"
     ) {
       return policies;
     }
-    const methods = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'];
+    const methods = [
+      "get",
+      "post",
+      "put",
+      "patch",
+      "delete",
+      "options",
+      "head",
+    ];
     const pathKeys = Object.keys(openApiSpec.paths);
     for (let p = 0; p < pathKeys.length; p++) {
       const openApiPath = pathKeys[p];
-      if (String(openApiPath).indexOf('/system/api/v1') !== 0) {
+      if (String(openApiPath).indexOf("/system/api/v1") !== 0) {
         continue;
       }
       const routeKey = convertOpenApiPathToSystemRoute(openApiPath);
       const pathConfig = openApiSpec.paths[openApiPath];
-      if (!pathConfig || typeof pathConfig !== 'object') {
+      if (!pathConfig || typeof pathConfig !== "object") {
         continue;
       }
-      const pathLevelPolicy = normalizeSiteApiSecurityPolicy(pathConfig.security);
+      const pathLevelPolicy = normalizeSiteApiSecurityPolicy(
+        pathConfig.security,
+      );
       for (let m = 0; m < methods.length; m++) {
         const method = methods[m];
         if (!Object.prototype.hasOwnProperty.call(pathConfig, method)) {
           continue;
         }
         const operation = pathConfig[method];
-        if (!operation || typeof operation !== 'object') {
+        if (!operation || typeof operation !== "object") {
           continue;
         }
         let policy = pathLevelPolicy;
-        if (Object.prototype.hasOwnProperty.call(operation, 'security')) {
+        if (Object.prototype.hasOwnProperty.call(operation, "security")) {
           policy = normalizeSiteApiSecurityPolicy(operation.security);
         }
         policies[`${method}:${routeKey}`] = policy;
       }
     }
   } catch (e) {
-    console.warn('Unable to parse system OpenAPI auth policy map', e);
+    console.warn("Unable to parse system OpenAPI auth policy map", e);
   }
   return policies;
 }
-function getSystemApiRouteAuthPolicy(route = '', method = 'get') {
+function getSystemApiRouteAuthPolicy(route = "", method = "get") {
   if (!systemApiAuthPoliciesByMethodAndRoute) {
-    systemApiAuthPoliciesByMethodAndRoute = readSystemApiAuthPoliciesFromOpenApiSpec();
+    systemApiAuthPoliciesByMethodAndRoute =
+      readSystemApiAuthPoliciesFromOpenApiSpec();
   }
-  const lookupKey = `${String(method || 'get').toLowerCase()}:${String(route || '')}`;
+  const lookupKey = `${String(method || "get").toLowerCase()}:${String(route || "")}`;
   if (
     systemApiAuthPoliciesByMethodAndRoute &&
-    Object.prototype.hasOwnProperty.call(systemApiAuthPoliciesByMethodAndRoute, lookupKey)
+    Object.prototype.hasOwnProperty.call(
+      systemApiAuthPoliciesByMethodAndRoute,
+      lookupKey,
+    )
   ) {
     return systemApiAuthPoliciesByMethodAndRoute[lookupKey];
   }
   // Fail closed: any system API route not explicitly declared in the OpenAPI
   // spec requires authentication rather than falling open to public access.
-  return 'authenticated';
+  return "authenticated";
 }
 function resolveSystemApiAuthenticatedUserName(req, basicAuth) {
   if (basicAuth && basicAuth.authenticated && basicAuth.userName) {
@@ -2264,14 +2504,16 @@ function resolveSystemApiAuthenticatedUserName(req, basicAuth) {
 }
 function enforceSystemApiUserTokenPolicy(req, res, op, method, basicAuth) {
   const policy = getSystemApiRouteAuthPolicy(op, method);
-  if (policy !== 'authenticated-user') {
+  if (policy !== "authenticated-user") {
     return true;
   }
-  const userToken = getRequestHeaderValue(req, 'x-haxcms-user-token');
-  if (userToken === '') {
+  const userToken = getRequestHeaderValue(req, "x-haxcms-user-token");
+  if (userToken === "") {
     res.status(403).json({
       status: 403,
-      data: { message: 'X-HAXCMS-User-Token header is required for this endpoint' },
+      data: {
+        message: "X-HAXCMS-User-Token header is required for this endpoint",
+      },
     });
     return false;
   }
@@ -2279,7 +2521,7 @@ function enforceSystemApiUserTokenPolicy(req, res, op, method, basicAuth) {
   if (!HAXCMS.validateRequestToken(userToken, userName)) {
     res.status(403).json({
       status: 403,
-      data: { message: 'Invalid X-HAXCMS-User-Token header' },
+      data: { message: "Invalid X-HAXCMS-User-Token header" },
     });
     return false;
   }
@@ -2291,24 +2533,32 @@ function enforceSystemApiUserTokenPolicy(req, res, op, method, basicAuth) {
 // with the rest of the system API. The handler may still do semantic
 // siteName validation (e.g. generateAppStore) — this function only gates on
 // token presence + validity against the resolved siteName + userName.
-async function enforceSystemApiSiteTokenPolicy(req, res, op, method, basicAuth) {
+async function enforceSystemApiSiteTokenPolicy(
+  req,
+  res,
+  op,
+  method,
+  basicAuth,
+) {
   const policy = getSystemApiRouteAuthPolicy(op, method);
-  if (policy !== 'authenticated-site') {
+  if (policy !== "authenticated-site") {
     return true;
   }
-  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-  if (siteToken === '') {
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  if (siteToken === "") {
     res.status(403).json({
       status: 403,
-      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint' },
+      data: {
+        message: "X-HAXCMS-Site-Token header is required for this endpoint",
+      },
     });
     return false;
   }
   const userName = resolveSystemApiAuthenticatedUserName(req, basicAuth);
-  if (userName === '') {
+  if (userName === "") {
     res.status(403).json({
       status: 403,
-      data: { message: 'Unable to resolve authenticated user context' },
+      data: { message: "Unable to resolve authenticated user context" },
     });
     return false;
   }
@@ -2319,14 +2569,14 @@ async function enforceSystemApiSiteTokenPolicy(req, res, op, method, basicAuth) 
   if (!siteName) {
     res.status(403).json({
       status: 403,
-      data: { message: 'Unable to resolve site token context' },
+      data: { message: "Unable to resolve site token context" },
     });
     return false;
   }
   if (!HAXCMS.validateRequestToken(siteToken, `${userName}:${siteName}`)) {
     res.status(403).json({
       status: 403,
-      data: { message: 'Invalid X-HAXCMS-Site-Token header' },
+      data: { message: "Invalid X-HAXCMS-Site-Token header" },
     });
     return false;
   }
@@ -2334,79 +2584,81 @@ async function enforceSystemApiSiteTokenPolicy(req, res, op, method, basicAuth) 
 }
 function assertSiteApiMutationRoutesAreSecured(routeRegistry = null) {
   const registry =
-    routeRegistry && typeof routeRegistry === 'object' ? routeRegistry : {};
+    routeRegistry && typeof routeRegistry === "object" ? routeRegistry : {};
   const offendingRoutes = [];
   const registryMethods = Object.keys(registry);
   for (let m = 0; m < registryMethods.length; m++) {
-    const method = String(registryMethods[m] || '').toLowerCase();
-    if (method === 'get' || method === 'head' || method === 'options') {
+    const method = String(registryMethods[m] || "").toLowerCase();
+    if (method === "get" || method === "head" || method === "options") {
       continue;
     }
     const routeMap =
       registry[registryMethods[m]] &&
-      typeof registry[registryMethods[m]] === 'object'
+      typeof registry[registryMethods[m]] === "object"
         ? registry[registryMethods[m]]
         : {};
     const routeKeys = Object.keys(routeMap);
     for (let r = 0; r < routeKeys.length; r++) {
       const route = routeKeys[r];
-      if (getSiteApiRouteAuthPolicy(route, method) === 'public') {
+      if (getSiteApiRouteAuthPolicy(route, method) === "public") {
         offendingRoutes.push(`${method.toUpperCase()} ${route}`);
       }
     }
   }
   if (offendingRoutes.length > 0) {
     console.error(
-      `SECURITY: site API mutation routes resolve to a public auth policy and must declare security in site-spec.yaml: ${offendingRoutes.join(', ')}`,
+      `SECURITY: site API mutation routes resolve to a public auth policy and must declare security in site-spec.yaml: ${offendingRoutes.join(", ")}`,
     );
   }
   return offendingRoutes;
 }
-function getRequestHeaderValue(req, headerName = '') {
-  if (!req || !req.headers || typeof req.headers !== 'object') {
-    return '';
+function getRequestHeaderValue(req, headerName = "") {
+  if (!req || !req.headers || typeof req.headers !== "object") {
+    return "";
   }
-  const normalizedHeaderName = String(headerName || '').toLowerCase().trim();
-  if (normalizedHeaderName === '') {
-    return '';
+  const normalizedHeaderName = String(headerName || "")
+    .toLowerCase()
+    .trim();
+  if (normalizedHeaderName === "") {
+    return "";
   }
   const value = req.headers[normalizedHeaderName];
   if (Array.isArray(value)) {
-    return value.length > 0 ? String(value[0] || '').trim() : '';
+    return value.length > 0 ? String(value[0] || "").trim() : "";
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return value.trim();
   }
-  return '';
+  return "";
 }
 function getBearerJwtFromRequest(req) {
-  const authorizationHeader = getRequestHeaderValue(req, 'authorization');
-  if (authorizationHeader === '') {
-    return '';
+  const authorizationHeader = getRequestHeaderValue(req, "authorization");
+  if (authorizationHeader === "") {
+    return "";
   }
-  if (authorizationHeader.toLowerCase().indexOf('bearer ') !== 0) {
-    return '';
+  if (authorizationHeader.toLowerCase().indexOf("bearer ") !== 0) {
+    return "";
   }
   return authorizationHeader.substring(7).trim();
 }
-function decodeBasicAuthCredentials(authorizationHeader = '') {
-  const cleanHeader = String(authorizationHeader || '').trim();
-  if (cleanHeader.toLowerCase().indexOf('basic ') !== 0) {
+function decodeBasicAuthCredentials(authorizationHeader = "") {
+  const cleanHeader = String(authorizationHeader || "").trim();
+  if (cleanHeader.toLowerCase().indexOf("basic ") !== 0) {
     return null;
   }
   const encodedCredentials = cleanHeader.substring(6).trim();
-  if (encodedCredentials === '') {
+  if (encodedCredentials === "") {
     return null;
   }
-  let decodedCredentials = '';
+  let decodedCredentials = "";
   try {
-    decodedCredentials = Buffer.from(encodedCredentials, 'base64').toString(
-      'utf8',
+    decodedCredentials = Buffer.from(encodedCredentials, "base64").toString(
+      "utf8",
     );
   } catch (e) {
     return null;
   }
-  const separatorIndex = decodedCredentials.indexOf(':');
+  const separatorIndex = decodedCredentials.indexOf(":");
   if (separatorIndex === -1) {
     return null;
   }
@@ -2416,22 +2668,22 @@ function decodeBasicAuthCredentials(authorizationHeader = '') {
   };
 }
 function authenticateBasicAuthorizationRequest(req) {
-  const authorizationHeader = getRequestHeaderValue(req, 'authorization');
+  const authorizationHeader = getRequestHeaderValue(req, "authorization");
   const basicAuthCredentials = decodeBasicAuthCredentials(authorizationHeader);
   if (!basicAuthCredentials) {
     return {
       attempted: false,
       authenticated: false,
-      userName: '',
+      userName: "",
     };
   }
-  const userName = String(basicAuthCredentials.userName || '').trim();
-  const password = String(basicAuthCredentials.password || '');
-  if (userName === '' || password === '') {
+  const userName = String(basicAuthCredentials.userName || "").trim();
+  const password = String(basicAuthCredentials.password || "");
+  if (userName === "" || password === "") {
     return {
       attempted: true,
       authenticated: false,
-      userName: '',
+      userName: "",
     };
   }
   // brute-force throttle shared with the username/password login route
@@ -2447,11 +2699,13 @@ function authenticateBasicAuthorizationRequest(req) {
     rateLimitSettings.enabled &&
     loginRateLimiter.isBlocked(attemptEntry, now)
   ) {
-    const retryAfterSeconds = Math.ceil((attemptEntry.blockedUntil - now) / 1000);
+    const retryAfterSeconds = Math.ceil(
+      (attemptEntry.blockedUntil - now) / 1000,
+    );
     return {
       attempted: true,
       authenticated: false,
-      userName: '',
+      userName: "",
       blocked: true,
       retryAfterSeconds: retryAfterSeconds > 0 ? retryAfterSeconds : 0,
     };
@@ -2470,61 +2724,58 @@ function authenticateBasicAuthorizationRequest(req) {
     };
   }
   if (rateLimitSettings.enabled) {
-    loginRateLimiter.registerFailedAttempt(attemptEntry, now, rateLimitSettings);
+    loginRateLimiter.registerFailedAttempt(
+      attemptEntry,
+      now,
+      rateLimitSettings,
+    );
   }
   return {
     attempted: true,
     authenticated: false,
-    userName: '',
+    userName: "",
   };
 }
-function getDecodedBearerJwtPayload(jwt = '') {
-  const token = String(jwt || '').trim();
-  if (token === '') {
+function getDecodedBearerJwtPayload(jwt = "") {
+  const token = String(jwt || "").trim();
+  if (token === "") {
     return null;
   }
   const decoded = HAXCMS.decodeJWT(token);
-  if (!decoded || typeof decoded !== 'object') {
+  if (!decoded || typeof decoded !== "object") {
     return null;
   }
   return decoded;
 }
-function getAuthenticatedUserNameFromBearerJwt(jwt = '') {
+function getAuthenticatedUserNameFromBearerJwt(jwt = "") {
   const decoded = getDecodedBearerJwtPayload(jwt);
   if (!decoded || !decoded.user) {
-    return '';
+    return "";
   }
   return String(decoded.user);
 }
 function setSiteApiAuthContext(req, authContext = {}) {
-  if (!req || typeof req !== 'object') {
+  if (!req || typeof req !== "object") {
     return;
   }
   req.haxcmsSiteApiAuth = {
     policy:
-      authContext && authContext.policy
-        ? String(authContext.policy)
-        : 'public',
-    authenticated:
-      authContext && authContext.authenticated === true,
+      authContext && authContext.policy ? String(authContext.policy) : "public",
+    authenticated: authContext && authContext.authenticated === true,
     userName:
-      authContext && authContext.userName
-        ? String(authContext.userName)
-        : '',
+      authContext && authContext.userName ? String(authContext.userName) : "",
     siteName:
-      authContext && authContext.siteName
-        ? String(authContext.siteName)
-        : '',
+      authContext && authContext.siteName ? String(authContext.siteName) : "",
     securityLevel:
       authContext && authContext.securityLevel
         ? String(authContext.securityLevel)
-        : 'public',
+        : "public",
   };
 }
-function normalizeSiteNameCandidate(siteName = '') {
-  const cleanSiteName = String(siteName || '').trim();
-  if (cleanSiteName === '') {
-    return '';
+function normalizeSiteNameCandidate(siteName = "") {
+  const cleanSiteName = String(siteName || "").trim();
+  if (cleanSiteName === "") {
+    return "";
   }
   try {
     return decodeURIComponent(cleanSiteName);
@@ -2532,60 +2783,57 @@ function normalizeSiteNameCandidate(siteName = '') {
     return cleanSiteName;
   }
 }
-function getSiteNameFromSiteApiRequestPath(url = '') {
-  const parts = String(getRequestPathWithoutQuery(url) || '')
-    .split('/')
-    .filter((part) => part !== '');
+function getSiteNameFromSiteApiRequestPath(url = "") {
+  const parts = String(getRequestPathWithoutQuery(url) || "")
+    .split("/")
+    .filter((part) => part !== "");
   for (let i = 0; i < parts.length; i++) {
     if (parts[i] === HAXCMS.sitesDirectory && parts[i + 1]) {
       return normalizeSiteNameCandidate(parts[i + 1]);
     }
   }
-  return '';
+  return "";
 }
 function getSiteNameFromSiteApiRequestPayload(req) {
-  if (!req || typeof req !== 'object') {
-    return '';
+  if (!req || typeof req !== "object") {
+    return "";
   }
   const sources = [];
-  if (req.params && typeof req.params === 'object') {
+  if (req.params && typeof req.params === "object") {
     sources.push(req.params);
   }
-  if (req.query && typeof req.query === 'object') {
+  if (req.query && typeof req.query === "object") {
     sources.push(req.query);
   }
-  if (req.body && typeof req.body === 'object') {
+  if (req.body && typeof req.body === "object") {
     sources.push(req.body);
   }
-  const candidateKeys = [
-    'siteName',
-    'site',
-    'sitename',
-    'site_name',
-  ];
+  const candidateKeys = ["siteName", "site", "sitename", "site_name"];
   for (let s = 0; s < sources.length; s++) {
     const source = sources[s];
     for (let k = 0; k < candidateKeys.length; k++) {
       const key = candidateKeys[k];
       if (
         Object.prototype.hasOwnProperty.call(source, key) &&
-        String(source[key] || '').trim() !== ''
+        String(source[key] || "").trim() !== ""
       ) {
         return normalizeSiteNameCandidate(source[key]);
       }
     }
   }
-  return '';
+  return "";
 }
 function getSiteNameFromSiteApiRequestReferer(req) {
-  const referer = getRequestHeaderValue(req, 'referer');
-  if (referer === '') {
-    return '';
+  const referer = getRequestHeaderValue(req, "referer");
+  if (referer === "") {
+    return "";
   }
   try {
     const parsed = new URL(referer);
-    const refererPathSiteName = getSiteNameFromSiteApiRequestPath(parsed.pathname);
-    if (refererPathSiteName !== '') {
+    const refererPathSiteName = getSiteNameFromSiteApiRequestPath(
+      parsed.pathname,
+    );
+    if (refererPathSiteName !== "") {
       return refererPathSiteName;
     }
   } catch (e) {}
@@ -2593,17 +2841,17 @@ function getSiteNameFromSiteApiRequestReferer(req) {
 }
 async function resolveSiteApiRequestSiteName(req, authContext = {}) {
   const pathBasedSiteName = getSiteNameFromSiteApiRequestPath(
-    req && req.originalUrl ? req.originalUrl : req && req.url ? req.url : '',
+    req && req.originalUrl ? req.originalUrl : req && req.url ? req.url : "",
   );
-  if (pathBasedSiteName !== '') {
+  if (pathBasedSiteName !== "") {
     return pathBasedSiteName;
   }
   const payloadSiteName = getSiteNameFromSiteApiRequestPayload(req);
-  if (payloadSiteName !== '') {
+  if (payloadSiteName !== "") {
     return payloadSiteName;
   }
   const refererSiteName = getSiteNameFromSiteApiRequestReferer(req);
-  if (refererSiteName !== '') {
+  if (refererSiteName !== "") {
     return refererSiteName;
   }
   try {
@@ -2618,59 +2866,59 @@ async function resolveSiteApiRequestSiteName(req, authContext = {}) {
       return String(site.manifest.metadata.site.name);
     }
   } catch (e) {}
-  return '';
+  return "";
 }
 function normalizeIamAuthorizationResult(iamAuthorization = null) {
-  if (typeof iamAuthorization === 'boolean') {
+  if (typeof iamAuthorization === "boolean") {
     if (iamAuthorization) {
       return {
         allowed: true,
         status: 200,
-        message: '',
+        message: "",
       };
     }
     return {
       allowed: false,
       status: 403,
-      message: 'Access denied',
+      message: "Access denied",
     };
   }
-  if (!iamAuthorization || typeof iamAuthorization !== 'object') {
+  if (!iamAuthorization || typeof iamAuthorization !== "object") {
     return {
       allowed: true,
       status: 200,
-      message: '',
+      message: "",
     };
   }
   if (iamAuthorization.allowed === false) {
     return {
       allowed: false,
       status: iamAuthorization.status || 403,
-      message: iamAuthorization.message || 'Access denied',
+      message: iamAuthorization.message || "Access denied",
     };
   }
   return {
     allowed: true,
     status: 200,
-    message: '',
+    message: "",
   };
 }
 function validateHaxiamManagedUserIdentityForRequest(req = null) {
   if (
-    typeof HAXCMS.getDeploymentProfile !== 'function' ||
-    HAXCMS.getDeploymentProfile() !== 'haxiam-managed'
+    typeof HAXCMS.getDeploymentProfile !== "function" ||
+    HAXCMS.getDeploymentProfile() !== "haxiam-managed"
   ) {
     return {
       allowed: true,
       status: 200,
-      message: '',
+      message: "",
     };
   }
-  if (typeof HAXCMS.validateIAMRouteAuthorization !== 'function') {
+  if (typeof HAXCMS.validateIAMRouteAuthorization !== "function") {
     return {
       allowed: true,
       status: 200,
-      message: '',
+      message: "",
     };
   }
   try {
@@ -2681,43 +2929,42 @@ function validateHaxiamManagedUserIdentityForRequest(req = null) {
     return {
       allowed: false,
       status: 403,
-      message: 'Tenant identity validation failed',
+      message: "Tenant identity validation failed",
     };
   }
 }
-async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
+async function validateSiteApiRouteAccess(req, route = "", method = "get") {
   const policy = getSiteApiRouteAuthPolicy(route, method);
   const authContext = {
     policy,
     authenticated: false,
-    userName: '',
-    securityLevel: 'public',
+    userName: "",
+    securityLevel: "public",
   };
   if (HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
     authContext.authenticated = true;
-    authContext.securityLevel = policy === 'public' ? 'authenticated' : policy;
+    authContext.securityLevel = policy === "public" ? "authenticated" : policy;
     setSiteApiAuthContext(req, authContext);
     return {
       allowed: true,
       status: 200,
-      message: '',
+      message: "",
     };
   }
   const bearerJwt = getBearerJwtFromRequest(req);
-  const hasBearerJwt = bearerJwt !== '';
+  const hasBearerJwt = bearerJwt !== "";
   let invalidBearerJwt = false;
   if (hasBearerJwt) {
     const validBearer = HAXCMS.validateJWT(req, null);
     if (!validBearer) {
       invalidBearerJwt = true;
     } else {
-      const authenticatedUserName = getAuthenticatedUserNameFromBearerJwt(
-        bearerJwt,
-      );
-      if (authenticatedUserName !== '') {
+      const authenticatedUserName =
+        getAuthenticatedUserNameFromBearerJwt(bearerJwt);
+      if (authenticatedUserName !== "") {
         authContext.authenticated = true;
         authContext.userName = authenticatedUserName;
-        authContext.securityLevel = 'authenticated';
+        authContext.securityLevel = "authenticated";
       }
     }
   }
@@ -2725,21 +2972,21 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
   if (basicAuth.authenticated && !authContext.authenticated) {
     authContext.authenticated = true;
     authContext.userName = basicAuth.userName;
-    authContext.securityLevel = 'authenticated';
+    authContext.securityLevel = "authenticated";
   }
-  if (policy === 'public') {
+  if (policy === "public") {
     setSiteApiAuthContext(req, authContext);
     return {
       allowed: true,
       status: 200,
-      message: '',
+      message: "",
     };
   }
   if (basicAuth.blocked && !authContext.authenticated) {
     return {
       allowed: false,
       status: 429,
-      message: 'Too many failed login attempts. Please try again later.',
+      message: "Too many failed login attempts. Please try again later.",
       retryAfterSeconds: basicAuth.retryAfterSeconds,
     };
   }
@@ -2747,7 +2994,8 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
     return {
       allowed: false,
       status: 401,
-      message: 'Authorization bearer token or basic credentials are required for this endpoint',
+      message:
+        "Authorization bearer token or basic credentials are required for this endpoint",
     };
   }
   if (!authContext.authenticated) {
@@ -2755,7 +3003,7 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
       return {
         allowed: false,
         status: 401,
-        message: 'Invalid basic authorization credentials',
+        message: "Invalid basic authorization credentials",
       };
     }
     if (hasBearerJwt || invalidBearerJwt) {
@@ -2767,34 +3015,34 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
       return {
         allowed: false,
         status: 403,
-        message: 'Invalid bearer token',
+        message: "Invalid bearer token",
       };
     }
     return {
       allowed: false,
       status: 401,
-      message: 'Unable to authenticate request',
+      message: "Unable to authenticate request",
     };
   }
-  if (authContext.userName === '') {
+  if (authContext.userName === "") {
     return {
       allowed: false,
       status: 403,
-      message: 'Unable to resolve authenticated user context',
+      message: "Unable to resolve authenticated user context",
     };
   }
-  if (policy === 'authenticated') {
-    authContext.securityLevel = 'authenticated';
+  if (policy === "authenticated") {
+    authContext.securityLevel = "authenticated";
   }
-  if (policy === 'authenticated-site') {
+  if (policy === "authenticated-site") {
     // Require and validate the site token even under Basic Auth so that
     // authentication alone (JWT or Basic) never grants site-scoped access.
-    const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-    if (siteToken === '') {
+    const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+    if (siteToken === "") {
       return {
         allowed: false,
         status: 403,
-        message: 'X-HAXCMS-Site-Token header is required for this endpoint',
+        message: "X-HAXCMS-Site-Token header is required for this endpoint",
       };
     }
     const siteName = await resolveSiteApiRequestSiteName(req, {
@@ -2805,7 +3053,7 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
       return {
         allowed: false,
         status: 403,
-        message: 'Unable to resolve site token context',
+        message: "Unable to resolve site token context",
       };
     }
     if (
@@ -2817,7 +3065,7 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
       return {
         allowed: false,
         status: 403,
-        message: 'Invalid X-HAXCMS-Site-Token header',
+        message: "Invalid X-HAXCMS-Site-Token header",
       };
     }
     const iamAuthorization = validateHaxiamManagedUserIdentityForRequest(req);
@@ -2825,27 +3073,27 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
       return {
         allowed: false,
         status: iamAuthorization.status || 403,
-        message: iamAuthorization.message || 'Access denied',
+        message: iamAuthorization.message || "Access denied",
       };
     }
     authContext.siteName = siteName;
-    authContext.securityLevel = 'authenticated-site';
+    authContext.securityLevel = "authenticated-site";
   }
-  if (policy === 'authenticated-user') {
+  if (policy === "authenticated-user") {
     // Require and validate the user token even under Basic Auth.
-    const userToken = getRequestHeaderValue(req, 'x-haxcms-user-token');
-    if (userToken === '') {
+    const userToken = getRequestHeaderValue(req, "x-haxcms-user-token");
+    if (userToken === "") {
       return {
         allowed: false,
         status: 403,
-        message: 'X-HAXCMS-User-Token header is required for this endpoint',
+        message: "X-HAXCMS-User-Token header is required for this endpoint",
       };
     }
     if (!HAXCMS.validateRequestToken(userToken, authContext.userName)) {
       return {
         allowed: false,
         status: 403,
-        message: 'Invalid X-HAXCMS-User-Token header',
+        message: "Invalid X-HAXCMS-User-Token header",
       };
     }
     const iamAuthorization = validateHaxiamManagedUserIdentityForRequest(req);
@@ -2853,33 +3101,33 @@ async function validateSiteApiRouteAccess(req, route = '', method = 'get') {
       return {
         allowed: false,
         status: iamAuthorization.status || 403,
-        message: iamAuthorization.message || 'Access denied',
+        message: iamAuthorization.message || "Access denied",
       };
     }
-    authContext.securityLevel = 'authenticated-user';
+    authContext.securityLevel = "authenticated-user";
   }
   setSiteApiAuthContext(req, authContext);
   return {
     allowed: true,
     status: 200,
-    message: '',
+    message: "",
   };
 }
 function getNormalizedBasePath() {
-  let basePath = String(HAXCMS.basePath || '/');
-  if (basePath.charAt(0) !== '/') {
-    basePath = '/' + basePath;
+  let basePath = String(HAXCMS.basePath || "/");
+  if (basePath.charAt(0) !== "/") {
+    basePath = "/" + basePath;
   }
-  if (basePath.charAt(basePath.length - 1) !== '/') {
-    basePath += '/';
+  if (basePath.charAt(basePath.length - 1) !== "/") {
+    basePath += "/";
   }
   return basePath;
 }
 function getSiteApiBasePath() {
-  return getNormalizedBasePath() + 'x/api';
+  return getNormalizedBasePath() + "x/api";
 }
-function getRequestPathWithoutQuery(url = '') {
-  return String(url || '').split('?')[0];
+function getRequestPathWithoutQuery(url = "") {
+  return String(url || "").split("?")[0];
 }
 // Security/correctness: req.url arrives percent-encoded (e.g. a space in a
 // filename is '%20'). res.sendFile() internally re-encodes whatever path
@@ -2894,43 +3142,42 @@ function getRequestPathWithoutQuery(url = '') {
 // filesystem-safe path so res.sendFile()'s internal re-encode round-trips
 // correctly. Malformed percent-encoding falls back to the raw path; `send`
 // still rejects '..' traversal and null bytes downstream regardless.
-function decodeStaticRequestPath(requestPath = '') {
-  const rawPath = String(requestPath || '');
+function decodeStaticRequestPath(requestPath = "") {
+  const rawPath = String(requestPath || "");
   try {
     return decodeURIComponent(rawPath);
-  }
-  catch (e) {
+  } catch (e) {
     return rawPath;
   }
 }
-function isSiteApiRequestPath(url = '') {
+function isSiteApiRequestPath(url = "") {
   return /\/x\/api(?:\/|$)/.test(getRequestPathWithoutQuery(url));
 }
-function setWellKnownContentType(res, requestPath = '') {
+function setWellKnownContentType(res, requestPath = "") {
   const cleanRequestPath = getRequestPathWithoutQuery(requestPath);
   if (/\/\.well-known\/api-catalog$/.test(cleanRequestPath)) {
     res.setHeader(
-      'Content-Type',
-      'application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"'
+      "Content-Type",
+      'application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"',
     );
     return true;
   }
   if (/\/\.well-known\/security\.txt$/.test(cleanRequestPath)) {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
     return true;
   }
   return false;
 }
-function shouldAllowWellKnownDotfiles(requestPath = '') {
+function shouldAllowWellKnownDotfiles(requestPath = "") {
   const cleanRequestPath = getRequestPathWithoutQuery(requestPath);
   return /\/\.well-known(?:\/|$)/.test(cleanRequestPath);
 }
-function getStaticSendFileOptions(rootPath = '', requestPath = '') {
+function getStaticSendFileOptions(rootPath = "", requestPath = "") {
   const options = {
     root: rootPath,
   };
   if (shouldAllowWellKnownDotfiles(requestPath)) {
-    options.dotfiles = 'allow';
+    options.dotfiles = "allow";
   }
   return options;
 }
@@ -2946,7 +3193,11 @@ const STATIC_CHARSET_EXTENSIONS = /\.(txt|md|json|ya?ml|xml)$/i;
 // type. Pass null as `fallback` to only set a header when mime resolves.
 // Used at call sites that res.sendFile() afterward: send respects a
 // pre-set Content-Type (it does not override), so this header wins.
-function setStaticContentTypeWithCharset(res, requestPath = '', fallback = 'text/html') {
+function setStaticContentTypeWithCharset(
+  res,
+  requestPath = "",
+  fallback = "text/html",
+) {
   const cleanPath = getRequestPathWithoutQuery(requestPath);
   // Security (SEC-UPLOAD): resolve the type from the decoded path (what send
   // actually reads from disk), so an encoded extension such as x%2ehtml is not
@@ -2956,20 +3207,25 @@ function setStaticContentTypeWithCharset(res, requestPath = '', fallback = 'text
   if (!mimeType) {
     // Security (SEC-UPLOAD): never fall back to text/html for user uploads
     // under a files/ directory; unknown types are served as opaque bytes.
-    if (fallback !== null && uploadSecurity.isFilesDirectoryRequestPath(decodedPath)) {
-      res.setHeader('Content-Type', 'application/octet-stream');
-    }
-    else if (fallback !== null) {
-      res.setHeader('Content-Type', fallback);
+    if (
+      fallback !== null &&
+      uploadSecurity.isFilesDirectoryRequestPath(decodedPath)
+    ) {
+      res.setHeader("Content-Type", "application/octet-stream");
+    } else if (fallback !== null) {
+      res.setHeader("Content-Type", fallback);
     }
     return;
   }
   // Don't charset-tag user uploads in /files/ (encoding not guaranteed),
   // matching the RemoveCharset in system/boilerplate/site/files/.htaccess.
-  if (STATIC_CHARSET_EXTENSIONS.test(decodedPath) && decodedPath.indexOf('/files/') === -1) {
-    res.setHeader('Content-Type', mimeType + '; charset=utf-8');
+  if (
+    STATIC_CHARSET_EXTENSIONS.test(decodedPath) &&
+    decodedPath.indexOf("/files/") === -1
+  ) {
+    res.setHeader("Content-Type", mimeType + "; charset=utf-8");
   } else {
-    res.setHeader('Content-Type', mimeType);
+    res.setHeader("Content-Type", mimeType);
   }
 }
 // express.static setHeaders hook: only tag the managed text formats with
@@ -2979,7 +3235,7 @@ function setStaticContentTypeWithCharset(res, requestPath = '', fallback = 'text
 // before send's type() (which skips when Content-Type is already set).
 // User uploads in /files/ get the bare type (no charset) to match the
 // RemoveCharset in system/boilerplate/site/files/.htaccess.
-function setManagedFileCharsetHeader(res, filePath = '') {
+function setManagedFileCharsetHeader(res, filePath = "") {
   const cleanPath = getRequestPathWithoutQuery(filePath);
   if (!STATIC_CHARSET_EXTENSIONS.test(cleanPath)) {
     return;
@@ -2988,10 +3244,10 @@ function setManagedFileCharsetHeader(res, filePath = '') {
   if (!mimeType) {
     return;
   }
-  if (cleanPath.indexOf('/files/') !== -1) {
-    res.setHeader('Content-Type', mimeType);
+  if (cleanPath.indexOf("/files/") !== -1) {
+    res.setHeader("Content-Type", mimeType);
   } else {
-    res.setHeader('Content-Type', mimeType + '; charset=utf-8');
+    res.setHeader("Content-Type", mimeType + "; charset=utf-8");
   }
 }
 // D60: 405+Allow dispatch helpers. These support the catch-all middleware
@@ -2999,13 +3255,21 @@ function setManagedFileCharsetHeader(res, filePath = '') {
 // method and returns 405 + Allow header. Mirrors PHP SystemApiRouter /
 // SiteApiRouter matchRoute + 405+Allow dispatch.
 function matchRoutePatternToPath(pattern, routePath) {
-  const patternParts = String(pattern || '').split('/').filter(function (p) { return p !== ''; });
-  const pathParts = String(routePath || '').split('/').filter(function (p) { return p !== ''; });
+  const patternParts = String(pattern || "")
+    .split("/")
+    .filter(function (p) {
+      return p !== "";
+    });
+  const pathParts = String(routePath || "")
+    .split("/")
+    .filter(function (p) {
+      return p !== "";
+    });
   if (patternParts.length !== pathParts.length) {
     return false;
   }
   for (let i = 0; i < patternParts.length; i++) {
-    if (patternParts[i].charAt(0) === ':') {
+    if (patternParts[i].charAt(0) === ":") {
       continue;
     }
     if (patternParts[i] !== pathParts[i]) {
@@ -3016,20 +3280,20 @@ function matchRoutePatternToPath(pattern, routePath) {
 }
 function findAllowedMethodsForRouteSuffix(routeSuffix, registry) {
   const allowedMethods = [];
-  if (!registry || typeof registry !== 'object') {
+  if (!registry || typeof registry !== "object") {
     return allowedMethods;
   }
   const registryMethods = Object.keys(registry);
   for (let i = 0; i < registryMethods.length; i++) {
     const method = registryMethods[i];
     const routeMap = registry[method];
-    if (!routeMap || typeof routeMap !== 'object') {
+    if (!routeMap || typeof routeMap !== "object") {
       continue;
     }
     const routePatterns = Object.keys(routeMap);
     for (let j = 0; j < routePatterns.length; j++) {
       if (matchRoutePatternToPath(routePatterns[j], routeSuffix)) {
-        const upperMethod = String(method || '').toUpperCase();
+        const upperMethod = String(method || "").toUpperCase();
         if (allowedMethods.indexOf(upperMethod) === -1) {
           allowedMethods.push(upperMethod);
         }
@@ -3042,27 +3306,30 @@ function findAllowedMethodsForRouteSuffix(routeSuffix, registry) {
 function extractSiteApiRouteSuffixFromPath(requestPath) {
   const siteApiBase = getSiteApiBasePath();
   const normalizedPath = getRequestPathWithoutQuery(requestPath);
-  const siteScopedPrefix = '/' + HAXCMS.sitesDirectory + '/';
+  const siteScopedPrefix = "/" + HAXCMS.sitesDirectory + "/";
   let workingPath = normalizedPath;
   if (workingPath.indexOf(siteScopedPrefix) === 0) {
     const afterSites = workingPath.substring(siteScopedPrefix.length);
-    const apiIndex = afterSites.indexOf(siteApiBase + '/');
+    const apiIndex = afterSites.indexOf(siteApiBase + "/");
     if (apiIndex !== -1) {
       workingPath = afterSites.substring(apiIndex);
     }
   }
-  if (workingPath.indexOf(siteApiBase + '/') === 0) {
+  if (workingPath.indexOf(siteApiBase + "/") === 0) {
     return workingPath.substring(siteApiBase.length + 1);
   }
   if (workingPath === siteApiBase) {
-    return '';
+    return "";
   }
   return null;
 }
 function extractSystemApiRouteSuffixFromPath(requestPath) {
-  const systemApiV1Base = String(HAXCMS.basePath || '/') + String(HAXCMS.systemRequestBase || '') + 'v1/';
+  const systemApiV1Base =
+    String(HAXCMS.basePath || "/") +
+    String(HAXCMS.systemRequestBase || "") +
+    "v1/";
   const normalizedPath = getRequestPathWithoutQuery(requestPath);
-  const siteScopedPrefix = '/' + HAXCMS.sitesDirectory + '/';
+  const siteScopedPrefix = "/" + HAXCMS.sitesDirectory + "/";
   let workingPath = normalizedPath;
   if (workingPath.indexOf(siteScopedPrefix) === 0) {
     const afterSites = workingPath.substring(siteScopedPrefix.length);
@@ -3078,19 +3345,21 @@ function extractSystemApiRouteSuffixFromPath(requestPath) {
 }
 function sendMethodNotAllowedResponse(res, routeSuffix, allowedMethods) {
   const sortedMethods = allowedMethods.slice().sort();
-  res.set('Allow', sortedMethods.join(', '));
+  res.set("Allow", sortedMethods.join(", "));
   return res.status(405).json({
     status: 405,
     data: {
-      message: 'Method not allowed',
+      message: "Method not allowed",
       route: routeSuffix,
       methods: sortedMethods,
     },
   });
 }
 
-function getExplicitVariantInfo(pathname = '') {
-  const matched = String(pathname || '').match(/^(.*)\.(html|md|json|ya?ml|xml)$/i);
+function getExplicitVariantInfo(pathname = "") {
+  const matched = String(pathname || "").match(
+    /^(.*)\.(html|md|json|ya?ml|xml)$/i,
+  );
   if (!matched) {
     return {
       format: null,
@@ -3098,65 +3367,65 @@ function getExplicitVariantInfo(pathname = '') {
     };
   }
   let format = matched[2].toLowerCase();
-  if (format === 'yml') {
-    format = 'yaml';
+  if (format === "yml") {
+    format = "yaml";
   }
   return {
     format,
-    basePath: matched[1] || '',
+    basePath: matched[1] || "",
   };
 }
 
-function getNegotiatedVariantFormat(acceptHeader = '') {
-  const accept = String(acceptHeader || '').toLowerCase();
+function getNegotiatedVariantFormat(acceptHeader = "") {
+  const accept = String(acceptHeader || "").toLowerCase();
   const acceptsHtml =
-    accept.indexOf('text/html') !== -1 ||
-    accept.indexOf('application/xhtml+xml') !== -1;
+    accept.indexOf("text/html") !== -1 ||
+    accept.indexOf("application/xhtml+xml") !== -1;
   if (acceptsHtml) {
     return null;
   }
-  if (accept.indexOf('text/markdown') !== -1) {
-    return 'md';
+  if (accept.indexOf("text/markdown") !== -1) {
+    return "md";
   }
   if (
-    accept.indexOf('application/yaml') !== -1 ||
-    accept.indexOf('application/x-yaml') !== -1 ||
-    accept.indexOf('text/yaml') !== -1
+    accept.indexOf("application/yaml") !== -1 ||
+    accept.indexOf("application/x-yaml") !== -1 ||
+    accept.indexOf("text/yaml") !== -1
   ) {
-    return 'yaml';
+    return "yaml";
   }
   if (
-    accept.indexOf('application/xml') !== -1 ||
-    accept.indexOf('text/xml') !== -1
+    accept.indexOf("application/xml") !== -1 ||
+    accept.indexOf("text/xml") !== -1
   ) {
-    return 'xml';
+    return "xml";
   }
   if (
-    accept.indexOf('application/json') !== -1 &&
-    accept.indexOf('text/html') === -1
+    accept.indexOf("application/json") !== -1 &&
+    accept.indexOf("text/html") === -1
   ) {
-    return 'json';
+    return "json";
   }
   return null;
 }
 
-function normalizeSlugFromPath(pathname = '') {
-  let slugPath = String(pathname || '').replace(/^\/+/, '');
-  slugPath = slugPath.replace(/\/+$/, '');
+function normalizeSlugFromPath(pathname = "") {
+  let slugPath = String(pathname || "").replace(/^\/+/, "");
+  slugPath = slugPath.replace(/\/+$/, "");
   return slugPath;
 }
 
-function resolvePageBySlug(site, slug = '') {
+function resolvePageBySlug(site, slug = "") {
   if (
     !site ||
     !site.manifest ||
     !Array.isArray(site.manifest.items) ||
-    slug === ''
+    slug === ""
   ) {
     return null;
   }
   if (site.manifest.getItemByProperty) {
-    const matched = site.manifest.getItemByProperty('slug', slug);
+    const matched = site.manifest.getItemByProperty("slug", slug);
     if (matched) {
       return matched;
     }
@@ -3190,35 +3459,37 @@ function resolveHomePageItem(site) {
   return site.manifest.items[0];
 }
 
-function buildCanonicalPagePath(routePrefix = '', slug = '') {
-  const cleanPrefix = String(routePrefix || '').replace(/\/+$/, '');
-  const cleanSlug = String(slug || '').replace(/^\/+/, '').replace(/\/+$/, '');
-  if (cleanSlug === '') {
-    if (cleanPrefix === '') {
-      return '/';
+function buildCanonicalPagePath(routePrefix = "", slug = "") {
+  const cleanPrefix = String(routePrefix || "").replace(/\/+$/, "");
+  const cleanSlug = String(slug || "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  if (cleanSlug === "") {
+    if (cleanPrefix === "") {
+      return "/";
     }
     return cleanPrefix;
   }
-  if (cleanPrefix === '') {
-    return '/' + cleanSlug;
+  if (cleanPrefix === "") {
+    return "/" + cleanSlug;
   }
-  return cleanPrefix + '/' + cleanSlug;
+  return cleanPrefix + "/" + cleanSlug;
 }
 
-function appendVaryHeader(res, value = 'Accept') {
-  const currentHeader = res.getHeader('Vary');
+function appendVaryHeader(res, value = "Accept") {
+  const currentHeader = res.getHeader("Vary");
   if (!currentHeader) {
-    res.setHeader('Vary', value);
+    res.setHeader("Vary", value);
     return;
   }
   const current = String(currentHeader);
-  const entries = current.split(',').map((entry) => entry.trim().toLowerCase());
+  const entries = current.split(",").map((entry) => entry.trim().toLowerCase());
   if (entries.indexOf(value.toLowerCase()) === -1) {
-    res.setHeader('Vary', current + ', ' + value);
+    res.setHeader("Vary", current + ", " + value);
   }
 }
 
-function getPageVariantLocation(site, item, format = 'json') {
+function getPageVariantLocation(site, item, format = "json") {
   if (!site || !item || !item.location) {
     return null;
   }
@@ -3226,19 +3497,22 @@ function getPageVariantLocation(site, item, format = 'json') {
     return site.getPageAlternateLocation(item.location, format);
   }
   if (/\.html?$/i.test(item.location)) {
-    return item.location.replace(/\.html?$/i, '.' + format);
+    return item.location.replace(/\.html?$/i, "." + format);
   }
-  return item.location + '.' + format;
+  return item.location + "." + format;
 }
 
-function resolveVariantFilePath(site, item, format = 'json') {
+function resolveVariantFilePath(site, item, format = "json") {
   const variantLocation = getPageVariantLocation(site, item, format);
   if (!variantLocation || !site || !site.siteDirectory) {
     return null;
   }
   // Security (N1/N5 parity): the sidecar path derives from the manifest
   // location, so prove it resolves inside the site before serving it.
-  const absolutePath = resolveContainedPath(site.siteDirectory, variantLocation);
+  const absolutePath = resolveContainedPath(
+    site.siteDirectory,
+    variantLocation,
+  );
   if (absolutePath === false) {
     return null;
   }
@@ -3247,20 +3521,15 @@ function resolveVariantFilePath(site, item, format = 'json') {
   }
   return null;
 }
-async function ensurePageVariantFile(site, item, format = 'json') {
+async function ensurePageVariantFile(site, item, format = "json") {
   let variantFilePath = resolveVariantFilePath(site, item, format);
   if (variantFilePath) {
     return variantFilePath;
   }
-  if (
-    site &&
-    item &&
-    typeof site.writePageAlternateFormats === 'function'
-  ) {
+  if (site && item && typeof site.writePageAlternateFormats === "function") {
     try {
       await site.writePageAlternateFormats(item);
-    }
-    catch (e) {}
+    } catch (e) {}
     variantFilePath = resolveVariantFilePath(site, item, format);
     if (variantFilePath) {
       return variantFilePath;
@@ -3269,24 +3538,32 @@ async function ensurePageVariantFile(site, item, format = 'json') {
   return null;
 }
 
-async function servePageVariantFile(res, site, item, format, canonicalPath, negotiated = false) {
+async function servePageVariantFile(
+  res,
+  site,
+  item,
+  format,
+  canonicalPath,
+  negotiated = false,
+) {
   const variantFilePath = await ensurePageVariantFile(site, item, format);
   if (!variantFilePath) {
     return false;
   }
-  const contentType = PAGE_VARIANT_CONTENT_TYPES[format] || 'text/plain; charset=utf-8';
-  res.setHeader('Content-Type', contentType);
+  const contentType =
+    PAGE_VARIANT_CONTENT_TYPES[format] || "text/plain; charset=utf-8";
+  res.setHeader("Content-Type", contentType);
   if (canonicalPath) {
-    res.setHeader('Content-Location', canonicalPath + '.' + format);
+    res.setHeader("Content-Location", canonicalPath + "." + format);
   }
   if (negotiated) {
-    appendVaryHeader(res, 'Accept');
+    appendVaryHeader(res, "Accept");
   }
   res.sendFile(variantFilePath);
   return true;
 }
 
-function setPageAlternateHeaders(res, site, item, canonicalPath = '') {
+function setPageAlternateHeaders(res, site, item, canonicalPath = "") {
   if (!site || !item || !canonicalPath) {
     return;
   }
@@ -3297,14 +3574,19 @@ function setPageAlternateHeaders(res, site, item, canonicalPath = '') {
     const variantFilePath = resolveVariantFilePath(site, item, format);
     if (variantFilePath) {
       links.push(
-        '<' + canonicalPath + '.' + format + '>; rel="alternate"; type="' +
-        PAGE_VARIANT_CONTENT_TYPES[format].replace('; charset=utf-8', '') + '"'
+        "<" +
+          canonicalPath +
+          "." +
+          format +
+          '>; rel="alternate"; type="' +
+          PAGE_VARIANT_CONTENT_TYPES[format].replace("; charset=utf-8", "") +
+          '"',
       );
     }
   }
   if (links.length > 0) {
-    res.setHeader('Link', links.join(', '));
-    appendVaryHeader(res, 'Accept');
+    res.setHeader("Link", links.join(", "));
+    appendVaryHeader(res, "Accept");
   }
 }
 // llms-full.txt: the whole site as one markdown document, always the
@@ -3314,19 +3596,32 @@ function setPageAlternateHeaders(res, site, item, canonicalPath = '') {
 // HAXCMSSite::respondWithLlmsFull.
 async function tryServeLlmsFull(req, res, site) {
   const isPrivate =
-    site && site.manifest && site.manifest.metadata && site.manifest.metadata.site &&
-    site.manifest.metadata.site.settings && site.manifest.metadata.site.settings.private;
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    site.manifest.metadata.site.settings &&
+    site.manifest.metadata.site.settings.private;
   if (isPrivate) {
-    res.status(404).type('text/plain; charset=utf-8').send('Not found');
+    res.status(404).type("text/plain; charset=utf-8").send("Not found");
     return;
   }
-  const { buildSiteExportMarkdown, sendCacheableText } = require('./siteRoutes/v1/exports.js');
-  const markdown = await buildSiteExportMarkdown(site, '', true);
-  sendCacheableText(req, res, markdown, 'text/markdown; charset=utf-8', true);
+  const {
+    buildSiteExportMarkdown,
+    sendCacheableText,
+  } = require("./siteRoutes/v1/exports.js");
+  const markdown = await buildSiteExportMarkdown(site, "", true);
+  sendCacheableText(req, res, markdown, "text/markdown; charset=utf-8", true);
 }
 
-async function tryServePageVariantRequest(req, res, site, requestPath = '', routePrefix = '') {
-  if (String(requestPath || '').replace(/^\/+|\/+$/g, '') === 'llms-full.txt') {
+async function tryServePageVariantRequest(
+  req,
+  res,
+  site,
+  requestPath = "",
+  routePrefix = "",
+) {
+  if (String(requestPath || "").replace(/^\/+|\/+$/g, "") === "llms-full.txt") {
     await tryServeLlmsFull(req, res, site);
     return {
       served: true,
@@ -3337,7 +3632,7 @@ async function tryServePageVariantRequest(req, res, site, requestPath = '', rout
   }
   const explicitInfo = getExplicitVariantInfo(requestPath);
   const slug = normalizeSlugFromPath(explicitInfo.basePath);
-  const isHomeRequest = slug === '';
+  const isHomeRequest = slug === "";
   const item = isHomeRequest
     ? resolveHomePageItem(site)
     : resolvePageBySlug(site, slug);
@@ -3355,8 +3650,8 @@ async function tryServePageVariantRequest(req, res, site, requestPath = '', rout
     const missingCanonicalPath = buildCanonicalPagePath(routePrefix, slug);
     if (explicitInfo.format) {
       res.status(404);
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.send('Not found');
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.send("Not found");
       return {
         served: true,
         item: null,
@@ -3378,12 +3673,12 @@ async function tryServePageVariantRequest(req, res, site, requestPath = '', rout
       site,
       item,
       explicitInfo.format,
-      canonicalPath
+      canonicalPath,
     );
     if (!servedExplicit) {
       res.status(404);
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.send('Not found');
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.send("Not found");
     }
     return {
       served: true,
@@ -3400,7 +3695,7 @@ async function tryServePageVariantRequest(req, res, site, requestPath = '', rout
       item,
       negotiatedFormat,
       canonicalPath,
-      true
+      true,
     );
     if (servedNegotiated) {
       return {
@@ -3419,23 +3714,27 @@ async function tryServePageVariantRequest(req, res, site, requestPath = '', rout
   };
 }
 
-function getMultisiteSiteName(requestPath = '') {
-  const pathParts = String(requestPath || '').replace(/^\/+/, '').split('/');
-  if (pathParts.length === 0 || pathParts[0] === '') {
+function getMultisiteSiteName(requestPath = "") {
+  const pathParts = String(requestPath || "")
+    .replace(/^\/+/, "")
+    .split("/");
+  if (pathParts.length === 0 || pathParts[0] === "") {
     return null;
   }
   return pathParts[0];
 }
 
-function getMultisiteSiteSubPath(requestPath = '') {
-  const pathParts = String(requestPath || '').replace(/^\/+/, '').split('/');
+function getMultisiteSiteSubPath(requestPath = "") {
+  const pathParts = String(requestPath || "")
+    .replace(/^\/+/, "")
+    .split("/");
   if (pathParts.length <= 1) {
-    return '/';
+    return "/";
   }
-  return '/' + pathParts.slice(1).join('/');
+  return "/" + pathParts.slice(1).join("/");
 }
 
-function getRequestAbsoluteUrl(req, fallbackPath = '/') {
+function getRequestAbsoluteUrl(req, fallbackPath = "/") {
   // Security (HAX-SEC / PHP [M4] parity): delegate protocol/host resolution to
   // HAXCMS.resolveTrustedProtocol / resolveTrustedHost so this and both
   // discovery API endpoints share one trust-proxy-aware + allowedHosts-validated
@@ -3449,30 +3748,35 @@ function getRequestAbsoluteUrl(req, fallbackPath = '/') {
   if (req && (req.originalUrl || req.url)) {
     requestPath = getRequestPathWithoutQuery(req.originalUrl || req.url);
   }
-  if (!requestPath || typeof requestPath !== 'string') {
-    requestPath = '/';
+  if (!requestPath || typeof requestPath !== "string") {
+    requestPath = "/";
   }
-  if (requestPath.substring(0, 1) !== '/') {
-    requestPath = '/' + requestPath;
+  if (requestPath.substring(0, 1) !== "/") {
+    requestPath = "/" + requestPath;
   }
-  if (host === '') {
+  if (host === "") {
     return requestPath;
   }
-  return protocol + '://' + host + requestPath;
+  return protocol + "://" + host + requestPath;
 }
 
-function sanitizeManagedHeadMarkup(markup = '') {
-  return String(markup || '').replace(/\\"/g, '"');
+function sanitizeManagedHeadMarkup(markup = "") {
+  return String(markup || "").replace(/\\"/g, '"');
 }
 
-function replaceManagedHeadMarkup(indexFile = '', metadata = '', serviceWorkerScript = '') {
+function replaceManagedHeadMarkup(
+  indexFile = "",
+  metadata = "",
+  serviceWorkerScript = "",
+) {
   const cleanMetadata = sanitizeManagedHeadMarkup(metadata);
-  const cleanServiceWorkerScript = sanitizeManagedHeadMarkup(serviceWorkerScript);
+  const cleanServiceWorkerScript =
+    sanitizeManagedHeadMarkup(serviceWorkerScript);
   let managedHeadMarkup = cleanMetadata;
-  if (cleanServiceWorkerScript !== '') {
-    managedHeadMarkup += '\n' + cleanServiceWorkerScript + '\n';
+  if (cleanServiceWorkerScript !== "") {
+    managedHeadMarkup += "\n" + cleanServiceWorkerScript + "\n";
   }
-  let output = String(indexFile || '');
+  let output = String(indexFile || "");
   const managedHeadPattern = /<meta charset[\s\S]*?(?=\s*<style[\s>])/i;
   if (managedHeadPattern.test(output)) {
     // Preserve <script> blocks (the base-href document.write setter and the
@@ -3492,37 +3796,54 @@ function replaceManagedHeadMarkup(indexFile = '', metadata = '', serviceWorkerSc
     while ((scriptMatch = scriptBlockPattern.exec(matched)) !== null) {
       preservedScripts.push(scriptMatch[0]);
     }
-    const preservedScriptsMarkup = preservedScripts.length > 0
-      ? preservedScripts.join('\n  ') + '\n  '
-      : '';
-    output = output.replace(managedHeadPattern, preservedScriptsMarkup + managedHeadMarkup + '\n');
+    const preservedScriptsMarkup =
+      preservedScripts.length > 0 ? preservedScripts.join("\n  ") + "\n  " : "";
+    output = output.replace(
+      managedHeadPattern,
+      preservedScriptsMarkup + managedHeadMarkup + "\n",
+    );
     return output;
   }
-  if (output.indexOf('</head>') !== -1) {
-    output = output.replace('</head>', managedHeadMarkup + '\n</head>');
+  if (output.indexOf("</head>") !== -1) {
+    output = output.replace("</head>", managedHeadMarkup + "\n</head>");
   }
   return output;
 }
 
-function replaceSiteBuilderContent(indexFile = '', pageContent = '') {
-  const builderPattern = /<haxcms-site-builder([^>]*)>[\s\S]*?<\/haxcms-site-builder>/i;
+function replaceSiteBuilderContent(indexFile = "", pageContent = "") {
+  const builderPattern =
+    /<haxcms-site-builder([^>]*)>[\s\S]*?<\/haxcms-site-builder>/i;
   if (!builderPattern.test(indexFile)) {
     return indexFile;
   }
-  return String(indexFile || '').replace(
+  // Security (M1): page content is untrusted for CSP purposes; pre-mark its
+  // scripts so the later injectNonce pass never authorizes them.
+  const safeContent = neutralizeUntrustedScriptNonces(pageContent);
+  // Replacer function (not a replacement string) so `$&`, `$1`, `` $` `` or
+  // `$'` sequences inside page content are inserted literally instead of
+  // being expanded into other parts of the template.
+  return String(indexFile || "").replace(
     builderPattern,
-    '<haxcms-site-builder$1>' + String(pageContent || '') + '</haxcms-site-builder>'
+    function (match, builderAttrs) {
+      return (
+        "<haxcms-site-builder" +
+        builderAttrs +
+        ">" +
+        safeContent +
+        "</haxcms-site-builder>"
+      );
+    },
   );
 }
 
-function injectDevReloadScript(indexFile = '', port = 3000) {
-  let output = String(indexFile || '');
+function injectDevReloadScript(indexFile = "", port = 3000) {
+  let output = String(indexFile || "");
   // dev-reload websocket only makes sense (and only has a server-side
   // listener) when running in development; never inject it otherwise.
   if (process.env.NODE_ENV !== "development") {
     return output;
   }
-  if (output.indexOf('data-haxcms-dev-reload') !== -1) {
+  if (output.indexOf("data-haxcms-dev-reload") !== -1) {
     return output;
   }
   const devScript = `
@@ -3541,30 +3862,51 @@ function injectDevReloadScript(indexFile = '', port = 3000) {
       }
     });
   </script>`;
-  if (output.indexOf('</body>') !== -1) {
-    return output.replace('</body>', `${devScript}
-</body>`);
+  if (output.indexOf("</body>") !== -1) {
+    return output.replace(
+      "</body>",
+      `${devScript}
+</body>`,
+    );
   }
   return `${output}
 ${devScript}`;
 }
 
-async function renderDynamicSiteIndexResponse(req, site, item, canonicalPath = '', pageMiss = false, indexFilePath = '') {
-  let indexFile = fs.readFileSync(indexFilePath, 'utf8');
-  const absoluteUrl = getRequestAbsoluteUrl(req, canonicalPath || '/');
-  const metadata = await site.getSiteMetadata(item || null, absoluteUrl, '', canonicalPath || '');
-  const serviceWorkerScript = site.getServiceWorkerScript(null, false, site.getServiceWorkerStatus());
-  indexFile = replaceManagedHeadMarkup(indexFile, metadata, serviceWorkerScript);
-  let pageContent = '';
+async function renderDynamicSiteIndexResponse(
+  req,
+  site,
+  item,
+  canonicalPath = "",
+  pageMiss = false,
+  indexFilePath = "",
+) {
+  let indexFile = fs.readFileSync(indexFilePath, "utf8");
+  const absoluteUrl = getRequestAbsoluteUrl(req, canonicalPath || "/");
+  const metadata = await site.getSiteMetadata(
+    item || null,
+    absoluteUrl,
+    "",
+    canonicalPath || "",
+  );
+  const serviceWorkerScript = site.getServiceWorkerScript(
+    null,
+    false,
+    site.getServiceWorkerStatus(),
+  );
+  indexFile = replaceManagedHeadMarkup(
+    indexFile,
+    metadata,
+    serviceWorkerScript,
+  );
+  let pageContent = "";
   if (item) {
     try {
       pageContent = await site.getPageContent(item);
+    } catch (e) {
+      pageContent = "";
     }
-    catch (e) {
-      pageContent = '';
-    }
-  }
-  else if (pageMiss) {
+  } else if (pageMiss) {
     pageContent = getPageMissShellMarkup();
   }
   indexFile = replaceSiteBuilderContent(indexFile, pageContent);

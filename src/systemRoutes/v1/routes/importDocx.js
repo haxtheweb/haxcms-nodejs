@@ -1,13 +1,15 @@
-const { convertToHtml } = require('mammoth');
-const { parse } = require('node-html-parser');
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { convertToHtml } = require("mammoth");
+const { parse } = require("node-html-parser");
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const {
   stripMSWord,
   validURL,
   htmlFromEl,
   processDocxHtml,
-} = require('../../../lib/convertUtils.js');
-const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
+} = require("../../../lib/convertUtils.js");
+const JSONOutlineSchemaItem = require("../../../lib/JSONOutlineSchemaItem.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/actions/import-docx
@@ -24,7 +26,7 @@ async function importDocx(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'No file uploaded',
+          error: "No file uploaded",
           items: [],
           filename: null,
         },
@@ -44,7 +46,7 @@ async function importDocx(req, res) {
       });
     }
 
-    const fs = require('fs-extra');
+    const fs = require("fs-extra");
     let buffer;
     try {
       buffer = fs.readFileSync(file.path);
@@ -52,7 +54,7 @@ async function importDocx(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unable to read uploaded file: ${e.message}`,
+          error: `Unable to read uploaded file: ${clientSafeErrorDetail(e)}`,
           items: [],
           filename: filename,
         },
@@ -62,7 +64,7 @@ async function importDocx(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'Uploaded file is empty',
+          error: "Uploaded file is empty",
           items: [],
           filename: filename,
         },
@@ -70,11 +72,18 @@ async function importDocx(req, res) {
     }
 
     // Validate ZIP magic number (DOCX files are ZIP archives)
-    if (buffer.length < 4 || buffer[0] !== 0x50 || buffer[1] !== 0x4B || buffer[2] !== 0x03 || buffer[3] !== 0x04) {
+    if (
+      buffer.length < 4 ||
+      buffer[0] !== 0x50 ||
+      buffer[1] !== 0x4b ||
+      buffer[2] !== 0x03 ||
+      buffer[3] !== 0x04
+    ) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'Uploaded file is not a valid .docx file (missing ZIP signature). If this is a .doc file, convert it to .docx first.',
+          error:
+            "Uploaded file is not a valid .docx file (missing ZIP signature). If this is a .doc file, convert it to .docx first.",
           items: [],
           filename: filename,
         },
@@ -82,51 +91,61 @@ async function importDocx(req, res) {
     }
 
     const mammothOptions = {
-      styleMap: [
-        'u => em',
-        'strike => del',
-      ],
+      styleMap: ["u => em", "strike => del"],
     };
 
-    let html = '';
+    let html = "";
     try {
       const result = await convertToHtml({ buffer: buffer }, mammothOptions);
       html = result.value;
       html = processDocxHtml(html);
       html = stripMSWord(html);
     } catch (e) {
-      html = '';
-      throw new Error(`Error converting DOCX: ${e.message}`);
+      html = "";
+      throw new Error(`Error converting DOCX: ${clientSafeErrorDetail(e)}`);
     }
 
     const doc = parse(`<div id="docx-import-wrapper">${html}</div>`);
-    const type = req.body && req.body.type ? req.body.type : '';
-    const method = req.body && req.body.method ? req.body.method : 'site';
-    const parentIdField = req.body && req.body.parentId ? req.body.parentId : null;
-    const parentId = parentIdField && parentIdField !== 'null' ? parentIdField : null;
-    const titleValue = filename.replace(/\.docx$/i, '');
+    const type = req.body && req.body.type ? req.body.type : "";
+    const method = req.body && req.body.method ? req.body.method : "site";
+    const parentIdField =
+      req.body && req.body.parentId ? req.body.parentId : null;
+    const parentId =
+      parentIdField && parentIdField !== "null" ? parentIdField : null;
+    const titleValue = filename.replace(/\.docx$/i, "");
     let items = [];
 
     switch (method) {
-      case 'site': {
+      case "site": {
         const highestLevel = getHighestHeadingLevel(doc);
         if (highestLevel === 0) {
-          items.push(importSinglePage(titleValue, processSinglePageContent(doc.querySelector('#docx-import-wrapper')), parentId));
+          items.push(
+            importSinglePage(
+              titleValue,
+              processSinglePageContent(
+                doc.querySelector("#docx-import-wrapper"),
+              ),
+              parentId,
+            ),
+          );
         } else {
-          const rootTag = 'H' + highestLevel;
-          const childTag = highestLevel < 4 ? 'H' + (highestLevel + 1) : null;
+          const rootTag = "H" + highestLevel;
+          const childTag = highestLevel < 4 ? "H" + (highestLevel + 1) : null;
           let rootHeadings = doc.querySelectorAll(rootTag.toLowerCase());
           let rootOrder = 0;
           for await (const rootHeading of rootHeadings) {
             let item = new JSONOutlineSchemaItem();
-            item.title = rootHeading.text.trim().replace('  ', ' ').replace('  ', ' ');
+            item.title = rootHeading.text
+              .trim()
+              .replace("  ", " ")
+              .replace("  ", " ");
             item.slug = HAXCMS.cleanTitle(item.title);
             item.order = rootOrder;
             item.parent = parentId;
             rootOrder += 1;
             let tmp = await nextUntilElement(rootHeading, [rootTag]);
             let rootChildren = tmp.siblings;
-            let contents = '';
+            let contents = "";
             let childHeading = null;
             for await (const child of rootChildren) {
               if (childTag && child.tagName === childTag) {
@@ -136,27 +155,37 @@ async function importDocx(req, res) {
                 contents += htmlFromEl(child);
               }
             }
-            item.contents = contents !== '' ? contents : getFallbackContent(type);
+            item.contents =
+              contents !== "" ? contents : getFallbackContent(type);
             items.push(item);
             if (childHeading && childTag) {
               let childOrder = 0;
               let currentChild = childHeading;
-              while (currentChild !== null && currentChild.tagName === childTag) {
+              while (
+                currentChild !== null &&
+                currentChild.tagName === childTag
+              ) {
                 let item2 = new JSONOutlineSchemaItem();
-                item2.title = currentChild.text.trim().replace('  ', ' ').replace('  ', ' ');
-                item2.slug = item.slug + '/' + HAXCMS.cleanTitle(item2.title);
+                item2.title = currentChild.text
+                  .trim()
+                  .replace("  ", " ")
+                  .replace("  ", " ");
+                item2.slug = item.slug + "/" + HAXCMS.cleanTitle(item2.title);
                 item2.order = childOrder;
                 childOrder += 1;
                 item2.indent = 1;
                 item2.parent = item.id;
-                let tmp2 = await nextUntilElement(currentChild, [rootTag, childTag]);
+                let tmp2 = await nextUntilElement(currentChild, [
+                  rootTag,
+                  childTag,
+                ]);
                 let childChildren = tmp2.siblings;
                 currentChild = tmp2.lastEl;
-                let contents2 = '';
+                let contents2 = "";
                 for await (const childChild of childChildren) {
                   contents2 += htmlFromEl(childChild);
                 }
-                item2.contents = contents2 !== '' ? contents2 : '<p></p>';
+                item2.contents = contents2 !== "" ? contents2 : "<p></p>";
                 items.push(item2);
               }
             }
@@ -164,36 +193,54 @@ async function importDocx(req, res) {
         }
         break;
       }
-      case 'branch': {
+      case "branch": {
         const highestLevel = getHighestHeadingLevel(doc);
         if (highestLevel === 0) {
-          items.push(importSinglePage(titleValue, processSinglePageContent(doc.querySelector('#docx-import-wrapper')), parentId));
+          items.push(
+            importSinglePage(
+              titleValue,
+              processSinglePageContent(
+                doc.querySelector("#docx-import-wrapper"),
+              ),
+              parentId,
+            ),
+          );
         } else {
-          const rootTag = 'H' + highestLevel;
+          const rootTag = "H" + highestLevel;
           let els = doc.querySelectorAll(rootTag.toLowerCase());
           let order = 0;
           for await (const rootHeading of els) {
             let item = new JSONOutlineSchemaItem();
-            item.title = rootHeading.text.trim().replace('  ', ' ').replace('  ', ' ');
+            item.title = rootHeading.text
+              .trim()
+              .replace("  ", " ")
+              .replace("  ", " ");
             item.slug = HAXCMS.cleanTitle(item.title);
             item.order = order;
             item.parent = parentId;
             order += 1;
             let tmp = await nextUntilElement(rootHeading, [rootTag]);
             let rootChildren = tmp.siblings;
-            let contents = '';
+            let contents = "";
             for await (const child of rootChildren) {
               contents += htmlFromEl(child);
             }
-            item.contents = contents !== '' ? contents : getFallbackContent(type);
+            item.contents =
+              contents !== "" ? contents : getFallbackContent(type);
             items.push(item);
           }
         }
         break;
       }
-      case 'page':
+      case "page":
       default: {
-        items.push(importSinglePage(titleValue, processSinglePageContent(doc.querySelector('#docx-import-wrapper')), parentId));
+        items.push(
+          importSinglePage(
+            titleValue,
+            processSinglePageContent(doc.querySelector("#docx-import-wrapper")),
+            parentId,
+          ),
+        );
         break;
       }
     }
@@ -206,11 +253,11 @@ async function importDocx(req, res) {
       },
     });
   } catch (error) {
-    console.error('docxToSite: Error processing file:', error.message);
+    console.error("docxToSite: Error processing file:", error.message);
     return res.status(400).json({
       status: 400,
       data: {
-        error: `Error processing DOCX import: ${error.message}`,
+        error: `Error processing DOCX import: ${clientSafeErrorDetail(error)}`,
         items: [],
         filename: filename,
       },
@@ -220,15 +267,15 @@ async function importDocx(req, res) {
 
 function processSinglePageContent(wrapperEl) {
   if (!wrapperEl) {
-    return '<p></p>';
+    return "<p></p>";
   }
-  let content = '';
+  let content = "";
   for (const child of wrapperEl.childNodes) {
     if (child && child.tagName) {
       content += htmlFromEl(child);
     }
   }
-  return content !== '' ? content : wrapperEl.innerHTML;
+  return content !== "" ? content : wrapperEl.innerHTML;
 }
 
 function importSinglePage(title, content, pValue) {
@@ -259,7 +306,7 @@ async function nextUntilElement(elem, tagMatches) {
 
 function getHighestHeadingLevel(doc) {
   for (let level = 1; level <= 4; level++) {
-    var els = doc.querySelectorAll('h' + level);
+    var els = doc.querySelectorAll("h" + level);
     if (els.length > 0) {
       return level;
     }
@@ -269,12 +316,12 @@ function getHighestHeadingLevel(doc) {
 
 function getFallbackContent(type) {
   switch (type) {
-    case 'portfolio':
+    case "portfolio":
       return `<p>Enjoy my portfolio and let me know if you have questions.</p>
 <lesson-overview>
   <lesson-highlight smart="pages"></lesson-highlight>
 </lesson-overview>`;
-    case 'course':
+    case "course":
       return `<p>Welcome to the lesson.</p>
 <lesson-overview>
   <lesson-highlight smart="pages"></lesson-highlight>
@@ -285,7 +332,7 @@ function getFallbackContent(type) {
 </lesson-overview>
 <p>Let's begin!</p>`;
     default:
-      return '<p></p>';
+      return "<p></p>";
   }
 }
 

@@ -1,5 +1,11 @@
-const { convertToHtml } = require('mammoth');
-const { stripMSWord, processDocxHtml, htmlToPdfBuffer } = require('../../../lib/convertUtils.js');
+const { convertToHtml } = require("mammoth");
+const {
+  stripMSWord,
+  processDocxHtml,
+  htmlToPdfBuffer,
+} = require("../../../lib/convertUtils.js");
+// Security (L1): client-safe exception text (no paths / stack internals)
+const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/actions/docx-to-pdf
@@ -14,7 +20,7 @@ async function convertDocxToPdf(req, res) {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         status: 400,
-        data: { error: 'No file uploaded', contents: '', filename: null },
+        data: { error: "No file uploaded", contents: "", filename: null },
       });
     }
 
@@ -25,13 +31,13 @@ async function convertDocxToPdf(req, res) {
         status: 400,
         data: {
           error: `Invalid file type. Expected .docx, got: ${originalname}`,
-          contents: '',
+          contents: "",
           filename: originalname,
         },
       });
     }
 
-    const fs = require('fs-extra');
+    const fs = require("fs-extra");
     let buffer;
     try {
       buffer = fs.readFileSync(file.path);
@@ -39,8 +45,8 @@ async function convertDocxToPdf(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Unable to read uploaded file: ${e.message}`,
-          contents: '',
+          error: `Unable to read uploaded file: ${clientSafeErrorDetail(e)}`,
+          contents: "",
           filename: originalname,
         },
       });
@@ -49,21 +55,18 @@ async function convertDocxToPdf(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: 'Uploaded file is empty',
-          contents: '',
+          error: "Uploaded file is empty",
+          contents: "",
           filename: originalname,
         },
       });
     }
 
     const mammothOptions = {
-      styleMap: [
-        'u => em',
-        'strike => del',
-      ],
+      styleMap: ["u => em", "strike => del"],
     };
 
-    let html = '';
+    let html = "";
     try {
       const result = await convertToHtml({ buffer: buffer }, mammothOptions);
       html = result.value;
@@ -73,8 +76,8 @@ async function convertDocxToPdf(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Error converting document to HTML: ${e.message}`,
-          contents: '',
+          error: `Error converting document to HTML: ${clientSafeErrorDetail(e)}`,
+          contents: "",
           filename: originalname,
         },
       });
@@ -87,29 +90,29 @@ async function convertDocxToPdf(req, res) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Error converting HTML to PDF: ${e.message}`,
-          contents: '',
+          error: `Error converting HTML to PDF: ${clientSafeErrorDetail(e)}`,
+          contents: "",
           filename: originalname,
         },
       });
     }
 
-    const pdfFilename = originalname.replace(/\.docx$/i, '.pdf');
-    res.setHeader('Content-Type', 'application/pdf');
+    const pdfFilename = originalname.replace(/\.docx$/i, ".pdf");
+    res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
-      'Content-Disposition',
+      "Content-Disposition",
       `attachment; filename="${pdfFilename}"`,
     );
-    res.setHeader('Content-Length', String(pdfBuffer.length));
-    res.setHeader('Cache-Control', 'no-store, no-cache');
+    res.setHeader("Content-Length", String(pdfBuffer.length));
+    res.setHeader("Cache-Control", "no-store, no-cache");
     return res.send(pdfBuffer);
   } catch (error) {
-    console.error('docxToPdf: Error processing file:', error.message);
+    console.error("docxToPdf: Error processing file:", error.message);
     return res.status(400).json({
       status: 400,
       data: {
-        error: `Error processing Word document: ${error.message}`,
-        contents: '',
+        error: `Error processing Word document: ${clientSafeErrorDetail(error)}`,
+        contents: "",
         filename: originalname,
       },
     });
