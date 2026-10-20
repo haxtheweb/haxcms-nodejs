@@ -38,11 +38,7 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  selectors,
   FIXED_SITE_NAME,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
   waitFor,
   deepFindRecursive,
   WALK_HAX_BODY_FN,
@@ -77,13 +73,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -212,7 +208,7 @@ async function editAndSave(markerText) {
   let saveResp = null
   try {
     saveResp = await collector.awaitCollectorFor('/x/api/v1/content/', 30000)
-  } catch (e) {
+  } catch {
     // non-fatal; we assert below
   }
   assert.ok(saveResp, 'saveNode (PATCH /x/api/v1/content/) response captured')
@@ -237,7 +233,7 @@ function extractItemFromSaveResp(saveResp) {
         location: body.data.location,
       }
     }
-  } catch (e) {
+  } catch {
     // fall through
   }
   return null
@@ -275,7 +271,7 @@ test(
     t.diagnostic('[e2e] navigating to editor: ' + editorUrl)
     try {
       await page.goto(editorUrl, { waitUntil: 'networkidle2', timeout: 30000 })
-    } catch (e) {
+    } catch {
       t.diagnostic('[e2e] networkidle2 timed out, retrying domcontentloaded')
       await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
     }
@@ -285,7 +281,7 @@ test(
     // 3. Edit + save TWICE with distinct markers so two git commits exist.
     const marker1 = 'E2E revisions test content version ONE unique'
     const marker2 = 'E2E revisions test content version TWO different'
-    const save1 = await editAndSave(marker1)
+    await editAndSave(marker1)
     const save2 = await editAndSave(marker2)
     const item = extractItemFromSaveResp(save2)
     assert.ok(item && item.id, 'active item extracted from saveNode response')
@@ -301,7 +297,7 @@ test(
       let body = null
       try {
         body = JSON.parse(String(resp.data || ''))
-      } catch (e) {
+      } catch {
         body = null
       }
       assert.ok(body && body.status === 200, 'revisions list body status 200')
@@ -468,7 +464,7 @@ test(
       let listBody = null
       try {
         listBody = JSON.parse(String(listResp.data || ''))
-      } catch (e) {
+      } catch {
         listBody = null
       }
       const revisions =
@@ -493,7 +489,7 @@ test(
       let detailBody = null
       try {
         detailBody = JSON.parse(String(detailResp.data || ''))
-      } catch (e) {
+      } catch {
         detailBody = null
       }
       assert.ok(
@@ -547,7 +543,7 @@ test(
       let listBody = null
       try {
         listBody = JSON.parse(String(listResp.data || ''))
-      } catch (e) {
+      } catch {
         listBody = null
       }
       const revisions =
@@ -572,7 +568,7 @@ test(
       let restoreBody = null
       try {
         restoreBody = JSON.parse(String(restoreResp.data || ''))
-      } catch (e) {
+      } catch {
         restoreBody = null
       }
       assert.ok(

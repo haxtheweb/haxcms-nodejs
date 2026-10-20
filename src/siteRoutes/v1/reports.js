@@ -15,7 +15,7 @@ try {
     rs = rs.default;
   }
 }
-catch (e) {
+catch {
   rs = {
     daleChallReadabilityScore: () => 0,
     difficultWords: () => 0,
@@ -64,7 +64,7 @@ function safeReadabilityMetric(method, text) {
   try {
     return method(text);
   }
-  catch (e) {
+  catch {
     return 0;
   }
 }

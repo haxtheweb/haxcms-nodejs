@@ -163,7 +163,7 @@ const baseUrlPromise = appModule.serverReady.then(function (port) {
 })
 
 test.before(async () => {
-  const baseUrl = await baseUrlPromise
+  await baseUrlPromise
   await HAXCMS.createSite(SITE_NAME)
 })
 

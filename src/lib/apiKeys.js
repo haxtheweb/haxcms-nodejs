@@ -65,7 +65,7 @@ async function readApiKeys(haxcms) {
     try {
       existing = JSON.parse(await fs.readFile(filePath, 'utf8'));
     }
-    catch (e) {
+    catch {
       existing = {};
     }
   }
@@ -115,7 +115,7 @@ function writeSecretFileFallback(filePath, data) {
   try {
     fs.chmodSync(filePath, 0o600);
   }
-  catch (e) {
+  catch {
     // non-fatal
   }
 }

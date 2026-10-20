@@ -44,16 +44,9 @@ const {
   launchBrowser,
   newPage,
   createResponseCollector,
-  selectors,
   FIXED_SITE_NAME,
-  deepQuery,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
-  waitFor,
   loginViaUI,
   createSiteViaUI,
-  findCreateSiteResponse,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
 } = require('./helpers')
@@ -116,7 +109,7 @@ async function filesList(rt, siteName, siteToken, query) {
     transformResponse: [(d) => d],
   })
   let body = null
-  try { body = JSON.parse(resp.data) } catch (e) { body = null }
+  try { body = JSON.parse(resp.data) } catch { body = null }
   return { status: resp.status, body: body }
 }
 
@@ -135,7 +128,7 @@ async function filesUpload(rt, siteName, siteToken, fileName, fileBuffer, mimeTy
     maxBodyLength: Infinity,
   })
   let body = null
-  try { body = JSON.parse(resp.data) } catch (e) { body = null }
+  try { body = JSON.parse(resp.data) } catch { body = null }
   return { status: resp.status, body: body }
 }
 
@@ -150,7 +143,7 @@ async function filesRename(rt, siteName, siteToken, fileUuid, newName) {
     transformResponse: [(d) => d],
   })
   let body = null
-  try { body = JSON.parse(resp.data) } catch (e) { body = null }
+  try { body = JSON.parse(resp.data) } catch { body = null }
   return { status: resp.status, body: body }
 }
 
@@ -164,7 +157,7 @@ async function filesDelete(rt, siteName, siteToken, fileUuid) {
     transformResponse: [(d) => d],
   })
   let body = null
-  try { body = JSON.parse(resp.data) } catch (e) { body = null }
+  try { body = JSON.parse(resp.data) } catch { body = null }
   return { status: resp.status, body: body }
 }
 
@@ -183,9 +176,9 @@ test.before(async () => {
 }, { timeout: 120000 })
 
 test.after(async () => {
-  if (collector) { try { collector.detach() } catch (e) { /* ignore */ } }
-  if (browser) { try { await browser.close() } catch (e) { /* ignore */ } }
-  if (runtime) { try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ } }
+  if (collector) { try { collector.detach() } catch { /* ignore */ } }
+  if (browser) { try { await browser.close() } catch { /* ignore */ } }
+  if (runtime) { try { await teardownE2ERuntime(runtime) } catch { /* ignore */ } }
 }, { timeout: 60000 })
 
 // --- the flow --------------------------------------------------------------

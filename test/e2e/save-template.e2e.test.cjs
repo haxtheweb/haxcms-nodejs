@@ -243,7 +243,7 @@ test(
         let body = null
         try {
           body = JSON.parse(templateRespRecord.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         t.diagnostic('[e2e] save-as-template body: ' + (templateRespRecord.bodyText || '').substring(0, 300))
@@ -266,7 +266,7 @@ test(
         let body = null
         try {
           body = JSON.parse(templateRespRecord.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         const templateName = body && body.data && body.data.name
@@ -316,17 +316,17 @@ test(
     } finally {
       try {
         collector.detach()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await browser.close()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await teardownE2ERuntime(runtime)
-      } catch (e) {
+      } catch {
         // ignore
       }
     }

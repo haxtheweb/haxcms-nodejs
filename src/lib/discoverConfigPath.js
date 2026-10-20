@@ -71,7 +71,7 @@ else {
             // now we can declare that we have a path
             discoverConfigPath = path.join(baseConfigPath, '.haxcmsconfig');    
         }
-        catch(e) {
+        catch {
             // epic fail
             discoverConfigPath = path.join(__dirname, '/../boilerplate/systemsetup/');
         }

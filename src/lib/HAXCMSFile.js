@@ -187,7 +187,7 @@ async function applyConfiguredJpegUploadQuality(filePath) {
   let mediaSettings = {};
   try {
     mediaSettings = await readMediaSettings(HAXCMS);
-  } catch (e) {
+  } catch {
     return;
   }
   if (
@@ -235,7 +235,7 @@ async function readImageDimensions(filePath) {
         height: typeof metadata.height === "number" ? metadata.height : 0,
       };
     }
-  } catch (e) {}
+  } catch {}
   return { width: 0, height: 0 };
 }
 
@@ -402,7 +402,7 @@ async function verifyImageContent(filePath) {
       return false;
     }
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -468,7 +468,7 @@ function getBulkImportStagingRootPath() {
       return null;
     }
     return resolvedRoot;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -509,13 +509,13 @@ function isValidBulkImportStagedPath(inputPath) {
     if (lstats.isSymbolicLink()) {
       return false;
     }
-  } catch (e) {
+  } catch {
     return false;
   }
   let resolvedSource = null;
   try {
     resolvedSource = fs.realpathSync(normalizedSource);
-  } catch (e) {
+  } catch {
     return false;
   }
   if (!resolvedSource) {
@@ -524,7 +524,7 @@ function isValidBulkImportStagedPath(inputPath) {
   let sourceStats = null;
   try {
     sourceStats = fs.statSync(resolvedSource);
-  } catch (e) {
+  } catch {
     return false;
   }
   if (!sourceStats || !sourceStats.isFile()) {
@@ -871,7 +871,7 @@ async function validateUrlNotSSRF(urlString) {
   var parsed;
   try {
     parsed = new URL(urlString);
-  } catch (e) {
+  } catch {
     return false;
   }
   var protocol = parsed.protocol.toLowerCase();
@@ -892,7 +892,7 @@ async function validateUrlNotSSRF(urlString) {
         return false;
       }
     }
-  } catch (e) {
+  } catch {
     return false;
   }
   return true;
@@ -903,7 +903,7 @@ class HAXCMSFile {
   /**
    * Save file into this site, optionally updating reference inside the page
    */
-  async save(tmpFile, site, page = null, imageOps = null, subfolder = "") {
+  async save(tmpFile, site, _page = null, imageOps = null, subfolder = "") {
     var returnData = {};
     // check for a file upload
     if (tmpFile["path"]) {
@@ -980,7 +980,7 @@ class HAXCMSFile {
               };
             }
           }
-        } catch (e) {}
+        } catch {}
       }
       // Bulk import: preserve the directory tree encoded in the incoming name
       // (e.g. 'files/assets/x.png' or 'assets/x.png'), mirroring PHP HAXCMSFile
@@ -1082,7 +1082,7 @@ class HAXCMSFile {
           ) {
             dlStreamCapMb = dlCapSettings.maxUploadSizeMb;
           }
-        } catch (capErr) {}
+        } catch {}
         try {
           try {
             await downloadAndSaveFile(filedata, remoteDownloadPath, {
@@ -1128,7 +1128,7 @@ class HAXCMSFile {
                 };
               }
             }
-          } catch (sizeErr) {}
+          } catch {}
         } catch (err) {
           console.warn(err);
           return {
@@ -1168,7 +1168,7 @@ class HAXCMSFile {
               },
             };
           }
-        } catch (e) {
+        } catch {
           return {
             status: 500,
             data: {
@@ -1251,9 +1251,9 @@ class HAXCMSFile {
       if (imageOps != null) {
         switch (imageOps) {
           case "thumbnail":
-            const image = await sharp(fullpath)
+            await sharp(fullpath)
               .metadata()
-              .then(({ width }) =>
+              .then(({ width: _width }) =>
                 sharp(fullpath)
                   .resize({
                     width: 250,
@@ -1289,7 +1289,7 @@ class HAXCMSFile {
         const dims = await readImageDimensions(fullpath);
         returnData.file.width = dims.width;
         returnData.file.height = dims.height;
-      } catch (enrichErr) {
+      } catch {
         // best-effort enrichment; never block an otherwise-successful upload
       }
       // #3043: upsert the file record into the per-site files.json datastore
@@ -1304,7 +1304,7 @@ class HAXCMSFile {
           if (storeRecord) {
             dataStore.upsertRecord(storeRecord);
           }
-        } catch (dataStoreErr) {
+        } catch {
           // best-effort; never block an otherwise-successful upload
         }
       }

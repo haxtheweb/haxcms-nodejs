@@ -45,8 +45,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
               let pageUpdate;
               if (pageUpdate = site.loadNode(site.manifest.items[key].id)) {
                 // ensure that parent is valid to rescue orphan items
-                let parentPage;
-                if (pageUpdate.parent != null && !(parentPage = site.loadNode(pageUpdate.parent))) {
+                if (pageUpdate.parent != null && !site.loadNode(pageUpdate.parent)) {
                   pageUpdate.parent = null;
                   // force to bottom of things while still being in old order if lots of things got axed
                   pageUpdate.order = parseInt(pageUpdate.order) + site.manifest.items.length - 1;

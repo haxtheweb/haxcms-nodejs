@@ -41,7 +41,7 @@ async function resolveSkeletonByName(skeletonName = '') {
     try {
       files = await fs.readdir(dir);
     }
-    catch (e) {
+    catch {
       continue;
     }
     for (let j = 0; j < files.length; j++) {
@@ -54,7 +54,7 @@ async function resolveSkeletonByName(skeletonName = '') {
       try {
         stats = await fs.stat(filePath);
       }
-      catch (e) {
+      catch {
         continue;
       }
       if (
@@ -69,7 +69,7 @@ async function resolveSkeletonByName(skeletonName = '') {
         const json = await fs.readFile(filePath, 'utf8');
         skeleton = JSON.parse(json);
       }
-      catch (e) {
+      catch {
         continue;
       }
       if (!skeleton || typeof skeleton !== 'object' || Array.isArray(skeleton)) {

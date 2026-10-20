@@ -83,7 +83,7 @@ function getHaxPropertiesSearchRoots(site) {
           roots.push(candidate);
         }
       }
-      catch (e) {}
+      catch {}
     }
   }
   return roots;
@@ -134,7 +134,7 @@ function readJsonFile(filePath = '') {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
   }
-  catch (e) {
+  catch {
     return null;
   }
 }
@@ -164,7 +164,7 @@ function loadWebcomponentHaxProperties(site, webcomponentName = '') {
         }
         parsed = readJsonFile(candidatePath);
       }
-      catch (e) {
+      catch {
         parsed = null;
       }
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {

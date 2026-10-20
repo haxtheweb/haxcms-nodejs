@@ -80,7 +80,7 @@ function isUnsafeRelativePath(value) {
 function safeRealpath(target) {
   try {
     return fs.realpathSync(target);
-  } catch (e) {
+  } catch {
     return false;
   }
 }

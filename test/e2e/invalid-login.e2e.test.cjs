@@ -51,7 +51,6 @@ const {
   compareBaseline,
   selectors,
   // flows helpers (single source of truth in helpers/flows.cjs)
-  getLoginElement,
   waitForLoginModal,
   waitForLoginModalRetry,
   waitForPasswordInput,
@@ -126,8 +125,7 @@ test.after(async () => {
 test('invalid login e2e: bogus credentials are rejected', async (t) => {
   const runtime = state.runtime
   const page = state.page
-  const collector = state.collector
-
+  
   await t.test('navigate to dashboard and wait for login modal', async () => {
     await page.goto(runtime.baseUrl, {
       waitUntil: 'networkidle2',

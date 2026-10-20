@@ -24,7 +24,7 @@ function makeGenerateMachineName() {
     n = n.replace(/\0/g, "");
     try {
       n = decodeURIComponent(n);
-    } catch (e) {
+    } catch {
       // mirror decode failure fallback
     }
     n = n.replace(/\.{2,}/g, "");

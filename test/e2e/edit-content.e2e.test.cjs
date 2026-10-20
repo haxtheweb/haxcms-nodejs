@@ -18,7 +18,6 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('fs-extra')
 const path = require('path')
-const axios = require('axios')
 
 // pixelmatch ESM interop is handled by visual.cjs itself (line 14:
 // `require('pixelmatch').default || require('pixelmatch')`), so no per-test
@@ -32,7 +31,6 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  compareBaseline,
   selectors,
   FIXED_SITE_NAME,
   deepQuery,
@@ -87,13 +85,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -165,7 +163,7 @@ test(
     let createBody = null
     try {
       createBody = JSON.parse(found.bodyText)
-    } catch (e) {
+    } catch {
       createBody = null
     }
     const createdName =
@@ -367,7 +365,7 @@ test(
     let saveBody = null
     try {
       saveBody = JSON.parse(saveResp.bodyText)
-    } catch (e) {
+    } catch {
       saveBody = null
     }
     t.diagnostic('[e2e] saveNode url=' + saveResp.url)

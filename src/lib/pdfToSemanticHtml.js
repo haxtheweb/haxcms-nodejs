@@ -33,7 +33,7 @@ async function convertPdfBufferToHtml(buffer) {
     if (loadingTask && typeof loadingTask.destroy === "function") {
       try {
         await loadingTask.destroy();
-      } catch (e) {
+      } catch {
         // no-op
       }
     }

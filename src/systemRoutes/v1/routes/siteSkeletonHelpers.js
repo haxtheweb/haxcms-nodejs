@@ -13,7 +13,7 @@ function cloneJson(value, fallback = null) {
   try {
     return JSON.parse(JSON.stringify(value));
   }
-  catch (e) {
+  catch {
     return fallback;
   }
 }
@@ -77,7 +77,7 @@ async function readItemContent(siteDirectory, item) {
     }
     return await fs.readFile(targetPath, 'utf8');
   }
-  catch (e) {
+  catch {
     return '';
   }
 }

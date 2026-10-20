@@ -133,7 +133,7 @@ async function optimizeInlineImageBuffer(buffer, extension) {
       .jpeg({ quality: INLINE_IMAGE_QUALITY, mozjpeg: true });
     const out = await pipeline.toBuffer();
     return { buffer: out, extension: "jpg" };
-  } catch (e) {
+  } catch {
     // Fall back to the original bytes if sharp cannot process the payload;
     // HAXCMSFile.save will still validate MIME/content before accepting it.
     return { buffer: buffer, extension: extension };

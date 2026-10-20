@@ -84,7 +84,7 @@ class FilesDataStore {
             return this.envelope;
           }
         }
-      } catch (e) {
+      } catch {
         // corrupt: fall through to auto-build
       }
     }
@@ -119,10 +119,10 @@ class FilesDataStore {
     try {
       fs.writeFileSync(temp, json, 'utf8');
       fs.renameSync(temp, jsonPath);
-    } catch (e) {
+    } catch {
       try {
         fs.removeSync(temp);
-      } catch (cleanupErr) {}
+      } catch {}
       return false;
     }
     return true;
@@ -383,7 +383,7 @@ class FilesDataStore {
       let entries = [];
       try {
         entries = fs.readdirSync(activeDir, { withFileTypes: true });
-      } catch (e) {
+      } catch {
         entries = [];
       }
       for (let i = 0; i < entries.length; i++) {
@@ -397,7 +397,7 @@ class FilesDataStore {
           if (fs.lstatSync(absoluteEntryPath).isSymbolicLink()) {
             continue;
           }
-        } catch (e) {
+        } catch {
           continue;
         }
         if (entry.isDirectory()) {
@@ -461,7 +461,7 @@ class FilesDataStore {
     let mimetype = '';
     try {
       mimetype = mime.getType(absolutePath) || '';
-    } catch (e) {
+    } catch {
       mimetype = '';
     }
     if (mimetype === '') {
@@ -493,7 +493,7 @@ class FilesDataStore {
           width = metadata.width;
           height = metadata.height;
         }
-      } catch (e) {
+      } catch {
         // not a valid raster image or unreadable — leave 0/0
       }
     }

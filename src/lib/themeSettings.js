@@ -141,7 +141,7 @@ async function readEnabledThemeMap(haxcms) {
     }
     return normalizeEnabledThemeMap(haxcms, JSON.parse(raw));
   }
-  catch (e) {
+  catch {
     return {};
   }
 }

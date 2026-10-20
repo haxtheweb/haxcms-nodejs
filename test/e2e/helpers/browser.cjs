@@ -6,9 +6,7 @@
 
 const puppeteer = require("puppeteer-core");
 const fs = require("fs");
-const path = require("path");
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
 const DEFAULT_LAUNCH_ARGS = ["--no-sandbox", "--disable-setuid-sandbox"];
 
@@ -99,7 +97,7 @@ function createResponseCollector(page, opts) {
     let bodyText = "";
     try {
       bodyText = await response.text();
-    } catch (e) {
+    } catch {
       bodyText = "";
     }
     const record = {

@@ -71,7 +71,7 @@ describe('createSite importBuildFile — #3060', () => {
     HAXCMS.configDirectory = realConfigDirectory
     try {
       await fs.remove(tmpRoot)
-    } catch (e) {}
+    } catch {}
   })
 
   // answer each URL from a map of url -> { status, body } or an Error to

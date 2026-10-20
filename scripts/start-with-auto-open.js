@@ -59,7 +59,7 @@ async function openBrowser(port) {
     const openPkg = await import("open");
     const open = openPkg.default;
     await open(`${protocol}://localhost:${port}`);
-  } catch (e) {
+  } catch {
     console.warn(
       `Unable to auto-open browser on ${protocol}://localhost:${port}`,
     );

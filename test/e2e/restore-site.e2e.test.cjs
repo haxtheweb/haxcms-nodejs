@@ -49,7 +49,6 @@ const {
 
 const SITE_NAME_LOWER = FIXED_SITE_NAME.toLowerCase()
 const SITES_DIR = '_sites'
-const ARCHIVE_DIR = '_archived'
 const ARCHIVE_DIR_CANDIDATES = ['_archived', '_archive']
 
 // --- local helpers (mirror the archive-site openArchiveConfirmation pattern) ---
@@ -260,7 +259,7 @@ test(
         let body = null
         try {
           body = JSON.parse(archiveRespRecord.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         t.diagnostic('[e2e] archive body: ' + (archiveRespRecord.bodyText || '').substring(0, 300))
@@ -377,17 +376,17 @@ test(
     } finally {
       try {
         collector.detach()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await browser.close()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await teardownE2ERuntime(runtime)
-      } catch (e) {
+      } catch {
         // ignore
       }
     }

@@ -23,9 +23,6 @@ const os = require('os')
 const cloneSite = require('../../src/systemRoutes/v1/routes/cloneSite.js')
 const rewriteCloneFilesJson = cloneSite.rewriteCloneFilesJson
 const FilesDataStore = require('../../src/lib/FilesDataStore.js')
-const {
-  getDeterministicFileUuid,
-} = require('../../src/lib/siteFileUuid.js')
 
 // Helper: create a temp site directory with a files/ subdir.
 async function makeTempSite(siteName) {
@@ -60,7 +57,7 @@ describe('cloneSiteFilesJson — #3043', () => {
   afterEach(async () => {
     try {
       await fs.remove(tmpRoot)
-    } catch (e) {}
+    } catch {}
   })
 
   test('rewrites fullUrl prefix and preserves uuids', async () => {

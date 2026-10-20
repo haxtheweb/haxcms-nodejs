@@ -30,7 +30,7 @@ function validateIAMAuthorizationIfNeeded(req) {
   try {
     return HAXCMS.validateIAMRouteAuthorization(true, req)
   }
-  catch (e) {
+  catch {
     return {
       allowed: false,
       status: 403,

@@ -34,8 +34,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const axios = require('axios')
-const fs = require('fs-extra')
-const path = require('path')
 const axeCore = require('axe-core')
 
 const {
@@ -86,13 +84,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -256,7 +254,7 @@ async function waitForImportDialog(page, t) {
 async function clickImportDialogSave(page, t) {
   // Auto-confirm the browser confirm() dialog.
   page.on('dialog', async function (dialog) {
-    try { await dialog.accept() } catch (e) { /* ignore */ }
+    try { await dialog.accept() } catch { /* ignore */ }
   })
   var result = await page.evaluate(function () {
     // The import hierarchy dialog has a Save button. It may be a .hax-modal-btn
@@ -505,7 +503,7 @@ test('outline import + normalize-slugs e2e', { timeout: 360000 }, async (t) => {
   var previewBody = null
   try {
     previewBody = JSON.parse(String(previewResp.data || ''))
-  } catch (e) {
+  } catch {
     previewBody = null
   }
   assert.ok(previewBody && previewBody.data, 'normalize-slugs preview response has data')
@@ -550,7 +548,7 @@ test('outline import + normalize-slugs e2e', { timeout: 360000 }, async (t) => {
   var applyBody = null
   try {
     applyBody = JSON.parse(String(applyResp.data || ''))
-  } catch (e) {
+  } catch {
     applyBody = null
   }
   assert.ok(applyBody && applyBody.data, 'normalize-slugs apply response has data')
@@ -646,7 +644,7 @@ test('outline import + normalize-slugs e2e', { timeout: 360000 }, async (t) => {
     var fallback = null
     try {
       fallback = await runA11y(page, 'simple-modal')
-    } catch (e) {
+    } catch {
       fallback = null
     }
     if (fallback) {

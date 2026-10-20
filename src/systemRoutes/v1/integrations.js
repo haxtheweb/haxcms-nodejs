@@ -288,7 +288,7 @@ async function appStoreProviderSearch(req, res) {
     // SSRF-guarded (pinned IP, per-hop validation) and byte-capped; the
     // abort signal still bounds the request time.
     upstreamResponse = await safeFetchLib.safeFetch(requestUrl, requestOptions);
-  } catch (e) {
+  } catch {
     return res.status(502).json({
       status: 502,
       message: "Unable to reach upstream provider",
@@ -298,7 +298,7 @@ async function appStoreProviderSearch(req, res) {
   let upstreamText = "";
   try {
     upstreamText = await upstreamResponse.text();
-  } catch (e) {
+  } catch {
     upstreamText = "";
   }
 
@@ -306,7 +306,7 @@ async function appStoreProviderSearch(req, res) {
   if (upstreamText && upstreamText.trim() !== "") {
     try {
       upstreamJson = JSON.parse(upstreamText);
-    } catch (e) {
+    } catch {
       upstreamJson = null;
     }
   }

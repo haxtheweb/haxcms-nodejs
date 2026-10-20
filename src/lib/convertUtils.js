@@ -46,7 +46,7 @@ async function convertHtmlToDocxBuffer(html, imageOptions) {
         allowSvg: false,
       }),
     );
-  } catch (e) {
+  } catch {
     sanitized = sanitized.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, "");
   }
   // Security (SEC-SSRF): fail-closed final pass on the exact string handed to
@@ -419,7 +419,7 @@ function validURL(str) {
   let url;
   try {
     url = new URL(str);
-  } catch (_) {
+  } catch {
     return false;
   }
   return url.protocol === "http:" || url.protocol === "https:";
@@ -641,7 +641,7 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
   resolvedImageOptions.allowSvg = true;
   try {
     sanitized = await resolveExportImages(sanitized, resolvedImageOptions);
-  } catch (e) {
+  } catch {
     sanitized = sanitized.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, "");
   }
   let browser = null;

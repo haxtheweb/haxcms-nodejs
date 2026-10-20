@@ -80,7 +80,7 @@ describe('siteRoutesFiles — #3043', () => {
   afterEach(async () => {
     try {
       await fs.remove(tmpRoot)
-    } catch (e) {}
+    } catch {}
   })
 
   describe('upsertFileRecordInDataStore', () => {
@@ -202,7 +202,6 @@ describe('siteRoutesFiles — #3043', () => {
       // Create a large PNG.
       const sourcePath = path.join(filesDir, 'big.png')
       await makeTestPng(sourcePath, 200, 200)
-      const originalSize = fs.statSync(sourcePath).size
 
       // Index the file first.
       const dataStore = new FilesDataStore(site)

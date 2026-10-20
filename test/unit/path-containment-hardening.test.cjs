@@ -414,7 +414,7 @@ test("renamePageLocation: traversal is rejected, normal rename works", async (t)
       "pages/item-1/index.html",
       "pages/item-2/index.html",
     );
-  } catch (e) {}
+  } catch {}
   assert.equal(fs.existsSync(path.join(fx.siteDir, "pages", "item-2")), true);
   assert.equal(
     fs.existsSync(path.join(fx.siteDir, "pages", "item-2", "index.html")),

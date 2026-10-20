@@ -136,7 +136,7 @@ function normalizeTagsValue(item) {
   try {
     return JSON.stringify(item.metadata.tags);
   }
-  catch (e) {
+  catch {
     return String(item.metadata.tags);
   }
 }
@@ -523,7 +523,7 @@ async function siteSearch(req, res) {
       try {
         await site.writePageAlternateFormats(page, sanitizedContent);
       }
-      catch (e) {}
+      catch {}
     }
     if (totalMatches < 1) {
       return res.status(400).json({
@@ -597,7 +597,7 @@ async function siteSearch(req, res) {
             });
           }
         }
-        catch (e) {
+        catch {
           return res.status(400).json({
             status: 400,
             data: { message: 'Invalid selector query' },

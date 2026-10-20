@@ -240,7 +240,7 @@ function rewriteCloneFilesJson(opts) {
       'utf8',
     );
     return true;
-  } catch (e) {
+  } catch {
     // best-effort; clone still works if files.json rewrite fails
     return false;
   }

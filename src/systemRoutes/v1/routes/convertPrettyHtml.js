@@ -30,7 +30,7 @@ async function convertPrettyHtml(req, res) {
     if (body.type === "link" && html) {
       try {
         html = await safeFetch(html.trim()).then((d) => (d.ok ? d.text() : ""));
-      } catch (e) {
+      } catch {
         html = "";
       }
     }

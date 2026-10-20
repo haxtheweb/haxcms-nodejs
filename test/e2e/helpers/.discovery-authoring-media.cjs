@@ -15,8 +15,6 @@
 //
 // Run: node test/e2e/helpers/.discovery-authoring-media.cjs  (from repo root)
 
-const path = require("path");
-const fs = require("fs-extra");
 const axios = require("axios");
 const sharp = require("sharp");
 const FormData = require("form-data");
@@ -28,24 +26,13 @@ const {
   launchBrowser,
   newPage,
   createResponseCollector,
-  selectors,
   FIXED_SITE_NAME,
-  deepQuery,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
   waitFor,
-  waitForDeep,
-  typeIntoShadow,
   loginViaUI,
   createSiteViaUI,
-  findCreateSiteResponse,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
-  deepFindRecursive,
   WALK_HAX_BODY_FN,
-  haxBodyEditModeActive,
-  markerInHaxBody,
   clickEditorButtonById,
 } = require("./index.cjs");
 
@@ -252,7 +239,7 @@ async function filesList(runtime, siteName, siteToken, query) {
   let body = null;
   try {
     body = JSON.parse(resp.data);
-  } catch (e) {
+  } catch {
     body = null;
   }
   return {
@@ -296,7 +283,7 @@ async function filesUpload(
   let parsed = null;
   try {
     parsed = JSON.parse(resp.data);
-  } catch (e) {
+  } catch {
     parsed = null;
   }
   return {
@@ -330,7 +317,7 @@ async function filesDelete(runtime, siteName, siteToken, fileUuid) {
   let parsed = null;
   try {
     parsed = JSON.parse(resp.data);
-  } catch (e) {
+  } catch {
     parsed = null;
   }
   return {
@@ -366,7 +353,7 @@ async function filesRename(runtime, siteName, siteToken, fileUuid, newName) {
   let parsed = null;
   try {
     parsed = JSON.parse(resp.data);
-  } catch (e) {
+  } catch {
     parsed = null;
   }
   return {
@@ -409,7 +396,7 @@ async function main() {
     console.log("editorUrl:", editorUrl);
     try {
       await page.goto(editorUrl, { waitUntil: "networkidle2", timeout: 30000 });
-    } catch (e) {
+    } catch {
       console.log("networkidle2 timed out, retrying domcontentloaded");
       await page.goto(editorUrl, {
         waitUntil: "domcontentloaded",
@@ -737,23 +724,23 @@ async function main() {
         document.body.innerHTML.substring(0, 1500),
       );
       console.error("PAGE BODY SNIPPET:", dump);
-    } catch (e) {
+    } catch {
       /* ignore */
     }
   } finally {
     try {
       if (collector) collector.detach();
-    } catch (e) {
+    } catch {
       /* ignore */
     }
     try {
       if (browser) await browser.close();
-    } catch (e) {
+    } catch {
       /* ignore */
     }
     try {
       await teardownE2ERuntime(runtime);
-    } catch (e) {
+    } catch {
       /* ignore */
     }
     console.log("\nTeardown complete.");

@@ -23,8 +23,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const axios = require('axios')
-const fs = require('fs-extra')
-const path = require('path')
 const axeCore = require('axe-core')
 
 const {
@@ -43,7 +41,6 @@ const {
   waitFor,
   waitForDeep,
   typeIntoShadow,
-  setShadowInput,
   loginSetInput,
   loginClickButton,
   findCreateSiteResponse,
@@ -76,13 +73,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -173,32 +170,9 @@ async function openOutlineDialog(page, t) {
 
 // --- helper: get outline-designer element handle ---------------------------
 
-async function getOutlineDesigner(page) {
-  return page.evaluateHandle(() => {
-    var modals = document.querySelectorAll('simple-modal')
-    for (var i = 0; i < modals.length; i++) {
-      var d = modals[i].querySelector('haxcms-outline-editor-dialog')
-      if (d && d.shadowRoot) {
-        var od = d.shadowRoot.querySelector('#outline')
-        if (od) return od
-      }
-    }
-    return null
-  })
-}
 
 // --- helper: get the outline-editor-dialog element handle ------------------
 
-async function getOutlineDialog(page) {
-  return page.evaluateHandle(() => {
-    var modals = document.querySelectorAll('simple-modal')
-    for (var i = 0; i < modals.length; i++) {
-      var d = modals[i].querySelector('haxcms-outline-editor-dialog')
-      if (d) return d
-    }
-    return null
-  })
-}
 
 // --- helper: click a row's actions menu button (icons:more-vert) -----------
 
@@ -318,7 +292,7 @@ async function typeNewTitle(page, rowIndex, newTitle, t) {
 async function clickSaveOutline(page, t) {
   // Auto-confirm the browser confirm() dialog that _saveTap triggers.
   page.on('dialog', async function (dialog) {
-    try { await dialog.accept() } catch (e) { /* ignore */ }
+    try { await dialog.accept() } catch { /* ignore */ }
   })
   var result = await page.evaluate(function () {
     var modals = document.querySelectorAll('simple-modal')
@@ -436,9 +410,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   var initialItems = await getOutlineItems(page)
   t.diagnostic('[outline] initial items: ' + JSON.stringify(initialItems))
   assert.ok(initialItems && initialItems.length > 0, 'outline-designer has items loaded')
-  var firstItemId = initialItems[0].id
-  var firstItemTitle = initialItems[0].title
-
+    
   // Add a second page so we can test reorder + nest.
   t.diagnostic('[outline] adding a second page for reorder/nest tests')
   var addResult = await page.evaluate(function () {
@@ -550,10 +522,8 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   // Move the first item DOWN so it swaps with the second.
   var reorderIndex = 0
   var firstId = itemsBeforeReorder[reorderIndex].id
-  var firstOrderBefore = itemsBeforeReorder[reorderIndex].order
-  var secondId = itemsBeforeReorder[reorderIndex + 1] ? itemsBeforeReorder[reorderIndex + 1].id : null
-  var secondOrderBefore = itemsBeforeReorder[reorderIndex + 1] ? itemsBeforeReorder[reorderIndex + 1].order : null
-  assert.ok(secondId, 'at least 2 items present for reorder test')
+    var secondId = itemsBeforeReorder[reorderIndex + 1] ? itemsBeforeReorder[reorderIndex + 1].id : null
+    assert.ok(secondId, 'at least 2 items present for reorder test')
 
   // Open actions menu + click move-down.
   var menuResult2 = await clickRowActionsMenu(page, reorderIndex, t)
@@ -822,7 +792,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
     var fallback = null
     try {
       fallback = await runA11y(page, 'simple-modal')
-    } catch (e) {
+    } catch {
       fallback = null
     }
     if (fallback) {

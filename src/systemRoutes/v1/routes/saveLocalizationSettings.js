@@ -3,7 +3,6 @@ const {
   hasSupportedLocalizationSettingsPayload,
   isValidDefaultLanguagePayloadValue,
   writeLocalizationSettings,
-  getEffectiveLocalizationSettings,
 } = require('../../../lib/localizationSettings.js');
 
 function getUserTokenFromHeader(req) {
@@ -78,7 +77,7 @@ async function saveLocalizationSettings(req, res) {
       data: localizationSettings,
     });
   }
-  catch (e) {
+  catch {
     return res.status(500).json({
       status: 500,
       data: {

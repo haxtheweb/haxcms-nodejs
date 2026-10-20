@@ -168,7 +168,7 @@ async function siteOpenapi(req, res) {
     });
     openapi = YAML.parse(fileContents);
   }
-  catch (e) {
+  catch {
     return res.status(500).json({
       status: 500,
       data: {

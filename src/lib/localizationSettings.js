@@ -99,7 +99,7 @@ async function readLocalizationSettings(haxcms) {
         localizationBlock = fullConfig.localization;
       }
     }
-    catch (e) {
+    catch {
       localizationBlock = {};
     }
   }
@@ -118,7 +118,7 @@ async function writeLocalizationSettings(haxcms, settings = {}) {
     try {
       fullConfig = JSON.parse(await fs.readFile(filePath, 'utf8'));
     }
-    catch (e) {
+    catch {
       fullConfig = {};
     }
   }

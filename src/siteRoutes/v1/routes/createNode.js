@@ -1,6 +1,5 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const path = require('path');
-const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
 const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
 const { materializeInlineImages } = require('../../../lib/materializeInlineImages.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
@@ -149,7 +148,7 @@ async function createNode(req, res) {
             // write it to the file system
             // this all seems round about but it's more secure
             alternateContent = sanitizeHTMLForStorage(content);
-            let bytes = await page.writeLocation(
+            await page.writeLocation(
                 alternateContent,
                 site.siteDirectory
             );
@@ -169,7 +168,7 @@ async function createNode(req, res) {
               { pageTitle: item.title || (nodeParams['node'] && nodeParams['node']['title']) },
             );
             alternateContent = sanitizeHTMLForStorage(rewritten);
-            let bytes = await page.writeLocation(
+            await page.writeLocation(
             alternateContent,
             site.siteDirectory
             );

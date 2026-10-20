@@ -55,7 +55,7 @@ function createSettingsResponseWatcher(page) {
     let method = 'GET'
     try {
       method = response.request().method()
-    } catch (e) {
+    } catch {
       method = 'GET'
     }
     const rec = {
@@ -161,24 +161,6 @@ async function getSubPanelDialog(page, dialogTag) {
 }
 
 // Recursively query all elements matching a selector, piercing nested shadow roots.
-function queryAllInShadowRoot(root, sel) {
-  var results = []
-  if (!root) return results
-  var direct = root.querySelectorAll(sel)
-  for (var i = 0; i < direct.length; i++) {
-    results.push(direct[i])
-  }
-  var all = root.querySelectorAll('*')
-  for (var j = 0; j < all.length; j++) {
-    if (all[j].shadowRoot) {
-      var inner = queryAllInShadowRoot(all[j].shadowRoot, sel)
-      for (var k = 0; k < inner.length; k++) {
-        results.push(inner[k])
-      }
-    }
-  }
-  return results
-}
 
 // Read the currently checked radio value for a named radio group in the dialog shadowRoot.
 async function readDialogRadio(dialogHandle, name) {
@@ -304,16 +286,16 @@ test.before(async () => {
 
 test.after(async () => {
   if (settingsWatcher) {
-    try { settingsWatcher.detach() } catch (e) { /* ignore */ }
+    try { settingsWatcher.detach() } catch { /* ignore */ }
   }
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -336,7 +318,7 @@ test(
     t.diagnostic('[e2e] navigating to editor: ' + editorUrl)
     try {
       await page.goto(editorUrl, { waitUntil: 'networkidle2', timeout: 30000 })
-    } catch (e) {
+    } catch {
       await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
     }
     await page.waitForSelector('haxcms-site-editor-ui', { timeout: 30000 })
@@ -469,7 +451,7 @@ test(
       let activeThemeBody = null
       try {
         activeThemeBody = JSON.parse(activeThemeResp.data)
-      } catch (e) {
+      } catch {
         activeThemeBody = null
       }
       if (activeThemeBody && activeThemeBody.data) {

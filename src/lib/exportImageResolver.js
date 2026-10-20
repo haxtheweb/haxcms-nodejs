@@ -167,7 +167,7 @@ function resolveLocalImageFile(src, normalizedBase, realSiteDir) {
   try {
     value = decodeURIComponent(value);
   }
-  catch (e) {
+  catch {
     return '';
   }
   if (value.indexOf('\0') !== -1 || value.indexOf('\\') !== -1) {
@@ -191,7 +191,7 @@ function resolveLocalImageFile(src, normalizedBase, realSiteDir) {
     try {
       realCandidate = fs.realpathSync(candidates[i]);
     }
-    catch (e) {
+    catch {
       continue;
     }
     if (realCandidate !== realSiteDir && realCandidate.indexOf(realSiteDir + path.sep) !== 0) {
@@ -202,7 +202,7 @@ function resolveLocalImageFile(src, normalizedBase, realSiteDir) {
         continue;
       }
     }
-    catch (e) {
+    catch {
       continue;
     }
     return realCandidate;
@@ -224,7 +224,7 @@ function parseImageDataUri(value) {
   try {
     buffer = Buffer.from(match[2], 'base64');
   }
-  catch (e) {
+  catch {
     return null;
   }
   var mime = sniffImageMime(buffer);
@@ -242,7 +242,7 @@ function sameOrigin(a, b) {
   try {
     return new URL(a).origin === new URL(b).origin;
   }
-  catch (e) {
+  catch {
     return false;
   }
 }
@@ -282,7 +282,7 @@ function classifyImageSource(src, options) {
     try {
       return { kind: 'remote', value: new URL(value, opts.remoteBaseUrl).toString() };
     }
-    catch (e) {
+    catch {
       return { kind: 'drop', value: value };
     }
   }
@@ -297,7 +297,7 @@ function getRealSiteDir(siteDir) {
     var real = fs.realpathSync(String(siteDir));
     return fs.statSync(real).isDirectory() ? real : '';
   }
-  catch (e) {
+  catch {
     return '';
   }
 }
@@ -352,7 +352,7 @@ async function resolveExportImageSource(src, options) {
       return remoteMime && isEmbeddableMime(remoteMime, opts) ? { buffer: remoteBuffer, mime: remoteMime } : null;
     }
   }
-  catch (e) {
+  catch {
     return null;
   }
   return null;
@@ -462,7 +462,7 @@ async function resolveExportImages(html, options) {
     // in keeping attribute-name case, which this pass normalises away
     doc = htmlparser2.parseDocument(String(html));
   }
-  catch (e) {
+  catch {
     // fail closed: if we cannot rewrite images, strip every <img> tag
     return String(html).replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, '');
   }
@@ -494,7 +494,7 @@ async function resolveExportImages(html, options) {
     try {
       newSrc = materializeImage(resolved, opts, counter);
     }
-    catch (e) {
+    catch {
       newSrc = '';
     }
     if (!newSrc) {
@@ -533,7 +533,7 @@ async function resolveExportImageToFileUrl(src, options) {
   try {
     return materializeImage(resolved, opts, 'cover');
   }
-  catch (e) {
+  catch {
     return '';
   }
 }
@@ -588,7 +588,7 @@ function isAllowedFinalImageSrc(value, options) {
     try {
       filePath = require('url').fileURLToPath(src);
     }
-    catch (e) {
+    catch {
       return false;
     }
     var base = path.basename(filePath);
@@ -601,7 +601,7 @@ function isAllowedFinalImageSrc(value, options) {
     try {
       return fs.lstatSync(filePath).isFile();
     }
-    catch (e) {
+    catch {
       return false;
     }
   }
@@ -672,7 +672,7 @@ function finalizeExportHtml(html, options) {
     }
     output = parsed.render(parsed.nodes);
   }
-  catch (e) {
+  catch {
     return String(html || '').replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, '');
   }
   // Regex backstop: any "<img" that starts a tag (case-insensitive, followed
@@ -717,7 +717,7 @@ async function installPdfRequestFilter(page) {
         request.abort('blockedbyclient');
       }
     }
-    catch (e) {
+    catch {
       // request already handled / page closed
     }
   });

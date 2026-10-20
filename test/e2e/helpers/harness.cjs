@@ -103,7 +103,7 @@ async function loginForJwt(baseUrl, username, password) {
   let body = null
   try {
     body = JSON.parse(String(response.data || ''))
-  } catch (e) {
+  } catch {
     throw new Error(`E2E login returned non-JSON body: ${response.data}`)
   }
   if (!body || typeof body.jwt !== 'string' || body.jwt === '') {

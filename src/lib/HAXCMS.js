@@ -436,7 +436,7 @@ class HAXCMSSite {
         // put domain into CNAME not the github.io address if that exists
         await fs.writeFileSync(directory + "/" + tmpname + "/CNAME", domain);
       }
-    } catch (e) {}
+    } catch {}
     // load what we just created
     this.manifest = new JSONOutlineSchema();
     // where to save it to
@@ -655,7 +655,7 @@ class HAXCMSSite {
     try {
       // write the managed files to ensure we get happy copies
       await this.rebuildManagedFiles();
-    } catch (e) {}
+    } catch {}
     try {
       // put this in version control :) :) :)
       const git = new GitPlus({
@@ -734,9 +734,9 @@ class HAXCMSSite {
   }
   async gitTest() {
     try {
-      const { stdout, stderr } = await exec("git --version");
+      const { stdout } = await exec("git --version");
       return stdout;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -753,7 +753,7 @@ class HAXCMSSite {
         // revisions.js, so no shell ever parses the key.
         const { stdout } = await execFile("git", ["config", key], { cwd: dir });
         return stdout.trim();
-      } catch (e) {
+      } catch {
         return "";
       }
     };
@@ -884,7 +884,7 @@ class HAXCMSSite {
       }
       await this.rebuildManagedFiles();
       await this.gitCommit("Managed files upgraded: legacy bootstrap");
-    } catch (e) {}
+    } catch {}
   }
   /**
    * Reprocess the files that twig helps set in their static
@@ -912,7 +912,7 @@ class HAXCMSSite {
     // sha256 verification, no filtering, no site.json reads. Best-effort.
     try {
       await this.rebuildAgentSkills();
-    } catch (e) {}
+    } catch {}
     let licenseData = this.getLicenseData("all");
     let licenseLink = "";
     let licenseName = "";
@@ -1078,12 +1078,12 @@ class HAXCMSSite {
             this.siteDirectory + "/" + templates[key],
             templatedHTML,
           );
-        } catch (e) {}
+        } catch {}
       }
     }
     try {
       await this.updateAlternateFormats("llms");
-    } catch (e) {}
+    } catch {}
   }
   /**
    * Copy the boilerplate .well-known/agent-skills/ directory into the site.
@@ -1107,7 +1107,7 @@ class HAXCMSSite {
     let index;
     try {
       index = JSON.parse(fs.readFileSync(boilerIndex, "utf8"));
-    } catch (e) {
+    } catch {
       return;
     }
     if (!index || !Array.isArray(index.skills)) {
@@ -1117,14 +1117,14 @@ class HAXCMSSite {
     // clean the site agent-skills dir so removed skills don't linger
     try {
       fs.removeSync(siteAS);
-    } catch (e) {}
+    } catch {}
     fs.mkdirpSync(siteAS);
     // scoped .htaccess: CORS + script-execution hardening (harmless on Node/static)
     fs.writeFileSync(siteAS + "/.htaccess", HAXCMS_AGENT_SKILLS_HTACCESS);
     // copy the index through verbatim
     try {
       fs.copySync(boilerIndex, siteAS + "/index.json");
-    } catch (e) {}
+    } catch {}
     let allowedAuxExt = { md: true, json: true, txt: true };
     for (let i = 0; i < index.skills.length; i++) {
       let skill = index.skills[i];
@@ -1263,7 +1263,7 @@ class HAXCMSSite {
           await git.push();
         }
       }
-    } catch (e) {}
+    } catch {}
     return true;
   }
   /**
@@ -1276,7 +1276,7 @@ class HAXCMSSite {
         cliVersion: await this.gitTest(),
       });
       await git.revert(count);
-    } catch (e) {}
+    } catch {}
     return true;
   }
   /**
@@ -1291,7 +1291,7 @@ class HAXCMSSite {
       await git.add();
       await git.commit("commit forced");
       await git.push();
-    } catch (e) {}
+    } catch {}
     return true;
   }
 
@@ -1323,10 +1323,10 @@ class HAXCMSSite {
       });
       try {
         await git.addRemote("origin", url);
-      } catch (e) {
+      } catch {
         await git.setRemote("origin", url);
       }
-    } catch (e) {
+    } catch {
       return false;
     }
     return true;
@@ -1445,7 +1445,7 @@ class HAXCMSSite {
         },
       );
       alternateContent = sanitizeHTMLForStorage(rewritten);
-      let bytes = page.writeLocation(alternateContent, this.siteDirectory);
+      page.writeLocation(alternateContent, this.siteDirectory);
       // #3043: imported files are referenced by their FileEntity uuid
       // (the same source saveNode uses), sourced directly from the
       // Entity API by materializeInlineImages. Set page.metadata.files
@@ -1509,7 +1509,7 @@ class HAXCMSSite {
           this.siteDirectory + "/atom.xml",
           rss.getAtomFeed(this, domain),
         );
-      } catch (e) {
+      } catch {
         // keep parity with PHP behavior: never hard fail a save on feed serialization
       }
     }
@@ -1525,7 +1525,7 @@ class HAXCMSSite {
             rss.getSitemapIndex(domain),
           );
         }
-      } catch (e) {
+      } catch {
         // keep parity with PHP behavior: never hard fail a save on sitemap serialization
       }
     }
@@ -1542,7 +1542,7 @@ class HAXCMSSite {
           this.siteDirectory + "/llms.txt",
           this.getLLMSTxt(domain),
         );
-      } catch (e) {
+      } catch {
         // keep parity with PHP behavior: never hard fail a save on llms serialization
       }
     }
@@ -1758,7 +1758,7 @@ class HAXCMSSite {
             fs.readFileSync(markdownPath, "utf8"),
           );
         }
-      } catch (e) {}
+      } catch {}
     }
     if (
       source === "" &&
@@ -1779,7 +1779,7 @@ class HAXCMSSite {
         source = this.getLLMSSafeText(
           decodeLLMSEntities(String(html).replace(/<[^>]+>/g, " ")),
         );
-      } catch (e) {}
+      } catch {}
     }
     const summary = this.getLLMSLeadingSentences(source);
     if (summary !== "") {
@@ -1941,7 +1941,7 @@ class HAXCMSSite {
           description: item.description,
           text: textData,
         });
-      } catch (e) {}
+      } catch {}
     }
     return data;
   }
@@ -2105,10 +2105,6 @@ class HAXCMSSite {
    */
   getSocialShareImage(page = null) {
     // resolve a JOS Item vs null
-    let id = null;
-    if (page != null) {
-      id = page.id;
-    }
     let fileName;
     if (!fileName) {
       if (page == null) {
@@ -2337,7 +2333,7 @@ class HAXCMSSite {
     } else {
       try {
         content = await this.getPageContent(page);
-      } catch (e) {
+      } catch {
         content = "";
       }
     }
@@ -2352,7 +2348,7 @@ class HAXCMSSite {
         path.join(this.siteDirectory, markdownLocation),
         markdown,
       );
-    } catch (e) {}
+    } catch {}
     // JSON
     try {
       let jsonPayload = this.getPageAlternatePayload(page, content, "json");
@@ -2360,7 +2356,7 @@ class HAXCMSSite {
         path.join(this.siteDirectory, jsonPayload.location),
         JSON.stringify(jsonPayload, null, 2),
       );
-    } catch (e) {}
+    } catch {}
     // YAML
     try {
       let yamlPayload = this.getPageAlternatePayload(page, content, "yaml");
@@ -2368,7 +2364,7 @@ class HAXCMSSite {
         path.join(this.siteDirectory, yamlPayload.location),
         jsyaml.dump(yamlPayload),
       );
-    } catch (e) {}
+    } catch {}
     // XML
     try {
       let xmlPayload = this.getPageAlternatePayload(page, content, "xml");
@@ -2376,7 +2372,7 @@ class HAXCMSSite {
         path.join(this.siteDirectory, xmlPayload.location),
         this.getPageAlternateXML(xmlPayload),
       );
-    } catch (e) {}
+    } catch {}
     return true;
   }
   /**
@@ -2386,7 +2382,7 @@ class HAXCMSSite {
     let payload = {};
     try {
       payload = JSON.parse(JSON.stringify(page));
-    } catch (e) {
+    } catch {
       payload = {};
     }
     payload.location = this.getPageAlternateLocation(page.location, extension);
@@ -3044,7 +3040,7 @@ class HAXCMSSite {
           preloadTags[tag] = tag;
         }
       }
-    } catch (e) {}
+    } catch {}
     for (const tag in preloadTags) {
       const tagPath = HAXCMS.getContentTagPath(this, base, tag);
       if (tagPath === false) {
@@ -3808,7 +3804,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     if (!fs.existsSync(themeDirectory)) {
       try {
         await fs.ensureDir(themeDirectory);
-      } catch (error) {
+      } catch {
         return {
           status: 500,
           data: { message: "Failed to create theme directory" },
@@ -3841,7 +3837,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     const sanitizedContent = sanitizeHTMLForStorage(cleanContent);
     try {
       await fs.writeFile(styleGuideFile, sanitizedContent);
-    } catch (error) {
+    } catch {
       return {
         status: 500,
         data: { message: "Failed to write style guide file" },
@@ -4055,7 +4051,7 @@ class HAXCMSClass {
       try {
         salt = Buffer.from(parts[1], "hex");
         expected = Buffer.from(parts[2], "hex");
-      } catch (e) {
+      } catch {
         return false;
       }
       if (salt.length === 0 || expected.length === 0) {
@@ -4109,7 +4105,7 @@ class HAXCMSClass {
           path.join(this.configDirectory, ".user"),
           JSON.stringify({ name: this.user.name, password: hash }, null, 2),
         );
-      } catch (e) {
+      } catch {
         // non-fatal: in-memory hash is set; file will be retried next login
       }
     }
@@ -4432,7 +4428,7 @@ class HAXCMSClass {
       // already existed from an earlier seed
       this.chmodSecretFile(passwordFile);
       wroteFile = true;
-    } catch (e) {
+    } catch {
       wroteFile = false;
     }
     log("***************************************************************");
@@ -4466,15 +4462,15 @@ class HAXCMSClass {
     }
     try {
       fs.chmodSync(filePath, 0o600);
-    } catch (e) {
+    } catch {
       // non-fatal
     }
   }
   async gitTest() {
     try {
-      const { stdout, stderr } = await exec("git --version");
+      const { stdout } = await exec("git --version");
       return stdout;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -4543,7 +4539,7 @@ class HAXCMSClass {
       if (!fs.existsSync(settingsDir)) {
         fs.mkdirSync(settingsDir, { recursive: true, mode: 0o700 });
       }
-    } catch (e) {
+    } catch {
       // non-fatal; directory creation can fail in some locked-down environments
     }
     // these are relative to the current path
@@ -4700,7 +4696,7 @@ class HAXCMSClass {
         { encoding: "utf8", flag: "r" },
         "utf8",
       );
-    } catch (e) {
+    } catch {
       this.salt = crypto.randomBytes(32).toString("hex");
       this.writeSecretFile(
         path.join(this.configDirectory, "SALT.txt"),
@@ -4714,7 +4710,7 @@ class HAXCMSClass {
         { encoding: "utf8", flag: "r" },
         "utf8",
       );
-    } catch (e) {
+    } catch {
       this.privateKey = crypto.randomBytes(32).toString("hex");
       this.writeSecretFile(
         path.join(this.configDirectory, ".pk"),
@@ -4727,7 +4723,7 @@ class HAXCMSClass {
         { encoding: "utf8", flag: "r" },
         "utf8",
       );
-    } catch (e) {
+    } catch {
       this.refreshPrivateKey = crypto.randomBytes(32).toString("hex");
       this.writeSecretFile(
         path.join(this.configDirectory, ".rpk"),
@@ -4746,7 +4742,7 @@ class HAXCMSClass {
       // Security (HAX-SEC-001): credentials loaded from disk — allow lazy
       // plaintext-to-hash migration on next successful login.
       this.credentialsLoadedFromDisk = true;
-    } catch (e) {
+    } catch {
       // create a default user with secure random password
       const seededPassword = this.generateSecurePassword();
       // Security (HAX-SEC-001): store a scrypt hash, never the plaintext. The
@@ -4947,7 +4943,7 @@ class HAXCMSClass {
     // URL decode to catch encoded traversal attempts
     try {
       n = decodeURIComponent(n);
-    } catch (e) {
+    } catch {
       // if decode fails, fall back to original string
     }
     // Remove any path traversal sequences completely
@@ -4981,7 +4977,7 @@ class HAXCMSClass {
     // URL decode to catch encoded traversal attempts
     try {
       n = decodeURIComponent(n);
-    } catch (e) {
+    } catch {
       // ignore decode errors, keep original string
     }
     // Remove path traversal sequences while preserving forward slashes for URLs
@@ -5026,7 +5022,7 @@ class HAXCMSClass {
     let decoded = rawSiteName;
     try {
       decoded = decodeURIComponent(rawSiteName);
-    } catch (e) {
+    } catch {
       return false;
     }
     if (hasTraversal(decoded)) {
@@ -5190,7 +5186,7 @@ class HAXCMSClass {
     let site = false;
     try {
       site = await this.loadSite(siteName);
-    } catch (e) {
+    } catch {
       site = false;
     }
     if (
@@ -5290,16 +5286,9 @@ class HAXCMSClass {
    */
   async processForm(form_id, params, context = []) {
     // strict-mode fix: these were undeclared (class bodies are strict)
-    let value = {};
-    let fields = {};
     // make sure we have the original value / key pairs for the form
     if (this[form_id + "Value"]) {
-      value = await this[form_id + "Value"](context);
-    } else {
-      fields = {
-        status: 500,
-        data: { message: form_id + " does not exist" },
-      };
+      await this[form_id + "Value"](context);
     }
   }
   /**
@@ -5322,7 +5311,7 @@ class HAXCMSClass {
    * Return the form for the siteSettings
    */
   async siteSettingsForm(context) {
-    let site = await this.loadSite(context["site"]["name"]);
+    await this.loadSite(context["site"]["name"]);
     return this.config.site.fields;
   }
   /**
@@ -5892,7 +5881,7 @@ class HAXCMSClass {
         wcMap = JSON.parse(
           fs.readFileSync(wcPath, { encoding: "utf8", flag: "r" }),
         );
-      } catch (e) {
+      } catch {
         wcMap = {};
       }
     }
@@ -5938,7 +5927,7 @@ class HAXCMSClass {
         graph = JSON.parse(
           fs.readFileSync(gPath, { encoding: "utf8", flag: "r" }),
         );
-      } catch (e) {
+      } catch {
         graph = {};
       }
     }
@@ -6057,7 +6046,7 @@ class HAXCMSClass {
   /**
    * Validate a JTW during POST
    */
-  validateJWT(req, res) {
+  validateJWT(req, _res) {
     if (
       this.isCLI() ||
       (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())
@@ -6132,7 +6121,7 @@ class HAXCMSClass {
         }
       }
       return decoded;
-    } catch (e) {
+    } catch {
       return false;
     }
   }
@@ -6160,7 +6149,7 @@ class HAXCMSClass {
           token["jti"],
           token["exp"],
         );
-      } catch (e) {
+      } catch {
         recorded = false;
       }
       // Security (SEC-SESSION): family-bearing tokens are only accepted when
@@ -6192,7 +6181,7 @@ class HAXCMSClass {
         }
       }
       return decoded;
-    } catch (e) {
+    } catch {
       return false;
     }
   }
@@ -6416,7 +6405,7 @@ class HAXCMSClass {
       }
       const raw = fs.readFileSync(storePath, { encoding: "utf8", flag: "r" });
       return this._normalizeRefreshStore(JSON.parse(raw));
-    } catch (e) {
+    } catch {
       return this._emptyRefreshStore();
     }
   }
@@ -6465,7 +6454,7 @@ class HAXCMSClass {
       this.writeSecretFile(storePath, JSON.stringify(cleaned, null, 2));
       this.chmodSecretFile(storePath);
       return true;
-    } catch (e) {
+    } catch {
       return false;
     }
   }
@@ -6873,7 +6862,7 @@ class HAXCMSClass {
       let v = value.trim();
       try {
         v = decodeURIComponent(v);
-      } catch (e) {}
+      } catch {}
       return /^[A-Za-z0-9_-]+$/.test(v) ? v : "";
     };
     if (req && req.body && typeof req.body === "object") {
@@ -6930,7 +6919,7 @@ class HAXCMSClass {
         if (refererName) {
           return refererName;
         }
-      } catch (e) {}
+      } catch {}
     }
     try {
       const singleSite = await systemStructureContext();
@@ -6946,7 +6935,7 @@ class HAXCMSClass {
       if (singleSite && singleSite.name) {
         return safe(String(singleSite.name));
       }
-    } catch (e) {}
+    } catch {}
     return "";
   }
   /**
@@ -7012,7 +7001,7 @@ class HAXCMSClass {
     let parsed;
     try {
       parsed = new URL(originHeader);
-    } catch (e) {
+    } catch {
       return false;
     }
     if (!parsed || !parsed.host) {
@@ -7141,7 +7130,7 @@ class HAXCMSClass {
   /**
    * Recursive copy to rename high level but copy all files
    */
-  async recurseCopy(src, dst, skip = [], base) {
+  async recurseCopy(src, dst, _skip = [], base) {
     // Security (N1/N5 parity): reject traversal in the destination before
     // creating anything (mirrors PHP HAXCMSSite::recurseCopy). NUL bytes
     // and any `..` segment are refused; when the caller supplies the
@@ -7180,7 +7169,7 @@ async function systemStructureContext(dir = null) {
       let site = new HAXCMSSite();
       await site.loadSingle(dir);
       return site;
-    } catch (e) {}
+    } catch {}
   }
   return null;
 }

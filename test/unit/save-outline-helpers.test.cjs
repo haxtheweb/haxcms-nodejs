@@ -160,7 +160,7 @@ describe('saveOutline.saveOutlineError', () => {
 describe('saveOutline.normalizeOutlineSlug', () => {
   function makeSite(existingSlugs) {
     return {
-      getUniqueSlugName(slug, page, pathAuto) {
+      getUniqueSlugName(slug, _page, _pathAuto) {
         // minimal stand-in mirroring HAXCMS.getUniqueSlugName's uniqueness
         // contract: append -N until the slug isn't already taken.
         let candidate = slug

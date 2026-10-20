@@ -121,7 +121,7 @@ function apiMessageCodesMiddleware(req, res, next) {
     try {
       annotateApiResponse(body, res.statusCode);
     }
-    catch (e) {
+    catch {
       // never let message codes break a response
     }
     return json.call(this, body);

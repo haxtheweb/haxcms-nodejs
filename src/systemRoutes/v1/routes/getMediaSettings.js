@@ -19,7 +19,7 @@ async function getMediaSettings(req, res) {
       data: getEffectiveMediaSettings(mediaSettings),
     });
   }
-  catch (e) {
+  catch {
     return res.status(500).json({
       status: 500,
       data: {

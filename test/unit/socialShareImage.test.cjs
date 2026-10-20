@@ -19,9 +19,6 @@ const os = require('os')
 
 const { HAXCMSSite } = require('../../src/lib/HAXCMS.js')
 const FilesDataStore = require('../../src/lib/FilesDataStore.js')
-const {
-  getDeterministicFileUuid,
-} = require('../../src/lib/siteFileUuid.js')
 
 // Helper: create a temp site directory with a files/ subdir.
 async function makeTempSite(siteName) {
@@ -56,7 +53,7 @@ describe('socialShareImage — #3043', () => {
   afterEach(async () => {
     try {
       await fs.remove(tmpRoot)
-    } catch (e) {}
+    } catch {}
   })
 
   test('resolves first image via files.json uuid string', async () => {

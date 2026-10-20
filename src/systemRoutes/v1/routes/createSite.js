@@ -187,7 +187,7 @@ async function resolveSkeletonBuildByMachineName(machineName) {
       try {
         skeleton = JSON.parse(await fs.readFile(filePath, 'utf8'));
       }
-      catch (e) {
+      catch {
         continue;
       }
       const normalizedFileName = normalizeSkeletonMachineName(
@@ -328,7 +328,7 @@ async function resolveSkeletonByBuildItems(items) {
       try {
         stat = await fs.stat(filePath);
       }
-      catch (e) {
+      catch {
         continue;
       }
       if (!stat.isFile() || path.extname(file).toLowerCase() !== '.json') {
@@ -338,7 +338,7 @@ async function resolveSkeletonByBuildItems(items) {
       try {
         skeleton = JSON.parse(await fs.readFile(filePath, 'utf8'));
       }
-      catch (e) {
+      catch {
         continue;
       }
       if (!isObjectLike(skeleton) || !isObjectLike(skeleton.build)) {
@@ -369,7 +369,7 @@ function cloneJsonValue(value, fallback = null) {
   try {
     return JSON.parse(JSON.stringify(value));
   }
-  catch (e) {
+  catch {
     return fallback;
   }
 }
@@ -480,6 +480,7 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
   }
   return theme;
 }
+// eslint-disable-next-line no-unused-vars -- unused; kept until the owner confirms it is dead
 function isSystemV1Request(req) {
   const requestPath = (
     req &&
@@ -492,11 +493,11 @@ function isSystemV1Request(req) {
   ) ? req.url : '';
   return requestPath.indexOf('/system/api/v1/') !== -1;
 }
-function hasValidCreateSiteRequestToken(req) {
+function hasValidCreateSiteRequestToken(_req) {
   // v1 routes are already JWT-gated in app.js before this handler runs
   return true;
 }
-function hasValidCreateSiteUserToken(req) {
+function hasValidCreateSiteUserToken(_req) {
   // v1 routes are already JWT-gated in app.js before this handler runs
   return true;
 }
@@ -561,7 +562,6 @@ async function createSite(req, res) {
     let build = null;
     let filesToDownload = null;
     let trustedSkeleton = null;
-    let trustedSkeletonFilePath = null;
     // support for build info. the details used to actually create this site originally
     if (req.body['build']) {
       build = {};
@@ -620,7 +620,6 @@ async function createSite(req, res) {
         }
         if (resolvedSkeleton && resolvedSkeleton.skeleton) {
           trustedSkeleton = resolvedSkeleton.skeleton;
-          trustedSkeletonFilePath = resolvedSkeleton.filePath;
           const trustedBuild = isObjectLike(trustedSkeleton.build)
             ? trustedSkeleton.build
             : {};
@@ -637,15 +636,6 @@ async function createSite(req, res) {
         }
       }
     }
-    const buildDebug = {
-      structure: build && build.structure ? build.structure : null,
-      type: build && build.type ? build.type : null,
-      skeletonMachineName: req.body && req.body['build'] && req.body['build']['skeletonMachineName'] ? req.body['build']['skeletonMachineName'] : null,
-      hasItems: !!(build && Array.isArray(build.items) && build.items.length > 0),
-      itemCount: build && Array.isArray(build.items) ? build.items.length : 0,
-      hasFiles: !!(filesToDownload && typeof filesToDownload === 'object' && Object.keys(filesToDownload).length > 0),
-      fileCount: filesToDownload && typeof filesToDownload === 'object' ? Object.keys(filesToDownload).length : 0
-    };
     const useTrustedSkeleton =
       build &&
       build.structure === 'from-skeleton' &&
@@ -731,7 +721,7 @@ async function createSite(req, res) {
     // `contents`/`content` field for imports like WordPress) would only
     // bloat site.json on every page load.
     if (build && !useTrustedSkeleton) {
-      const { items, ...buildProvenance } = build;
+      const { items: _items, ...buildProvenance } = build;
       schema.metadata.build = buildProvenance;
     }
     schema.metadata.site.name = site.manifest.metadata.site.name;
@@ -931,7 +921,7 @@ async function createSite(req, res) {
             await fs.ensureDir(path.dirname(targetPath));
             await fs.writeFile(targetPath, content);
           }
-        } catch (e) {}
+        } catch {}
       }
     }
     // main site schema doesn't care about publishing settings. NOTE:
@@ -961,7 +951,7 @@ async function createSite(req, res) {
         await git.createBranch(configuredBranch);
       }
     }
-    catch(e) {}
+    catch {}
     res.send({
       "status": 200,
       "data": schema,

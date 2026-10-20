@@ -150,7 +150,7 @@ function countSiteFiles(site) {
     try {
       entries = fs.readdirSync(current);
     }
-    catch (e) {
+    catch {
       entries = [];
     }
     for (let i = 0; i < entries.length; i++) {
@@ -163,7 +163,7 @@ function countSiteFiles(site) {
       try {
         stats = fs.lstatSync(entryPath);
       }
-      catch (e) {
+      catch {
         stats = null;
       }
       if (!stats || stats.isSymbolicLink()) {
@@ -616,7 +616,7 @@ async function updateSiteAlternativeFormats(req, res) {
   try {
     await site.updateAlternateFormats(format);
   }
-  catch (e) {
+  catch {
     return res.status(500).json({
       status: 500,
       data: { message: 'Unable to update alternative formats for this site', }

@@ -1,7 +1,6 @@
 const fs = require('fs-extra');
 const path = require('path');
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
 const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
 const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
@@ -288,7 +287,7 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
         if (scanContent === '' && site && typeof site.getPageContent === 'function') {
           try {
             scanContent = String(await site.getPageContent(page) || '');
-          } catch (e) {
+          } catch {
             scanContent = '';
           }
         }
@@ -399,7 +398,7 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
         return false;
       }
     }
-    catch (e) {
+    catch {
       return false;
     }
     return targetPath;
