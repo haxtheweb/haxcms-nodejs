@@ -1,18 +1,12 @@
-const { HAXCMS } = require("../../../lib/HAXCMS.js");
-const filter_var = require("../../../lib/filter_var.js");
-const { sanitizeURLValue } = require("../../../lib/sanitizeContent.js");
-const { isUnsafeRelativePath } = require("../../../lib/pathConfinement.js");
+const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const filter_var = require('../../../lib/filter_var.js');
+const { sanitizeURLValue } = require('../../../lib/sanitizeContent.js');
+const { isUnsafeRelativePath } = require('../../../lib/pathConfinement.js');
 const {
   platformAllows,
   featureDisabledResponse,
-} = require("../../../lib/platformFeatures.js");
-const {
-  getRequestHeaderValue,
-  hasOwn,
-  normalizeString,
-  parseBooleanFromInput,
-  ensureSiteMetadataContainers,
-} = require("../siteRouteUtils.js");
+} = require('../../../lib/platformFeatures.js');
+const { getRequestHeaderValue, hasOwn, normalizeString, parseBooleanFromInput, ensureSiteMetadataContainers } = require('../siteRouteUtils.js');
 
 /**
  * @OA\Post(
@@ -32,7 +26,7 @@ const {
  * )
  */
 async function saveSeoSettings(req, res) {
-  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
   if (
     siteToken &&
     req.body &&
@@ -40,20 +34,18 @@ async function saveSeoSettings(req, res) {
     req.body.site.name &&
     HAXCMS.validateRequestToken(
       siteToken,
-      HAXCMS.getActiveUserName() + ":" + req.body.site.name,
+      HAXCMS.getActiveUserName() + ':' + req.body.site.name,
     )
   ) {
     const site = await HAXCMS.loadSite(req.body.site.name);
     if (!site || !site.manifest) {
-      res
-        .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
       return;
     }
-    if (!platformAllows(site, "seoManifest")) {
+    if (!platformAllows(site, 'seoManifest')) {
       return featureDisabledResponse(
         res,
-        "SEO settings are disabled for this site",
+        'SEO settings are disabled for this site'
       );
     }
 
@@ -63,281 +55,276 @@ async function saveSeoSettings(req, res) {
     }
 
     const bodyAuthor =
-      req.body.author && typeof req.body.author === "object"
-        ? req.body.author
-        : {};
+      req.body.author && typeof req.body.author === 'object' ? req.body.author : {};
     const bodySeo =
-      req.body.seo && typeof req.body.seo === "object" ? req.body.seo : {};
+      req.body.seo && typeof req.body.seo === 'object' ? req.body.seo : {};
     const manifestAuthor =
       req.body.manifest &&
       req.body.manifest.author &&
-      typeof req.body.manifest.author === "object"
+      typeof req.body.manifest.author === 'object'
         ? req.body.manifest.author
         : {};
     const manifestSeo =
       req.body.manifest &&
       req.body.manifest.seo &&
-      typeof req.body.manifest.seo === "object"
+      typeof req.body.manifest.seo === 'object'
         ? req.body.manifest.seo
         : {};
 
     let licenseValue;
-    if (hasOwn(bodyAuthor, "license")) {
+    if (hasOwn(bodyAuthor, 'license')) {
       licenseValue = normalizeString(bodyAuthor.license);
-    } else if (hasOwn(manifestAuthor, "manifest.license")) {
-      licenseValue = normalizeString(manifestAuthor["manifest.license"]);
+    } else if (hasOwn(manifestAuthor, 'manifest.license')) {
+      licenseValue = normalizeString(manifestAuthor['manifest.license']);
     }
-    if (typeof licenseValue !== "undefined") {
-      site.manifest.license = filter_var(
-        licenseValue,
-        "FILTER_SANITIZE_STRING",
-      );
+    if (typeof licenseValue !== 'undefined') {
+      site.manifest.license = filter_var(licenseValue, 'FILTER_SANITIZE_STRING');
     }
 
     let authorImageValue;
-    if (hasOwn(bodyAuthor, "image")) {
+    if (hasOwn(bodyAuthor, 'image')) {
       authorImageValue = normalizeString(bodyAuthor.image);
-    } else if (hasOwn(manifestAuthor, "manifest.metadata.author.image")) {
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.image')) {
       authorImageValue = normalizeString(
-        manifestAuthor["manifest.metadata.author.image"],
+        manifestAuthor['manifest.metadata.author.image'],
       );
     }
-    if (typeof authorImageValue !== "undefined") {
+    if (typeof authorImageValue !== 'undefined') {
       site.manifest.metadata.author.image = filter_var(
         authorImageValue,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
       site.manifest.metadata.author.image = sanitizeURLValue(
         site.manifest.metadata.author.image,
-        "",
+        '',
       );
     }
 
     let authorNameValue;
-    if (hasOwn(bodyAuthor, "name")) {
+    if (hasOwn(bodyAuthor, 'name')) {
       authorNameValue = normalizeString(bodyAuthor.name);
-    } else if (hasOwn(manifestAuthor, "manifest.metadata.author.name")) {
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.name')) {
       authorNameValue = normalizeString(
-        manifestAuthor["manifest.metadata.author.name"],
+        manifestAuthor['manifest.metadata.author.name'],
       );
     }
-    if (typeof authorNameValue !== "undefined") {
+    if (typeof authorNameValue !== 'undefined') {
       site.manifest.metadata.author.name = filter_var(
         authorNameValue,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
     }
 
     let authorEmailValue;
-    if (hasOwn(bodyAuthor, "email")) {
+    if (hasOwn(bodyAuthor, 'email')) {
       authorEmailValue = normalizeString(bodyAuthor.email);
-    } else if (hasOwn(manifestAuthor, "manifest.metadata.author.email")) {
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.email')) {
       authorEmailValue = normalizeString(
-        manifestAuthor["manifest.metadata.author.email"],
+        manifestAuthor['manifest.metadata.author.email'],
       );
     }
-    if (typeof authorEmailValue !== "undefined") {
+    if (typeof authorEmailValue !== 'undefined') {
       site.manifest.metadata.author.email = filter_var(
         authorEmailValue,
-        "FILTER_SANITIZE_EMAIL",
+        'FILTER_SANITIZE_EMAIL',
       );
     }
 
     let authorPhoneValue;
-    if (hasOwn(bodyAuthor, "phone")) {
+    if (hasOwn(bodyAuthor, 'phone')) {
       authorPhoneValue = normalizeString(bodyAuthor.phone);
-    } else if (hasOwn(manifestAuthor, "manifest.metadata.author.phone")) {
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.phone')) {
       authorPhoneValue = normalizeString(
-        manifestAuthor["manifest.metadata.author.phone"],
+        manifestAuthor['manifest.metadata.author.phone'],
       );
     }
-    if (typeof authorPhoneValue !== "undefined") {
+    if (typeof authorPhoneValue !== 'undefined') {
       site.manifest.metadata.author.phone = filter_var(
         authorPhoneValue,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
     }
 
     let authorLocationValue;
-    if (hasOwn(bodyAuthor, "location")) {
+    if (hasOwn(bodyAuthor, 'location')) {
       authorLocationValue = normalizeString(bodyAuthor.location);
-    } else if (hasOwn(manifestAuthor, "manifest.metadata.author.location")) {
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.location')) {
       authorLocationValue = normalizeString(
-        manifestAuthor["manifest.metadata.author.location"],
+        manifestAuthor['manifest.metadata.author.location'],
       );
     }
-    if (typeof authorLocationValue !== "undefined") {
+    if (typeof authorLocationValue !== 'undefined') {
       site.manifest.metadata.author.location = filter_var(
         authorLocationValue,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
     }
 
     let authorWebsiteValue;
-    if (hasOwn(bodyAuthor, "website")) {
+    if (hasOwn(bodyAuthor, 'website')) {
       authorWebsiteValue = normalizeString(bodyAuthor.website);
-    } else if (hasOwn(manifestAuthor, "manifest.metadata.author.website")) {
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.website')) {
       authorWebsiteValue = normalizeString(
-        manifestAuthor["manifest.metadata.author.website"],
+        manifestAuthor['manifest.metadata.author.website'],
       );
     }
-    if (typeof authorWebsiteValue !== "undefined") {
+    if (typeof authorWebsiteValue !== 'undefined') {
       site.manifest.metadata.author.website = filter_var(
         authorWebsiteValue,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
       site.manifest.metadata.author.website = sanitizeURLValue(
         site.manifest.metadata.author.website,
-        "",
+        '',
       );
     }
 
     let authorWebsite2Value;
-    if (hasOwn(bodyAuthor, "website2")) {
+    if (hasOwn(bodyAuthor, 'website2')) {
       authorWebsite2Value = normalizeString(bodyAuthor.website2);
-    } else if (hasOwn(manifestAuthor, "manifest.metadata.author.website2")) {
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.website2')) {
       authorWebsite2Value = normalizeString(
-        manifestAuthor["manifest.metadata.author.website2"],
+        manifestAuthor['manifest.metadata.author.website2'],
       );
     }
-    if (typeof authorWebsite2Value !== "undefined") {
+    if (typeof authorWebsite2Value !== 'undefined') {
       site.manifest.metadata.author.website2 = filter_var(
         authorWebsite2Value,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
       site.manifest.metadata.author.website2 = sanitizeURLValue(
         site.manifest.metadata.author.website2,
-        "",
+        '',
       );
     }
 
     let authorSocialLinkValue;
-    if (hasOwn(bodyAuthor, "socialLink")) {
+    if (hasOwn(bodyAuthor, 'socialLink')) {
       authorSocialLinkValue = normalizeString(bodyAuthor.socialLink);
-    } else if (hasOwn(manifestAuthor, "manifest.metadata.author.socialLink")) {
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.socialLink')) {
       authorSocialLinkValue = normalizeString(
-        manifestAuthor["manifest.metadata.author.socialLink"],
+        manifestAuthor['manifest.metadata.author.socialLink'],
       );
     }
-    if (typeof authorSocialLinkValue !== "undefined") {
+    if (typeof authorSocialLinkValue !== 'undefined') {
       site.manifest.metadata.author.socialLink = filter_var(
         authorSocialLinkValue,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
       site.manifest.metadata.author.socialLink = sanitizeURLValue(
         site.manifest.metadata.author.socialLink,
-        "",
+        '',
       );
     }
 
     let authorSocialLink2Value;
-    if (hasOwn(bodyAuthor, "socialLink2")) {
+    if (hasOwn(bodyAuthor, 'socialLink2')) {
       authorSocialLink2Value = normalizeString(bodyAuthor.socialLink2);
-    } else if (hasOwn(manifestAuthor, "manifest.metadata.author.socialLink2")) {
+    } else if (hasOwn(manifestAuthor, 'manifest.metadata.author.socialLink2')) {
       authorSocialLink2Value = normalizeString(
-        manifestAuthor["manifest.metadata.author.socialLink2"],
+        manifestAuthor['manifest.metadata.author.socialLink2'],
       );
     }
-    if (typeof authorSocialLink2Value !== "undefined") {
+    if (typeof authorSocialLink2Value !== 'undefined') {
       site.manifest.metadata.author.socialLink2 = filter_var(
         authorSocialLink2Value,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
       site.manifest.metadata.author.socialLink2 = sanitizeURLValue(
         site.manifest.metadata.author.socialLink2,
-        "",
+        '',
       );
     }
 
     let descriptionValue;
-    if (hasOwn(bodySeo, "description")) {
+    if (hasOwn(bodySeo, 'description')) {
       descriptionValue = normalizeString(bodySeo.description);
-    } else if (hasOwn(manifestSeo, "manifest.description")) {
-      descriptionValue = normalizeString(manifestSeo["manifest.description"]);
+    } else if (hasOwn(manifestSeo, 'manifest.description')) {
+      descriptionValue = normalizeString(manifestSeo['manifest.description']);
     }
-    if (typeof descriptionValue !== "undefined") {
+    if (typeof descriptionValue !== 'undefined') {
       site.manifest.description = filter_var(
         descriptionValue,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
     }
 
     let logoValue;
-    if (hasOwn(bodySeo, "logo")) {
+    if (hasOwn(bodySeo, 'logo')) {
       logoValue = normalizeString(bodySeo.logo);
-    } else if (hasOwn(manifestSeo, "manifest.metadata.site.logo")) {
-      logoValue = normalizeString(manifestSeo["manifest.metadata.site.logo"]);
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.logo')) {
+      logoValue = normalizeString(manifestSeo['manifest.metadata.site.logo']);
     }
-    if (typeof logoValue !== "undefined") {
+    if (typeof logoValue !== 'undefined') {
       const submittedLogo = sanitizeURLValue(
-        filter_var(logoValue, "FILTER_SANITIZE_STRING"),
-        "",
+        filter_var(logoValue, 'FILTER_SANITIZE_STRING'),
+        '',
       );
       // Security: logo is a site-relative path that is later read and
       // resized from disk; refuse traversal / absolute paths
       if (submittedLogo && isUnsafeRelativePath(submittedLogo)) {
         res
           .status(400)
-          .json({ status: 400, data: { message: "Invalid logo path" } });
+          .json({ status: 400, data: { message: 'Invalid logo path' } });
         return;
       }
       site.manifest.metadata.site.logo = submittedLogo;
     }
 
     let domainValue;
-    if (hasOwn(bodySeo, "domain")) {
+    if (hasOwn(bodySeo, 'domain')) {
       domainValue = normalizeString(bodySeo.domain);
-    } else if (hasOwn(manifestSeo, "manifest.metadata.site.domain")) {
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.domain')) {
       domainValue = normalizeString(
-        manifestSeo["manifest.metadata.site.domain"],
+        manifestSeo['manifest.metadata.site.domain'],
       );
     }
-    if (typeof domainValue !== "undefined") {
+    if (typeof domainValue !== 'undefined') {
       site.manifest.metadata.site.domain = filter_var(
         domainValue,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
       site.manifest.metadata.site.domain = sanitizeURLValue(
         site.manifest.metadata.site.domain,
-        "",
+        '',
       );
     }
 
     let langValue;
-    if (hasOwn(bodySeo, "lang")) {
+    if (hasOwn(bodySeo, 'lang')) {
       langValue = normalizeString(bodySeo.lang);
-    } else if (hasOwn(manifestSeo, "manifest.metadata.site.settings.lang")) {
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.settings.lang')) {
       langValue = normalizeString(
-        manifestSeo["manifest.metadata.site.settings.lang"],
+        manifestSeo['manifest.metadata.site.settings.lang'],
       );
     }
-    if (typeof langValue !== "undefined") {
+    if (typeof langValue !== 'undefined') {
       site.manifest.metadata.site.settings.lang = filter_var(
         langValue,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
     }
 
     let gaIDValue;
-    if (hasOwn(bodySeo, "gaID")) {
+    if (hasOwn(bodySeo, 'gaID')) {
       gaIDValue = normalizeString(bodySeo.gaID);
-    } else if (hasOwn(manifestSeo, "manifest.metadata.site.settings.gaID")) {
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.settings.gaID')) {
       gaIDValue = normalizeString(
-        manifestSeo["manifest.metadata.site.settings.gaID"],
+        manifestSeo['manifest.metadata.site.settings.gaID'],
       );
     }
-    if (typeof gaIDValue !== "undefined") {
+    if (typeof gaIDValue !== 'undefined') {
       site.manifest.metadata.site.settings.gaID = filter_var(
         gaIDValue,
-        "FILTER_SANITIZE_STRING",
+        'FILTER_SANITIZE_STRING',
       );
     }
 
     let privateInput;
-    if (hasOwn(bodySeo, "private")) {
+    if (hasOwn(bodySeo, 'private')) {
       privateInput = bodySeo.private;
-    } else if (hasOwn(manifestSeo, "manifest.metadata.site.settings.private")) {
-      privateInput = manifestSeo["manifest.metadata.site.settings.private"];
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.settings.private')) {
+      privateInput = manifestSeo['manifest.metadata.site.settings.private'];
     }
     const privateValue = parseBooleanFromInput(privateInput, null);
     if (privateValue !== null) {
@@ -345,12 +332,12 @@ async function saveSeoSettings(req, res) {
     }
 
     let canonicalInput;
-    if (hasOwn(bodySeo, "canonical")) {
+    if (hasOwn(bodySeo, 'canonical')) {
       canonicalInput = bodySeo.canonical;
     } else if (
-      hasOwn(manifestSeo, "manifest.metadata.site.settings.canonical")
+      hasOwn(manifestSeo, 'manifest.metadata.site.settings.canonical')
     ) {
-      canonicalInput = manifestSeo["manifest.metadata.site.settings.canonical"];
+      canonicalInput = manifestSeo['manifest.metadata.site.settings.canonical'];
     }
     const canonicalValue = parseBooleanFromInput(canonicalInput, null);
     if (canonicalValue !== null) {
@@ -358,12 +345,10 @@ async function saveSeoSettings(req, res) {
     }
 
     let pathautoInput;
-    if (hasOwn(bodySeo, "pathauto")) {
+    if (hasOwn(bodySeo, 'pathauto')) {
       pathautoInput = bodySeo.pathauto;
-    } else if (
-      hasOwn(manifestSeo, "manifest.metadata.site.settings.pathauto")
-    ) {
-      pathautoInput = manifestSeo["manifest.metadata.site.settings.pathauto"];
+    } else if (hasOwn(manifestSeo, 'manifest.metadata.site.settings.pathauto')) {
+      pathautoInput = manifestSeo['manifest.metadata.site.settings.pathauto'];
     }
     const pathautoValue = parseBooleanFromInput(pathautoInput, null);
     if (pathautoValue !== null) {
@@ -371,18 +356,15 @@ async function saveSeoSettings(req, res) {
     }
 
     let publishPagesOnInput;
-    if (hasOwn(bodySeo, "publishPagesOn")) {
+    if (hasOwn(bodySeo, 'publishPagesOn')) {
       publishPagesOnInput = bodySeo.publishPagesOn;
     } else if (
-      hasOwn(manifestSeo, "manifest.metadata.site.settings.publishPagesOn")
+      hasOwn(manifestSeo, 'manifest.metadata.site.settings.publishPagesOn')
     ) {
       publishPagesOnInput =
-        manifestSeo["manifest.metadata.site.settings.publishPagesOn"];
+        manifestSeo['manifest.metadata.site.settings.publishPagesOn'];
     }
-    const publishPagesOnValue = parseBooleanFromInput(
-      publishPagesOnInput,
-      null,
-    );
+    const publishPagesOnValue = parseBooleanFromInput(publishPagesOnInput, null);
     if (publishPagesOnValue !== null) {
       site.manifest.metadata.site.settings.publishPagesOn = publishPagesOnValue;
     }
@@ -391,14 +373,12 @@ async function saveSeoSettings(req, res) {
     await site.manifest.save(false);
     // rebuild managed files after manifest changes that may affect generated output
     await site.rebuildManagedFiles();
-    await site.gitCommit("Managed files updated");
-    await site.gitCommit("SEO settings updated");
+    await site.gitCommit('Managed files updated');
+    await site.gitCommit('SEO settings updated');
 
     res.json({ status: 200, data: site.manifest });
   } else {
-    res
-      .status(403)
-      .json({ status: 403, data: { message: "Authentication required" } });
+    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
   }
 }
 

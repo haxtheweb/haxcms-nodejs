@@ -1,17 +1,17 @@
-"use strict";
+'use strict';
 
-const path = require("path");
-const crypto = require("crypto");
-const fs = require("fs-extra");
-const mime = require("mime");
-const sharp = require("sharp");
-const { buildFilePublicUrl } = require("./siteFileUrl.js");
-const { hasTraversal, pathWithinBase } = require("./pathConfinement.js");
+const path = require('path');
+const crypto = require('crypto');
+const fs = require('fs-extra');
+const mime = require('mime');
+const sharp = require('sharp');
+const { buildFilePublicUrl } = require('./siteFileUrl.js');
+const { hasTraversal, pathWithinBase } = require('./pathConfinement.js');
 const {
   getDeterministicFileUuid,
   getCanonicalFilePathForUuid,
   getSiteNameForFileUuid,
-} = require("./siteFileUuid.js");
+} = require('./siteFileUuid.js');
 
 // Low-level files.json I/O for the file entity datastore (Phase 2, #3043).
 //
@@ -41,19 +41,19 @@ class FilesDataStore {
   // Absolute path to files.json.
   getFilesJsonPath() {
     const siteDirectory =
-      this.site && typeof this.site.siteDirectory === "string"
+      this.site && typeof this.site.siteDirectory === 'string'
         ? this.site.siteDirectory
-        : "";
-    return path.join(siteDirectory, "files", "files.json");
+        : '';
+    return path.join(siteDirectory, 'files', 'files.json');
   }
 
   // Absolute path to the files/ directory.
   getFilesDirectory() {
     const siteDirectory =
-      this.site && typeof this.site.siteDirectory === "string"
+      this.site && typeof this.site.siteDirectory === 'string'
         ? this.site.siteDirectory
-        : "";
-    return path.join(siteDirectory, "files");
+        : '';
+    return path.join(siteDirectory, 'files');
   }
 
   // ------------------------------------------------------------------
@@ -70,12 +70,12 @@ class FilesDataStore {
     const jsonPath = this.getFilesJsonPath();
     if (fs.pathExistsSync(jsonPath)) {
       try {
-        const contents = fs.readFileSync(jsonPath, "utf8");
+        const contents = fs.readFileSync(jsonPath, 'utf8');
         if (contents) {
           const decoded = JSON.parse(contents);
           if (
             decoded &&
-            typeof decoded === "object" &&
+            typeof decoded === 'object' &&
             decoded.schema &&
             decoded.data
           ) {
@@ -115,9 +115,9 @@ class FilesDataStore {
       return false;
     }
     const temp =
-      jsonPath + ".tmp-" + crypto.randomUUID().split("-").join("").slice(0, 8);
+      jsonPath + '.tmp-' + crypto.randomUUID().split('-').join('').slice(0, 8);
     try {
-      fs.writeFileSync(temp, json, "utf8");
+      fs.writeFileSync(temp, json, 'utf8');
       fs.renameSync(temp, jsonPath);
     } catch (e) {
       try {
@@ -138,12 +138,12 @@ class FilesDataStore {
     const files = this.getRecordsRaw();
     for (let i = 0; i < files.length; i++) {
       const record = files[i];
-      const uuid = record && record.uuid ? String(record.uuid) : "";
-      const recPath = record && record.path ? String(record.path) : "";
-      if (uuid !== "") {
+      const uuid = record && record.uuid ? String(record.uuid) : '';
+      const recPath = record && record.path ? String(record.path) : '';
+      if (uuid !== '') {
         this.uuidIndex[uuid] = record;
       }
-      if (uuid !== "" && recPath !== "") {
+      if (uuid !== '' && recPath !== '') {
         this.pathIndex[recPath] = uuid;
       }
     }
@@ -151,7 +151,10 @@ class FilesDataStore {
 
   // The raw records array from the envelope (by reference).
   getRecordsRaw() {
-    if (!this.envelope.data || !Array.isArray(this.envelope.data.files)) {
+    if (
+      !this.envelope.data ||
+      !Array.isArray(this.envelope.data.files)
+    ) {
       this.envelope.data = this.envelope.data || {};
       this.envelope.data.files = [];
     }
@@ -172,11 +175,11 @@ class FilesDataStore {
   // O(1) lookup by UUID.
   getByUuid(uuid) {
     this.load();
-    const normalized = String(uuid || "")
+    const normalized = String(uuid || '')
       .trim()
       .toLowerCase();
     if (
-      normalized === "" ||
+      normalized === '' ||
       !Object.prototype.hasOwnProperty.call(this.uuidIndex, normalized)
     ) {
       return null;
@@ -192,7 +195,10 @@ class FilesDataStore {
       return null;
     }
     const uuid = this.pathIndex[canonical];
-    if (uuid && Object.prototype.hasOwnProperty.call(this.uuidIndex, uuid)) {
+    if (
+      uuid &&
+      Object.prototype.hasOwnProperty.call(this.uuidIndex, uuid)
+    ) {
       return this.uuidIndex[uuid];
     }
     return null;
@@ -211,10 +217,10 @@ class FilesDataStore {
     // upsert it, then return the uuid.
     const record = await this.buildFileRecordFromDisk(canonical);
     if (!record) {
-      return "";
+      return '';
     }
     this.upsertRecord(record);
-    return record.uuid ? String(record.uuid) : "";
+    return record.uuid ? String(record.uuid) : '';
   }
 
   // ------------------------------------------------------------------
@@ -223,12 +229,12 @@ class FilesDataStore {
 
   // Upsert a record into files.json by UUID. Rebuilds indexes and persists.
   upsertRecord(record) {
-    if (!record || typeof record !== "object") {
+    if (!record || typeof record !== 'object') {
       return false;
     }
     this.load();
-    const uuid = record.uuid ? String(record.uuid).trim().toLowerCase() : "";
-    if (uuid === "") {
+    const uuid = record.uuid ? String(record.uuid).trim().toLowerCase() : '';
+    if (uuid === '') {
       return false;
     }
     record.uuid = uuid;
@@ -255,10 +261,10 @@ class FilesDataStore {
   // Remove a record by UUID. Rebuilds indexes and persists.
   removeRecord(uuid) {
     this.load();
-    const normalized = String(uuid || "")
+    const normalized = String(uuid || '')
       .trim()
       .toLowerCase();
-    if (normalized === "") {
+    if (normalized === '') {
       return false;
     }
     const files = this.getRecordsRaw();
@@ -297,7 +303,7 @@ class FilesDataStore {
     const diskFiles = this.collectDiskFiles(filesDir);
     let added = 0;
     for (let i = 0; i < diskFiles.length; i++) {
-      const canonical = "files/" + diskFiles[i];
+      const canonical = 'files/' + diskFiles[i];
       if (Object.prototype.hasOwnProperty.call(this.pathIndex, canonical)) {
         continue;
       }
@@ -305,12 +311,12 @@ class FilesDataStore {
       if (record) {
         const files = this.getRecordsRaw();
         files.push(record);
-        const uuid = record.uuid ? String(record.uuid) : "";
-        const recPath = record.path ? String(record.path) : "";
-        if (uuid !== "") {
+        const uuid = record.uuid ? String(record.uuid) : '';
+        const recPath = record.path ? String(record.path) : '';
+        if (uuid !== '') {
           this.uuidIndex[uuid] = record;
         }
-        if (uuid !== "" && recPath !== "") {
+        if (uuid !== '' && recPath !== '') {
           this.pathIndex[recPath] = uuid;
         }
         added++;
@@ -332,14 +338,14 @@ class FilesDataStore {
     for (let i = 0; i < uuids.length; i++) {
       const uuid = uuids[i];
       const record = this.uuidIndex[uuid];
-      const recPath = record && record.path ? String(record.path) : "";
-      if (recPath === "") {
+      const recPath = record && record.path ? String(record.path) : '';
+      if (recPath === '') {
         continue;
       }
       // path is 'files/...', strip the leading 'files/' to get the
       // relative path within the files directory.
       let relative = recPath;
-      if (relative.indexOf("files/") === 0) {
+      if (relative.indexOf('files/') === 0) {
         relative = relative.substring(6);
       }
       const absolute = path.join(filesDir, relative);
@@ -362,14 +368,14 @@ class FilesDataStore {
       return result;
     }
     const ignored = [
-      ".",
-      "..",
-      ".gitkeep",
-      ".DS_Store",
-      "._.DS_Store",
-      ".htaccess",
-      "._htaccess",
-      "files.json",
+      '.',
+      '..',
+      '.gitkeep',
+      '.DS_Store',
+      '._.DS_Store',
+      '.htaccess',
+      '._htaccess',
+      'files.json',
     ];
     const stack = [filesDir];
     while (stack.length > 0) {
@@ -397,9 +403,9 @@ class FilesDataStore {
         if (entry.isDirectory()) {
           const relativeDirPath = path.relative(filesDir, absoluteEntryPath);
           if (
-            relativeDirPath === "haxcms-managed" ||
-            relativeDirPath.indexOf("haxcms-managed" + path.sep) === 0 ||
-            relativeDirPath.indexOf("haxcms-managed/") === 0
+            relativeDirPath === 'haxcms-managed' ||
+            relativeDirPath.indexOf('haxcms-managed' + path.sep) === 0 ||
+            relativeDirPath.indexOf('haxcms-managed/') === 0
           ) {
             continue;
           }
@@ -411,15 +417,15 @@ class FilesDataStore {
         }
         const relativePath = path.relative(filesDir, absoluteEntryPath);
         if (
-          relativePath === "" ||
-          relativePath === "haxcms-managed" ||
-          relativePath.indexOf("haxcms-managed" + path.sep) === 0 ||
-          relativePath.indexOf("haxcms-managed/") === 0
+          relativePath === '' ||
+          relativePath === 'haxcms-managed' ||
+          relativePath.indexOf('haxcms-managed' + path.sep) === 0 ||
+          relativePath.indexOf('haxcms-managed/') === 0
         ) {
           continue;
         }
         // Normalize to forward slashes for the canonical path.
-        result.push(relativePath.split(path.sep).join("/"));
+        result.push(relativePath.split(path.sep).join('/'));
       }
     }
     result.sort();
@@ -433,7 +439,7 @@ class FilesDataStore {
     const canonical = FilesDataStore.canonicalPath(canonicalPathInput);
     const filesDir = this.getFilesDirectory();
     let relative = canonical;
-    if (relative.indexOf("files/") === 0) {
+    if (relative.indexOf('files/') === 0) {
       relative = relative.substring(6);
     }
     // Security: lexical containment (no `..`/NUL, stays inside files/).
@@ -449,16 +455,16 @@ class FilesDataStore {
       return null;
     }
     const stats = fs.statSync(absolutePath);
-    const size = stats && typeof stats.size === "number" ? stats.size : 0;
+    const size = stats && typeof stats.size === 'number' ? stats.size : 0;
     const dateCreated = FilesDataStore.getDateCreatedValue(stats);
 
-    let mimetype = "";
+    let mimetype = '';
     try {
-      mimetype = mime.getType(absolutePath) || "";
+      mimetype = mime.getType(absolutePath) || '';
     } catch (e) {
-      mimetype = "";
+      mimetype = '';
     }
-    if (mimetype === "") {
+    if (mimetype === '') {
       mimetype = FilesDataStore.mimetypeFromExtension(absolutePath);
     }
 
@@ -466,16 +472,17 @@ class FilesDataStore {
     let fullUrl = baseFileUrl;
     if (dateCreated > 0) {
       fullUrl +=
-        (baseFileUrl.indexOf("?") === -1 ? "?t=" : "&t=") + dateCreated;
+        (baseFileUrl.indexOf('?') === -1 ? '?t=' : '&t=') + dateCreated;
     }
 
     let width = 0;
     let height = 0;
-    if (mimetype.indexOf("image/") === 0 && mimetype !== "image/svg+xml") {
+    if (
+      mimetype.indexOf('image/') === 0 &&
+      mimetype !== 'image/svg+xml'
+    ) {
       try {
-        const metadata = await sharp(absolutePath, {
-          failOn: "none",
-        }).metadata();
+        const metadata = await sharp(absolutePath, { failOn: 'none' }).metadata();
         if (
           metadata &&
           metadata.width &&
@@ -512,11 +519,11 @@ class FilesDataStore {
   // Build an empty HAXCMS-FILE-SCHEMA-V1 envelope.
   buildEmptyEnvelope() {
     return {
-      schema: "HAXCMS-FILE-SCHEMA-V1",
+      schema: 'HAXCMS-FILE-SCHEMA-V1',
       site: getSiteNameForFileUuid(this.site),
       generated: Math.floor(Date.now() / 1000),
       data: {
-        path: "files",
+        path: 'files',
         files: [],
       },
     };
@@ -538,72 +545,69 @@ class FilesDataStore {
 
   // Extension-based MIME type fallback (mirrors PHP mimetypeFromExtension).
   static mimetypeFromExtension(inputPath) {
-    const extension = path
-      .extname(String(inputPath || ""))
-      .replace(/^\./, "")
-      .toLowerCase();
-    if (extension === "jpg" || extension === "jpeg") {
-      return "image/jpeg";
+    const extension = path.extname(String(inputPath || '')).replace(/^\./, '').toLowerCase();
+    if (extension === 'jpg' || extension === 'jpeg') {
+      return 'image/jpeg';
     }
-    if (extension === "png") {
-      return "image/png";
+    if (extension === 'png') {
+      return 'image/png';
     }
-    if (extension === "gif") {
-      return "image/gif";
+    if (extension === 'gif') {
+      return 'image/gif';
     }
-    if (extension === "svg") {
-      return "image/svg+xml";
+    if (extension === 'svg') {
+      return 'image/svg+xml';
     }
-    if (extension === "pdf") {
-      return "application/pdf";
+    if (extension === 'pdf') {
+      return 'application/pdf';
     }
-    if (extension === "md") {
-      return "text/markdown";
+    if (extension === 'md') {
+      return 'text/markdown';
     }
-    if (extension === "mp4") {
-      return "video/mp4";
+    if (extension === 'mp4') {
+      return 'video/mp4';
     }
-    if (extension === "mp3") {
-      return "audio/mpeg";
+    if (extension === 'mp3') {
+      return 'audio/mpeg';
     }
-    if (extension === "webp") {
-      return "image/webp";
+    if (extension === 'webp') {
+      return 'image/webp';
     }
-    if (extension === "webm") {
-      return "video/webm";
+    if (extension === 'webm') {
+      return 'video/webm';
     }
-    if (extension === "csv") {
-      return "text/csv";
+    if (extension === 'csv') {
+      return 'text/csv';
     }
-    if (extension === "txt") {
-      return "text/plain";
+    if (extension === 'txt') {
+      return 'text/plain';
     }
-    if (extension === "html") {
-      return "text/html";
+    if (extension === 'html') {
+      return 'text/html';
     }
-    return "";
+    return '';
   }
 
   // Date created from fs.Stats in SECONDS (matches files.js getDateCreatedValue).
   static getDateCreatedValue(stats) {
-    if (!stats || typeof stats !== "object") {
+    if (!stats || typeof stats !== 'object') {
       return 0;
     }
     let createdMs = 0;
     if (
-      typeof stats.mtimeMs === "number" &&
+      typeof stats.mtimeMs === 'number' &&
       Number.isFinite(stats.mtimeMs) &&
       stats.mtimeMs > 0
     ) {
       createdMs = stats.mtimeMs;
     } else if (
-      typeof stats.ctimeMs === "number" &&
+      typeof stats.ctimeMs === 'number' &&
       Number.isFinite(stats.ctimeMs) &&
       stats.ctimeMs > 0
     ) {
       createdMs = stats.ctimeMs;
     } else if (
-      typeof stats.birthtimeMs === "number" &&
+      typeof stats.birthtimeMs === 'number' &&
       Number.isFinite(stats.birthtimeMs) &&
       stats.birthtimeMs > 0
     ) {
