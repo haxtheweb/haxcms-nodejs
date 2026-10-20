@@ -86,7 +86,9 @@ function getNodeMemoryLimitLabel() {
     ) {
       return formatBytes(heapStats.heap_size_limit);
     }
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   return "Unknown";
 }
 
@@ -114,7 +116,9 @@ function detectGitVersion() {
       }
       return "git installed";
     }
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   return "";
 }
 

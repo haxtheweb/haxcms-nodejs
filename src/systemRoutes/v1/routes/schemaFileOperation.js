@@ -256,7 +256,9 @@ async function updateSkeletonMetaMachineName(filePath, machineName) {
     parsed.meta.machineName = machineName;
     await fs.writeFile(filePath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
   }
-  catch {}
+  catch {
+    // intentionally ignored
+  }
 }
 
 /**

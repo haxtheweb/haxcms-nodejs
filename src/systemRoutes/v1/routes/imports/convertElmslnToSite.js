@@ -90,7 +90,7 @@ async function convertElmslnToSite(req, res) {
         for (const itemData of siteJson.items) {
           let item = new JSONOutlineSchemaItem();
           for (const key in itemData) {
-            if (item.hasOwnProperty(key)) {
+            if (Object.prototype.hasOwnProperty.call(item, key)) {
               item[key] = itemData[key];
             }
           }

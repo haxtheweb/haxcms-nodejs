@@ -131,7 +131,7 @@ function sniffImageMime(buffer) {
   if (buffer[0] === 0x42 && buffer[1] === 0x4d && buffer.length >= 26) {
     return 'image/bmp';
   }
-  var head = buffer.toString('utf8', 0, Math.min(buffer.length, 1024)).replace(/^﻿/, '').trimStart();
+  var head = buffer.toString('utf8', 0, Math.min(buffer.length, 1024)).replace(/^\uFEFF/, '').trimStart();
   if (head.charAt(0) === '<' && /<svg[\s>]/i.test(head)) {
     return 'image/svg+xml';
   }

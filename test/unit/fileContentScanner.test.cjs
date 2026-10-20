@@ -44,7 +44,9 @@ describe('FileContentScanner — Phase 2 (#3043)', () => {
   afterEach(async () => {
     try {
       await fs.remove(tmpRoot)
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   })
 
   describe('extractFileReferences', () => {

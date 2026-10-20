@@ -16,23 +16,6 @@ const prettierConfig = require("eslint-config-prettier");
 // legitimately DOM globals, not Node runtime APIs.
 const NODE_BUILTINS_VERSION = ">=22.0.0";
 
-// TODO(lint follow-up): the rules below are downgraded to "warn" for this
-// initial rollout because they surface pre-existing findings in legacy code
-// (src/lib/HAXCMS.js in particular, which has known, previously-documented
-// latent bugs) that are out of scope for a lint-tooling change. A dedicated
-// follow-up pass should fix these findings and promote the rules back to
-// "error".
-const LEGACY_CODE_WARN_RULES = {
-  "no-empty": "warn",
-  "no-redeclare": "warn",
-  "no-unreachable": "warn",
-  "no-cond-assign": "warn",
-  "no-prototype-builtins": "warn",
-  "no-case-declarations": "warn",
-  "no-fallthrough": "warn",
-  "no-irregular-whitespace": "warn",
-};
-
 module.exports = [
   js.configs.recommended,
   {
@@ -96,22 +79,15 @@ module.exports = [
       // itself uses at runtime (see SEC-SSRF comments in that file).
       "n/no-extraneous-require": ["error", { allowModules: ["html-to-vdom"] }],
       "no-unused-vars": [
-        "warn",
+        "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
-      // TODO(lint follow-up): HAXCMS.js and JSONOutlineSchema.js contain
-      // genuine legacy implicit-globals (undeclared assignments like
-      // `response = {}`) in sparsely-tested methods. Downgraded to warn
-      // for this rollout rather than hand-editing that behavior as a
-      // side effect of adding lint tooling; see eslint-disable-line usage
-      // note above.
-      "no-undef": "warn",
+      "no-undef": "error",
       // Many Security-hardening regexes in this codebase deliberately match
       // control characters (e.g. stripping \x00-\x1f before writing to git
       // commit messages / XML / managed templates). These are intentional,
       // not bugs, so the rule is disabled rather than warned-on.
       "no-control-regex": "off",
-      ...LEGACY_CODE_WARN_RULES,
     },
   },
   // cli.js uses ESM import/export (transpiled by Babel at build time)
@@ -140,7 +116,7 @@ module.exports = [
         },
       ],
       "no-unused-vars": [
-        "warn",
+        "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
     },

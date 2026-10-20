@@ -156,7 +156,9 @@ function getSiteNameFromRequestReferer(req) {
     if (refererSiteName !== '') {
       return refererSiteName;
     }
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   return getMultisiteSiteNameFromPath(referer);
 }
 
@@ -182,7 +184,9 @@ async function loadResolvedSiteByName(siteName = '') {
     if (site && site.manifest && site.siteDirectory) {
       return site;
     }
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   return null;
 }
 
@@ -391,7 +395,9 @@ function decodePathToken(value = '') {
   }
   try {
     normalized = decodeURIComponent(normalized);
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   normalized = normalizePathForResponse(normalized).replace(/^\/+/, '');
   return normalized;
 }
@@ -750,7 +756,9 @@ async function getItemContent(site, item) {
       return content;
     }
   }
-  catch {}
+  catch {
+    // intentionally ignored
+  }
   return '';
 }
 
@@ -1288,7 +1296,9 @@ function applyItemFilters(items = [], req, site = null, options = {}) {
         output = output.filter((item) => item && item.id && branchIds.has(item.id));
       }
     }
-    catch {}
+    catch {
+      // intentionally ignored
+    }
   }
   if (filterParent !== '') {
     output = output.filter((item) => {

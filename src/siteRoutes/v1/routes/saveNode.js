@@ -79,7 +79,7 @@ async function saveNode(req, res) {
         bodyParams["node"]["details"]["node"] &&
         bodyParams["node"]["details"]["node"]["advanced"]
       ) {
-        for (var key in bodyParams["node"]["details"]["node"]["advanced"]) {
+        for (let key in bodyParams["node"]["details"]["node"]["advanced"]) {
           details[key] = bodyParams["node"]["details"]["node"]["advanced"][key];
         }
       }

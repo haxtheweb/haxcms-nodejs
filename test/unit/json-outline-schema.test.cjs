@@ -120,7 +120,7 @@ test('validateItem copies only schema-known keys and returns a JSONOutlineSchema
   assert.strictEqual(validated.indent, 2)
   assert.strictEqual(validated.description, 'd')
   assert.deepStrictEqual(validated.metadata, { a: 1 })
-  assert.strictEqual(validated.hasOwnProperty('bogus'), false)
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(validated, 'bogus'), false)
 })
 
 test('addItem returns the new item count and stores a validated JSONOutlineSchemaItem', () => {

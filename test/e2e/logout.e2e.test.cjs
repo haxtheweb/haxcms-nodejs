@@ -140,7 +140,9 @@ async function jwtInLocalStorage(page) {
           }
         }
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     return false
   })
 }

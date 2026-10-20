@@ -101,7 +101,9 @@ function sanitizeRevisionId(value = "") {
   }
   try {
     revisionId = decodeURIComponent(revisionId);
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   revisionId = revisionId.trim();
   if (!/^[a-fA-F0-9]{7,64}$/.test(revisionId)) {
     return "";
@@ -373,7 +375,9 @@ async function listItemRevisions(req, res) {
       } else {
         total = 0;
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     const lookupValue = item.slug ? String(item.slug) : String(item.id);
     const apiBasePath = getApiBasePath(req);
     const jsonVariantLocation =
@@ -515,7 +519,9 @@ async function itemRevisionDetail(req, res) {
         );
         const parsedPayload = parseRevisionJSONPayload(itemMetadataRaw);
         itemMetadata = getItemMetadataFromPayload(parsedPayload);
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
     }
     const lookupValue = resolveLookupValue(item);
     const apiBasePath = getApiBasePath(req);
@@ -652,7 +658,9 @@ async function restoreItemRevision(req, res) {
         const parsedPayload = parseRevisionJSONPayload(itemMetadataRaw);
         itemMetadata = getItemMetadataFromPayload(parsedPayload);
         itemMetadataRestored = applyItemMetadataToPage(page, itemMetadata);
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
     }
     if (typeof site.writePageAlternateFormats === "function") {
       await site.writePageAlternateFormats(page, revisionContent);

@@ -35,7 +35,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
       // this ensures that writing is always to what the file system
       // determines to be the correct page
       let page;
-      if (page = site.loadNode(req.body['node']['id'])) {
+      if ((page = site.loadNode(req.body['node']['id']))) {
           if (await site.deleteNode(page) === false) {
             res.status(500).json({ status: 500, data: { message: 'Server error' } });
           } else {
@@ -43,7 +43,7 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
             for (var key in site.manifest.items) {
               // just to be safe..
               let pageUpdate;
-              if (pageUpdate = site.loadNode(site.manifest.items[key].id)) {
+              if ((pageUpdate = site.loadNode(site.manifest.items[key].id))) {
                 // ensure that parent is valid to rescue orphan items
                 if (pageUpdate.parent != null && !site.loadNode(pageUpdate.parent)) {
                   pageUpdate.parent = null;

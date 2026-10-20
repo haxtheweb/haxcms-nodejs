@@ -57,7 +57,9 @@ describe('cloneSiteFilesJson — #3043', () => {
   afterEach(async () => {
     try {
       await fs.remove(tmpRoot)
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   })
 
   test('rewrites fullUrl prefix and preserves uuids', async () => {

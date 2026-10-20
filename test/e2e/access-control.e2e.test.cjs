@@ -275,7 +275,9 @@ test('access-control e2e: anonymous vs authenticated site access', { timeout: 24
               }
             }
           }
-        } catch {}
+        } catch {
+          // intentionally ignored
+        }
         return {
           modalFound: !!modal,
           modalOpened: modal ? modal.opened === true : false,

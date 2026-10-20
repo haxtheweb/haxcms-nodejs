@@ -89,7 +89,9 @@ async function dumpLocalStorageKeys(page) {
           keys.push({ key: key, valueLen: val.length })
         }
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     return keys
   })
 }
