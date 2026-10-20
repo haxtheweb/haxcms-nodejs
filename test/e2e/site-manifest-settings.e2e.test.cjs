@@ -40,7 +40,6 @@ const {
   relocateCreatedSite,
   clickEditorButtonById,
   safeCompareBaseline,
-  summariseViolations,
 } = require('./helpers')
 
 const EXPECTED_SITE_NAME = FIXED_SITE_NAME.toLowerCase()

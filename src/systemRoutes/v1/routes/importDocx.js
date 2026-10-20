@@ -3,7 +3,6 @@ const { parse } = require("node-html-parser");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const {
   stripMSWord,
-  validURL,
   htmlFromEl,
   processDocxHtml,
 } = require("../../../lib/convertUtils.js");

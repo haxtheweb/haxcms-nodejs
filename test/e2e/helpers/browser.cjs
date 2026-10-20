@@ -6,9 +6,7 @@
 
 const puppeteer = require("puppeteer-core");
 const fs = require("fs");
-const path = require("path");
 
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
 const DEFAULT_LAUNCH_ARGS = ["--no-sandbox", "--disable-setuid-sandbox"];
 

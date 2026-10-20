@@ -85,7 +85,7 @@ test("validateRequestToken stays constant-time and rejects non-matching tokens",
   assert.equal(HAXCMS.validateRequestToken("nope", "alice"), false);
 });
 
-test("a JWT whose id is not a string never authenticates", (t) => {
+test("a JWT whose id is not a string never authenticates", (_t) => {
   const user = HAXCMS.getActiveUserName();
   const forged = require("jsonwebtoken").sign(
     {

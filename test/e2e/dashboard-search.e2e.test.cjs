@@ -32,18 +32,14 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  selectors,
   FIXED_SITE_NAME,
   // flows helpers
-  waitFor,
-  waitForDeep,
   loginViaUI,
   createSiteViaUI,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
   reloadDashboard,
   findSiteCard,
-  typeIntoShadow,
   safeCompareBaseline,
 } = require('./helpers')
 

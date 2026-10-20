@@ -15,8 +15,6 @@
 //
 // Run: node test/e2e/helpers/.discovery-authoring-media.cjs  (from repo root)
 
-const path = require("path");
-const fs = require("fs-extra");
 const axios = require("axios");
 const sharp = require("sharp");
 const FormData = require("form-data");
@@ -28,24 +26,13 @@ const {
   launchBrowser,
   newPage,
   createResponseCollector,
-  selectors,
   FIXED_SITE_NAME,
-  deepQuery,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
   waitFor,
-  waitForDeep,
-  typeIntoShadow,
   loginViaUI,
   createSiteViaUI,
-  findCreateSiteResponse,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
-  deepFindRecursive,
   WALK_HAX_BODY_FN,
-  haxBodyEditModeActive,
-  markerInHaxBody,
   clickEditorButtonById,
 } = require("./index.cjs");
 

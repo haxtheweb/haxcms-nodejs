@@ -903,7 +903,7 @@ class HAXCMSFile {
   /**
    * Save file into this site, optionally updating reference inside the page
    */
-  async save(tmpFile, site, page = null, imageOps = null, subfolder = "") {
+  async save(tmpFile, site, _page = null, imageOps = null, subfolder = "") {
     var returnData = {};
     // check for a file upload
     if (tmpFile["path"]) {
@@ -1251,9 +1251,9 @@ class HAXCMSFile {
       if (imageOps != null) {
         switch (imageOps) {
           case "thumbnail":
-            const image = await sharp(fullpath)
+            await sharp(fullpath)
               .metadata()
-              .then(({ width }) =>
+              .then(({ width: _width }) =>
                 sharp(fullpath)
                   .resize({
                     width: 250,

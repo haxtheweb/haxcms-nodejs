@@ -49,7 +49,6 @@ const {
 
 const SITE_NAME_LOWER = FIXED_SITE_NAME.toLowerCase()
 const SITES_DIR = '_sites'
-const ARCHIVE_DIR = '_archived'
 const ARCHIVE_DIR_CANDIDATES = ['_archived', '_archive']
 
 // --- local helpers (mirror the archive-site openArchiveConfirmation pattern) ---

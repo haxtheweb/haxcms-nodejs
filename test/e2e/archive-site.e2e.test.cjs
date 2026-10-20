@@ -30,18 +30,13 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  compareBaseline,
   selectors,
   FIXED_SITE_NAME,
   deepQuery,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers (single source of truth in helpers/flows.cjs)
   waitFor,
   waitForDeep,
   safeCompareBaseline,
   dumpDashboard,
-  typeIntoShadow,
   performLoginEvaluate,
   reloadDashboard,
   createSiteViaUI,
@@ -49,7 +44,6 @@ const {
   waitForCardGone,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
-  findCreateSiteResponse: waitForCreateResponse,
 } = require('./helpers')
 
 const ARCHIVE_DIR_CANDIDATES = ['_archived', '_archive']

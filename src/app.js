@@ -200,7 +200,6 @@ const {
 } = require("./lib/allRoutes.js");
 // app settings
 const multer = require("multer");
-const { crossOriginOpenerPolicy } = require("helmet");
 // Security (HAX-SEC-004): hard cap on upload size (1 GB per file, max 10
 // files) prevents unbounded DoS uploads. The site's configured
 // maxUploadSizeMb (if smaller) is additionally enforced at the app layer in
@@ -1102,7 +1101,7 @@ app.use((req, res, next) => {
   next();
 });
 //pre-flight requests
-app.options("*", function (req, res, next) {
+app.options("*", function (req, res, _next) {
   res.sendStatus(200);
 });
 if (linkedWebcomponentsRoot) {
@@ -1621,7 +1620,7 @@ systemStructureContext().then((site) => {
       }
     });
     // published directory route if it exists
-    app.use(`/${HAXCMS.publishedDirectory}/`, (req, res, next) => {
+    app.use(`/${HAXCMS.publishedDirectory}/`, (req, res, _next) => {
       setStaticContentTypeWithCharset(res, req.url);
       res.sendFile(decodeStaticRequestPath(req.url.split("?")[0]), {
         root: process.cwd() + `/${HAXCMS.publishedDirectory}`,
@@ -2864,7 +2863,7 @@ function getSiteNameFromSiteApiRequestReferer(req) {
   } catch {}
   return getSiteNameFromSiteApiRequestPath(referer);
 }
-async function resolveSiteApiRequestSiteName(req, authContext = {}) {
+async function resolveSiteApiRequestSiteName(req, _authContext = {}) {
   const pathBasedSiteName = getSiteNameFromSiteApiRequestPath(
     req && req.originalUrl ? req.originalUrl : req && req.url ? req.url : "",
   );

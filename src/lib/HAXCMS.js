@@ -734,7 +734,7 @@ class HAXCMSSite {
   }
   async gitTest() {
     try {
-      const { stdout, stderr } = await exec("git --version");
+      const { stdout } = await exec("git --version");
       return stdout;
     } catch {
       return null;
@@ -1445,7 +1445,7 @@ class HAXCMSSite {
         },
       );
       alternateContent = sanitizeHTMLForStorage(rewritten);
-      let bytes = page.writeLocation(alternateContent, this.siteDirectory);
+      page.writeLocation(alternateContent, this.siteDirectory);
       // #3043: imported files are referenced by their FileEntity uuid
       // (the same source saveNode uses), sourced directly from the
       // Entity API by materializeInlineImages. Set page.metadata.files
@@ -2105,10 +2105,6 @@ class HAXCMSSite {
    */
   getSocialShareImage(page = null) {
     // resolve a JOS Item vs null
-    let id = null;
-    if (page != null) {
-      id = page.id;
-    }
     let fileName;
     if (!fileName) {
       if (page == null) {
@@ -4472,7 +4468,7 @@ class HAXCMSClass {
   }
   async gitTest() {
     try {
-      const { stdout, stderr } = await exec("git --version");
+      const { stdout } = await exec("git --version");
       return stdout;
     } catch {
       return null;
@@ -5290,16 +5286,9 @@ class HAXCMSClass {
    */
   async processForm(form_id, params, context = []) {
     // strict-mode fix: these were undeclared (class bodies are strict)
-    let value = {};
-    let fields = {};
     // make sure we have the original value / key pairs for the form
     if (this[form_id + "Value"]) {
-      value = await this[form_id + "Value"](context);
-    } else {
-      fields = {
-        status: 500,
-        data: { message: form_id + " does not exist" },
-      };
+      await this[form_id + "Value"](context);
     }
   }
   /**
@@ -5322,7 +5311,7 @@ class HAXCMSClass {
    * Return the form for the siteSettings
    */
   async siteSettingsForm(context) {
-    let site = await this.loadSite(context["site"]["name"]);
+    await this.loadSite(context["site"]["name"]);
     return this.config.site.fields;
   }
   /**
@@ -6057,7 +6046,7 @@ class HAXCMSClass {
   /**
    * Validate a JTW during POST
    */
-  validateJWT(req, res) {
+  validateJWT(req, _res) {
     if (
       this.isCLI() ||
       (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())
@@ -7141,7 +7130,7 @@ class HAXCMSClass {
   /**
    * Recursive copy to rename high level but copy all files
    */
-  async recurseCopy(src, dst, skip = [], base) {
+  async recurseCopy(src, dst, _skip = [], base) {
     // Security (N1/N5 parity): reject traversal in the destination before
     // creating anything (mirrors PHP HAXCMSSite::recurseCopy). NUL bytes
     // and any `..` segment are refused; when the caller supplies the

@@ -30,12 +30,7 @@ const {
   createResponseCollector,
   captureScreenshot,
   selectors,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
-  waitFor,
   loginViaUI,
-  reloadDashboard,
   waitForDeep,
   waitForLoginModal,
   patchHaxcmsRootForHarness,
@@ -44,7 +39,6 @@ const {
   awaitCookie,
   findCookie,
   createStatusWatcher,
-  performLoginEvaluate,
 } = require('./helpers')
 
 // --- shared state ---
@@ -81,22 +75,6 @@ test.after(async () => {
 // --- helpers ---
 
 // Check if a JWT is present in localStorage (key contains 'jwt').
-async function jwtInLocalStorage(page) {
-  return page.evaluate(() => {
-    try {
-      for (let i = 0; i < globalThis.localStorage.length; i++) {
-        const key = globalThis.localStorage.key(i)
-        if (key && key.indexOf('jwt') !== -1) {
-          const val = globalThis.localStorage.getItem(key)
-          if (val && val.length > 10) {
-            return true
-          }
-        }
-      }
-    } catch {}
-    return false
-  })
-}
 
 // Dump all localStorage keys (for diagnostics — to understand what the SPA
 // actually persists).

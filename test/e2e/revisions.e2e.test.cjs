@@ -38,11 +38,7 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  selectors,
   FIXED_SITE_NAME,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
   waitFor,
   deepFindRecursive,
   WALK_HAX_BODY_FN,
@@ -285,7 +281,7 @@ test(
     // 3. Edit + save TWICE with distinct markers so two git commits exist.
     const marker1 = 'E2E revisions test content version ONE unique'
     const marker2 = 'E2E revisions test content version TWO different'
-    const save1 = await editAndSave(marker1)
+    await editAndSave(marker1)
     const save2 = await editAndSave(marker2)
     const item = extractItemFromSaveResp(save2)
     assert.ok(item && item.id, 'active item extracted from saveNode response')

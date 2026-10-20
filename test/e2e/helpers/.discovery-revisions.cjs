@@ -22,24 +22,13 @@ const {
   launchBrowser,
   newPage,
   createResponseCollector,
-  selectors,
   FIXED_SITE_NAME,
-  deepQuery,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
   waitFor,
-  waitForDeep,
-  typeIntoShadow,
-  loginSetInput,
-  loginClickButton,
   deepFindRecursive,
   WALK_HAX_BODY_FN,
   haxBodyEditModeActive,
   markerInHaxBody,
   clickEditorButtonById,
-  safeCompareBaseline,
-  findCreateSiteResponse,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
   loginViaUI,
@@ -89,7 +78,7 @@ function createRequestWatcher(page) {
 
 // Save the current page via the editor (#editbutton toggles to Save in edit mode).
 // Returns the saveNode API response record captured by the collector.
-async function saveCurrentPage(page, collector, t) {
+async function saveCurrentPage(page, collector, _t) {
   const saveResult = await clickEditorButtonById(page, '#editbutton')
   logJSON('SAVE CLICK', saveResult)
   let saveResp = null
@@ -251,7 +240,7 @@ function siteApiUrl(runtime, suffix) {
 // Generate the X-HAXCMS-Site-Token for authenticated-site routes.
 // The token is HMAC(userName + ':' + siteName) computed server-side via the
 // HAXCMS singleton (same privateKey+salt the server validates against).
-function getSiteToken(runtime) {
+function getSiteToken(_runtime) {
   const { HAXCMS } = require('../../../src/lib/HAXCMS.js')
   const userName = HAXCMS.getActiveUserName()
   const siteName = EXPECTED_SITE_NAME

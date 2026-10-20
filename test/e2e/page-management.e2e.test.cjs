@@ -40,7 +40,6 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  compareBaseline,
   selectors,
   FIXED_SITE_NAME,
   deepQuery,

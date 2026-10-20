@@ -13,10 +13,7 @@ const {
   launchBrowser,
   newPage,
   createResponseCollector,
-  selectors,
   FIXED_SITE_NAME,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
   waitFor,
   loginViaUI,
   createSiteViaUI,
@@ -98,68 +95,6 @@ async function clickDashboardButton(dashboardHandle, buttonText) {
 
 // Recursively dump form fields (inputs, textareas, selects, buttons, simple-fields)
 // within a host element and its shadow descendants, up to `maxDepth` levels.
-async function dumpFieldsInHost(page, hostSelector, maxDepth) {
-  return page.evaluate((sel, depth) => {
-    function findHosts(root, d) {
-      var hosts = []
-      if (!root || d < 0) return hosts
-      if (root.querySelector) {
-        var found = root.querySelector(sel)
-        if (found) hosts.push(found)
-      }
-      var all = root.querySelectorAll ? root.querySelectorAll('*') : []
-      for (var i = 0; i < all.length; i++) {
-        if (all[i].shadowRoot) {
-          var inner = findHosts(all[i].shadowRoot, d - 1)
-          for (var j = 0; j < inner.length; j++) hosts.push(inner[j])
-        }
-      }
-      return hosts
-    }
-    var hosts = findHosts(document, 3)
-    if (hosts.length === 0) return { hostsFound: 0 }
-    var fields = []
-    function collectFields(root, d) {
-      if (!root || d < 0) return
-      // collect standard form elements + simple-fields + switches + selects
-      var sels = 'input, textarea, select, button, [contenteditable], simple-fields-field, simple-field, editable-table-display, switch, paper-switch, mwc-switch, a11y-collapse, simple-tag, simple-tags, .hax-modal-btn, .button'
-      var inputs = root.querySelectorAll ? root.querySelectorAll(sels) : []
-      for (var i = 0; i < inputs.length; i++) {
-        var el = inputs[i]
-        var tag = el.tagName.toLowerCase()
-        var id = el.id ? '#' + el.id : ''
-        var cls = ''
-        if (el.className && typeof el.className === 'string' && el.className.trim()) {
-          cls = '.' + el.className.trim().split(/\s+/).join('.')
-        }
-        var info = {
-          tag: tag + id + cls,
-          type: el.getAttribute ? el.getAttribute('type') || '' : '',
-          name: el.getAttribute ? el.getAttribute('name') || '' : '',
-          label: el.getAttribute ? el.getAttribute('label') || '' : '',
-          placeholder: el.getAttribute ? el.getAttribute('placeholder') || '' : '',
-          value: '',
-          text: el.textContent ? el.textContent.trim().substring(0, 60) : '',
-          checked: el.hasAttribute ? el.hasAttribute('checked') : false,
-        }
-        if (el.value !== undefined && el.value !== null && String(el.value) !== '') {
-          info.value = String(el.value).substring(0, 60)
-        }
-        fields.push(info)
-      }
-      var all = root.querySelectorAll ? root.querySelectorAll('*') : []
-      for (var j = 0; j < all.length; j++) {
-        if (all[j].shadowRoot) {
-          collectFields(all[j].shadowRoot, d - 1)
-        }
-      }
-    }
-    for (var h = 0; h < hosts.length; h++) {
-      collectFields(hosts[h], depth || 3)
-    }
-    return { hostsFound: hosts.length, fields: fields }
-  }, hostSelector, maxDepth || 3)
-}
 
 // Dump all custom elements in the opened simple-modal (light children + their
 // shadow child tags). Used to see what sub-panel opens after clicking a

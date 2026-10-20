@@ -10,7 +10,7 @@ class GitPlus extends Git {
   }
   async gitTest() {
     try {
-      const { stdout, stderr } = await exec('git --version');
+      const { stdout } = await exec('git --version');
       this.cliVersion = stdout;
     } catch {
       this.cliVersion = null;

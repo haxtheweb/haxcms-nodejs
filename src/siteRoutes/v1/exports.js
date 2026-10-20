@@ -1104,7 +1104,6 @@ async function buildItemExportRecord(site, item, apiBasePath = "/x/api") {
 }
 
 function buildSiteExportDetails(site, apiBasePath = "/x/api", format = "") {
-  const siteBasePath = getSiteBasePath(site);
   const systemApiBasePath = getSystemApiBasePath(apiBasePath);
   const normalizedFormat = normalizeFormatValue(format);
   const siteName =

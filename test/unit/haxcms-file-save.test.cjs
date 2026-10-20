@@ -299,13 +299,6 @@ test('save rejects disallowed extensions and strips executable parts', async () 
   assert.equal(cleaned.data.file.type, 'image/jpeg')
 })
 
-async function makePngBytes() {
-  return await sharp({
-    create: { width: 32, height: 32, channels: 3, background: '#ff0000' },
-  })
-    .png()
-    .toBuffer()
-}
 
 test('save enforces the configured max upload size', async () => {
   const mediaSettingsPath = path.join(configRoot, 'settings', 'media.json')

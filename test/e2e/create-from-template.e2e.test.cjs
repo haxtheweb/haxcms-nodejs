@@ -49,7 +49,6 @@ const {
   relocateCreatedSite,
 } = require('./helpers')
 
-const SITE_NAME_LOWER = FIXED_SITE_NAME.toLowerCase()
 const SITES_DIR = '_sites'
 const SKELETONS_DIR = path.join('_config', 'user', 'skeletons')
 // The new site name typed into the creation modal. Must be alphanumeric-only

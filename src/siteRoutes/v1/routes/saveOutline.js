@@ -1,7 +1,6 @@
 const fs = require('fs-extra');
 const path = require('path');
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
 const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
 const { isPathautoEnabled } = require('../../../lib/nodeDetailOperations.js');
 const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');

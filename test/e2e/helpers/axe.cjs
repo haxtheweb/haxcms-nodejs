@@ -20,7 +20,7 @@ async function runA11y(page, scopeSelector, opts) {
   }, axeScript);
 
   const results = await page.evaluate(
-    (selector, impact) => {
+    (selector, _impact) => {
       /* global axe */
       const context =
         selector && typeof selector === "string" && selector !== ""

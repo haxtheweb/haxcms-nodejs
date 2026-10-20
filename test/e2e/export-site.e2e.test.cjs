@@ -40,7 +40,6 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  compareBaseline,
   selectors,
   FIXED_SITE_NAME,
   deepQuery,
@@ -50,7 +49,6 @@ const {
   waitFor,
   waitForDeep,
   safeCompareBaseline,
-  typeIntoShadow,
   loginSetInput,
   loginClickButton,
   createSiteViaUI,
@@ -58,11 +56,9 @@ const {
   findSiteCard,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
-  findCreateSiteResponse: waitForCreateResponse,
 } = require('./helpers')
 
 const EXPECTED_SITE_NAME = FIXED_SITE_NAME.toLowerCase()
-const SITES_DIR = '_sites'
 const PUBLISHED_DIR = '_published'
 
 // patchHaxcmsRootForHarness + relocateCreatedSite are imported from helpers/flows.cjs.

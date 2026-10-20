@@ -46,8 +46,6 @@ function filter_var(input, filter, options) {
     return type === actual;
   }
 
-  function str2regex(str) {}
-
   function isPrimitive(val) {
     return val !== Object(val);
   }

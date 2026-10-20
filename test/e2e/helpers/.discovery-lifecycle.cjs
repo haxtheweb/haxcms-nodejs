@@ -44,7 +44,6 @@ const {
   waitForCardGone,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
-  findCreateSiteResponse,
 } = require('./index.cjs')
 
 const SITES_DIR = '_sites'
@@ -488,9 +487,8 @@ async function main() {
         const createBtn = await deepQuery(page, selectors.create.createSiteButtonChain)
         if (createBtn) {
           await createBtn.evaluate((b) => b.click())
-          let fromTemplateResp = null
           try {
-            fromTemplateResp = await collector.awaitCollectorFor('/system/api/v1/sites', 40000)
+            await collector.awaitCollectorFor('/system/api/v1/sites', 40000)
           } catch (e) {
             console.log('create-from-template /sites response NOT captured:', e.message)
           }

@@ -249,7 +249,7 @@ describe('site routes — listSite', () => {
     assert.equal(res.body.data.counts.files, 2)
   })
 
-  test('an unresolvable site answers 404', async (t) => {
+  test('an unresolvable site answers 404', async (_t) => {
     // no _sites path in the URL -> systemStructureContext() -> null
     const res = stubRes()
     await listSite(makeReq({ originalUrl: '/x/api/v1/site' }), res)
@@ -275,7 +275,7 @@ describe('site routes — legacy write delegates', () => {
     { fn: updateSiteOutline, label: '/x/api/v1/site/outline' },
   ]
 
-  test('every wrapper answers 404 without a resolvable site', async (t) => {
+  test('every wrapper answers 404 without a resolvable site', async (_t) => {
     for (let i = 0; i < wrappers.length; i++) {
       const res = stubRes()
       await wrappers[i].fn(
@@ -477,7 +477,7 @@ describe('site routes — legacy write delegates', () => {
 // updateSiteAlternativeFormats
 // ---------------------------------------------------------------------------
 describe('site routes — updateSiteAlternativeFormats', () => {
-  test('answers 404 without a resolvable site', async (t) => {
+  test('answers 404 without a resolvable site', async (_t) => {
     const res = stubRes()
     await updateSiteAlternativeFormats(makeReq({ originalUrl: '/x/api/v1/site' }), res)
     assert.equal(res.statusCode, 404)
@@ -585,7 +585,7 @@ describe('site routes — normalizeSiteSlugs', () => {
     return site
   }
 
-  test('answers 404 without a resolvable site', async (t) => {
+  test('answers 404 without a resolvable site', async (_t) => {
     const res = stubRes()
     await normalizeSiteSlugs(makeReq({ originalUrl: '/x/api/v1/site' }), res)
     assert.equal(res.statusCode, 404)

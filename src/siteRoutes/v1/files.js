@@ -18,7 +18,6 @@ const {
   projectRecord,
   projectCollection,
   resolveSiteForRequest,
-  collectSiteFiles,
   normalizePathForResponse,
   sendFormattedResponse,
   ensureRequestBodyObject,
@@ -110,6 +109,7 @@ function getDateCreatedValue(entryStats) {
   return Math.floor(createdMs / 1000);
 }
 
+// eslint-disable-next-line no-unused-vars -- unused; kept until the owner confirms it is dead
 function toFileRecord(site, file) {
   const apiPath = `files/${file.relativePath}`;
   const dateCreated = getDateCreatedValue(file.stats);
@@ -631,6 +631,7 @@ function getSafeOutputBasename(relativePath) {
   return safeName;
 }
 
+// eslint-disable-next-line no-unused-vars -- unused; kept until the owner confirms it is dead
 function getImgOpsOutputPath(filesRootPath, sourceRelativePath, width, height) {
   const outputDirectory = path.resolve(filesRootPath, "imgops");
   if (fs.pathExistsSync(outputDirectory)) {
@@ -763,6 +764,7 @@ async function convertImageToJpg(
     .toFile(outputPath);
 }
 
+// eslint-disable-next-line no-unused-vars -- unused; kept until the owner confirms it is dead
 async function scaleImageToPreset(
   sourcePath,
   outputPath,

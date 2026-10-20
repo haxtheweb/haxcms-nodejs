@@ -34,8 +34,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const axios = require('axios')
-const fs = require('fs-extra')
-const path = require('path')
 const axeCore = require('axe-core')
 
 const {

@@ -35,16 +35,9 @@ const {
   launchBrowser,
   newPage,
   createResponseCollector,
-  selectors,
   FIXED_SITE_NAME,
-  deepQuery,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
-  waitFor,
   loginViaUI,
   createSiteViaUI,
-  findCreateSiteResponse,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
 } = require('./helpers')

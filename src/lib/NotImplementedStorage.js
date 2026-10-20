@@ -25,19 +25,19 @@ class NotImplementedStorage extends EntityStorage {
     return this.type;
   }
 
-  load(key) {
+  load(_key) {
     throw new EntityStorageNotImplementedException(this.type, 'load');
   }
 
-  list(filters = {}) {
+  list(_filters = {}) {
     throw new EntityStorageNotImplementedException(this.type, 'list');
   }
 
-  save(entity) {
+  save(_entity) {
     throw new EntityStorageNotImplementedException(this.type, 'save');
   }
 
-  delete(key) {
+  delete(_key) {
     throw new EntityStorageNotImplementedException(this.type, 'delete');
   }
 }

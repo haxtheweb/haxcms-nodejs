@@ -207,7 +207,7 @@ test("loadNodeFieldSchema walks a crafted core nodeFields.json and rejects on th
   );
 });
 
-test("loadNodeFieldSchema walks config.node.fields.advanced to its rejecting push", async (t) => {
+test("loadNodeFieldSchema walks config.node.fields.advanced to its rejecting push", async (_t) => {
   const site = await HAXCMS.loadSite("latent-site");
   const page = site.manifest.items[0];
   HAXCMS.config.node.fields = {

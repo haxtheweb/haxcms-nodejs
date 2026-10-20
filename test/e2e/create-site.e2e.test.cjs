@@ -35,13 +35,11 @@ const {
   selectors,
   FIXED_SITE_NAME,
   deepQuery,
-  deepQueryAll,
   E2E_USER_NAME,
   E2E_USER_PASSWORD,
   // flows helpers (single source of truth in helpers/flows.cjs)
   typeIntoShadow,
   setShadowInput,
-  clickShadowButton,
   loginSetInput,
   loginClickButton,
   waitForDeep,
@@ -121,31 +119,6 @@ async function findCreateSiteResponse(coll, expectedName, timeoutMs) {
 // item has metadata.site.name; the create response's data.items (if any) holds
 // page items, not site manifests, so this uniquely identifies the list. Polls
 // until found or timeout. Returns { record, parsed } or null.
-async function awaitListResponseContainingSite(coll, expectedName, timeoutMs) {
-  const deadline = Date.now() + (timeoutMs || 20000)
-  while (Date.now() < deadline) {
-    const resps = coll.getResponsesFor('/system/api/v1/sites')
-    for (let i = 0; i < resps.length; i++) {
-      let parsed = null
-      try {
-        parsed = JSON.parse(resps[i].bodyText)
-      } catch {
-        continue
-      }
-      const items = parsed && parsed.data && Array.isArray(parsed.data.items) ? parsed.data.items : null
-      if (!items) continue
-      for (let j = 0; j < items.length; j++) {
-        const name =
-          items[j] && items[j].metadata && items[j].metadata.site && items[j].metadata.site.name
-        if (name === expectedName) {
-          return { record: resps[i], parsed: parsed }
-        }
-      }
-    }
-    await new Promise((r) => setTimeout(r, 300))
-  }
-  return null
-}
 
 // waitForSiteCards + dumpSiteListDiagnostics are imported from helpers/flows.cjs.
 // axe-core's string-selector context resolves against the light DOM

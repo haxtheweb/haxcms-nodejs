@@ -313,7 +313,7 @@ describe('convertOpenstaxToSite — #2912', () => {
   })
 
   test('fetches each page once, in reading order', async () => {
-    const res = await importBook()
+    await importBook()
     const pageIds = []
     for (let i = 0; i < requested.length; i++) {
       const match = requested[i].match(/contents\/[0-9a-f-]+@[^:]+:([0-9a-f-]+)\.json$/)

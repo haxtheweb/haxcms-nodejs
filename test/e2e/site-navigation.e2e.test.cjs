@@ -39,10 +39,8 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  selectors,
   FIXED_SITE_NAME,
   // flows helpers
-  waitFor,
   loginViaUI,
   createSiteViaUI,
   patchHaxcmsRootForHarness,
@@ -86,7 +84,7 @@ test.after(async () => {
 // Click the site card's a.imageLink to navigate into the site editor.
 // This is the real dashboard→editor entry point. Returns the href navigated to.
 async function clickSiteCardToOpenEditor(page, siteName) {
-  const target = String(siteName).toLowerCase()
+  String(siteName).toLowerCase()
   // Find the card (reuse findSiteCard from flows, but we need the handle to
   // click the image link inside its shadowRoot).
   const cardHandle = await findSiteCard(page, siteName)

@@ -18,7 +18,6 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('fs-extra')
 const path = require('path')
-const axios = require('axios')
 
 // pixelmatch ESM interop is handled by visual.cjs itself (line 14:
 // `require('pixelmatch').default || require('pixelmatch')`), so no per-test
@@ -32,7 +31,6 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  compareBaseline,
   selectors,
   FIXED_SITE_NAME,
   deepQuery,

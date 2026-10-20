@@ -50,7 +50,6 @@ const SUPPORTED_LICENSES = [
 const IMPORTABLE_ASSET_REGEX =
   /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|xml)$/i;
 const IMAGE_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webp)$/i;
-const VIDEO_EXTENSION_REGEX = /\.(webm|mp4|mov)$/i;
 // The OER containers the VitePress OER plugin defines (vitepress-plugin in the
 // source repo). Each becomes an oer-schema element; the container's attributes
 // become nested oer-schema properties under the same names the plugin emits as

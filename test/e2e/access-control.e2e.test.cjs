@@ -36,7 +36,6 @@ const {
   newPage,
   createResponseCollector,
   captureScreenshot,
-  selectors,
   FIXED_SITE_NAME,
   // flows helpers
   waitFor,
@@ -313,10 +312,7 @@ test('access-control e2e: anonymous vs authenticated site access', { timeout: 24
       // auth is verified. If a login modal surfaced, that also counts as
       // blocked. The contrast test below proves the authenticated browser
       // DOES see the editor-ui.
-      const loginSurfaced =
-        (state.modalFound && state.modalOpened && state.usernameInputFound) ||
-        (state.loginElFound && state.usernameInputFound)
-
+      
       if (state.editorUiFound) {
         // The editor-ui rendered — this shouldn't happen for a truly
         // anonymous user. If it did, check if the edit button is disabled

@@ -56,7 +56,7 @@ function bodyParserErrorStatus(err) {
   return 0;
 }
 
-function haxcmsErrorHandler(err, req, res, next) {
+function haxcmsErrorHandler(err, req, res, _next) {
   if (err && err.code === 'ENOENT') {
     res.status(404).end();
     return;

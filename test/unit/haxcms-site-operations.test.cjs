@@ -685,8 +685,7 @@ test("writePageAlternateFormats writes md, json, yaml, and xml sidecars", async 
   assert.ok(md.indexOf("alternate body") !== -1);
   // no-location / no-site variants answer false
   assert.equal(await site.writePageAlternateFormats({ location: "" }), false);
-  const pageWithoutContent = { location: page.location };
-  assert.equal(await site.writePageAlternateFormats(null, ""), false);
+    assert.equal(await site.writePageAlternateFormats(null, ""), false);
 });
 
 test("writePageAlternateFormats reads the page content when html is not supplied", async () => {

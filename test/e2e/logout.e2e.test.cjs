@@ -35,20 +35,14 @@ const {
   runA11y,
   captureScreenshot,
   selectors,
-  FIXED_SITE_NAME,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
   waitFor,
   loginViaUI,
-  waitForLoginModal,
   waitForLoginModalRetry,
   waitForDeep,
   patchHaxcmsRootForHarness,
   safeCompareBaseline,
   createStatusWatcher,
   findCookie,
-  summariseViolations,
 } = require('./helpers')
 
 // --- shared state ---

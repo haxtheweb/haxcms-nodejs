@@ -43,8 +43,6 @@ const {
   newPage,
   createResponseCollector,
   captureScreenshot,
-  FIXED_SITE_NAME,
-  // flows helpers
   safeCompareBaseline,
   patchHaxcmsRootForHarness,
   loginViaUI,

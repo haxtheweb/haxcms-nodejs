@@ -161,24 +161,6 @@ async function getSubPanelDialog(page, dialogTag) {
 }
 
 // Recursively query all elements matching a selector, piercing nested shadow roots.
-function queryAllInShadowRoot(root, sel) {
-  var results = []
-  if (!root) return results
-  var direct = root.querySelectorAll(sel)
-  for (var i = 0; i < direct.length; i++) {
-    results.push(direct[i])
-  }
-  var all = root.querySelectorAll('*')
-  for (var j = 0; j < all.length; j++) {
-    if (all[j].shadowRoot) {
-      var inner = queryAllInShadowRoot(all[j].shadowRoot, sel)
-      for (var k = 0; k < inner.length; k++) {
-        results.push(inner[k])
-      }
-    }
-  }
-  return results
-}
 
 // Read the currently checked radio value for a named radio group in the dialog shadowRoot.
 async function readDialogRadio(dialogHandle, name) {
