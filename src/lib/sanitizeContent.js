@@ -533,15 +533,19 @@ function sanitizeElementTree(rootNode) {
   });
 }
 
-function sanitizeHTMLForStorage(html) {
+function sanitizeHTMLForStorage(html, options = {}) {
   if (typeof html !== "string") {
     return "";
   }
+  // optional extra tags to forbid on top of the storage policy (e.g. "iframe"
+  // for untrusted imports); FORBID_TAGS wins over ADD_TAGS in DOMPurify
+  const extraForbiddenTags =
+    options && Array.isArray(options.forbidTags) ? options.forbidTags : [];
 
   const domPurify = getDOMPurify();
   const preparedHTML = preprocessTextTemplateHosts(html);
   let clean = domPurify.sanitize(preparedHTML, {
-    FORBID_TAGS: FORBIDDEN_TAGS,
+    FORBID_TAGS: FORBIDDEN_TAGS.concat(extraForbiddenTags),
     FORBID_ATTR: ["srcdoc", "style"],
     ADD_TAGS: ["iframe", "template"],
     ADD_ATTR: [
