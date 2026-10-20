@@ -944,6 +944,13 @@
     "@eslint/core" "^0.17.0"
     levn "^0.4.1"
 
+fast-check@^4.10.2:
+  version "4.10.2"
+  resolved "https://registry.npmjs.org/fast-check/-/fast-check-4.10.2.tgz"
+  integrity sha512-iK2f+YrcmoeGqk6fA0ea2bptcu/itMIm4NfEozq6N25+aG6h7s5HZbB/k1aV7b5w5sFLMCbbtRUsTVR+BgC3xw==
+  dependencies:
+    pure-rand "^8.0.0"
+
 "@humanfs/core@^0.19.2":
   version "0.19.2"
   resolved "https://registry.npmjs.org/@humanfs/core/-/core-0.19.2.tgz"
@@ -1140,6 +1147,11 @@
   dependencies:
     modern-tar "^0.8.0"
     yargs "^18.0.0"
+
+pure-rand@^8.0.0:
+  version "8.4.2"
+  resolved "https://registry.npmjs.org/pure-rand/-/pure-rand-8.4.2.tgz"
+  integrity sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng==
 
 "@redocly/cli@^2.32.2":
   version "2.38.0"
