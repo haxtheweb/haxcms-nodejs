@@ -12,16 +12,28 @@ const path = require("path");
  */
 
 /**
+ * Strip trailing `/` characters in linear time (a `/\/+$/` regex backtracks
+ * polynomially on long runs of slashes).
+ */
+function trimTrailingSlashes(value) {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end--;
+  }
+  return value.slice(0, end);
+}
+
+/**
  * Trailing-slash prefix check: is resolvedPath equal to, or inside of,
  * resolvedBase. Both arguments should already be canonical (realpath'd).
  */
 function pathWithinBase(resolvedPath, resolvedBase) {
-  const normalizedPath = String(resolvedPath || "")
-    .replace(/\\/g, "/")
-    .replace(/\/+$/, "");
-  const normalizedBase = String(resolvedBase || "")
-    .replace(/\\/g, "/")
-    .replace(/\/+$/, "");
+  const normalizedPath = trimTrailingSlashes(
+    String(resolvedPath || "").replace(/\\/g, "/"),
+  );
+  const normalizedBase = trimTrailingSlashes(
+    String(resolvedBase || "").replace(/\\/g, "/"),
+  );
   if (normalizedPath === "" || normalizedBase === "") {
     return false;
   }

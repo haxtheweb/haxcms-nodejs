@@ -489,3 +489,13 @@ test("FilesDataStore.buildFileRecordFromDisk: traversal returns null, normal fil
     assert.equal(await store.buildFileRecordFromDisk(bad), null, bad);
   }
 });
+
+test("pathWithinBase handles very long runs of trailing slashes in linear time", () => {
+  const { pathWithinBase } = require("../../src/lib/pathConfinement");
+  const slashes = "/".repeat(200000);
+  const start = Date.now();
+  assert.equal(pathWithinBase("/a/b" + slashes + "x", "/a/b" + slashes), true);
+  assert.equal(pathWithinBase("/a/b" + slashes, "/a/b"), true);
+  assert.equal(pathWithinBase("/a/bc", "/a/b" + slashes), false);
+  assert.ok(Date.now() - start < 1000);
+});
