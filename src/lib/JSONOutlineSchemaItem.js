@@ -60,7 +60,7 @@ class JSONOutlineSchemaItem
       }
       return true;
     }
-    catch(e) {
+    catch {
       return false;
     }
   }

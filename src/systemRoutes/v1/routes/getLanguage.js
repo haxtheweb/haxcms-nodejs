@@ -31,7 +31,7 @@ async function getLanguage(req, res) {
       data: language,
     });
   }
-  catch (e) {
+  catch {
     return res.status(500).json({
       status: 500,
       data: {

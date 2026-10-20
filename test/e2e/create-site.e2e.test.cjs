@@ -101,7 +101,7 @@ async function findCreateSiteResponse(coll, expectedName, timeoutMs) {
       let parsed = null
       try {
         parsed = JSON.parse(resps[i].bodyText)
-      } catch (e) {
+      } catch {
         continue
       }
       const data = parsed && parsed.data
@@ -129,7 +129,7 @@ async function awaitListResponseContainingSite(coll, expectedName, timeoutMs) {
       let parsed = null
       try {
         parsed = JSON.parse(resps[i].bodyText)
-      } catch (e) {
+      } catch {
         continue
       }
       const items = parsed && parsed.data && Array.isArray(parsed.data.items) ? parsed.data.items : null
@@ -215,7 +215,7 @@ test('create site (HAXSITEAUTOMATEDTESTING) — full E2E flow', async () => {
   let loginBody = null
   try {
     loginBody = JSON.parse(loginResp.bodyText)
-  } catch (e) {
+  } catch {
     loginBody = null
   }
   assert.ok(
@@ -404,7 +404,7 @@ test('create site (HAXSITEAUTOMATEDTESTING) — full E2E flow', async () => {
   let a11y = null
   try {
     a11y = await runA11y(page, 'app-hax-site-creation-modal')
-  } catch (e) {
+  } catch {
     a11y = null
   }
   const helperEmpty =
@@ -460,7 +460,7 @@ test('create site (HAXSITEAUTOMATEDTESTING) — full E2E flow', async () => {
   //     task-suggested "reload the dashboard and re-check" path for the card.
   try {
     await modal.evaluate((el) => el.closeModal && el.closeModal())
-  } catch (e) {
+  } catch {
     // non-fatal
   }
   await new Promise((r) => setTimeout(r, 1000))

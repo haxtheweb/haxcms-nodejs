@@ -99,7 +99,7 @@ function createResponseCollector(page, opts) {
     let bodyText = "";
     try {
       bodyText = await response.text();
-    } catch (e) {
+    } catch {
       bodyText = "";
     }
     const record = {

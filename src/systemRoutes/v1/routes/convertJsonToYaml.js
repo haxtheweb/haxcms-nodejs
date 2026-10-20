@@ -33,7 +33,7 @@ async function convertJsonToYaml(req, res) {
           d.ok ? d.text() : "",
         );
         jsonData = JSON.parse(jsonData);
-      } catch (e) {
+      } catch {
         return res.status(400).json({
           status: 400,
           data: {
@@ -47,7 +47,7 @@ async function convertJsonToYaml(req, res) {
     if (typeof jsonData === "string") {
       try {
         jsonData = JSON.parse(jsonData);
-      } catch (e) {
+      } catch {
         return res.status(400).json({
           status: 400,
           data: { error: "Invalid JSON string provided", contents: "" },

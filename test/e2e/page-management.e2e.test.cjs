@@ -95,7 +95,7 @@ async function findCreateItemResponse(coll, expectedTitle, timeoutMs) {
       let parsed = null
       try {
         parsed = JSON.parse(all[i].bodyText)
-      } catch (e) {
+      } catch {
         continue
       }
       const data = parsed && parsed.data ? parsed.data : null
@@ -125,7 +125,7 @@ async function findDeleteItemResponse(coll, expectedId, timeoutMs) {
       let parsed = null
       try {
         parsed = JSON.parse(all[i].bodyText)
-      } catch (e) {
+      } catch {
         continue
       }
       const data = parsed && parsed.data ? parsed.data : null
@@ -154,13 +154,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -193,7 +193,7 @@ test('page management e2e (add + delete page on HAXSITEAUTOMATEDTESTING)', { tim
   const loginResp = await collector.awaitCollectorFor('session/login', 20000)
   assert.strictEqual(loginResp.status, 200, 'login API returned status 200')
   let loginBody = null
-  try { loginBody = JSON.parse(loginResp.bodyText) } catch (e) { loginBody = null }
+  try { loginBody = JSON.parse(loginResp.bodyText) } catch { loginBody = null }
   assert.ok(
     loginBody && typeof loginBody.jwt === 'string' && loginBody.jwt.length > 0,
     'login response contains a jwt string',
@@ -241,7 +241,7 @@ test('page management e2e (add + delete page on HAXSITEAUTOMATEDTESTING)', { tim
   assert.ok(createSiteResp, 'create site API response captured for ' + SITE_NAME_LOWER)
   assert.strictEqual(createSiteResp.status, 200, 'create site API returned status 200')
   let createSiteBody = null
-  try { createSiteBody = JSON.parse(createSiteResp.bodyText) } catch (e) { createSiteBody = null }
+  try { createSiteBody = JSON.parse(createSiteResp.bodyText) } catch { createSiteBody = null }
   const createdSiteName =
     createSiteBody && createSiteBody.data && createSiteBody.data.metadata &&
     createSiteBody.data.metadata.site && createSiteBody.data.metadata.site.name
@@ -313,7 +313,7 @@ test('page management e2e (add + delete page on HAXSITEAUTOMATEDTESTING)', { tim
   assert.ok(createItemResp, 'POST /x/api/v1/items response captured for "' + NEW_PAGE_TITLE + '"')
   assert.strictEqual(createItemResp.status, 200, 'create item API returned status 200')
   let createItemBody = null
-  try { createItemBody = JSON.parse(createItemResp.bodyText) } catch (e) { createItemBody = null }
+  try { createItemBody = JSON.parse(createItemResp.bodyText) } catch { createItemBody = null }
   const newItem = createItemBody && createItemBody.data ? createItemBody.data : null
   assert.ok(newItem, 'create item response has data')
   assert.ok(
@@ -407,7 +407,7 @@ test('page management e2e (add + delete page on HAXSITEAUTOMATEDTESTING)', { tim
   assert.ok(deleteItemResp, 'DELETE /x/api/v1/items/' + newPageId + ' response captured')
   assert.strictEqual(deleteItemResp.status, 200, 'delete item API returned status 200')
   let deleteItemBody = null
-  try { deleteItemBody = JSON.parse(deleteItemResp.bodyText) } catch (e) { deleteItemBody = null }
+  try { deleteItemBody = JSON.parse(deleteItemResp.bodyText) } catch { deleteItemBody = null }
   const deletedItem = deleteItemBody && deleteItemBody.data ? deleteItemBody.data : null
   assert.ok(deletedItem, 'delete item response has data')
   assert.strictEqual(
@@ -436,7 +436,7 @@ test('page management e2e (add + delete page on HAXSITEAUTOMATEDTESTING)', { tim
     if (fs.pathExistsSync(pagesRoot)) {
       pagesAfterDelete = fs.readdirSync(pagesRoot)
     }
-  } catch (e) { /* ignore */ }
+  } catch { /* ignore */ }
   t.diagnostic('[delete-page] pages/ entries after delete: ' + JSON.stringify(pagesAfterDelete))
 
   // (a) Authoritative: the deleted page id is no longer in the items list API.
@@ -649,7 +649,7 @@ test('page management e2e (add + delete page on HAXSITEAUTOMATEDTESTING)', { tim
     let fallback = null
     try {
       fallback = await runA11y(page, 'simple-modal')
-    } catch (e) {
+    } catch {
       fallback = null
     }
     if (fallback) {

@@ -59,7 +59,7 @@ function normalizeArchiveSiteName(rawName = "") {
   let name = String(rawName || "");
   try {
     name = decodeURIComponent(name);
-  } catch (e) {
+  } catch {
     return "";
   }
   name = HAXCMS.cleanTitle(name, false);
@@ -168,7 +168,7 @@ async function enforceSiteAccess(req, res) {
   if (siteName !== "") {
     try {
       allowed = await HAXCMS.userCanAccessSite(siteName, req);
-    } catch (e) {
+    } catch {
       allowed = false;
     }
   }

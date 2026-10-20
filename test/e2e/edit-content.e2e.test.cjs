@@ -87,13 +87,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -165,7 +165,7 @@ test(
     let createBody = null
     try {
       createBody = JSON.parse(found.bodyText)
-    } catch (e) {
+    } catch {
       createBody = null
     }
     const createdName =
@@ -367,7 +367,7 @@ test(
     let saveBody = null
     try {
       saveBody = JSON.parse(saveResp.bodyText)
-    } catch (e) {
+    } catch {
       saveBody = null
     }
     t.diagnostic('[e2e] saveNode url=' + saveResp.url)

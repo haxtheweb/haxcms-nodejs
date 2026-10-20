@@ -267,7 +267,7 @@ function createRequestWatcher(page) {
       url.indexOf('/x/api/v1/site/normalize-slugs') !== -1
     ) {
       var postData = ''
-      try { postData = request.postData() || '' } catch (e) { postData = '' }
+      try { postData = request.postData() || '' } catch { postData = '' }
       requests.push({ url: url, method: request.method(), postData: postData })
     }
   }
@@ -521,12 +521,12 @@ async function main() {
     try {
       var dump = await page.evaluate(function () { return document.body.innerHTML.substring(0, 1500) })
       console.error('PAGE BODY SNIPPET:', dump)
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
   } finally {
-    try { if (reqWatch) reqWatch.detach() } catch (e) { /* ignore */ }
-    try { if (collector) collector.detach() } catch (e) { /* ignore */ }
-    try { if (browser) await browser.close() } catch (e) { /* ignore */ }
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { if (reqWatch) reqWatch.detach() } catch { /* ignore */ }
+    try { if (collector) collector.detach() } catch { /* ignore */ }
+    try { if (browser) await browser.close() } catch { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
     console.log('\nTeardown complete.')
   }
 }

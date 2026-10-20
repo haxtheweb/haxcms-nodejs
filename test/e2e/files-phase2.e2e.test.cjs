@@ -106,7 +106,7 @@ async function filesList(rt, siteName, siteToken) {
     transformResponse: [(d) => d],
   })
   let body = null
-  try { body = JSON.parse(resp.data) } catch (e) { body = null }
+  try { body = JSON.parse(resp.data) } catch { body = null }
   return { status: resp.status, body: body }
 }
 
@@ -125,7 +125,7 @@ async function filesUpload(rt, siteName, siteToken, fileName, fileBuffer, mimeTy
     maxBodyLength: Infinity,
   })
   let body = null
-  try { body = JSON.parse(resp.data) } catch (e) { body = null }
+  try { body = JSON.parse(resp.data) } catch { body = null }
   return { status: resp.status, body: body }
 }
 
@@ -140,7 +140,7 @@ async function fileOperation(rt, siteName, siteToken, fileUuid, operation) {
     transformResponse: [(d) => d],
   })
   let body = null
-  try { body = JSON.parse(resp.data) } catch (e) { body = null }
+  try { body = JSON.parse(resp.data) } catch { body = null }
   return { status: resp.status, body: body }
 }
 
@@ -155,7 +155,7 @@ async function filesDelete(rt, siteName, siteToken, fileUuid) {
     transformResponse: [(d) => d],
   })
   let body = null
-  try { body = JSON.parse(resp.data) } catch (e) { body = null }
+  try { body = JSON.parse(resp.data) } catch { body = null }
   return { status: resp.status, body: body }
 }
 
@@ -179,7 +179,7 @@ async function saveNode(rt, siteName, siteToken, nodeId, body) {
     transformResponse: [(d) => d],
   })
   let respBody = null
-  try { respBody = JSON.parse(resp.data) } catch (e) { respBody = null }
+  try { respBody = JSON.parse(resp.data) } catch { respBody = null }
   return { status: resp.status, body: respBody }
 }
 
@@ -213,9 +213,9 @@ test.before(async () => {
 }, { timeout: 120000 })
 
 test.after(async () => {
-  if (collector) { try { collector.detach() } catch (e) { /* ignore */ } }
-  if (browser) { try { await browser.close() } catch (e) { /* ignore */ } }
-  if (runtime) { try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ } }
+  if (collector) { try { collector.detach() } catch { /* ignore */ } }
+  if (browser) { try { await browser.close() } catch { /* ignore */ } }
+  if (runtime) { try { await teardownE2ERuntime(runtime) } catch { /* ignore */ } }
 }, { timeout: 60000 })
 
 // --- the flow --------------------------------------------------------------

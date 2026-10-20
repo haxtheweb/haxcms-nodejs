@@ -79,21 +79,21 @@ test.after(
     if (collector) {
       try {
         collector.detach();
-      } catch (e) {
+      } catch {
         /* ignore */
       }
     }
     if (browser) {
       try {
         await browser.close();
-      } catch (e) {
+      } catch {
         /* ignore */
       }
     }
     if (runtime) {
       try {
         await teardownE2ERuntime(runtime);
-      } catch (e) {
+      } catch {
         /* ignore */
       }
     }
@@ -125,7 +125,7 @@ test(
     t.diagnostic("[e2e] navigating to editor: " + editorUrl);
     try {
       await page.goto(editorUrl, { waitUntil: "networkidle2", timeout: 30000 });
-    } catch (e) {
+    } catch {
       await page.goto(editorUrl, {
         waitUntil: "domcontentloaded",
         timeout: 30000,

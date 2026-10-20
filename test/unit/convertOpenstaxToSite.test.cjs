@@ -164,7 +164,7 @@ describe('convertOpenstaxToSite — #2912', () => {
     for (let i = 0; i < stagedFiles.length; i++) {
       try {
         fs.removeSync(stagedFiles[i])
-      } catch (e) {}
+      } catch {}
     }
     stagedFiles = []
   })

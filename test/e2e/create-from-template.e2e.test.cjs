@@ -233,7 +233,7 @@ test(
         let body = null
         try {
           body = JSON.parse(templateResp.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         assert.ok(body && body.data, 'save-as-template response must have data')
@@ -350,7 +350,7 @@ test(
         let body = null
         try {
           body = JSON.parse(createRespRecord.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         assert.ok(body && body.data, 'create response must have data')
@@ -435,17 +435,17 @@ test(
     } finally {
       try {
         collector.detach()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await browser.close()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await teardownE2ERuntime(runtime)
-      } catch (e) {
+      } catch {
         // ignore
       }
     }

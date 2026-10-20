@@ -64,7 +64,7 @@ function getBinarySignature(buffer, format) {
 function parseJsonSafely(value) {
   try {
     return JSON.parse(String(value || ''))
-  } catch (error) {
+  } catch {
     return null
   }
 }
@@ -167,12 +167,12 @@ async function ensureSiteHasInitialCommit(runtimeRoot, siteName) {
   try {
     await runGitCommand(siteDirectory, ['rev-parse', '--verify', 'HEAD'])
     return
-  } catch (error) {}
+  } catch {}
   let isGitRepository = true
   try {
     const insideWorkTree = await runGitCommand(siteDirectory, ['rev-parse', '--is-inside-work-tree'])
     if (insideWorkTree !== 'true') isGitRepository = false
-  } catch (error) { isGitRepository = false }
+  } catch { isGitRepository = false }
   if (!isGitRepository) await runGitCommand(siteDirectory, ['init'])
   await runGitCommand(siteDirectory, ['add', '.'])
   await runGitCommand(siteDirectory, ['commit', '--no-gpg-sign', '--allow-empty', '-m', 'Initialize export integration test site'])

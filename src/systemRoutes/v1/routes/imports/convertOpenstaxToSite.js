@@ -119,7 +119,7 @@ function readRequestBody(req) {
   if (req && req.body && typeof req.body === "string") {
     try {
       return JSON.parse(req.body.trim());
-    } catch (e) {
+    } catch {
       return {};
     }
   }
@@ -145,7 +145,7 @@ function bookSlugFromUrl(sourceUrl) {
   let parsed = null;
   try {
     parsed = new URL(sourceUrl);
-  } catch (e) {
+  } catch {
     throw importError(400, `\`repoUrl\` is not a valid URL: ${sourceUrl}`);
   }
   const host = parsed.hostname.toLowerCase();
@@ -188,7 +188,7 @@ async function fetchJson(url, description) {
   }
   try {
     return JSON.parse(await response.text());
-  } catch (e) {
+  } catch {
     throw importError(
       422,
       `OpenStax returned unreadable data for ${description}`,
@@ -555,7 +555,7 @@ async function downloadImage(url, resource, context) {
   let response = null;
   try {
     response = await safeFetchLib.safeFetch(url);
-  } catch (e) {
+  } catch {
     return null;
   }
   if (!response.ok) {
@@ -597,7 +597,7 @@ async function downloadImage(url, resource, context) {
     context.imageCount++;
     context.imageBytes += buffer.length;
     return { sitePath: sitePath, stagedPath: stagedPath };
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -638,7 +638,7 @@ function rewriteLinks(container, context) {
         "href",
         new URL(value, `${context.book.archiveUrl}/`).href,
       );
-    } catch (e) {
+    } catch {
       link.removeAttribute("href");
     }
   }

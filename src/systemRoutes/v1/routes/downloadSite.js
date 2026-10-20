@@ -127,7 +127,7 @@ async function findSymlinks(sourceDir, relDir = '') {
   try {
     entries = await fs.readdir(path.join(sourceDir, relDir), { withFileTypes: true });
   }
-  catch (e) {
+  catch {
     return found;
   }
   for (const entry of entries) {

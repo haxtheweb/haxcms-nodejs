@@ -79,7 +79,7 @@ function getSystemOpenApiOperationPaths() {
       }
     }
   }
-  catch (e) {}
+  catch {}
   cachedSystemOpenApiOperationPaths = operationPaths;
   return cachedSystemOpenApiOperationPaths;
 }
@@ -181,7 +181,7 @@ async function connectionSettings(req, res) {
     try {
       refererDetails = new url.URL(req.headers.referer);
     }
-    catch (e) {
+    catch {
       refererDetails = null;
     }
   }
@@ -244,7 +244,7 @@ async function connectionSettings(req, res) {
         sitename = String(singleSite.name);
       }
     }
-    catch (e) {}
+    catch {}
   }
   const siteToken = includeRequestTokens
     ? HAXCMS.getRequestToken(HAXCMS.getActiveUserName() + ':' + sitename)

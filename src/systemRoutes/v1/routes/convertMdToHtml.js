@@ -33,7 +33,7 @@ async function convertMdToHtml(req, res) {
         mdText = await safeFetch(mdText.trim()).then((d) =>
           d.ok ? d.text() : "",
         );
-      } catch (e) {
+      } catch {
         mdText = "";
       }
     }

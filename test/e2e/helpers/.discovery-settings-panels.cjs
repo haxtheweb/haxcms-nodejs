@@ -48,7 +48,7 @@ function createRequestWatcher(page) {
       let postData = ''
       try {
         postData = request.postData() || ''
-      } catch (e) {
+      } catch {
         postData = ''
       }
       requests.push({ url, method: request.method(), postData })
@@ -236,7 +236,7 @@ async function main() {
     const editorUrl = runtime.baseUrl + '/_sites/' + EXPECTED_SITE_NAME + '/'
     try {
       await page.goto(editorUrl, { waitUntil: 'networkidle2', timeout: 30000 })
-    } catch (e) {
+    } catch {
       await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
     }
     await page.waitForSelector('haxcms-site-editor-ui', { timeout: 30000 })
@@ -415,12 +415,12 @@ async function main() {
     try {
       var dump = await page.evaluate(() => document.body.innerHTML.substring(0, 1500))
       console.error('PAGE BODY SNIPPET:', dump)
-    } catch (e) {}
+    } catch {}
   } finally {
-    try { if (reqWatch) reqWatch.detach() } catch (e) {}
-    try { if (collector) collector.detach() } catch (e) {}
-    try { if (browser) await browser.close() } catch (e) {}
-    try { await teardownE2ERuntime(runtime) } catch (e) {}
+    try { if (reqWatch) reqWatch.detach() } catch {}
+    try { if (collector) collector.detach() } catch {}
+    try { if (browser) await browser.close() } catch {}
+    try { await teardownE2ERuntime(runtime) } catch {}
     console.log('\nTeardown complete.')
   }
 }

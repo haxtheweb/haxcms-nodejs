@@ -124,7 +124,7 @@ async function convertPptxToDeck(site, resolvedPath, normalizedPath) {
         dataStore.upsertRecord(mediaRecord);
       }
     }
-  } catch (e) {
+  } catch {
     // best-effort index registration; never block a successful conversion
   }
 

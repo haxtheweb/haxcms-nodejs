@@ -56,7 +56,7 @@ async function loginRoute(req, res) {
     let sessionTokens = {};
     try {
       sessionTokens = await HAXCMS.getSessionRequestTokens(req);
-    } catch (e) {
+    } catch {
       sessionTokens = {};
     }
     if (!sessionTokens || typeof sessionTokens.userToken !== "string") {

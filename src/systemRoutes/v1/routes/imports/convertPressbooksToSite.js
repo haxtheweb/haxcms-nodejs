@@ -70,7 +70,7 @@ function buildWordPressBaseCandidates(inputUrl, stopSegments) {
         candidates.push(candidate);
       }
     }
-  } catch (e) {
+  } catch {
     return [];
   }
   return candidates;
@@ -133,7 +133,7 @@ function absolutizeRootUrls(content, base) {
   try {
     const parsed = new URL(base);
     origin = `${parsed.protocol}//${parsed.host}`;
-  } catch (e) {
+  } catch {
     origin = "";
   }
   if (origin === "") {
@@ -563,7 +563,7 @@ function getSiteFilename(siteMetadata, base) {
   let pathname = "";
   try {
     pathname = new URL(base).pathname;
-  } catch (e) {
+  } catch {
     pathname = "";
   }
   const parts = pathname.split("/").filter(Boolean);

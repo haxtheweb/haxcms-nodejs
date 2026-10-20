@@ -53,7 +53,7 @@ describe('FileStorage — Phase 2 (#3043)', () => {
   afterEach(async () => {
     try {
       await fs.remove(tmpRoot)
-    } catch (e) {}
+    } catch {}
   })
 
   describe('registerOn', () => {

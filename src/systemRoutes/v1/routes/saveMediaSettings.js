@@ -107,7 +107,7 @@ async function saveMediaSettings(req, res) {
       data: mediaSettings,
     });
   }
-  catch (e) {
+  catch {
     return res.status(500).json({
       status: 500,
       data: {

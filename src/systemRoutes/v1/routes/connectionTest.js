@@ -80,7 +80,7 @@ function validateIAMAuthorizationIfNeeded(req) {
   try {
     return HAXCMS.validateIAMRouteAuthorization(true, req);
   }
-  catch (e) {
+  catch {
     return {
       allowed: false,
       status: 403,
@@ -187,7 +187,7 @@ async function connectionTest(req, res) {
   try {
     sessionTokens = await HAXCMS.getSessionRequestTokens(req);
   }
-  catch (e) {
+  catch {
     sessionTokens = {};
   }
   return res.json(Object.assign({

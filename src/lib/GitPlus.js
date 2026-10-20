@@ -12,7 +12,7 @@ class GitPlus extends Git {
     try {
       const { stdout, stderr } = await exec('git --version');
       this.cliVersion = stdout;
-    } catch (e) {
+    } catch {
       this.cliVersion = null;
     }
   }

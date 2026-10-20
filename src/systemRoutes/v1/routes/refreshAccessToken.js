@@ -45,7 +45,7 @@ async function refreshAccessToken(req, res) {
       try {
         sessionTokens = await HAXCMS.getSessionRequestTokens(req);
       }
-      catch (e) {
+      catch {
         sessionTokens = {};
       }
       res.send(Object.assign({

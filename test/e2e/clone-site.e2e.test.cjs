@@ -311,7 +311,7 @@ test(
         let body = null
         try {
           body = JSON.parse(cloneRespRecord.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         t.diagnostic('[e2e] clone body: ' + (cloneRespRecord.bodyText || '').substring(0, 300))
@@ -500,17 +500,17 @@ test(
     } finally {
       try {
         collector.detach()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await browser.close()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await teardownE2ERuntime(runtime)
-      } catch (e) {
+      } catch {
         // ignore
       }
     }

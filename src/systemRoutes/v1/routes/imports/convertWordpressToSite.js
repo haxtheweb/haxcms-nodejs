@@ -13,7 +13,7 @@ async function fetchJSON(url, fetchOptions = {}) {
     }
     return await response.json()
   }
-  catch (e) {
+  catch {
     return null
   }
 }
@@ -26,7 +26,7 @@ async function fetchText(url, fetchOptions = {}) {
     }
     return await response.text()
   }
-  catch (e) {
+  catch {
     return null
   }
 }
@@ -38,7 +38,7 @@ async function fetchJSONWithMeta(url, fetchOptions = {}) {
     try {
       data = await response.json()
     }
-    catch (e) {
+    catch {
       data = null
     }
     return {
@@ -48,7 +48,7 @@ async function fetchJSONWithMeta(url, fetchOptions = {}) {
       data: data
     }
   }
-  catch (e) {
+  catch {
     return {
       ok: false,
       status: 0,
@@ -64,7 +64,7 @@ function absolutizeRootUrls(content, base) {
     const parsed = new URL(base)
     origin = `${parsed.protocol}//${parsed.host}`
   }
-  catch (e) {
+  catch {
     origin = ''
   }
   if (origin === '') {
@@ -96,7 +96,7 @@ function buildWordPressBaseCandidates(inputUrl, stopSegments = []) {
       }
     }
   }
-  catch (e) {
+  catch {
     return []
   }
   return candidates
@@ -498,7 +498,7 @@ function getSiteFilenameFromRoot(root, base) {
   try {
     pathname = new URL(base).pathname
   }
-  catch (e) {
+  catch {
     pathname = ''
   }
   const parts = pathname.split('/').filter(Boolean)
@@ -757,7 +757,7 @@ async function convertWordpressToSite(req, res) {
     try {
       body = JSON.parse(req.body.trim())
     }
-    catch (e) {
+    catch {
       body = {}
     }
   }

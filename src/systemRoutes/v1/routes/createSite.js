@@ -187,7 +187,7 @@ async function resolveSkeletonBuildByMachineName(machineName) {
       try {
         skeleton = JSON.parse(await fs.readFile(filePath, 'utf8'));
       }
-      catch (e) {
+      catch {
         continue;
       }
       const normalizedFileName = normalizeSkeletonMachineName(
@@ -328,7 +328,7 @@ async function resolveSkeletonByBuildItems(items) {
       try {
         stat = await fs.stat(filePath);
       }
-      catch (e) {
+      catch {
         continue;
       }
       if (!stat.isFile() || path.extname(file).toLowerCase() !== '.json') {
@@ -338,7 +338,7 @@ async function resolveSkeletonByBuildItems(items) {
       try {
         skeleton = JSON.parse(await fs.readFile(filePath, 'utf8'));
       }
-      catch (e) {
+      catch {
         continue;
       }
       if (!isObjectLike(skeleton) || !isObjectLike(skeleton.build)) {
@@ -369,7 +369,7 @@ function cloneJsonValue(value, fallback = null) {
   try {
     return JSON.parse(JSON.stringify(value));
   }
-  catch (e) {
+  catch {
     return fallback;
   }
 }
@@ -931,7 +931,7 @@ async function createSite(req, res) {
             await fs.ensureDir(path.dirname(targetPath));
             await fs.writeFile(targetPath, content);
           }
-        } catch (e) {}
+        } catch {}
       }
     }
     // main site schema doesn't care about publishing settings. NOTE:
@@ -961,7 +961,7 @@ async function createSite(req, res) {
         await git.createBranch(configuredBranch);
       }
     }
-    catch(e) {}
+    catch {}
     res.send({
       "status": 200,
       "data": schema,

@@ -304,7 +304,7 @@ function resolveSiteFilesRootPath(site) {
   let siteRootPath = "";
   try {
     siteRootPath = fs.realpathSync(path.resolve(site.siteDirectory));
-  } catch (e) {
+  } catch {
     throw createStatusError("Unable to resolve site path", 500);
   }
   const filesRootCandidate = path.join(siteRootPath, "files");
@@ -318,7 +318,7 @@ function resolveSiteFilesRootPath(site) {
   let filesRootPath = "";
   try {
     filesRootPath = fs.realpathSync(filesRootCandidate);
-  } catch (e) {
+  } catch {
     throw createStatusError("Files directory was not found", 404);
   }
   if (!isPathInsideDirectory(siteRootPath, filesRootPath)) {
@@ -375,7 +375,7 @@ function sanitizeFileRenameBaseName(inputValue = "") {
   }
   try {
     value = decodeURIComponent(value);
-  } catch (e) {}
+  } catch {}
   value = value
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")
@@ -407,7 +407,7 @@ function parseRenameRequestName(requestedName, sourceExtension) {
   }
   try {
     normalizedInput = decodeURIComponent(normalizedInput);
-  } catch (e) {}
+  } catch {}
   const segments = normalizedInput.split(".");
   if (segments.length > 2) {
     throw createStatusError("File name can only include one extension", 400);
@@ -582,7 +582,7 @@ function ensureExistingRegularFile(filePath, filesRootPath) {
   let realFilePath = "";
   try {
     realFilePath = fs.realpathSync(filePath);
-  } catch (e) {
+  } catch {
     throw createStatusError("Requested file was not found", 404);
   }
   if (!isPathInsideDirectory(filesRootPath, realFilePath)) {
@@ -644,7 +644,7 @@ function getImgOpsOutputPath(filesRootPath, sourceRelativePath, width, height) {
   } else {
     try {
       fs.ensureDirSync(outputDirectory);
-    } catch (e) {
+    } catch {
       throw createStatusError(
         "Unable to prepare image operations directory",
         500,
@@ -654,7 +654,7 @@ function getImgOpsOutputPath(filesRootPath, sourceRelativePath, width, height) {
   let resolvedOutputDirectory = "";
   try {
     resolvedOutputDirectory = fs.realpathSync(outputDirectory);
-  } catch (e) {
+  } catch {
     throw createStatusError(
       "Unable to prepare image operations directory",
       500,
@@ -802,7 +802,7 @@ async function scaleImageInPlace(
   let metadata = null;
   try {
     metadata = await sharp(sourcePath, { failOn: "none" }).metadata();
-  } catch (e) {
+  } catch {
     throw createStatusError("Only raster images can be scaled", 400);
   }
   if (
@@ -844,7 +844,7 @@ async function scaleImageInPlace(
     try {
       const now = new Date();
       fs.utimesSync(sourcePath, now, now);
-    } catch (mtimeError) {}
+    } catch {}
   } catch (e) {
     if (fs.pathExistsSync(temporaryPath)) {
       fs.removeSync(temporaryPath);
@@ -864,7 +864,7 @@ async function compressImageInPlace(
   let metadata = null;
   try {
     metadata = await sharp(sourcePath, { failOn: "none" }).metadata();
-  } catch (e) {
+  } catch {
     throw createStatusError("Only raster images can be compressed", 400);
   }
   if (
@@ -901,7 +901,7 @@ async function compressImageInPlace(
     try {
       const now = new Date();
       fs.utimesSync(sourcePath, now, now);
-    } catch (mtimeError) {}
+    } catch {}
   } catch (e) {
     if (fs.pathExistsSync(temporaryPath)) {
       fs.removeSync(temporaryPath);
@@ -922,7 +922,7 @@ async function transformImageInPlace(
   let metadata = null;
   try {
     metadata = await sharp(sourcePath, { failOn: "none" }).metadata();
-  } catch (e) {
+  } catch {
     throw createStatusError("Only raster images can be transformed", 400);
   }
   if (
@@ -976,7 +976,7 @@ async function transformImageInPlace(
     try {
       const now = new Date();
       fs.utimesSync(sourcePath, now, now);
-    } catch (mtimeError) {}
+    } catch {}
   } catch (e) {
     if (fs.pathExistsSync(temporaryPath)) {
       fs.removeSync(temporaryPath);
@@ -993,7 +993,7 @@ async function rotateImageInPlace(sourcePath, rotation = 90) {
   let metadata = null;
   try {
     metadata = await sharp(sourcePath, { failOn: "none" }).metadata();
-  } catch (e) {
+  } catch {
     throw createStatusError("Only raster images can be rotated", 400);
   }
   if (
@@ -1017,7 +1017,7 @@ async function rotateImageInPlace(sourcePath, rotation = 90) {
     try {
       const now = new Date();
       fs.utimesSync(sourcePath, now, now);
-    } catch (mtimeError) {}
+    } catch {}
   } catch (e) {
     if (fs.pathExistsSync(temporaryPath)) {
       fs.removeSync(temporaryPath);
@@ -1445,7 +1445,7 @@ async function listFiles(req, res) {
   const dataStore = new FilesDataStore(site);
   try {
     await dataStore.reconcileMissingFromDisk();
-  } catch (e) {}
+  } catch {}
   const orphans = dataStore.flagOrphans();
   // Build a set of orphan uuids so we can exclude them from the main files
   // list (orphans go only in the 'orphans' array, non-destructive).
@@ -1591,7 +1591,7 @@ async function createFile(req, res) {
         fileResult.data.file.name) ||
       "file";
     await site.gitCommit("File added: " + savedFileName);
-  } catch (e) {}
+  } catch {}
   return res.status(200).json(fileResult);
 }
 
@@ -1698,7 +1698,7 @@ async function updateFile(req, res) {
   let mediaSettings = {};
   try {
     mediaSettings = await readMediaSettings(HAXCMS);
-  } catch (e) {}
+  } catch {}
   const jpegQuality = resolveJpegQualityFromSettings(mediaSettings);
   try {
     // resolveRequestedFilePath can throw createStatusError (404 when the uuid
@@ -1767,7 +1767,7 @@ async function deleteFile(req, res) {
   let mediaSettings = {};
   try {
     mediaSettings = await readMediaSettings(HAXCMS);
-  } catch (e) {}
+  } catch {}
   const jpegQuality = resolveJpegQualityFromSettings(mediaSettings);
   // #3043: resolve the file uuid for post-delete data-layer cleanup.
   const params =
@@ -1808,7 +1808,7 @@ async function deleteFile(req, res) {
         const registry = new EntityRegistry(site);
         const fileStorage = FileStorage.registerOn(registry);
         fileStorage.delete(deleteFileUuid);
-      } catch (scrubErr) {
+      } catch {
         // best-effort cleanup; never block an otherwise-successful delete
       }
     }

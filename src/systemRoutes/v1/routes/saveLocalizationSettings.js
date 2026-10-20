@@ -78,7 +78,7 @@ async function saveLocalizationSettings(req, res) {
       data: localizationSettings,
     });
   }
-  catch (e) {
+  catch {
     return res.status(500).json({
       status: 500,
       data: {

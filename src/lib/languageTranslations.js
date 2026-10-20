@@ -56,7 +56,7 @@ async function collectTranslations({
     try {
       files = await fs.readdir(localesDir);
     }
-    catch (e) {
+    catch {
       continue;
     }
     files.sort();
@@ -84,7 +84,7 @@ async function collectTranslations({
       try {
         strings = JSON.parse(await fs.readFile(path.join(localesDir, file), 'utf8'));
       }
-      catch (e) {
+      catch {
         continue;
       }
       if (!strings || typeof strings !== 'object' || Array.isArray(strings)) {

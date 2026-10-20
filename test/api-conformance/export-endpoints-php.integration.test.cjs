@@ -41,7 +41,7 @@ const HTTPS_AGENT = (() => {
     if (fs.existsSync(candidate)) {
       try {
         return new https.Agent({ ca: fs.readFileSync(candidate) })
-      } catch (error) {
+      } catch {
         // fall through to the insecure fallback below
       }
     }
@@ -111,7 +111,7 @@ function getBinarySignature(buffer, format) {
 function parseJsonSafely(value) {
   try {
     return JSON.parse(String(value || ''))
-  } catch (error) {
+  } catch {
     return null
   }
 }
@@ -170,7 +170,7 @@ test.before(async () => {
       phpAvailable = true
       firstItemSlug = resolveFirstItemSlug()
     }
-  } catch (error) {
+  } catch {
     phpAvailable = false
   }
 })

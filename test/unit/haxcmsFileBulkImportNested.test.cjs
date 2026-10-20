@@ -66,7 +66,7 @@ describe('HAXCMSFile.save bulk-import nested directory preservation — #3064 Wo
     HAXCMS.configDirectory = realConfigDirectory
     try {
       await fs.remove(tmpRoot)
-    } catch (e) {}
+    } catch {}
   })
 
   function stubNetwork(responses) {

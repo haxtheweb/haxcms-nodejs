@@ -75,7 +75,7 @@ class FeedMe
                 { encoding: 'utf8', flag: 'r' }
             )
         }
-        catch (e) {
+        catch {
             return ''
         }
     }

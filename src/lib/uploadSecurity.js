@@ -117,7 +117,7 @@ function removeUploadedTempFiles(req, uploadTempDirectory) {
       fs.unlinkSync(tempPath);
       removed++;
     }
-    catch (e) {
+    catch {
       // ENOENT (moved/already removed) or anything else: never break the response
     }
   }
@@ -167,7 +167,7 @@ function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
   try {
     entries = fs.readdirSync(root);
   }
-  catch (e) {
+  catch {
     return removed;
   }
   for (let i = 0; i < entries.length; i++) {
@@ -184,7 +184,7 @@ function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
       fs.unlinkSync(entryPath);
       removed.push(entryPath);
     }
-    catch (e) {}
+    catch {}
   }
   const importsRoot = path.join(root, IMPORT_STAGING_DIRNAME);
   let importEntries = [];
@@ -193,7 +193,7 @@ function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
       importEntries = fs.readdirSync(importsRoot);
     }
   }
-  catch (e) {
+  catch {
     importEntries = [];
   }
   for (let i = 0; i < importEntries.length; i++) {
@@ -206,7 +206,7 @@ function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
       fs.removeSync(entryPath);
       removed.push(entryPath);
     }
-    catch (e) {}
+    catch {}
   }
   return removed;
 }
@@ -221,7 +221,7 @@ function startUploadTempSweeper(uploadTempDirectory, options = {}) {
     try {
       sweepUploadTempDirectory(uploadTempDirectory, options);
     }
-    catch (e) {}
+    catch {}
   };
   run();
   const timer = setInterval(run, intervalMs);
@@ -263,7 +263,7 @@ function decodeRequestPathForFilesGuard(url = '') {
   try {
     decoded = decodeURIComponent(rawPath);
   }
-  catch (e) {
+  catch {
     decoded = rawPath;
   }
   decoded = decoded.replace(/\\/g, '/');

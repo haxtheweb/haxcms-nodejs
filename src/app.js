@@ -496,7 +496,7 @@ function safeReadJsonFile(filePath = "") {
   }
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -507,7 +507,7 @@ function isDirectoryPath(targetPath = "") {
   }
   try {
     return fs.statSync(targetPath).isDirectory();
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -753,7 +753,7 @@ function extractImportMapJson(markup = "") {
   }
   try {
     return JSON.parse(markup.substring(startIndex + 1, endIndex).trim());
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -878,7 +878,7 @@ function sendNonceIndex(res, req, absoluteFilePath) {
     indexFile = injectNonce(indexFile, req && req.haxcmsCspNonce);
     setNoStoreResponseHeaders(res);
     res.send(indexFile);
-  } catch (e) {
+  } catch {
     setNoStoreResponseHeaders(res);
     res.sendFile(path.basename(absoluteFilePath), {
       root: path.dirname(absoluteFilePath),
@@ -973,7 +973,7 @@ if (process.env.NODE_ENV === "development") {
     if (isPathInsideDirectory(customSrcPath, filePath)) {
       try {
         await exec("cd custom && npm run build");
-      } catch (e) {}
+      } catch {}
     }
     sendReloadToConnectedClients();
   }
@@ -1074,7 +1074,7 @@ function isSensitiveStaticPath(url = "") {
   let decodedPath = String(url || "").split("?")[0];
   try {
     decodedPath = decodeURIComponent(decodedPath);
-  } catch (e) {
+  } catch {
     // fall back to the raw path if it cannot be decoded
   }
   const segments = decodedPath.replace(/\\/g, "/").toLowerCase().split("/");
@@ -1172,7 +1172,7 @@ try {
       break;
     }
   }
-} catch (e) {}
+} catch {}
 function getRuntimePort() {
   const address = server.address();
   if (
@@ -1805,7 +1805,7 @@ systemStructureContext().then((site) => {
             });
           }
           siteRouteRegistry[siteMethod][siteRoute](req, res, next);
-        } catch (e) {
+        } catch {
           return res.status(500).json({
             status: 500,
             data: { message: "Unable to evaluate site API access policy" },
@@ -2277,7 +2277,7 @@ function createSiteApiUploadPreAuthMiddleware(route = "", method = "post") {
     let access = null;
     try {
       access = await validateSiteApiRouteAccess(req, route, method);
-    } catch (e) {
+    } catch {
       // let the route handler produce its own 500 envelope
       next();
       return;
@@ -2680,7 +2680,7 @@ function decodeBasicAuthCredentials(authorizationHeader = "") {
     decodedCredentials = Buffer.from(encodedCredentials, "base64").toString(
       "utf8",
     );
-  } catch (e) {
+  } catch {
     return null;
   }
   const separatorIndex = decodedCredentials.indexOf(":");
@@ -2804,7 +2804,7 @@ function normalizeSiteNameCandidate(siteName = "") {
   }
   try {
     return decodeURIComponent(cleanSiteName);
-  } catch (e) {
+  } catch {
     return cleanSiteName;
   }
 }
@@ -2861,7 +2861,7 @@ function getSiteNameFromSiteApiRequestReferer(req) {
     if (refererPathSiteName !== "") {
       return refererPathSiteName;
     }
-  } catch (e) {}
+  } catch {}
   return getSiteNameFromSiteApiRequestPath(referer);
 }
 async function resolveSiteApiRequestSiteName(req, authContext = {}) {
@@ -2890,7 +2890,7 @@ async function resolveSiteApiRequestSiteName(req, authContext = {}) {
     ) {
       return String(site.manifest.metadata.site.name);
     }
-  } catch (e) {}
+  } catch {}
   return "";
 }
 function normalizeIamAuthorizationResult(iamAuthorization = null) {
@@ -2950,7 +2950,7 @@ function validateHaxiamManagedUserIdentityForRequest(req = null) {
     return normalizeIamAuthorizationResult(
       HAXCMS.validateIAMRouteAuthorization(true, req),
     );
-  } catch (e) {
+  } catch {
     return {
       allowed: false,
       status: 403,
@@ -3171,7 +3171,7 @@ function decodeStaticRequestPath(requestPath = "") {
   const rawPath = String(requestPath || "");
   try {
     return decodeURIComponent(rawPath);
-  } catch (e) {
+  } catch {
     return rawPath;
   }
 }
@@ -3566,7 +3566,7 @@ async function ensurePageVariantFile(site, item, format = "json") {
   if (site && item && typeof site.writePageAlternateFormats === "function") {
     try {
       await site.writePageAlternateFormats(item);
-    } catch (e) {}
+    } catch {}
     variantFilePath = resolveVariantFilePath(site, item, format);
     if (variantFilePath) {
       return variantFilePath;
@@ -3940,7 +3940,7 @@ async function renderDynamicSiteIndexResponse(
   if (item) {
     try {
       pageContent = await site.getPageContent(item);
-    } catch (e) {
+    } catch {
       pageContent = "";
     }
   } else if (pageMiss) {

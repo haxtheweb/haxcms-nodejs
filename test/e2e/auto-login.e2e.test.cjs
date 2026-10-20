@@ -65,16 +65,16 @@ test.before(async () => {
 
 test.after(async () => {
   if (statusWatcher) {
-    try { statusWatcher.detach() } catch (e) { /* ignore */ }
+    try { statusWatcher.detach() } catch { /* ignore */ }
   }
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -93,7 +93,7 @@ async function jwtInLocalStorage(page) {
           }
         }
       }
-    } catch (e) {}
+    } catch {}
     return false
   })
 }
@@ -111,7 +111,7 @@ async function dumpLocalStorageKeys(page) {
           keys.push({ key: key, valueLen: val.length })
         }
       }
-    } catch (e) {}
+    } catch {}
     return keys
   })
 }

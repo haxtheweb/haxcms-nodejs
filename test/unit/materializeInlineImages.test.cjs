@@ -121,7 +121,7 @@ describe('materializeInlineImages — #2945', () => {
   afterEach(async () => {
     try {
       await fs.remove(tmpRoot)
-    } catch (e) {}
+    } catch {}
   })
 
   test('saves an inline image as a site file and renders media-image', async () => {

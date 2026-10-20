@@ -27,7 +27,7 @@ async function languagesList(req, res) {
       data: listLanguages(regions),
     });
   }
-  catch (e) {
+  catch {
     return res.status(500).json({
       status: 500,
       data: {

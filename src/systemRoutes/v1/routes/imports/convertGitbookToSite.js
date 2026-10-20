@@ -31,7 +31,7 @@ async function convertGitbookToSite(req, res) {
   } else if (req && req.body && typeof req.body === "string") {
     try {
       body = JSON.parse(req.body.trim());
-    } catch (e) {
+    } catch {
       body = {};
     }
   }

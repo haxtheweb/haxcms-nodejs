@@ -201,7 +201,7 @@ async function dumpSkeletonCards(page) {
         machineName: it.machineName,
         skeletonUrl: it.skeletonUrl,
       }))
-    } catch (e) {
+    } catch {
       filtered = []
     }
     return { cardCount: cards.length, cards: out, filteredItems: filtered }
@@ -404,7 +404,7 @@ async function main() {
             evidence.templatePath = parsed && parsed.data && parsed.data.path
             if (evidence.templatePath)
               evidence.templateFileExists = fs.pathExistsSync(evidence.templatePath)
-          } catch (e) {
+          } catch {
             /* ignore */
           }
         }
@@ -468,7 +468,7 @@ async function main() {
       let getSkelResp = null
       try {
         getSkelResp = collector.getResponsesFor('/skeletons/').slice(-1)[0]
-      } catch (e) {
+      } catch {
         /* ignore */
       }
       if (getSkelResp) {
@@ -501,7 +501,7 @@ async function main() {
             let parsed = null
             try {
               parsed = JSON.parse(allSites[i].bodyText)
-            } catch (e) {
+            } catch {
               continue
             }
             const metaSite =
@@ -681,7 +681,7 @@ async function main() {
             try {
               const parsed = JSON.parse(cloneResp.bodyText)
               evidence.cloneName = parsed && parsed.data && parsed.data.name
-            } catch (e) {
+            } catch {
               /* ignore */
             }
           }
@@ -690,7 +690,7 @@ async function main() {
       if (cardC) {
         try {
           await cardC.dispose()
-        } catch (e) {
+        } catch {
           /* ignore */
         }
       }
@@ -745,7 +745,7 @@ async function main() {
             const parsed = JSON.parse(archiveResp.bodyText)
             evidence.archivedName =
               parsed && parsed.data && (parsed.data.archivedName || parsed.data.name)
-          } catch (e) {
+          } catch {
             /* ignore */
           }
         }
@@ -788,7 +788,7 @@ async function main() {
         if (restoredCard) {
           try {
             await restoredCard.dispose()
-          } catch (e) {
+          } catch {
             /* ignore */
           }
         }
@@ -796,7 +796,7 @@ async function main() {
       if (cardD) {
         try {
           await cardD.dispose()
-        } catch (e) {
+        } catch {
           /* ignore */
         }
       }
@@ -810,23 +810,23 @@ async function main() {
     try {
       const dump = await page.evaluate(() => document.body.innerHTML.substring(0, 1500))
       console.error('PAGE BODY SNIPPET:', dump)
-    } catch (e) {
+    } catch {
       /* ignore */
     }
   } finally {
     try {
       if (collector) collector.detach()
-    } catch (e) {
+    } catch {
       /* ignore */
     }
     try {
       if (browser) await browser.close()
-    } catch (e) {
+    } catch {
       /* ignore */
     }
     try {
       await teardownE2ERuntime(runtime)
-    } catch (e) {
+    } catch {
       /* ignore */
     }
     console.log('\nTeardown complete.')

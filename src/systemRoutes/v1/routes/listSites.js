@@ -41,7 +41,7 @@ async function listSites(req, res) {
           delete site.items;
           returnData.items.push(site);  
         }
-        catch(err) {
+        catch {
           // something without a site.json
           //console.error(err);
         }

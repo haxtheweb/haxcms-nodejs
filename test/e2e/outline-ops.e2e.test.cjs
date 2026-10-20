@@ -76,13 +76,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -318,7 +318,7 @@ async function typeNewTitle(page, rowIndex, newTitle, t) {
 async function clickSaveOutline(page, t) {
   // Auto-confirm the browser confirm() dialog that _saveTap triggers.
   page.on('dialog', async function (dialog) {
-    try { await dialog.accept() } catch (e) { /* ignore */ }
+    try { await dialog.accept() } catch { /* ignore */ }
   })
   var result = await page.evaluate(function () {
     var modals = document.querySelectorAll('simple-modal')
@@ -822,7 +822,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
     var fallback = null
     try {
       fallback = await runA11y(page, 'simple-modal')
-    } catch (e) {
+    } catch {
       fallback = null
     }
     if (fallback) {

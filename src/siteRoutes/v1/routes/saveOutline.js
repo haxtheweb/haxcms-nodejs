@@ -288,7 +288,7 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
         if (scanContent === '' && site && typeof site.getPageContent === 'function') {
           try {
             scanContent = String(await site.getPageContent(page) || '');
-          } catch (e) {
+          } catch {
             scanContent = '';
           }
         }
@@ -399,7 +399,7 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
         return false;
       }
     }
-    catch (e) {
+    catch {
       return false;
     }
     return targetPath;

@@ -58,7 +58,7 @@ function createRequestWatcher(page) {
       let postData = "";
       try {
         postData = request.postData() || "";
-      } catch (e) {
+      } catch {
         postData = "";
       }
       requests.push({ url, method: request.method(), postData });
@@ -372,7 +372,7 @@ async function main() {
     console.log("editorUrl:", editorUrl);
     try {
       await page.goto(editorUrl, { waitUntil: "networkidle2", timeout: 30000 });
-    } catch (e) {
+    } catch {
       console.log("networkidle2 timed out, retrying domcontentloaded");
       await page.goto(editorUrl, {
         waitUntil: "domcontentloaded",
@@ -839,28 +839,28 @@ async function main() {
         document.body.innerHTML.substring(0, 1500),
       );
       console.error("PAGE BODY SNIPPET:", dump);
-    } catch (e) {
+    } catch {
       // ignore
     }
   } finally {
     try {
       if (reqWatch) reqWatch.detach();
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       if (collector) collector.detach();
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       if (browser) await browser.close();
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       await teardownE2ERuntime(runtime);
-    } catch (e) {
+    } catch {
       // ignore
     }
     console.log("\nTeardown complete.");

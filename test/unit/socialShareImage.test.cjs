@@ -56,7 +56,7 @@ describe('socialShareImage — #3043', () => {
   afterEach(async () => {
     try {
       await fs.remove(tmpRoot)
-    } catch (e) {}
+    } catch {}
   })
 
   test('resolves first image via files.json uuid string', async () => {

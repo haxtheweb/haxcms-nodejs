@@ -130,7 +130,7 @@ function parseConnectionUrl(urlString = '') {
       params,
     };
   }
-  catch (e) {
+  catch {
     return {
       valid: false,
       params: {},

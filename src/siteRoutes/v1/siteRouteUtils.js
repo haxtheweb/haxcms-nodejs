@@ -110,7 +110,7 @@ function normalizeSiteNameCandidate(siteName = '') {
   }
   try {
     return decodeURIComponent(cleanSiteName);
-  } catch (e) {
+  } catch {
     return cleanSiteName;
   }
 }
@@ -156,7 +156,7 @@ function getSiteNameFromRequestReferer(req) {
     if (refererSiteName !== '') {
       return refererSiteName;
     }
-  } catch (e) {}
+  } catch {}
   return getMultisiteSiteNameFromPath(referer);
 }
 
@@ -182,7 +182,7 @@ async function loadResolvedSiteByName(siteName = '') {
     if (site && site.manifest && site.siteDirectory) {
       return site;
     }
-  } catch (e) {}
+  } catch {}
   return null;
 }
 
@@ -245,7 +245,7 @@ function getOrderedItems(site) {
     try {
       return site.manifest.orderTree(items);
     }
-    catch (e) {
+    catch {
       return items;
     }
   }
@@ -391,7 +391,7 @@ function decodePathToken(value = '') {
   }
   try {
     normalized = decodeURIComponent(normalized);
-  } catch (e) {}
+  } catch {}
   normalized = normalizePathForResponse(normalized).replace(/^\/+/, '');
   return normalized;
 }
@@ -750,7 +750,7 @@ async function getItemContent(site, item) {
       return content;
     }
   }
-  catch (e) {}
+  catch {}
   return '';
 }
 
@@ -819,7 +819,7 @@ function collectSiteFiles(site, siteFilePath, search = '') {
     try {
       entries = fs.readdirSync(activeDirectory);
     }
-    catch (e) {
+    catch {
       entries = [];
     }
     for (let i = 0; i < entries.length; i++) {
@@ -832,7 +832,7 @@ function collectSiteFiles(site, siteFilePath, search = '') {
       try {
         entryStats = fs.lstatSync(absoluteEntryPath);
       }
-      catch (e) {
+      catch {
         entryStats = null;
       }
       if (!entryStats || entryStats.isSymbolicLink()) {
@@ -1288,7 +1288,7 @@ function applyItemFilters(items = [], req, site = null, options = {}) {
         output = output.filter((item) => item && item.id && branchIds.has(item.id));
       }
     }
-    catch (e) {}
+    catch {}
   }
   if (filterParent !== '') {
     output = output.filter((item) => {

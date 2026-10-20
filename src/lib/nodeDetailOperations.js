@@ -419,7 +419,7 @@ async function applyNodeDetailOperation(site, nodeId, details = {}) {
   if (site && typeof site.getPageContent === 'function') {
     try {
       pageContentForScan = String(await site.getPageContent(page) || '');
-    } catch (e) {
+    } catch {
       pageContentForScan = '';
     }
   }
