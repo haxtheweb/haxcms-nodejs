@@ -1,33 +1,35 @@
 ---
 name: oerschema-integration-finder
-description: >
-  READ-ONLY diagnostic: scan HAX webcomponents, themes, CMS backends (PHP/NodeJS HAXcms), the
-  VitePress plugin, and the Google Apps Script add-on for code surfaces that render or consume
-  pedagogical content but do NOT emit or consume OER Schema metadata — e.g. quiz/assessment
-  elements with no Assessment microdata, outline components not mapping to TableOfContents,
-  objective/rubric/syllabus elements with no itemtype. Emit a per-file hit-list of the class +
-  property each surface should expose. Use when the user says "which of my webcomponents should
-  emit oer schema", "find assessment code without schema support", "where in my codebase should
-  oerschema be wired in", "audit my components for oer schema integration opportunities", "does
-  the quiz element emit microdata", or "what elements in HAX could expose oer schema but don't" —
-  even if they don't say "finder" or "oerschema". Diagnoses only; hands off to hax-webcomponent-dev
-  for implementation and to oerschema-audit when the gap is in authored content, not code.
+description: 'READ-ONLY scan of webcomponents, themes, CMS backends and plugins for pedagogical-content code that should emit or consume OER Schema but doesn''t, with a per-file hit-list. Use for "which elements should emit oer schema".'
 version: 1.0.0
 license: MIT
 metadata:
   author: PRAW
-  tags: [oer-schema, oerschema, schema, metadata, integration, finder, diagnostic, webcomponents, monorepo, microdata, hax]
+  tags:
+    [
+      oer-schema,
+      oerschema,
+      schema,
+      metadata,
+      integration,
+      finder,
+      diagnostic,
+      webcomponents,
+      monorepo,
+      microdata,
+      hax,
+    ]
   requirements: "A codebase path to scan (the webcomponents monorepo, a theme, a CMS backend, the VitePress plugin, or the Google Apps Script add-on). Emits a per-file hit-list; does NOT edit source files."
 ---
 
 # OER Schema Integration Finder (Read-Only Diagnostic)
 
-Scan HAX ecosystem *code* — webcomponents, themes, CMS backends, the VitePress plugin, and the
+Scan HAX ecosystem _code_ — webcomponents, themes, CMS backends, the VitePress plugin, and the
 Google Apps Script add-on — for surfaces that render or consume pedagogical content but do not emit
 or consume OER Schema metadata, and emit a per-file hit-list of integration opportunities. This
 skill **diagnoses and recommends only** — it does not edit source. It mirrors the `oerschema-audit`
-pattern but operates on *code*, not *authored content*: where `oerschema-audit` asks "does this page
-have the right microdata?", this skill asks "does this element *emit* the right microdata?"
+pattern but operates on _code_, not _authored content_: where `oerschema-audit` asks "does this page
+have the right microdata?", this skill asks "does this element _emit_ the right microdata?"
 
 ## The worldview in one paragraph
 
@@ -39,12 +41,13 @@ playlists, syllabi) and several surfaces that transform content (the VitePress p
 Script add-on, the CMS backends). This skill scans those code surfaces for missing schema emission
 or consumption and produces a hit-list that `hax-webcomponent-dev` can act on. It is distinct from
 `oerschema-audit` (authored content), from `hax-a11y-audit` (accessibility), and from
-`hax-webcomponent-dev` (which *implements* the fixes this skill identifies). It does not invent
+`hax-webcomponent-dev` (which _implements_ the fixes this skill identifies). It does not invent
 classes/properties — every recommendation cites a real OER Schema class from the v1.2.0 vocabulary.
 
 ## When to Use
 
 **Trigger conditions:**
+
 - "Which of my webcomponents should emit OER schema" / "find assessment code without schema support"
 - "Where in my codebase should oerschema be wired in" / "does the quiz element emit microdata"
 - "Audit my components for OER schema integration opportunities"
@@ -54,7 +57,8 @@ classes/properties — every recommendation cites a real OER Schema class from t
   carry educational schema metadata, this is the skill
 
 **When NOT to use (with redirect):**
-- A specific *page* is missing schema (the gap is in authored content, not the rendering element) →
+
+- A specific _page_ is missing schema (the gap is in authored content, not the rendering element) →
   `oerschema-audit`
 - Implementing the schema emission in a component (writing the LitElement template / haxProperties) →
   `hax-webcomponent-dev`
@@ -71,7 +75,7 @@ backend/plugin maintainer. Never edit source files from within this skill.
 ## Inputs
 
 - A codebase path to scan. Typical targets:
-  - the webcomponents monorepo (e.g. `~/Documents/git/haxtheweb/webcomponents`)
+  - the webcomponents monorepo (e.g. `https://github.com/haxtheweb/webcomponents`)
   - a single element directory (e.g. `elements/<tag-name>`)
   - a HAXcms theme directory
   - a CMS backend (PHP: `haxcms-php`; NodeJS: `haxcms-nodejs`)
@@ -85,8 +89,8 @@ backend/plugin maintainer. Never edit source files from within this skill.
    a backend, the VitePress plugin, or the Apps Script add-on — each has a different schema-emission
    mechanism (see `references/component-patterns.md`).
 2. **Load the vocabulary.** Consult `oerschema-audit`'s `references/vocabulary.md` (the v1.2.0 class
-   + property tables) as the source of truth for what classes/properties exist. This skill does not
-   duplicate that file; it references it.
+   - property tables) as the source of truth for what classes/properties exist. This skill does not
+     duplicate that file; it references it.
 3. **For webcomponents**, for each element:
    - Read the element's `src/<tag>.js` (LitElement class) and its `render()` / template. Look for
      `itemscope`, `itemtype`, `itemprop` in the template — the microdata emission surface.
@@ -117,9 +121,9 @@ backend/plugin maintainer. Never edit source files from within this skill.
    class + properties it should emit, and the implementation handoff (`hax-webcomponent-dev` for
    components, `hax-site-building` for themes, the relevant maintainer for backends/plugins).
 9. **Apply the overlap / defer rules:**
-   - If the gap is actually in *authored content* (the element emits microdata but the page didn't
+   - If the gap is actually in _authored content_ (the element emits microdata but the page didn't
      use it), defer to `oerschema-audit`.
-   - If the element needs *new vocabulary* to emit the right class, defer to `oerschema-schema-author`.
+   - If the element needs _new vocabulary_ to emit the right class, defer to `oerschema-schema-author`.
    - If the gap is a component-internal accessibility issue, defer to `hax-a11y-audit` /
      `hax-webcomponent-dev`.
 10. **Determine the overall rating:**
@@ -158,6 +162,7 @@ backend/plugin maintainer. Never edit source files from within this skill.
 but contains no `itemscope`/`itemtype`/`itemprop`.
 
 **Output:**
+
 ```
 ### 📊 OER Schema Integration Diagnostics
 * **Integration Rating:** Unwired
@@ -198,6 +203,7 @@ This finder is the diagnosis step. Implement with:
   coverage.
 
 **CLI/rules reminders (from PRAW RULES.md):**
+
 - Per PRAW rules, when issues are found in minified build data for HAXcms PHP/NodeJS, fix in the
   webcomponents monorepo first; the user runs the ubiquity build (the agent does not).
 - Do not run the ubiquity script. Do not run a top-of-monorepo build. Use the local `hax` command,
@@ -221,7 +227,7 @@ This finder is the diagnosis step. Implement with:
   `render()` (the runtime surface) and/or expose schema-relevant fields in its `haxProperties`
   (the authoring surface). A hit on one is independent of the other — report both if both are
   missing.
-- **Don't confuse content gaps with code gaps.** If an element *emits* microdata but a page using
+- **Don't confuse content gaps with code gaps.** If an element _emits_ microdata but a page using
   it is still uncovered, that is an `oerschema-audit` finding (the author didn't supply the
   property values), not a code hit.
 - **Verify domain with inheritance.** `Quiz` is a valid `assessing` domain because
@@ -229,7 +235,7 @@ This finder is the diagnosis step. Implement with:
   domain violation.
 - **The VitePress plugin maps `::: assessment` to `Assessment`, not `Quiz`.** A quiz in VitePress
   is `::: assessment type="Quiz"`. The lack of a dedicated `::: quiz` directive is a plugin hit,
-  but the *content* can still be correctly classed via `type="Quiz"` → `additionalType`. Report
+  but the _content_ can still be correctly classed via `type="Quiz"` → `additionalType`. Report
   the missing directive as an authoring-ergonomics hit, not a correctness hit.
 - **NodeJS v0 routes are out of scope.** Per PRAW rules, only `siteRoutes api/v1` is in scope; do
   not flag `src/routes/*` (legacy v0) — those are left alone until v1 migration.
@@ -255,4 +261,4 @@ This finder is the diagnosis step. Implement with:
 - `oerschema-audit` skill's `references/vocabulary.md` — OER Schema v1.2.0 class/property tables
   (consult, do not duplicate)
 - OER Schema vocabulary source: `oerschema` repo `app/lib/schema.ts`
-- PRAW RULES.md: `~/Documents/git/haxtheweb/praw/RULES.md`
+- PRAW RULES.md: `https://github.com/haxtheweb/praw/blob/main/RULES.md`

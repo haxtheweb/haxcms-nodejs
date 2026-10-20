@@ -1,16 +1,19 @@
 ---
 name: hax-ubd-essential-questions
-description: >
-  Author UbD essential questions and entry questions from the six-facet question
-  starter bank. Use when the user says "write essential questions", "good
-  questions for X", "craft an essential question", or "what entry question opens
-  this unit". Distinguishes overarching vs. topical and essential vs. leading.
-  Companion to hax-ubd-stage1; sibling to grad-blooms.
+description: 'Author UbD essential and entry questions from the six-facet starter bank, separating overarching from topical and essential from leading. Use for "write essential questions". Companion to hax-ubd-stage1.'
 version: 1.0.0
 license: MIT
 metadata:
   author: PRAW
-  tags: [instructional-design, understanding-by-design, ubd, essential-questions, inquiry, hax]
+  tags:
+    [
+      instructional-design,
+      understanding-by-design,
+      ubd,
+      essential-questions,
+      inquiry,
+      hax,
+    ]
   requirements: "A topic, big idea, or enduring understanding to build questions for. Emits stop-note blocks for page placement."
 ---
 
@@ -24,7 +27,7 @@ use it when the user specifically needs questions authored or sharpened.
 ## The core distinction
 
 An **essential question** lies at the heart of a subject, promotes inquiry and
-*uncoverage*, and yields different plausible responses about which thoughtful
+_uncoverage_, and yields different plausible responses about which thoughtful
 people may disagree. A **leading question** has a correct, straightforward
 answer — useful for teaching and checking knowledge, but NOT an EQ. If your
 question has one right answer, it is leading; reclassify it and move it to K/S.
@@ -60,14 +63,14 @@ question has one right answer, it is leading; reclassify it and move it to K/S.
 
 ## Six-facet question starter bank (after UbD Fig 5.3)
 
-| Facet | Question stems |
-|---|---|
-| Explanation | Why is that so? What explains such events? How can we prove it? To what is this connected? How does this work? What is implied? |
-| Interpretation | What does it mean? Why does it matter? What of it? How does it relate to me? What makes sense? |
-| Application | How and where can we use this knowledge/skill? How should my thinking change to meet this situation? |
-| Perspective | From whose point of view? What is assumed that needs to be made explicit? Is there adequate evidence? What are the limits? So what? |
-| Empathy | What do they see that I don't? What would it feel like to be…? What was the writer/artist feeling, thinking, seeing? |
-| Self-Knowledge | How does who I am shape my views? What are the limits of my understanding? What are my blind spots? |
+| Facet          | Question stems                                                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Explanation    | Why is that so? What explains such events? How can we prove it? To what is this connected? How does this work? What is implied?     |
+| Interpretation | What does it mean? Why does it matter? What of it? How does it relate to me? What makes sense?                                      |
+| Application    | How and where can we use this knowledge/skill? How should my thinking change to meet this situation?                                |
+| Perspective    | From whose point of view? What is assumed that needs to be made explicit? Is there adequate evidence? What are the limits? So what? |
+| Empathy        | What do they see that I don't? What would it feel like to be…? What was the writer/artist feeling, thinking, seeing?                |
+| Self-Knowledge | How does who I am shape my views? What are the limits of my understanding? What are my blind spots?                                 |
 
 ## Output Format
 
@@ -107,4 +110,4 @@ question has one right answer, it is leading; reclassify it and move it to K/S.
 ## References
 
 - `../hax-ubd-backward-design/references/ubd-element-map.md` — Stage 1 component map
-- Source: Wiggins & McTighe (2005), *UbD* Ch. 5, Fig 5.2–5.3.
+- Source: Wiggins & McTighe (2005), _UbD_ Ch. 5, Fig 5.2–5.3.

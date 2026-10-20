@@ -1,16 +1,19 @@
 ---
 name: hax-content-chunking-audit
-description: >
-  Audit a HAX site page (JSON Outline Schema node, raw HTML in pages/, or markdown) against
-  cognitive-load and content-chunking instructional-design standards, then return actionable HAX
-  web-component remediation. Use when the user asks to review a course page, textbook module, or
-  HAX site for readability, "wall of text", overly long sections, list fatigue, media saturation,
-  microlearning chunking, or to "make this page less overwhelming" — even if they don't say "audit".
+description: 'Audit a HAX page against cognitive-load and chunking standards and return HAX remediation. Use for "wall of text", overly long sections, list fatigue or "make this page less overwhelming".'
 version: 1.0.0
 license: MIT
 metadata:
   author: PRAW
-  tags: [instructional-design, hax, content-chunking, microlearning, cognitive-load, audit]
+  tags:
+    [
+      instructional-design,
+      hax,
+      content-chunking,
+      microlearning,
+      cognitive-load,
+      audit,
+    ]
   requirements: "Access to HAX site schema JSON (site.json / JOS items), raw HTML pages in pages/, or markdown representations of course nodes."
 ---
 
@@ -22,12 +25,14 @@ standards, then pair every violation with a real, HAX-capable web component that
 ## When to Use
 
 **Trigger conditions:**
+
 - Reviewing an online course page, textbook module, or HAX site node for readability and structure
 - The page comes from a HAX project (`site.json`, `pages/*.html`, a JOS items export, or markdown)
 - The user says a page is "too long", "wall of text", "overwhelming", "too many bullets", or asks
   for microlearning / chunking improvements
 
 **When NOT to use:**
+
 - Writing learning objectives or assessing cognitive-level balance — use the `grad-blooms` skill
 - Creating a brand-new site or restructuring `site.json` — use the `hax-site-building` skill
 - Auditing CSS for DDD design-system compliance — use the `hax-design-system` skill
@@ -72,15 +77,15 @@ actual measurement so the human can judge.
 
 Every recommendation must use a real HAX component. Default mappings:
 
-| Issue | HAX component | Notes |
-|---|---|---|
-| Wall of text / needs active retrieval | `self-check`, `multiple-choice`, `fill-in-the-blanks` | Insert a check-in at the split point to promote retrieval |
-| Reflection / "stop and think" break | `stop-note` | The HAX reflection/stop component |
-| Heading gap / long section | new `h2`/`h3` + `stop-note` or `self-check` | Subdivide and add a check-in |
-| List fatigue (>7 items) | `a11y-collapse` (grouped) or `a11y-tabs` (categorized) | Progressive disclosure; always set `heading-button` on `a11y-collapse` |
-| Media saturation (video >10 min) | `video-player` (segmented) + `self-check` between segments | Break into chapters with check-ins |
-| Media saturation (audio >10 min) | `media-playlist` + `audio-player` | Preferred HAX audio presentation |
-| Flash-card / retrieval reinforcement | `flash-card` | For key-term review |
+| Issue                                 | HAX component                                              | Notes                                                                  |
+| ------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Wall of text / needs active retrieval | `self-check`, `multiple-choice`, `fill-in-the-blanks`      | Insert a check-in at the split point to promote retrieval              |
+| Reflection / "stop and think" break   | `stop-note`                                                | The HAX reflection/stop component                                      |
+| Heading gap / long section            | new `h2`/`h3` + `stop-note` or `self-check`                | Subdivide and add a check-in                                           |
+| List fatigue (>7 items)               | `a11y-collapse` (grouped) or `a11y-tabs` (categorized)     | Progressive disclosure; always set `heading-button` on `a11y-collapse` |
+| Media saturation (video >10 min)      | `video-player` (segmented) + `self-check` between segments | Break into chapters with check-ins                                     |
+| Media saturation (audio >10 min)      | `media-playlist` + `audio-player`                          | Preferred HAX audio presentation                                       |
+| Flash-card / retrieval reinforcement  | `flash-card`                                               | For key-term review                                                    |
 
 When styling any inserted component, use DDD design tokens for spacing, color, and icon sizing via
 the `hax-design-system` skill. Apply OER Schema metadata to educational elements for semantic
@@ -114,20 +119,32 @@ Format findings exactly like this structure:
 ### Worked example
 
 **Input** — HAX page snippet:
+
 ```json
 [
-  { "tag": "p", "content": "Lorem ipsum dolor sit amet … [250 words uninterrupted] … ut enim ad minim veniam." },
-  { "tag": "ul", "children": [
-      { "tag": "li", "content": "Item 1" }, { "tag": "li", "content": "Item 2" },
-      { "tag": "li", "content": "Item 3" }, { "tag": "li", "content": "Item 4" },
-      { "tag": "li", "content": "Item 5" }, { "tag": "li", "content": "Item 6" },
-      { "tag": "li", "content": "Item 7" }, { "tag": "li", "content": "Item 8" },
+  {
+    "tag": "p",
+    "content": "Lorem ipsum dolor sit amet … [250 words uninterrupted] … ut enim ad minim veniam."
+  },
+  {
+    "tag": "ul",
+    "children": [
+      { "tag": "li", "content": "Item 1" },
+      { "tag": "li", "content": "Item 2" },
+      { "tag": "li", "content": "Item 3" },
+      { "tag": "li", "content": "Item 4" },
+      { "tag": "li", "content": "Item 5" },
+      { "tag": "li", "content": "Item 6" },
+      { "tag": "li", "content": "Item 7" },
+      { "tag": "li", "content": "Item 8" },
       { "tag": "li", "content": "Item 9" }
-  ] }
+    ]
+  }
 ]
 ```
 
 **Output:**
+
 ```
 ### 📊 Content Chunking Diagnostics
 * **Cognitive Load Rating:** Needs Improvement
@@ -174,6 +191,7 @@ This audit is the diagnosis step. Apply the fixes with these related skills and 
   learning objective (don't insert a Remember-level quiz where an Analyze prompt is needed).
 
 **CLI rules (from PRAW RULES.md):**
+
 - Use the local/global `hax` command — **not** `npx hax` (resolves to a different package).
 - When scripting, always pass automation flags to avoid prompts/new windows: `--y --no-i`
   (add `--auto` / `--quiet` / `--skip` as needed).
@@ -195,7 +213,7 @@ This audit is the diagnosis step. Apply the fixes with these related skills and 
 
 ## References
 
-- PRAW RULES.md: `~/Documents/git/haxtheweb/praw/RULES.md` (canonical ecosystem rules by Rule ID)
+- PRAW RULES.md: `https://github.com/haxtheweb/praw/blob/main/RULES.md` (canonical ecosystem rules by Rule ID)
 - Related skills: `hax-claudehax`, `hax-site-building`, `hax-design-system`, `grad-blooms`
-- HAX web components registry: `~/Documents/git/haxtheweb/webcomponents/elements`
+- HAX web components registry: `https://github.com/haxtheweb/webcomponents/tree/master/elements`
 - HAX CLI: `hax site --help`, `hax --help`

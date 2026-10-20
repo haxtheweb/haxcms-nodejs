@@ -1,17 +1,20 @@
 ---
 name: hax-ubd-unit-audit
-description: >
-  READ-ONLY diagnostic: review an existing HAX site/unit against Understanding by
-  Design standards and emit a report with actionable HAX remediation. Use when the
-  user says "review this unit for understanding", "is my course backward-designed",
-  "audit my HAX site against UbD", "are my assessments aligned", or "does this unit
-  have big ideas" — even if they don't say "UbD". Diagnoses only; hands off to the
-  stage skills and hax-claudehax for remediation.
+description: 'READ-ONLY review of an existing HAX unit against Understanding by Design with HAX remediation. Use for "is my course backward-designed" or "are my assessments aligned". Hands off to the stage skills.'
 version: 1.0.0
 license: MIT
 metadata:
   author: PRAW
-  tags: [instructional-design, understanding-by-design, ubd, audit, alignment, hax, diagnostic]
+  tags:
+    [
+      instructional-design,
+      understanding-by-design,
+      ubd,
+      audit,
+      alignment,
+      hax,
+      diagnostic,
+    ]
   requirements: "A HAX site path (site.json + pages/*.html), optionally a files/ubd/*.manifest.json. Emits a report; does NOT edit pages or site.json."
 ---
 
@@ -26,12 +29,14 @@ it does not edit pages, mutate `site.json`, or insert components. It mirrors the
 ## When to Use
 
 **Trigger conditions:**
+
 - "Review this unit for understanding" / "is my course backward-designed"
 - "Audit my HAX site against UbD" / "are my assessments aligned"
 - "Does this unit have big ideas" / "why does this unit feel like coverage"
 - even when the user does not say "UbD" — if they question a unit's intellectual coherence or assessment alignment, this is the skill
 
 **When NOT to use (with redirect):**
+
 - Page readability / "wall of text" / chunking → `hax-content-chunking-audit` (page scope)
 - DDD/CSS compliance → `hax-design-system`
 - Component accessibility audit → `hax-webcomponent-dev`
@@ -54,7 +59,7 @@ apply remediation, hand off to the UbD stage skills and the `hax` CLI / `hax-cla
 1. **Ingest structure.** Locate the unit in the HAX project:
    - `site.json` (JSON Outline Schema) for the node tree + metadata
    - `pages/<slug>.html` for rendered page content (the canonical content source)
-   - `files/ubd/<unit-slug>.manifest.json` if the unit was designed with the UbD skills (else reconstruct a *partial* manifest from the live site for alignment checking)
+   - `files/ubd/<unit-slug>.manifest.json` if the unit was designed with the UbD skills (else reconstruct a _partial_ manifest from the live site for alignment checking)
 2. **Run the 12 UbD design-standards checks** (`../hax-ubd-backward-design/references/design-standards.md`) across the unit:
    - Big-idea focus present, visible, transferable?
    - Enduring understandings proposition-shaped (not topics/facts)?
@@ -103,6 +108,7 @@ text page, a vocabulary word-search page, and a 10-item `multiple-choice` quiz.
 No manifest present.
 
 **Output:**
+
 ```
 ### 📊 UbD Design Diagnostics
 * **Backward-Design Rating:** Activity-oriented
@@ -154,11 +160,12 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 - **`hax-ubd-backward-design`** — full redesign when the rating is Activity-oriented or Coverage-bound.
 - **`hax-ubd-stage1` / `hax-ubd-stage2` / `hax-ubd-stage3`** — targeted rebuild of the failing stage(s) when the rating is Partial.
 - **`hax-claudehax`** — insert components/sections into existing pages (e.g. `/hax add a stop-note carrying the essential question to <page>`).
-- **`hax-site-building`** — owns page structure; edit page *content* at `pages/<slug>.html`; add pages via `hax site node:add` / `site:items-import` (never hand-edit `site.json`).
+- **`hax-site-building`** — owns page structure; edit page _content_ at `pages/<slug>.html`; add pages via `hax site node:add` / `site:items-import` (never hand-edit `site.json`).
 - **`hax-design-system`** — DDD tokens for spacing, color, icon sizing on any inserted component.
 - **`grad-blooms`** — when a check-in/quiz is retained, confirm its cognitive level matches the learning objective.
 
 **CLI rules (from PRAW RULES.md):**
+
 - Use the local/global `hax` command — **not** `npx hax`.
 - When scripting, pass automation flags: `--y --no-i --auto` (add `--quiet` / `--skip` as needed).
 - Never hand-edit `site.json` for structure — use the CLI.
@@ -174,9 +181,9 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 
 ## Gotchas
 
-- **A site can have many `multiple-choice` and still be 0% evidence of *understanding*.** Selected response alone is insufficient — do not rate a quiz-heavy unit as Aligned.
+- **A site can have many `multiple-choice` and still be 0% evidence of _understanding_.** Selected response alone is insufficient — do not rate a quiz-heavy unit as Aligned.
 - **Alignment is the failure mode.** A fun, rich, well-chunked unit can still be Activity-oriented if Stage 2 doesn't align to Stage 1. Don't be fooled by production quality.
-- **"Coverage" is negative; "survey"/"overview" is legitimate.** Do not flag a purposeful, transparent overview as coverage-bound. Coverage is content march with *no overarching intellectual purpose*.
+- **"Coverage" is negative; "survey"/"overview" is legitimate.** Do not flag a purposeful, transparent overview as coverage-bound. Coverage is content march with _no overarching intellectual purpose_.
 - **Don't edit here.** This skill emits a report. Structural edits belong to the `hax` CLI via `hax-site-building`; content edits belong in `pages/<slug>.html` or via `hax-claudehax`; redesign belongs to the UbD stage skills.
 - **A missing manifest is a finding, not a blocker.** Reconstruct a partial manifest from the live site to check alignment, and note "no manifest — designed without UbD skills" as context.
 
@@ -192,5 +199,5 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 - `../hax-ubd-backward-design/references/ubd-element-map.md` — remediation component map (real tags only)
 - `../hax-ubd-backward-design/references/validity-self-test.md` — run on each assessment
 - `../hax-ubd-backward-design/references/manifest-schema.md` — for reconstructing/validating a partial manifest
-- PRAW RULES.md: `~/Documents/git/haxtheweb/praw/RULES.md`
-- Source: Wiggins & McTighe (2005), *UbD* — design standards (Appendix) + Fig 8.5.
+- PRAW RULES.md: `https://github.com/haxtheweb/praw/blob/main/RULES.md`
+- Source: Wiggins & McTighe (2005), _UbD_ — design standards (Appendix) + Fig 8.5.

@@ -1,21 +1,24 @@
 ---
 name: hax-a11y-audit
-description: >
-  READ-ONLY diagnostic: review authored HAX page/site content against WCAG 2.0 AA
-  (image alt text, heading hierarchy, landmark structure, link text, form labels, color
-  contrast, media caption/transcript/audio-description presence, keyboard/focus, ARIA
-  correctness, data-table markup, list semantics) and emit a report with actionable HAX
-  web-component + plain-HTML remediation. Use when the user says "is this accessible",
-  "audit for WCAG", "check my page for accessibility", "does this meet WCAG 2.0 AA",
-  "screen reader test", "are my images described", "is my color contrast OK",
-  "do my videos have captions", or "accessibility audit" — even if they don't say
-  "WCAG" or "a11y". Diagnoses only; hands off to hax-claudehax / hax-site-building for
-  remediation and to hax-media-a11y for media-depth work.
+description: 'READ-ONLY WCAG 2.0 AA audit of authored HAX pages (alt text, headings, landmarks, contrast, captions, keyboard, ARIA) with HAX remediation. Use for "is this accessible" or "audit for WCAG". Diagnoses only; hands off to hax-site-building.'
 version: 1.0.0
 license: MIT
 metadata:
   author: PRAW
-  tags: [accessibility, wcag, wcag-2-0-aa, a11y, audit, hax, diagnostic, compliance, contrast, captions, screen-reader]
+  tags:
+    [
+      accessibility,
+      wcag,
+      wcag-2-0-aa,
+      a11y,
+      audit,
+      hax,
+      diagnostic,
+      compliance,
+      contrast,
+      captions,
+      screen-reader,
+    ]
   requirements: "A HAX site path (site.json + pages/*.html) or a single page (JOS node / raw HTML / markdown). Emits a report; does NOT edit pages or site.json."
 ---
 
@@ -30,7 +33,7 @@ meet the technical access standard for people with disabilities?
 ## The worldview in one paragraph
 
 WCAG 2.0 AA is an explicit HAX ecosystem pillar — the ecosystem commits to it in its community
-pillars and component audits — yet no existing skill audits *authored content* for it. This
+pillars and component audits — yet no existing skill audits _authored content_ for it. This
 skill fills that gap. WCAG is about **technical access for people with disabilities**: can a
 screen-reader user perceive the content, can a keyboard-only user operate it, is contrast
 sufficient for low-vision users, are media alternatives present. This is distinct from **UDL**
@@ -45,6 +48,7 @@ the WCAG criterion, and recommends only real remediation — never an invented t
 ## When to Use
 
 **Trigger conditions:**
+
 - "Is this accessible" / "audit for WCAG" / "check my page for accessibility"
 - "Does this meet WCAG 2.0 AA" / "screen reader test" / "accessibility audit"
 - "Are my images described" / "is my color contrast OK" / "do my videos have captions"
@@ -54,13 +58,14 @@ the WCAG criterion, and recommends only real remediation — never an invented t
   skill
 
 **When NOT to use (with redirect):**
+
 - Component-INTERNAL accessibility (a custom element's own shadow DOM ARIA/keyboard/tabindex) → `hax-webcomponent-dev`
 - Pedagogical inclusivity / multiple means / learner agency → `hax-udl-audit`
 - Page-scope cognitive load / "wall of text" / chunking → `hax-content-chunking-audit`
 - DDD/CSS token-usage compliance (is the DDD token used at all) → `hax-design-system`
 - MEDIA DEPTH (caption quality/timing/accuracy, transcript fidelity, audio-description
   authoring/coverage, asset production) → `hax-media-a11y` (this skill flags media
-  caption/transcript/audio-description *presence* as a WCAG 1.2 finding and hands off to
+  caption/transcript/audio-description _presence_ as a WCAG 1.2 finding and hands off to
   `hax-media-a11y` for depth + asset production — see the overlap rule below)
 - Unit alignment / backward design → `hax-ubd-unit-audit`
 - Cognitive level of an objective/assessment → `grad-blooms`
@@ -96,8 +101,8 @@ Recommendations" below). Never edit `pages/*.html` or `site.json` from within th
    - **1.4 Distinguishable / contrast (1.4.3 text, 1.4.11 UI):** authored text and UI
      components meet 4.5:1 (normal text < 18pt / 14pt bold) or 3:1 (large text ≥ 18pt /
      14pt bold, and UI component boundaries). Compute ratios against the DDD token values the
-     page uses. Report the actual ratio and the token pair. (Token *usage* compliance — did
-     the author use a DDD token at all — is `hax-design-system`'s job; *contrast checking*
+     page uses. Report the actual ratio and the token pair. (Token _usage_ compliance — did
+     the author use a DDD token at all — is `hax-design-system`'s job; _contrast checking_
      against token values is this skill's job.)
    - **2.4 Navigable / link text (2.4.4, 2.4.9):** no "click here", "read more", "learn more",
      or bare URLs as link text. Every link's purpose is clear from the link text alone (or
@@ -132,17 +137,17 @@ Recommendations" below). Never edit `pages/*.html` or `site.json` from within th
    `lrndesign-sidenote`, `link-preview`, `model-viewer` are excluded).
 4. **Apply the overlap / defer rules:**
    - **Media depth (SYMMETRIC with `hax-media-a11y`):** when a media finding is about caption
-     *quality*, transcript *fidelity*, or audio-description *authoring/coverage*, defer to
-     `hax-media-a11y`. This skill reports media *presence* (is there a `track` at all?) as a
+     _quality_, transcript _fidelity_, or audio-description _authoring/coverage_, defer to
+     `hax-media-a11y`. This skill reports media _presence_ (is there a `track` at all?) as a
      WCAG 1.2 finding and hands the depth work off. State this split explicitly in the finding
      so the orchestrator knows where to send the follow-up. This rule is symmetric: if
-     `hax-media-a11y` discovers a *presence* gap (no track file exists), it should hand back
+     `hax-media-a11y` discovers a _presence_ gap (no track file exists), it should hand back
      to this skill to file the WCAG 1.2 finding.
    - **Component-internal a11y:** if the failure is inside a custom element's shadow DOM
      (the element's own tabindex/ARIA/keyboard), defer to `hax-webcomponent-dev`.
    - **Pure token usage:** if the only issue is "the author hardcoded a hex color instead of
      a DDD token," that is `hax-design-system`'s scope. This skill only checks contrast
-     *ratios* against the tokens the page actually uses.
+     _ratios_ against the tokens the page actually uses.
    - **Cognitive load / chunking:** if the page is a wall of text, that is
      `hax-content-chunking-audit`'s scope — do not double-report it as a WCAG finding.
 5. **Determine the overall rating:**
@@ -184,20 +189,21 @@ Format findings exactly like this structure (mirrors `hax-udl-audit` / `hax-ubd-
 ## Worked example
 
 **Input** — a HAX page (`pages/intro.html`) containing:
+
 ```html
 <h2>Introduction</h2>
-<p>Welcome to the course. <a href="/syllabus">Click here</a> for the syllabus.</p>
-<media-image
-  source="files/enrollment-chart.png"
-  alt="">
-</media-image>
+<p>
+  Welcome to the course. <a href="/syllabus">Click here</a> for the syllabus.
+</p>
+<media-image source="files/enrollment-chart.png" alt=""> </media-image>
 <h4>Course goals</h4>
 <p>By the end you will...</p>
 <label>Search</label>
-<input type="text" name="q">
+<input type="text" name="q" />
 ```
 
 **Output:**
+
 ```
 ### 📊 WCAG 2.0 AA Diagnostics
 * **WCAG Rating:** Partial
@@ -262,14 +268,14 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 - **`hax-claudehax`** — insert/replace components in existing pages:
   - `/hax replace the unlabelled input in <page> with a simple-fields search input`
   - `/hax add an accessible figure with caption to <page> using a11y-figure`
-- **`hax-site-building`** — owns page structure; edit page *content* at `pages/<slug>.html`
+- **`hax-site-building`** — owns page structure; edit page _content_ at `pages/<slug>.html`
   directly for plain-HTML fixes (alt text, headings, landmarks, link text, table markup, label
   association); add pages via `hax site node:add --title "<t>" --slug "<s>" --content <path> --format html --y --no-i` (single) or `hax site site:items-import --items-import <items.json> --y --no-i` (bulk); verify with `hax site site:items`. Never hand-edit `site.json`.
 - **`hax-design-system`** — DDD tokens for spacing, color, icon sizing on any inserted
   component; and pure token-usage compliance (did the author use a DDD token at all?).
 - **`hax-media-a11y`** — media DEPTH: caption quality/timing/accuracy, transcript fidelity,
   audio-description authoring/coverage, asset production. This skill flags media
-  caption/transcript/audio-description *presence* (WCAG 1.2) and hands off to
+  caption/transcript/audio-description _presence_ (WCAG 1.2) and hands off to
   `hax-media-a11y` for depth.
 - **`hax-webcomponent-dev`** — component-INTERNAL accessibility (a custom element's own shadow
   DOM ARIA/keyboard/tabindex).
@@ -279,6 +285,7 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
   chunking.
 
 **CLI rules (from PRAW RULES.md):**
+
 - Use the local/global `hax` command — **not** `npx hax` (resolves to a different package).
 - When scripting, pass automation flags to avoid prompts/new windows: `--y --no-i` (add `--auto` / `--quiet` / `--skip` as needed).
 - Never hand-edit `site.json` for structure — use the CLI.
@@ -338,6 +345,6 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 ## References
 
 - `references/a11y-element-map.md` — WCAG failure → HAX component swap / plain-HTML fix map (verified tags only; the iron rule)
-- PRAW RULES.md: `~/Documents/git/haxtheweb/praw/RULES.md`
-- W3C (2008). *Web Content Accessibility Guidelines (WCAG) 2.0*. https://www.w3.org/TR/WCAG20/
-- W3C (2023). *WCAG 2.0 Quick Reference*. https://www.w3.org/WAI/WCAG20/quickref/
+- PRAW RULES.md: `https://github.com/haxtheweb/praw/blob/main/RULES.md`
+- W3C (2008). _Web Content Accessibility Guidelines (WCAG) 2.0_. https://www.w3.org/TR/WCAG20/
+- W3C (2023). _WCAG 2.0 Quick Reference_. https://www.w3.org/WAI/WCAG20/quickref/

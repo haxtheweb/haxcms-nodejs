@@ -1,17 +1,21 @@
 ---
 name: hax-ubd-stage3
-description: >
-  UbD Stage 3 — plan learning experiences via WHERETO, derived from Stages 1+2.
-  Enforce uncoverage over coverage and build feedback/revision cycles. Use when
-  the user says "sequence this unit", "plan the learning activities", "WHERETO
-  my unit", "how do I teach for understanding", or "organize these pages".
-  Encodes UbD Ch. 9–10. Stage 3 points AT Stage 2 evidence; it never invents new
-  endpoints.
+description: 'UbD Stage 3: plan learning experiences with WHERETO, derived from Stages 1 and 2. Use for "sequence this unit" or "plan the learning activities"; points at Stage 2 evidence and never invents endpoints.'
 version: 1.0.0
 license: MIT
 metadata:
   author: PRAW
-  tags: [instructional-design, understanding-by-design, ubd, stage3, whereto, uncoverage, learning-plan, hax]
+  tags:
+    [
+      instructional-design,
+      understanding-by-design,
+      ubd,
+      stage3,
+      whereto,
+      uncoverage,
+      learning-plan,
+      hax,
+    ]
   requirements: "manifest.stage1 AND manifest.stage2 MUST be populated (Stage 3 is derived from goals + evidence). Writes manifest.stage3 + site.json ordering + per-page component plan."
 ---
 
@@ -19,7 +23,7 @@ metadata:
 
 Derive and sequence learning experiences **from** Stages 1 and 2 via **WHERETO**,
 enforcing **uncoverage over coverage** and building **feedback + revision
-cycles**. This is Stage 3 of UbD — the learning plan. It comes *last* in backward
+cycles**. This is Stage 3 of UbD — the learning plan. It comes _last_ in backward
 design because every activity must be justified by the goals (Stage 1) and the
 targeted performances (Stage 2).
 
@@ -31,11 +35,13 @@ learning activity among many.
 ## When to Use
 
 **Trigger conditions:**
+
 - "Sequence this unit" / "plan the learning activities" / "WHERETO my unit"
 - "How do I teach for understanding" / "organize these pages"
 - You are `hax-ubd-backward-design` and have reached step 5 of its methodology
 
 **When NOT to use (with redirect):**
+
 - Page-level cognitive load / chunking → `hax-content-chunking-audit` (chunking = page scope; WHERETO = unit scope)
 - Cognitive level of an objective → `grad-blooms`
 - Goals → `hax-ubd-stage1`; evidence/assessments → `hax-ubd-stage2`
@@ -43,7 +49,7 @@ learning activity among many.
 ## Scope
 
 **Mutating.** Writes `manifest.stage3` + `site.json` page ordering + a per-page
-component plan. Does NOT invent new endpoints — Stage 3 points *at* Stage 2's
+component plan. Does NOT invent new endpoints — Stage 3 points _at_ Stage 2's
 evidence (the Exhibit references a real `stage2.performanceTasks[*].id`).
 
 ## Inputs
@@ -56,7 +62,7 @@ evidence (the Exhibit references a real `stage2.performanceTasks[*].id`).
 
 2. **Sequence via WHERETO** (UbD Fig 9.1), mapping each letter to HAX (table below). The two E's are distinct: Explore/Equip (build knowledge + coach skills) vs. Exhibit/Evaluate (the final performance).
 
-3. **Uncoverage over coverage.** Use progressive disclosure (`a11y-collapse` with `heading-button`, `a11y-tabs`) for depth. Never page-march a textbook. Coverage = "teaching by mentioning it"; uncoverage = going into depth on the big ideas. (A purposeful *survey* is legitimate; coverage is not.)
+3. **Uncoverage over coverage.** Use progressive disclosure (`a11y-collapse` with `heading-button`, `a11y-tabs`) for depth. Never page-march a textbook. Coverage = "teaching by mentioning it"; uncoverage = going into depth on the big ideas. (A purposeful _survey_ is legitimate; coverage is not.)
 
 4. **Feedback + revision cycles.** Insert `self-check` / `stop-note` loops (Rethink/Revise) between Explore and Exhibit. Understanding develops through inquiry + rethinking; build in perform→feedback→revise→perform cycles, as in apprenticeship/coaching.
 
@@ -66,15 +72,15 @@ evidence (the Exhibit references a real `stage2.performanceTasks[*].id`).
 
 ## HAX Component Map (WHERETO)
 
-| Letter | Meaning | Component(s) |
-|---|---|---|
-| W | Where/Why — show destination + criteria | `progress-donut` / `simple-progress` / `promise-progress` + page intro |
-| H | Hook — provocative entry | `video-player`, `image-compare-slider`, `media-quote`, `stop-note` (provocative Q) |
-| E | Explore/Equip — content + coaching | content + `flash-card`, `self-check`, `lrndesign-imagemap` |
-| R | Rethink/Revise — feedback cycles | `self-check` + `stop-note` loops, `flash-card` (retrieval) |
-| E | Exhibit/Evaluate — the performance | GRASPS page (ref Stage 2) + `clean-portfolio-theme` / `glossy-portfolio-theme` + `grade-book` + `editable-table` rubric |
-| T | Tailor — differentiate / choice | `a11y-tabs`, `a11y-collapse` (set `heading-button`) |
-| O | Organize — sequence + uncoverage | `site.json` ordering + `map-menu` + `a11y-collapse` (set `heading-button`) |
+| Letter | Meaning                                 | Component(s)                                                                                                            |
+| ------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| W      | Where/Why — show destination + criteria | `progress-donut` / `simple-progress` / `promise-progress` + page intro                                                  |
+| H      | Hook — provocative entry                | `video-player`, `image-compare-slider`, `media-quote`, `stop-note` (provocative Q)                                      |
+| E      | Explore/Equip — content + coaching      | content + `flash-card`, `self-check`, `lrndesign-imagemap`                                                              |
+| R      | Rethink/Revise — feedback cycles        | `self-check` + `stop-note` loops, `flash-card` (retrieval)                                                              |
+| E      | Exhibit/Evaluate — the performance      | GRASPS page (ref Stage 2) + `clean-portfolio-theme` / `glossy-portfolio-theme` + `grade-book` + `editable-table` rubric |
+| T      | Tailor — differentiate / choice         | `a11y-tabs`, `a11y-collapse` (set `heading-button`)                                                                     |
+| O      | Organize — sequence + uncoverage        | `site.json` ordering + `map-menu` + `a11y-collapse` (set `heading-button`)                                              |
 
 Full map (all stages): `../hax-ubd-backward-design/references/ubd-element-map.md`.
 
@@ -109,9 +115,9 @@ Full map (all stages): `../hax-ubd-backward-design/references/ubd-element-map.md
 
 ## Gotchas
 
-- **"Teaching" is only one learning activity.** Don't default to direct instruction. The focus is planning *learnings*, not *teachings*.
-- **Don't duplicate Stage 2's evidence as a new "Exhibit."** The exhibit *is* the GRASPS task. If you find yourself inventing a new culminating task, stop — you're in Stage 2 territory; go back.
-- **Over-fragmenting hurts.** A coherent short argument split into tiny chunks can hurt coherence more than a readable block helps (same caveat as `hax-content-chunking-audit`). Use progressive disclosure for *depth*, not to mince cohesive content.
+- **"Teaching" is only one learning activity.** Don't default to direct instruction. The focus is planning _learnings_, not _teachings_.
+- **Don't duplicate Stage 2's evidence as a new "Exhibit."** The exhibit _is_ the GRASPS task. If you find yourself inventing a new culminating task, stop — you're in Stage 2 territory; go back.
+- **Over-fragmenting hurts.** A coherent short argument split into tiny chunks can hurt coherence more than a readable block helps (same caveat as `hax-content-chunking-audit`). Use progressive disclosure for _depth_, not to mince cohesive content.
 - **Uncoverage ≠ never surveying.** A purposeful, transparent overview is legitimate. Coverage (content march with no overarching purpose) is the sin.
 - **WHERETO is a checklist, not a rigid order.** The letters ensure nothing is forgotten; the actual order serves the learners. But W (where we're going) almost always comes early, and Exhibit comes last.
 
@@ -125,5 +131,5 @@ Full map (all stages): `../hax-ubd-backward-design/references/ubd-element-map.md
 - `../hax-ubd-backward-design/references/manifest-schema.md` — `stage3` fields
 - `../hax-ubd-backward-design/references/ubd-element-map.md` — WHERETO component map
 - `../hax-ubd-backward-design/references/design-standards.md` — standards 10–12
-- PRAW RULES.md: `~/Documents/git/haxtheweb/praw/RULES.md`
-- Source: Wiggins & McTighe (2005), *UbD* Ch. 9–10.
+- PRAW RULES.md: `https://github.com/haxtheweb/praw/blob/main/RULES.md`
+- Source: Wiggins & McTighe (2005), _UbD_ Ch. 9–10.
