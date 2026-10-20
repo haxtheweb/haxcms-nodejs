@@ -252,7 +252,11 @@ function getConversionUploadMaxBytes(config = null, env = process.env) {
 }
 
 // Decode the request path once (as send/res.sendFile does before touching the
-// filesystem) so encoded tricks like x%2ehtml cannot dodge the extension test.
+// filesystem) so encoded tricks like x%2ehtml cannot dodge the extension test,
+// then normalize it the way the filesystem lookup does: send resolves "." and
+// ".." segments and repeated slashes via path.join/normalize, so
+// /files/x.html/. and /files//x.html reach the same file as /files/x.html and
+// must be judged as that path (the last raw segment of the former is ".").
 function decodeRequestPathForFilesGuard(url = '') {
   const rawPath = String(url || '').split('?')[0].split('#')[0];
   let decoded = rawPath;
@@ -262,14 +266,17 @@ function decodeRequestPathForFilesGuard(url = '') {
   catch (e) {
     decoded = rawPath;
   }
-  return decoded.replace(/\\/g, '/');
+  decoded = decoded.replace(/\\/g, '/');
+  return decoded === '' ? decoded : path.posix.normalize(decoded);
 }
 
 // True when the (decoded) path is somewhere below a files/ directory. 'files'
 // must be a directory segment, not the final segment, so a page slug such as
-// /files is not treated as an upload.
+// /files is not treated as an upload. Compared case-insensitively because
+// case-insensitive filesystems (macOS, Windows, so the desktop app) resolve
+// /FILES/x.html to the same upload directory.
 function isFilesDirectoryRequestPath(decodedPath = '') {
-  return String(decodedPath || '').indexOf('/files/') !== -1;
+  return String(decodedPath || '').toLowerCase().indexOf('/files/') !== -1;
 }
 
 // True when the request targets active content (see
@@ -281,6 +288,34 @@ function shouldForceDownloadFilesRequest(url = '') {
     return false;
   }
   const segments = decodedPath.split('/');
+  const lastSegment = segments[segments.length - 1] || '';
+  return FORCE_DOWNLOAD_FILES_EXTENSION_PATTERN.test(lastSegment);
+}
+
+// Defense in depth: the same decision made on the file the static handler
+// actually resolved (the filesystem path), not on the request URL. Mirrors the
+// Apache FilesMatch rule in the site files/.htaccess, which keys on the served
+// file name, so no URL spelling can change the outcome. The path is judged
+// relative to rootDir so a parent directory that happens to be named "files"
+// (e.g. /srv/files/haxcms) does not force every html page to download.
+function shouldForceDownloadResolvedFile(rootDir = '', filePath = '') {
+  if (!rootDir || !filePath) {
+    return false;
+  }
+  const relative = path.relative(String(rootDir), String(filePath));
+  if (
+    relative === ''
+    || relative === '..'
+    || relative.indexOf('..' + path.sep) === 0
+    || path.isAbsolute(relative)
+  ) {
+    return false;
+  }
+  const relativePosix = '/' + relative.split(path.sep).join('/');
+  if (!isFilesDirectoryRequestPath(relativePosix)) {
+    return false;
+  }
+  const segments = relativePosix.split('/');
   const lastSegment = segments[segments.length - 1] || '';
   return FORCE_DOWNLOAD_FILES_EXTENSION_PATTERN.test(lastSegment);
 }
@@ -301,4 +336,5 @@ module.exports = {
   decodeRequestPathForFilesGuard,
   isFilesDirectoryRequestPath,
   shouldForceDownloadFilesRequest,
+  shouldForceDownloadResolvedFile,
 };
