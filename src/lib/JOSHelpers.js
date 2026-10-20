@@ -4,6 +4,7 @@ const { parse } = require("node-html-parser");
 const JSONOutlineSchema = require("./JSONOutlineSchema.js");
 const { resolveContainedPath } = require("./pathConfinement.js");
 const { safeFetch } = require("./safeFetch.js");
+const { urlHostMatches } = require("./urlHost.js");
 
 const WORDSPERMIN = 225;
 
@@ -208,9 +209,7 @@ function typeFromElement(el) {
       const src = String(el.getAttribute("src") || "");
       const className = String(el.getAttribute("class") || "");
       if (
-        src.indexOf("youtube.com") !== -1 ||
-        src.indexOf("youtube-nocookie.com") !== -1 ||
-        src.indexOf("vimeo.com") !== -1
+        urlHostMatches(src, ["youtube.com", "youtube-nocookie.com", "vimeo.com"])
       ) {
         return "video";
       }

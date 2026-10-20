@@ -142,11 +142,21 @@ function detectRequestedFormat(req) {
 // haxtheweb/issues#3104: every path in the spec starts with /x/api, so the
 // server URL is the base of the site this request came through (e.g.
 // https://host/_sites/<name>/), not the HAXcms install base.
+// linear-time replacement for .replace(/\/+$/, '') (backtracks polynomially on
+// long runs of slashes)
+function trimTrailingSlashes(value) {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end--;
+  }
+  return value.slice(0, end);
+}
+
 function getServerBaseUrl(req) {
   const apiBasePath = req ? getApiBasePath(req) : '';
   const sitePrefix = apiBasePath.replace(/\/x\/api$/, '');
   if (req && sitePrefix !== apiBasePath) {
-    return `${HAXCMS.protocol}://${HAXCMS.domain}${sitePrefix.replace(/\/+$/, '')}/`;
+    return `${HAXCMS.protocol}://${HAXCMS.domain}${trimTrailingSlashes(sitePrefix)}/`;
   }
   let basePath = HAXCMS.basePath || '/';
   if (basePath.charAt(0) !== '/') {

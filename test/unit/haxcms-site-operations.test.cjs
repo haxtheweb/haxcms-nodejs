@@ -787,6 +787,8 @@ test("llms.txt helpers normalize titles, links, and URLs", async () => {
   assert.equal(site.getLLMSSafeText(" multi\nline\rtext  "), "multi line text");
   assert.equal(site.getLLMSSafeText(null), "");
   assert.equal(site.getLLMSSafeLinkText("[bracket]"), "\\[bracket\\]");
+  // a backslash is escaped too so it cannot swallow the bracket escape
+  assert.equal(site.getLLMSSafeLinkText("a\\[b"), "a\\\\\\[b");
   assert.equal(site.getLLMSSafeLinkText(""), "Untitled page");
   const empty = new HAXCMSSite();
   empty.manifest = new JSONOutlineSchema();

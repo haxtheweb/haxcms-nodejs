@@ -1930,7 +1930,8 @@ class HAXCMSSite {
     if (text == "") {
       text = "Untitled page";
     }
-    return text.replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+    // escape backslashes too, or a trailing "\\" would swallow the bracket escape
+    return text.replace(/[\\[\]]/g, "\\$&");
   }
   /**
    * Create Lunr.js style search index
@@ -1986,7 +1987,7 @@ class HAXCMSSite {
     );
     // all weird chars
     text = text.replace("/[^a-z0-9']/", " ");
-    text = text.replace("'", "");
+    text = text.replace(/'/g, "");
     // all words 1 to 4 letters long
     text = text.replace("~\b[a-z]{1,4}\bs*~", "");
     // all excess white space

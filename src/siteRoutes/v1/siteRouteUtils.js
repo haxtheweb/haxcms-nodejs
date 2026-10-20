@@ -81,9 +81,24 @@ function getRequestPath(req) {
 }
 
 function getApiBasePathFromRequestPath(requestPath = '') {
-  const matched = String(requestPath || '').match(/^(.*\/x\/api)(?:\/.*)?$/);
-  if (matched && matched[1]) {
-    return matched[1];
+  // Linear scan equivalent of /^(.*\/x\/api)(?:\/.*)?$/, which backtracks
+  // polynomially on long paths. Takes the last "/x/api" that ends the path or
+  // is followed by "/"; "." in the old pattern never matched line terminators.
+  const value = String(requestPath || '');
+  const marker = '/x/api';
+  const lineTerminator = /[\n\r\u2028\u2029]/;
+  let position = value.lastIndexOf(marker);
+  while (position !== -1) {
+    const end = position + marker.length;
+    const prefix = value.slice(0, end);
+    const rest = value.slice(end);
+    if (
+      !lineTerminator.test(prefix) &&
+      (rest === '' || (rest.charAt(0) === '/' && !lineTerminator.test(rest)))
+    ) {
+      return prefix;
+    }
+    position = position === 0 ? -1 : value.lastIndexOf(marker, position - 1);
   }
   return '/x/api';
 }
