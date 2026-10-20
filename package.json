@@ -138,7 +138,7 @@
   },
   "lint-staged": {
     "*.{js,cjs}": [
-      "eslint --fix",
+      "eslint --fix --no-warn-ignored",
       "prettier --write --no-error-on-unmatched-pattern"
     ],
     "*.{json,md,yml,yaml}": "prettier --write --no-error-on-unmatched-pattern"

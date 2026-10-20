@@ -48,6 +48,8 @@ module.exports = [
       "src/lib/vendor/**",
       "src/boilerplate/**",
       "screenshots/**",
+      // tests are not linted (they are exercised by `npm run test:*`).
+      "test/**",
     ],
   },
   // Default: CommonJS source files
@@ -140,73 +142,6 @@ module.exports = [
       "no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
-      ],
-    },
-  },
-  // Tests: CommonJS with node:test globals
-  {
-    files: ["test/**/*.cjs"],
-    languageOptions: {
-      sourceType: "commonjs",
-      ecmaVersion: "latest",
-      globals: {
-        ...globals.node,
-      },
-    },
-    plugins: { n },
-    rules: {
-      ...n.configs["flat/recommended-script"].rules,
-      "n/no-missing-require": "off",
-      "n/no-unpublished-require": "off",
-      // test/e2e helpers require their own axe-core/puppeteer-core/fs-extra/
-      // etc. from test/e2e/helpers/package.json (a private, non-published
-      // workspace-local package), which this rule can't resolve relative to
-      // the repo root package.json.
-      "n/no-extraneous-require": "off",
-      // see matching comment on the src/**/*.js block above: intentional
-      // process.exit() calls in standalone discovery/debug scripts (dotfiles,
-      // excluded from the node --test glob) and a deliberately unreferenced
-      // forced-exit safety valve in a test's teardown hook.
-      "n/no-process-exit": "off",
-      "n/no-unsupported-features/node-builtins": [
-        "error",
-        { version: NODE_BUILTINS_VERSION },
-      ],
-      "no-unused-vars": [
-        "warn",
-        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
-      ],
-      // see matching comment in the src/**/*.js block above
-      "no-control-regex": "off",
-      ...LEGACY_CODE_WARN_RULES,
-    },
-  },
-  // E2E tests + their helpers: Puppeteer page.evaluate()/evaluateHandle()
-  // callbacks execute inside the real browser page, not Node, so `document`/
-  // `window`/`localStorage` are legitimate globals there. A few helpers also
-  // use `eval(walkSrc)` inside an evaluate() callback to inject a `walk`
-  // function at runtime (so it can be shared as a string constant across
-  // multiple evaluate() calls); ESLint can't see through the eval string, so
-  // `walk` appears undefined even though it exists at runtime.
-  {
-    files: ["test/e2e/**/*.cjs"],
-    languageOptions: {
-      globals: {
-        ...globals.browser,
-        walk: "readonly",
-      },
-    },
-    rules: {
-      // localStorage/CustomEvent here run inside page.evaluate()/
-      // evaluateHandle() callbacks, i.e. in the real browser page, not in
-      // the Node process this rule is checking compatibility against (see
-      // the matching comment on the globals.browser override above).
-      "n/no-unsupported-features/node-builtins": [
-        "error",
-        {
-          version: NODE_BUILTINS_VERSION,
-          ignores: ["localStorage", "CustomEvent"],
-        },
       ],
     },
   },
