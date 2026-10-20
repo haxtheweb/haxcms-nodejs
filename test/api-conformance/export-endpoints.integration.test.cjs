@@ -9,10 +9,11 @@ const vm = require('node:vm')
 const util = require('node:util')
 const childProcess = require('node:child_process')
 const axios = require('axios')
-const { findChromeExecutable } = require('../../src/lib/convertUtils.js')
 
 // PDF export drives Chrome; skip those cases where it is not installed
-const PDF_SKIP = findChromeExecutable() ? false : 'PDF export needs Chrome/Chromium (install it or set PUPPETEER_EXECUTABLE_PATH)'
+// probed in a child process so loading the converter does not touch this process's server state
+const CHROME_PATH = childProcess.spawnSync(process.execPath, ['-e', "process.stdout.write(require('./src/lib/convertUtils.js').findChromeExecutable() || '')"], { cwd: path.resolve(__dirname, '..', '..'), encoding: 'utf8' }).stdout.trim()
+const PDF_SKIP = CHROME_PATH ? false : 'PDF export needs Chrome/Chromium (install it or set PUPPETEER_EXECUTABLE_PATH)'
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const APP_ENTRY_PATH = path.join(REPO_ROOT, 'src', 'app.js')
