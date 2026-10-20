@@ -301,15 +301,12 @@ test('FILTER_VALIDATE_REGEXP returns the matched substring for a RegExp option',
   )
 })
 
-test('FILTER_VALIDATE_REGEXP falls through to FILTER_VALIDATE_IP when options lacks a regexp', () => {
-  // Quirk: the REGEXP case has no `break` before the IP case, so when the
-  // regexp option is absent the `is(options.regexp, ...)` guard is false and
-  // execution falls through into FILTER_VALIDATE_IP. With numeric 0 options
-  // (flags=0) mode keeps its default v4|v6 bits, so a valid IPv4 is returned
-  // verbatim instead of failure. (Passing {} here would zero mode via the is()
-  // object bug and return false; passing no third arg at all throws TypeError on
-  // `options.regexp` -- both are covered by the bug-lock tests above.)
-  assert.equal(filter_var('192.168.1.1', 'FILTER_VALIDATE_REGEXP', 0), '192.168.1.1')
+test('FILTER_VALIDATE_REGEXP fails (does not fall through to IP validation) when options lacks a regexp', () => {
+  // A missing / non-RegExp `regexp` option can never match, so the filter
+  // reports failure rather than running FILTER_VALIDATE_IP on the value.
+  // (Passing no third arg at all still throws TypeError on `options.regexp`
+  // -- covered by the bug-lock tests above.)
+  assert.equal(filter_var('192.168.1.1', 'FILTER_VALIDATE_REGEXP', 0), false)
 })
 
 // --- Unimplemented filters fall through to default and return false ----------
