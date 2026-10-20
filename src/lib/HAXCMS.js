@@ -3621,15 +3621,21 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
   /**
    * Update page in the manifest list of items. useful if updating some
    * data about an existing entry.
+   * @param page JSONOutlineSchemaItem to swap into the manifest
+   * @param persist when false only the in-memory manifest is updated, the
+   * caller owns saving site.json and rebuilding alternate formats once after
+   * a batch of changes (see saveOutline, haxtheweb/issues#3114)
    * @return JSONOutlineSchemaItem or false
    */
-  async updateNode(page) {
+  async updateNode(page, persist = true) {
     for (var key in this.manifest.items) {
       let item = this.manifest.items[key];
       if (item.id === page.id) {
         this.manifest.items[key] = page;
-        await this.manifest.save(false);
-        await this.updateAlternateFormats();
+        if (persist) {
+          await this.manifest.save(false);
+          await this.updateAlternateFormats();
+        }
         return page;
       }
     }

@@ -46,6 +46,23 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
         originalLocationMap[originalItem.id] = normalizeOutlineLocation(originalItem.location);
       }
       let safeLocationMap = {};
+      // #3114: the manifest is updated in memory per item and written, along
+      // with the RSS / Atom / sitemap / llms.txt / search index rebuild, once
+      // per request instead of once per item. These flags track what an
+      // early error return must still flush so the persisted site.json and
+      // generated files match what per-item saving used to leave behind.
+      let manifestDirty = false;
+      let alternateFormatsDirty = false;
+      const flushPending = async () => {
+        if (manifestDirty) {
+          await site.manifest.save(false);
+          manifestDirty = false;
+        }
+        if (alternateFormatsDirty) {
+          await site.updateAlternateFormats();
+          alternateFormatsDirty = false;
+        }
+      };
       let items = [...req.body['items']];
       // client id -> server id; no prototype, so any client id is a plain key
       let itemMap = Object.create(null);
@@ -199,11 +216,12 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
         page.metadata.updated = Math.floor(Date.now() / 1000);
         let tmp = site.loadNode(page.id);
         if (tmp) {
-          await site.updateNode(page);
+          await site.updateNode(page, false);
+          alternateFormatsDirty = true;
         } else {
           site.manifest.addItem(page);
-          await site.manifest.save(false);
         }
+        manifestDirty = true;
       }
       // process any duplicate / contents requests we had now that structure is sane
       // including potentially duplication of material from something
@@ -218,6 +236,7 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
           page = site.loadNode(itemMap[item.id]);
         }
         if (!page) {
+          await flushPending();
           return saveOutlineError(res, 400, 'invalid page reference');
         }
         let expectedLocation = safeLocationMap[page.id];
@@ -225,10 +244,12 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
           expectedLocation = normalizeOutlineLocation(page.location);
         }
         if (!expectedLocation) {
+          await flushPending();
           return saveOutlineError(res, 400, 'invalid page location');
         }
         // location is backend-controlled based on page id, ignore client input
         if (!getValidatedWritePath(site.siteDirectory, expectedLocation)) {
+          await flushPending();
           return saveOutlineError(res, 400, 'invalid write target');
         }
         page.location = expectedLocation;
@@ -244,10 +265,12 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
             nodeToDuplicate = site.loadNode(itemMap[item.duplicate]);
           }
           if (!nodeToDuplicate) {
+            await flushPending();
             return saveOutlineError(res, 400, 'invalid duplicate source');
           }
           let content = await site.getPageContent(nodeToDuplicate);
           if (!isLikelyHtmlContent(content)) {
+            await flushPending();
             return saveOutlineError(res, 400, 'invalid duplicate content');
           }
           // write it to the file system
@@ -257,6 +280,7 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
             site.siteDirectory
           );
           if (bytes === false) {
+            await flushPending();
             return saveOutlineError(res, 500, 'failed to write');
           }
           shouldWriteAlternate = true;
@@ -264,6 +288,7 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
         // contents that were shipped across, and not null, take priority over a dup request
         if (typeof item.contents !== 'undefined' && item.contents && item.contents != '') {
           if (!isLikelyHtmlContent(item.contents)) {
+            await flushPending();
             return saveOutlineError(res, 400, 'invalid page contents');
           }
           // write it to the file system
@@ -273,6 +298,7 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
             site.siteDirectory
           );
           if (bytes === false) {
+            await flushPending();
             return saveOutlineError(res, 500, 'failed to write');
           }
           shouldWriteAlternate = true;
@@ -326,7 +352,8 @@ const { toPlainText, applyPageMetadata } = require('../../../lib/sanitizePageMet
             page.parent = null;
             // force to bottom of things while still being in old order if lots of things got axed
             page.order = parseInt(page.order) + site.manifest.items.length - 1;
-            await site.updateNode(page);
+            // in memory only: the save and rebuild below cover every orphan
+            await site.updateNode(page, false);
           }
         }
       }
