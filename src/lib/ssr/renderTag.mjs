@@ -80,16 +80,62 @@ export async function progressiveFallback(tag, demo) {
 }
 
 /**
+ * Single left-to-right pass that drops what a reader never sees: comments,
+ * <style>/<script> elements (with their bodies) and <template> open/close tags.
+ * Skipped spans are never re-scanned, so removing one cannot splice neighbouring
+ * text into a new tag (unlike chained regex .replace calls).
+ */
+function stripInvisible(markup) {
+  const lower = markup.toLowerCase();
+  const isTagEnd = (c) => c === undefined || /[\s>/]/.test(c);
+  let out = "";
+  let i = 0;
+  while (i < markup.length) {
+    const lt = markup.indexOf("<", i);
+    if (lt === -1) {
+      out += markup.slice(i);
+      break;
+    }
+    out += markup.slice(i, lt);
+    let end = -1;
+    if (lower.startsWith("<!--", lt)) {
+      const close = /--!?>/g;
+      close.lastIndex = lt + 4;
+      const m = close.exec(markup);
+      end = m ? m.index + m[0].length : markup.length;
+    } else {
+      for (const name of ["style", "script"]) {
+        if (
+          lower.startsWith(`<${name}`, lt) &&
+          isTagEnd(markup[lt + name.length + 1])
+        ) {
+          const closeAt = lower.indexOf(`</${name}`, lt);
+          if (closeAt === -1) break;
+          const gt = markup.indexOf(">", closeAt);
+          end = gt === -1 ? markup.length : gt + 1;
+        }
+      }
+      if (end === -1) {
+        const tpl = /^<\/?template(?=[\s>/])[^>]*>/i.exec(markup.slice(lt));
+        if (tpl) end = lt + tpl[0].length;
+      }
+    }
+    if (end === -1) {
+      out += "<";
+      i = lt + 1;
+    } else {
+      i = end;
+    }
+  }
+  return out;
+}
+
+/**
  * True when server-rendered output has anything a reader could see: text,
  * media, or child elements. A shadow root holding only <style> does not.
  */
 export function hasContent(markup, tag) {
-  const inner = String(markup || "")
-    .replace(/<!--[\s\S]*?--!?>/g, "")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, "")
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, "")
-    .replace(/<template\b[^>]*>/gi, "")
-    .replace(/<\/template\s*>/gi, "");
+  const inner = stripInvisible(String(markup || ""));
   const outer = new RegExp(`</?${tag}(?=[\\s>/])[^>]*>`, "gi");
   return inner.replace(outer, "").replace(/\s+/g, "") !== "";
 }

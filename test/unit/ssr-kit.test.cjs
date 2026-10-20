@@ -84,6 +84,21 @@ test("hasContent ignores styles and the shadow-root wrapper", async () => {
   assert.equal(hasContent(shadow("<img src=a>"), "x-a"), true);
 });
 
+test("hasContent skips comments, style, script and template tags in one pass", async () => {
+  const { hasContent } = await kit();
+  const shadow = (inner) =>
+    `<x-a><template shadowroot="open">${inner}</template></x-a>`;
+  assert.equal(hasContent(shadow("<!-- <p>x</p> -->"), "x-a"), false);
+  assert.equal(hasContent(shadow("<!-- a --!>"), "x-a"), false);
+  assert.equal(hasContent(shadow("<STYLE media=x>p{}</STYLE >"), "x-a"), false);
+  assert.equal(hasContent(shadow("<script>if(a<b){}</script>"), "x-a"), false);
+  assert.equal(hasContent(shadow("<style>p{}</style><p>hi</p>"), "x-a"), true);
+  // text next to a stripped span is not spliced into a stripped construct
+  assert.equal(hasContent(shadow("<sty<style></style>le>"), "x-a"), true);
+  assert.equal(hasContent(shadow("a < b"), "x-a"), true);
+  assert.equal(hasContent("", "x-a"), false);
+});
+
 test("fallbackMarkup keeps the host tag and drops the shadow root", async () => {
   const { fallbackMarkup } = await kit();
   const out = fallbackMarkup(
