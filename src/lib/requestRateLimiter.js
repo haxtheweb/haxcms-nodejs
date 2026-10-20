@@ -3,6 +3,12 @@
 // which honors the app's configured `trust proxy` setting.
 const { rateLimit } = require("express-rate-limit");
 
+// The same limiter instance is mounted app-wide AND directly on individual
+// routes (CodeQL's js/missing-rate-limiting only recognises a limiter that is
+// in the route's own handler chain). `skip` marks the request on first sight so
+// a request passing through several mounts is only counted once.
+const COUNTED = Symbol("haxcmsRequestRateLimited");
+
 function createRequestRateLimiter(settings) {
   if (!settings || settings.enabled === false) {
     return (req, res, next) => next();
@@ -10,6 +16,13 @@ function createRequestRateLimiter(settings) {
   return rateLimit({
     windowMs: settings.windowMs,
     limit: settings.max,
+    skip: (req) => {
+      if (req[COUNTED]) {
+        return true;
+      }
+      req[COUNTED] = true;
+      return false;
+    },
     standardHeaders: "draft-7",
     legacyHeaders: false,
     // trust proxy is config-driven; validation warnings about it are noise here

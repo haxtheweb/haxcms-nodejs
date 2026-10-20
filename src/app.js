@@ -1036,7 +1036,10 @@ app.use(cspNonceMiddleware);
 // route below (static files, site assets, catch-alls) so filesystem-backed
 // handlers cannot be hammered. Tunable / disableable via
 // config.security.requestRateLimit; keyed on req.ip (honors `trust proxy`).
-app.use(createRequestRateLimiter(HAXCMS.getRequestRateLimitSettings()));
+const requestRateLimiter = createRequestRateLimiter(
+  HAXCMS.getRequestRateLimitSettings(),
+);
+app.use(requestRateLimiter);
 app.use(cookieParser());
 app.use(compression());
 // translatable API messages: add a `code` next to response messages (issues#3157)
@@ -1227,6 +1230,7 @@ systemStructureContext().then((site) => {
     if (process.env.NODE_ENV === "development") {
       app.get(
         "/.well-known/appspecific/com.chrome.devtools.json",
+        requestRateLimiter,
         (req, res) => {
           res.setHeader("Content-Type", "application/json");
           res.json({
@@ -1238,7 +1242,7 @@ systemStructureContext().then((site) => {
         },
       );
     }
-    app.use("/", async (req, res, next) => {
+    app.use("/", requestRateLimiter, async (req, res, next) => {
       res.setHeader(
         "Access-Control-Allow-Origin",
         HAXCMS.getCorsAllowedOrigin(
@@ -1386,32 +1390,36 @@ systemStructureContext().then((site) => {
     // so an agent discovering the HAXcms deployment itself can interface with the CMS.
     // Per-site agent-skills are served by the site .well-known route below; this is
     // only the deployment root. CORS open so browser-based agents can fetch it.
-    app.use("/.well-known/agent-skills", (req, res, next) => {
-      const asRoot = path.join(process.cwd(), ".well-known", "agent-skills");
-      const reqPath = getRequestPathWithoutQuery(req.url).replace(/^\/+/, "");
-      // Security: contain the joined path before any filesystem access
-      const targetFile = reqPath
-        ? resolveContainedPath(asRoot, reqPath)
-        : false;
-      if (
-        !reqPath ||
-        targetFile === false ||
-        !fs.existsSync(targetFile) ||
-        fs.statSync(targetFile).isDirectory()
-      ) {
-        next();
-        return;
-      }
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Vary", "Origin");
-      setStaticContentTypeWithCharset(
-        res,
-        reqPath,
-        "text/plain; charset=utf-8",
-      );
-      res.sendFile(reqPath, { root: asRoot });
-    });
-    app.use("/", (req, res, next) => {
+    app.use(
+      "/.well-known/agent-skills",
+      requestRateLimiter,
+      (req, res, next) => {
+        const asRoot = path.join(process.cwd(), ".well-known", "agent-skills");
+        const reqPath = getRequestPathWithoutQuery(req.url).replace(/^\/+/, "");
+        // Security: contain the joined path before any filesystem access
+        const targetFile = reqPath
+          ? resolveContainedPath(asRoot, reqPath)
+          : false;
+        if (
+          !reqPath ||
+          targetFile === false ||
+          !fs.existsSync(targetFile) ||
+          fs.statSync(targetFile).isDirectory()
+        ) {
+          next();
+          return;
+        }
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Vary", "Origin");
+        setStaticContentTypeWithCharset(
+          res,
+          reqPath,
+          "text/plain; charset=utf-8",
+        );
+        res.sendFile(reqPath, { root: asRoot });
+      },
+    );
+    app.use("/", requestRateLimiter, (req, res, next) => {
       res.setHeader(
         "Access-Control-Allow-Origin",
         HAXCMS.getCorsAllowedOrigin(
@@ -1473,6 +1481,7 @@ systemStructureContext().then((site) => {
     if (process.env.NODE_ENV === "development") {
       app.get(
         `/${HAXCMS.sitesDirectory}/:site/.well-known/appspecific/com.chrome.devtools.json`,
+        requestRateLimiter,
         async (req, res) => {
           const siteContext = await HAXCMS.loadSite(req.params.site);
           if (siteContext && siteContext.siteDirectory) {
@@ -1491,158 +1500,166 @@ systemStructureContext().then((site) => {
     }
     // sites need rewriting to work with PWA routes without failing file location
     // similar to htaccess
-    app.use(`/${HAXCMS.sitesDirectory}/`, async (req, res, next) => {
-      const multisiteRequestPath = getRequestPathWithoutQuery(req.url);
-      if (multisiteRequestPath === "/" || multisiteRequestPath === "") {
-        const queryIndex = req.url.indexOf("?");
-        const querySuffix =
-          queryIndex !== -1 ? req.url.substring(queryIndex) : "";
-        res.redirect(302, `/${querySuffix}`);
-        return;
-      }
-      if (/^\/[^/]+$/.test(multisiteRequestPath)) {
-        const queryIndex = req.url.indexOf("?");
-        const querySuffix =
-          queryIndex !== -1 ? req.url.substring(queryIndex) : "";
-        res.redirect(
-          301,
-          `${req.baseUrl}${multisiteRequestPath}/${querySuffix}`,
-        );
-        return;
-      }
-      if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
-        next();
-      }
-      // previous will catch as json, undo that
-      else if (
-        !req.url.includes("/custom/build/") &&
-        (req.url.includes("/build/") ||
-          req.url.includes("wc-registry.json") ||
-          req.url.includes("build.js") ||
-          req.url.includes("build-haxcms.js"))
-      ) {
-        setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
-        serveBuildAssetFile(req, res, publicDir);
-      } else if (
-        !req.url.includes("/x/") &&
-        (req.url.includes("custom/build") ||
-          req.url.includes("/theme/") ||
-          req.url.includes("/assets/") ||
-          req.url.includes("/manifest.json") ||
-          req.url.includes("/robots.txt") ||
-          req.url.includes("/llms.txt") ||
-          req.url.includes("/rss.xml") ||
-          req.url.includes("/atom.xml") ||
-          req.url.includes("/sitemap.xml") ||
-          req.url.includes("/sitemap-index.xml") ||
-          req.url.includes("/.well-known/") ||
-          req.url.includes("/files/") ||
-          req.url.includes("/pages/") ||
-          req.url.includes("/site.json") ||
-          req.url.includes("/lunrSearchIndex.json") ||
-          req.url.includes("/service-worker.js") ||
-          req.url.includes("/offline.html") ||
-          req.url.includes("/browserconfig.xml") ||
-          req.url.includes("/push-manifest.json"))
-      ) {
-        if (!setWellKnownContentType(res, req.url)) {
-          setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
+    app.use(
+      `/${HAXCMS.sitesDirectory}/`,
+      requestRateLimiter,
+      async (req, res, next) => {
+        const multisiteRequestPath = getRequestPathWithoutQuery(req.url);
+        if (multisiteRequestPath === "/" || multisiteRequestPath === "") {
+          const queryIndex = req.url.indexOf("?");
+          const querySuffix =
+            queryIndex !== -1 ? req.url.substring(queryIndex) : "";
+          res.redirect(302, `/${querySuffix}`);
+          return;
         }
-        res.sendFile(
-          decodeStaticRequestPath(req.url.split("?")[0]),
-          getStaticSendFileOptions(
-            process.cwd() + `/${HAXCMS.sitesDirectory}`,
-            req.url,
-          ),
-        );
-      } else {
-        const siteName = getMultisiteSiteName(multisiteRequestPath);
-        let siteContext = null;
-        let variantResponse = {
-          served: false,
-          item: null,
-          canonicalPath: null,
-          notFound: false,
-        };
-        if (siteName) {
-          siteContext = await HAXCMS.loadSite(siteName);
-          const siteSubPath = getMultisiteSiteSubPath(multisiteRequestPath);
-          if (siteContext && siteSubPath.indexOf("/x/") !== 0) {
-            variantResponse = await tryServePageVariantRequest(
-              req,
-              res,
-              siteContext,
-              siteSubPath,
-              `/${HAXCMS.sitesDirectory}/${siteName}`,
-            );
-            if (variantResponse.served) {
-              return;
-            }
-            if (variantResponse.item && variantResponse.canonicalPath) {
-              setPageAlternateHeaders(
+        if (/^\/[^/]+$/.test(multisiteRequestPath)) {
+          const queryIndex = req.url.indexOf("?");
+          const querySuffix =
+            queryIndex !== -1 ? req.url.substring(queryIndex) : "";
+          res.redirect(
+            301,
+            `${req.baseUrl}${multisiteRequestPath}/${querySuffix}`,
+          );
+          return;
+        }
+        if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
+          next();
+        }
+        // previous will catch as json, undo that
+        else if (
+          !req.url.includes("/custom/build/") &&
+          (req.url.includes("/build/") ||
+            req.url.includes("wc-registry.json") ||
+            req.url.includes("build.js") ||
+            req.url.includes("build-haxcms.js"))
+        ) {
+          setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
+          serveBuildAssetFile(req, res, publicDir);
+        } else if (
+          !req.url.includes("/x/") &&
+          (req.url.includes("custom/build") ||
+            req.url.includes("/theme/") ||
+            req.url.includes("/assets/") ||
+            req.url.includes("/manifest.json") ||
+            req.url.includes("/robots.txt") ||
+            req.url.includes("/llms.txt") ||
+            req.url.includes("/rss.xml") ||
+            req.url.includes("/atom.xml") ||
+            req.url.includes("/sitemap.xml") ||
+            req.url.includes("/sitemap-index.xml") ||
+            req.url.includes("/.well-known/") ||
+            req.url.includes("/files/") ||
+            req.url.includes("/pages/") ||
+            req.url.includes("/site.json") ||
+            req.url.includes("/lunrSearchIndex.json") ||
+            req.url.includes("/service-worker.js") ||
+            req.url.includes("/offline.html") ||
+            req.url.includes("/browserconfig.xml") ||
+            req.url.includes("/push-manifest.json"))
+        ) {
+          if (!setWellKnownContentType(res, req.url)) {
+            setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
+          }
+          res.sendFile(
+            decodeStaticRequestPath(req.url.split("?")[0]),
+            getStaticSendFileOptions(
+              process.cwd() + `/${HAXCMS.sitesDirectory}`,
+              req.url,
+            ),
+          );
+        } else {
+          const siteName = getMultisiteSiteName(multisiteRequestPath);
+          let siteContext = null;
+          let variantResponse = {
+            served: false,
+            item: null,
+            canonicalPath: null,
+            notFound: false,
+          };
+          if (siteName) {
+            siteContext = await HAXCMS.loadSite(siteName);
+            const siteSubPath = getMultisiteSiteSubPath(multisiteRequestPath);
+            if (siteContext && siteSubPath.indexOf("/x/") !== 0) {
+              variantResponse = await tryServePageVariantRequest(
+                req,
                 res,
+                siteContext,
+                siteSubPath,
+                `/${HAXCMS.sitesDirectory}/${siteName}`,
+              );
+              if (variantResponse.served) {
+                return;
+              }
+              if (variantResponse.item && variantResponse.canonicalPath) {
+                setPageAlternateHeaders(
+                  res,
+                  siteContext,
+                  variantResponse.item,
+                  variantResponse.canonicalPath,
+                );
+              }
+            }
+          }
+          const pageMiss = variantResponse.notFound === true;
+          if (pageMiss) {
+            res.status(404);
+          }
+          setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
+          if (siteContext && siteContext.siteDirectory) {
+            try {
+              let indexFile = await renderDynamicSiteIndexResponse(
+                req,
                 siteContext,
                 variantResponse.item,
                 variantResponse.canonicalPath,
+                pageMiss,
+                path.join(siteContext.siteDirectory, "index.html"),
+              );
+              indexFile = injectLinkedDevDedupingFix(indexFile);
+              indexFile = injectLinkedDevImportMap(indexFile);
+              indexFile = injectDevReloadScript(indexFile, currentPort);
+              // Security (M2): stamp inline scripts with the per-request CSP nonce
+              // (last so it covers all injected inline scripts too).
+              indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
+              setNoStoreResponseHeaders(res);
+              res.send(indexFile);
+              return;
+            } catch (e) {
+              console.warn(
+                "Runtime injection failed for site index, falling back to static delivery:",
+                e,
               );
             }
           }
-        }
-        const pageMiss = variantResponse.notFound === true;
-        if (pageMiss) {
-          res.status(404);
-        }
-        setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
-        if (siteContext && siteContext.siteDirectory) {
-          try {
-            let indexFile = await renderDynamicSiteIndexResponse(
-              req,
-              siteContext,
-              variantResponse.item,
-              variantResponse.canonicalPath,
-              pageMiss,
-              path.join(siteContext.siteDirectory, "index.html"),
-            );
-            indexFile = injectLinkedDevDedupingFix(indexFile);
-            indexFile = injectLinkedDevImportMap(indexFile);
-            indexFile = injectDevReloadScript(indexFile, currentPort);
-            // Security (M2): stamp inline scripts with the per-request CSP nonce
-            // (last so it covers all injected inline scripts too).
-            indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
+          // Security (M2): static index fallback — read+nonce+send so inline
+          // scripts are authorized under the nonce CSP (no 'unsafe-inline').
+          // Mirrors the prior res.sendFile path resolution.
+          // Security: derive the site segment via cleanTitle and confine the
+          // resulting index.html to the sites directory.
+          const fallbackIndexPath = HAXCMS.resolveSiteIndexPath(
+            path.join(process.cwd(), HAXCMS.sitesDirectory),
+            siteName,
+          );
+          if (fallbackIndexPath === false) {
             setNoStoreResponseHeaders(res);
-            res.send(indexFile);
+            res.status(404).send("Not found");
             return;
-          } catch (e) {
-            console.warn(
-              "Runtime injection failed for site index, falling back to static delivery:",
-              e,
-            );
           }
+          sendNonceIndex(res, req, fallbackIndexPath);
         }
-        // Security (M2): static index fallback — read+nonce+send so inline
-        // scripts are authorized under the nonce CSP (no 'unsafe-inline').
-        // Mirrors the prior res.sendFile path resolution.
-        // Security: derive the site segment via cleanTitle and confine the
-        // resulting index.html to the sites directory.
-        const fallbackIndexPath = HAXCMS.resolveSiteIndexPath(
-          path.join(process.cwd(), HAXCMS.sitesDirectory),
-          siteName,
-        );
-        if (fallbackIndexPath === false) {
-          setNoStoreResponseHeaders(res);
-          res.status(404).send("Not found");
-          return;
-        }
-        sendNonceIndex(res, req, fallbackIndexPath);
-      }
-    });
+      },
+    );
     // published directory route if it exists
-    app.use(`/${HAXCMS.publishedDirectory}/`, (req, res, _next) => {
-      setStaticContentTypeWithCharset(res, req.url);
-      res.sendFile(decodeStaticRequestPath(req.url.split("?")[0]), {
-        root: process.cwd() + `/${HAXCMS.publishedDirectory}`,
-      });
-    });
+    app.use(
+      `/${HAXCMS.publishedDirectory}/`,
+      requestRateLimiter,
+      (req, res, _next) => {
+        setStaticContentTypeWithCharset(res, req.url);
+        res.sendFile(decodeStaticRequestPath(req.url.split("?")[0]), {
+          root: process.cwd() + `/${HAXCMS.publishedDirectory}`,
+        });
+      },
+    );
   }
   const siteRouteRegistry =
     allRoutes &&
@@ -1913,7 +1930,7 @@ systemStructureContext().then((site) => {
   // can't do this for a site context
   if (!site) {
     // catch anything called on homepage that doens't match and ensure it still goes through so that it 404s correctly
-    app.get("*", function (req, res, next) {
+    app.get("*", requestRateLimiter, function (req, res, next) {
       if (
         req.url !== "/" &&
         !req.url.startsWith("/build") &&

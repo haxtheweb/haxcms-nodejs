@@ -67,3 +67,24 @@ test("HAXCMS settings default generous and clamp config", () => {
     HAXCMS.config = saved;
   }
 });
+
+test("one limiter mounted app-wide and on the route counts each request once", async () => {
+  const limiter = createRequestRateLimiter({
+    enabled: true,
+    windowMs: 60000,
+    max: 3,
+  });
+  const app = express();
+  app.use(limiter);
+  app.get("/", limiter, limiter, (req, res) => res.send("ok"));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((r) => server.once("listening", r));
+  try {
+    const port = server.address().port;
+    const codes = [];
+    for (let i = 0; i < 5; i++) codes.push(await get(port));
+    assert.deepStrictEqual(codes, [200, 200, 200, 429, 429]);
+  } finally {
+    server.close();
+  }
+});
