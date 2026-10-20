@@ -725,5 +725,6 @@ module.exports = {
   processDocxHtml,
   convertHtmlToDocxBuffer,
   htmlToPdfBuffer,
+  findChromeExecutable,
   sanitizeUntrustedHtml,
 };

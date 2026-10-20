@@ -9,6 +9,10 @@ const vm = require('node:vm')
 const util = require('node:util')
 const childProcess = require('node:child_process')
 const axios = require('axios')
+const { findChromeExecutable } = require('../../src/lib/convertUtils.js')
+
+// PDF export drives Chrome; skip those cases where it is not installed
+const PDF_SKIP = findChromeExecutable() ? false : 'PDF export needs Chrome/Chromium (install it or set PUPPETEER_EXECUTABLE_PATH)'
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const APP_ENTRY_PATH = path.join(REPO_ROOT, 'src', 'app.js')
@@ -285,7 +289,7 @@ test('item export endpoints produce real file downloads across all 8 formats', a
   const itemBase = `${runtime.baseUrl}/${SITE_DIRECTORY_NAME}/${runtime.createdSiteName}/${runtime.siteApiBasePath}/v1/items/${encodeURIComponent(runtime.firstItemLookup)}/export`
   for (let i = 0; i < ITEM_EXPORT_FORMATS.length; i++) {
     const format = ITEM_EXPORT_FORMATS[i]
-    await t.test(`item export ${format} returns 200 with correct content-type and disposition`, async () => {
+    await t.test(`item export ${format} returns 200 with correct content-type and disposition`, { skip: format === 'pdf' ? PDF_SKIP : false }, async () => {
       const result = await sendHttpRequest({
         method: 'GET',
         url: `${itemBase}/${format}`,
@@ -363,7 +367,7 @@ test('site export endpoints produce real file downloads for pdf/docx/html/epub',
   const siteBase = `${runtime.baseUrl}/${SITE_DIRECTORY_NAME}/${runtime.createdSiteName}/${runtime.siteApiBasePath}/v1/site/export`
   for (let i = 0; i < SITE_EXPORT_FORMATS.length; i++) {
     const format = SITE_EXPORT_FORMATS[i]
-    await t.test(`site export ${format} returns 200 with correct content-type and disposition`, async () => {
+    await t.test(`site export ${format} returns 200 with correct content-type and disposition`, { skip: format === 'pdf' ? PDF_SKIP : false }, async () => {
       const result = await sendHttpRequest({
         method: 'GET',
         url: `${siteBase}/${format}`,
