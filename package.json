@@ -142,10 +142,5 @@
       "prettier --write --no-error-on-unmatched-pattern"
     ],
     "*.{json,md,yml,yaml}": "prettier --write --no-error-on-unmatched-pattern"
-  },
-  "husky": {
-    "hooks": {
-      "pre-commit": "lint-staged"
-    }
   }
 }
