@@ -1201,12 +1201,12 @@ systemStructureContext().then((site) => {
       app.use(
         express.static(publicDir, {
           index: false,
-          setHeaders: setManagedFileCharsetHeader,
+          setHeaders: setManagedStaticHeaders,
         }),
       );
     } else {
       app.use(
-        express.static(publicDir, { setHeaders: setManagedFileCharsetHeader }),
+        express.static(publicDir, { setHeaders: setManagedStaticHeaders }),
       );
     }
     if (process.env.NODE_ENV === "development") {
@@ -1350,7 +1350,7 @@ systemStructureContext().then((site) => {
       app.use(
         express.static(publicDir, {
           index: false,
-          setHeaders: setManagedFileCharsetHeader,
+          setHeaders: setManagedStaticHeaders,
         }),
       );
     } else {
@@ -1362,7 +1362,7 @@ systemStructureContext().then((site) => {
       app.use(
         express.static(publicDir, {
           index: false,
-          setHeaders: setManagedFileCharsetHeader,
+          setHeaders: setManagedStaticHeaders,
         }),
       );
     }
@@ -3267,6 +3267,18 @@ function setManagedFileCharsetHeader(res, filePath = "") {
     res.setHeader("Content-Type", mimeType);
   } else {
     res.setHeader("Content-Type", mimeType + "; charset=utf-8");
+  }
+}
+// express.static setHeaders hook for every static mount. On top of the charset
+// handling above, force-download active content (html, htm, xhtml, xml, svg)
+// under a files/ directory based on the file express.static actually resolved
+// on disk. This is defense in depth behind the request-URL middleware (which
+// can only guess at what the static handler will resolve) and mirrors the
+// Apache FilesMatch rule in the site files/.htaccess.
+function setManagedStaticHeaders(res, filePath = "") {
+  setManagedFileCharsetHeader(res, filePath);
+  if (uploadSecurity.shouldForceDownloadResolvedFile(publicDir, filePath)) {
+    res.setHeader("Content-Disposition", "attachment");
   }
 }
 // D60: 405+Allow dispatch helpers. These support the catch-all middleware
