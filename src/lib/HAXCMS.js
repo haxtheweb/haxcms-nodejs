@@ -1132,9 +1132,13 @@ class HAXCMSSite {
         continue;
       }
       // skill.url is relative, e.g. "hax-site-structure/SKILL.md"
-      let skillMdBoiler = boilerAS + "/" + skill.url;
-      let skillMdSite = siteAS + "/" + skill.url;
-      if (fs.pathExistsSync(skillMdBoiler)) {
+      let skillMdBoiler = resolveContainedPath(boilerAS, String(skill.url));
+      let skillMdSite = resolveContainedPath(siteAS, String(skill.url));
+      if (
+        skillMdBoiler !== false &&
+        skillMdSite !== false &&
+        fs.pathExistsSync(skillMdBoiler)
+      ) {
         let bytes = fs.readFileSync(skillMdBoiler);
         let hash =
           "sha256:" + crypto.createHash("sha256").update(bytes).digest("hex");
@@ -1157,9 +1161,19 @@ class HAXCMSSite {
           if (!allowedAuxExt[ext]) {
             continue;
           }
-          let fBoiler = boilerAS + "/" + skill.name + "/" + f.path;
-          let fSite = siteAS + "/" + skill.name + "/" + f.path;
-          if (fs.pathExistsSync(fBoiler)) {
+          let fBoiler = resolveContainedPath(
+            boilerAS,
+            String(skill.name) + "/" + String(f.path),
+          );
+          let fSite = resolveContainedPath(
+            siteAS,
+            String(skill.name) + "/" + String(f.path),
+          );
+          if (
+            fBoiler !== false &&
+            fSite !== false &&
+            fs.pathExistsSync(fBoiler)
+          ) {
             let bytes = fs.readFileSync(fBoiler);
             let hash =
               "sha256:" +
@@ -1188,8 +1202,18 @@ class HAXCMSSite {
    * their folder tree
    */
   async renamePageLocation(oldItem, newItem) {
-    oldItem = oldItem.replace("./", "").replace("../", "");
-    newItem = newItem.replace("./", "").replace("../", "");
+    // reject any `..` segment / NUL / non-string rather than string-stripping
+    if (hasTraversal(oldItem) || hasTraversal(newItem)) {
+      return false;
+    }
+    oldItem = oldItem.replace(/^\.\//, "").replace(/^\/+/, "");
+    newItem = newItem.replace(/^\.\//, "").replace(/^\/+/, "");
+    if (
+      resolveContainedPath(this.siteDirectory, oldItem) === false ||
+      resolveContainedPath(this.siteDirectory, newItem) === false
+    ) {
+      return false;
+    }
     // ensure the path to the new folder is valid
     if (
       (await fs.pathExistsSync(this.siteDirectory + "/" + oldItem)) &&
@@ -1723,18 +1747,17 @@ class HAXCMSSite {
       return description;
     }
     let source = "";
-    if (
-      markdownLocation &&
-      markdownLocation.indexOf("..") === -1 &&
-      this.siteDirectory
-    ) {
+    if (markdownLocation && this.siteDirectory) {
       try {
-        source = this.getLLMSPlainTextFromMarkdown(
-          fs.readFileSync(
-            path.join(this.siteDirectory, markdownLocation.replace(/^\/+/, "")),
-            "utf8",
-          ),
+        const markdownPath = resolveContainedPath(
+          this.siteDirectory,
+          String(markdownLocation).replace(/^\/+/, ""),
         );
+        if (markdownPath !== false) {
+          source = this.getLLMSPlainTextFromMarkdown(
+            fs.readFileSync(markdownPath, "utf8"),
+          );
+        }
       } catch (e) {}
     }
     if (
@@ -2422,8 +2445,12 @@ class HAXCMSSite {
       if (!variantLocation) {
         continue;
       }
-      let variantPath = path.join(this.siteDirectory, variantLocation);
+      let variantPath = resolveContainedPath(
+        this.siteDirectory,
+        variantLocation,
+      );
       if (
+        variantPath !== false &&
         fs.pathExistsSync(variantPath) &&
         fs.lstatSync(variantPath).isFile()
       ) {
@@ -3389,30 +3416,51 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
         fileName = "assets/icon-" + height + "x" + width + ".png";
       } else {
         // ensure this path exists otherwise let's create it on the fly
-        let path = this.siteDirectory + "/";
-        fileName = this.manifest.metadata.site.logo.replace(
-          "files/",
-          "files/haxcms-managed/" + height + "x" + width + "-",
-        );
-        if (
-          fs.pathExistsSync(path + this.manifest.metadata.site.logo) &&
-          fs.lstatSync(path + this.manifest.metadata.site.logo).isFile() &&
-          !fs.pathExistsSync(path + fileName)
-        ) {
-          // make folder if doesnt exist
-          if (!fs.pathExistsSync(path + "files/haxcms-managed")) {
-            fs.mkdirSync(path + "files/haxcms-managed");
-          }
-          const image = await sharp(path + this.manifest.metadata.site.logo)
-            .metadata()
-            .then(({ width }) =>
-              sharp(path + this.manifest.metadata.site.logo)
-                .resize({
-                  width: parseInt(width),
-                  height: parseInt(height),
-                })
-                .toFile(path + fileName),
+        const logo = this.manifest.metadata.site.logo;
+        const fallback = "assets/icon-" + height + "x" + width + ".png";
+        const sizedName =
+          typeof logo === "string" && logo.startsWith("files/")
+            ? logo.replace(
+                "files/",
+                "files/haxcms-managed/" + height + "x" + width + "-",
+              )
+            : null;
+        // logo must live under files/ and resolve inside the site directory,
+        // both for the source read and the resized output write
+        const logoSource = sizedName
+          ? resolveContainedPath(this.siteDirectory, logo)
+          : false;
+        const logoTarget = sizedName
+          ? resolveContainedPath(this.siteDirectory, sizedName)
+          : false;
+        if (logoSource === false || logoTarget === false) {
+          fileName = fallback;
+        } else {
+          fileName = sizedName;
+          if (
+            fs.pathExistsSync(logoSource) &&
+            fs.lstatSync(logoSource).isFile() &&
+            !fs.pathExistsSync(logoTarget)
+          ) {
+            // make folder if doesnt exist
+            const managedDir = resolveContainedPath(
+              this.siteDirectory,
+              "files/haxcms-managed",
             );
+            if (managedDir !== false && !fs.pathExistsSync(managedDir)) {
+              fs.mkdirSync(managedDir);
+            }
+            await sharp(logoSource)
+              .metadata()
+              .then(({ width }) =>
+                sharp(logoSource)
+                  .resize({
+                    width: parseInt(width),
+                    height: parseInt(height),
+                  })
+                  .toFile(logoTarget),
+              );
+          }
         }
       }
     }
@@ -3654,7 +3702,10 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
    * Change the directory this site is located in
    */
   async changeName(newName) {
-    newName = newName.replace("./", "").replace("../", "");
+    if (hasTraversal(newName) || path.isAbsolute(newName)) {
+      return false;
+    }
+    newName = newName.replace(/^\.\//, "");
     // attempt to shift it on the file system
     if (newName != this.manifest.metadata.site.name) {
       this.manifest.metadata.site.name = newName;
@@ -4961,6 +5012,28 @@ class HAXCMSClass {
    */
   generateUUID() {
     return uuidv4();
+  }
+  /**
+   * Security: resolve <sitesRoot>/<site>/index.html for a raw (request
+   * derived) site segment. The segment is decoded and run through cleanTitle
+   * (strips dots/backslashes/NUL) and the result must be contained in
+   * sitesRoot. Returns false on any traversal or failure.
+   */
+  resolveSiteIndexPath(sitesRoot, rawSiteName) {
+    if (typeof rawSiteName !== "string" || rawSiteName === "") {
+      return false;
+    }
+    let decoded = rawSiteName;
+    try {
+      decoded = decodeURIComponent(rawSiteName);
+    } catch (e) {
+      return false;
+    }
+    if (hasTraversal(decoded)) {
+      return false;
+    }
+    const siteSegment = HAXCMS.cleanTitle(decoded, false);
+    return resolveContainedPath(sitesRoot, siteSegment + "/index.html");
   }
   /**
    * Clean up a title / sanitize the input string for file system usage
@@ -7068,7 +7141,7 @@ class HAXCMSClass {
   /**
    * Recursive copy to rename high level but copy all files
    */
-  async recurseCopy(src, dst, skip = [], base = null) {
+  async recurseCopy(src, dst, skip = [], base) {
     // Security (N1/N5 parity): reject traversal in the destination before
     // creating anything (mirrors PHP HAXCMSSite::recurseCopy). NUL bytes
     // and any `..` segment are refused; when the caller supplies the
@@ -7077,15 +7150,17 @@ class HAXCMSClass {
     if (typeof dst !== "string" || dst === "" || hasTraversal(dst)) {
       return false;
     }
-    if (base !== null && base !== undefined) {
-      const relativeDst = path.relative(path.resolve(base), path.resolve(dst));
-      if (
-        relativeDst === "" ||
-        path.isAbsolute(relativeDst) ||
-        resolveContainedPath(base, relativeDst) === false
-      ) {
-        return false;
-      }
+    // `base` is required: containment is never optional
+    if (typeof base !== "string" || base === "") {
+      return false;
+    }
+    const relativeDst = path.relative(path.resolve(base), path.resolve(dst));
+    if (
+      relativeDst === "" ||
+      path.isAbsolute(relativeDst) ||
+      resolveContainedPath(base, relativeDst) === false
+    ) {
+      return false;
     }
     await fs.copySync(src, dst);
     return true;

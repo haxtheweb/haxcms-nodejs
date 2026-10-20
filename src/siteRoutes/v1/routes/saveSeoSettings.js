@@ -1,6 +1,7 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const filter_var = require('../../../lib/filter_var.js');
 const { sanitizeURLValue } = require('../../../lib/sanitizeContent.js');
+const { isUnsafeRelativePath } = require('../../../lib/pathConfinement.js');
 const {
   platformAllows,
   featureDisabledResponse,
@@ -255,14 +256,19 @@ async function saveSeoSettings(req, res) {
       logoValue = normalizeString(manifestSeo['manifest.metadata.site.logo']);
     }
     if (typeof logoValue !== 'undefined') {
-      site.manifest.metadata.site.logo = filter_var(
-        logoValue,
-        'FILTER_SANITIZE_STRING',
-      );
-      site.manifest.metadata.site.logo = sanitizeURLValue(
-        site.manifest.metadata.site.logo,
+      const submittedLogo = sanitizeURLValue(
+        filter_var(logoValue, 'FILTER_SANITIZE_STRING'),
         '',
       );
+      // Security: logo is a site-relative path that is later read and
+      // resized from disk; refuse traversal / absolute paths
+      if (submittedLogo && isUnsafeRelativePath(submittedLogo)) {
+        res
+          .status(400)
+          .json({ status: 400, data: { message: 'Invalid logo path' } });
+        return;
+      }
+      site.manifest.metadata.site.logo = submittedLogo;
     }
 
     let domainValue;

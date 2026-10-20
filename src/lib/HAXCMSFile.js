@@ -2,6 +2,7 @@ const path = require("path");
 const fs = require("fs-extra");
 const crypto = require("crypto");
 const { HAXCMS } = require("./HAXCMS.js");
+const { isUnsafeRelativePath } = require("./pathConfinement.js");
 const { buildFilePublicUrl } = require("./siteFileUrl.js");
 const { getDeterministicFileUuid } = require("./siteFileUuid.js");
 const { readMediaSettings } = require("./mediaSettings.js");
@@ -915,6 +916,13 @@ class HAXCMSFile {
       // strip leading/trailing slashes so the join is predictable.
       var subfolderPart = "";
       if (subfolder && typeof subfolder === "string") {
+        // Security: subfolder must stay under files/ (no `..`, no absolute)
+        if (isUnsafeRelativePath(subfolder)) {
+          return {
+            status: 500,
+            data: { message: "Invalid subfolder" },
+          };
+        }
         subfolderPart = subfolder.replace(/^\/+|\/+$/g, "");
         if (subfolderPart) {
           subfolderPart = subfolderPart + "/";

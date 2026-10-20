@@ -6,6 +6,7 @@ const fs = require('fs-extra');
 const mime = require('mime');
 const sharp = require('sharp');
 const { buildFilePublicUrl } = require('./siteFileUrl.js');
+const { hasTraversal, pathWithinBase } = require('./pathConfinement.js');
 const {
   getDeterministicFileUuid,
   getCanonicalFilePathForUuid,
@@ -441,8 +442,16 @@ class FilesDataStore {
     if (relative.indexOf('files/') === 0) {
       relative = relative.substring(6);
     }
+    // Security: lexical containment (no `..`/NUL, stays inside files/).
+    // Symlink handling is deliberately left to the route-level realpath gate
+    // so records for symlinked subdirectories keep indexing as before.
     const absolutePath = path.join(filesDir, relative);
-    if (!fs.pathExistsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
+    if (
+      hasTraversal(relative) ||
+      !pathWithinBase(path.resolve(absolutePath), path.resolve(filesDir)) ||
+      !fs.pathExistsSync(absolutePath) ||
+      !fs.statSync(absolutePath).isFile()
+    ) {
       return null;
     }
     const stats = fs.statSync(absolutePath);

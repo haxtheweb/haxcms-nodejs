@@ -2,6 +2,7 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const filter_var = require('../../../lib/filter_var.js');
 const fs = require('fs-extra');
 const { sanitizeURLValue } = require('../../../lib/sanitizeContent.js');
+const { isUnsafeRelativePath } = require('../../../lib/pathConfinement.js');
 const { getRequestHeaderValue, ensureSiteMetadataContainers, assertSiteFeature } = require('../siteRouteUtils.js');
 /**
    * @OA\Post(
@@ -86,10 +87,19 @@ const { getRequestHeaderValue, ensureSiteMetadataContainers, assertSiteFeature }
           site.manifest.metadata.site.domain,
           ''
         );
-        site.manifest.metadata.site.logo = sanitizeURLValue(
+        const submittedLogo = sanitizeURLValue(
             req.body['manifest']['site']['manifest-metadata-site-logo'],
             ''
         );
+        // Security: logo is a site-relative path that is later read and
+        // resized from disk; refuse traversal / absolute paths
+        if (submittedLogo && isUnsafeRelativePath(submittedLogo)) {
+          res
+            .status(400)
+            .json({ status: 400, data: { message: 'Invalid logo path' } });
+          return;
+        }
+        site.manifest.metadata.site.logo = submittedLogo;
         site.manifest.metadata.site.tags = filter_var(
           req.body['manifest']['site']['manifest-metadata-site-tags'],
           "FILTER_SANITIZE_STRING"
