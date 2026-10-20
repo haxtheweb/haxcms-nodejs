@@ -1516,9 +1516,11 @@ systemStructureContext().then((site) => {
           const queryIndex = req.url.indexOf("?");
           const querySuffix =
             queryIndex !== -1 ? req.url.substring(queryIndex) : "";
+          // fixed mount prefix (not req.baseUrl) so the redirect target can only
+          // ever be a path on this host: "/<sites>/<one segment>/"
           res.redirect(
             301,
-            `${req.baseUrl}${multisiteRequestPath}/${querySuffix}`,
+            `/${HAXCMS.sitesDirectory}${multisiteRequestPath}/${querySuffix}`,
           );
           return;
         }
