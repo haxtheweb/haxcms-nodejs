@@ -45,6 +45,7 @@ process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require("./lib/HAXCMS.js");
 const { resolveContainedPath } = require("./lib/pathConfinement.js");
 const loginRateLimiter = require("./lib/loginRateLimiter.js");
+const { createRequestRateLimiter } = require("./lib/requestRateLimiter.js");
 const { haxcmsErrorHandler } = require("./lib/requestErrorHandler.js");
 const { apiMessageCodesMiddleware } = require("./lib/apiMessageCodes.js");
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
@@ -1024,6 +1025,11 @@ app.use(helmet(helmetPolicies));
 // nonce header is set on every response (alongside helmet's other headers).
 // When cspNonceEnabled is false (local-dev/webcontainer bypass) it is a no-op.
 app.use(cspNonceMiddleware);
+// Security (CodeQL js/missing-rate-limiting): generous per-IP ceiling over every
+// route below (static files, site assets, catch-alls) so filesystem-backed
+// handlers cannot be hammered. Tunable / disableable via
+// config.security.requestRateLimit; keyed on req.ip (honors `trust proxy`).
+app.use(createRequestRateLimiter(HAXCMS.getRequestRateLimitSettings()));
 app.use(cookieParser());
 app.use(compression());
 // translatable API messages: add a `code` next to response messages (issues#3157)

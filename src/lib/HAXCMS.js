@@ -4246,6 +4246,36 @@ class HAXCMSClass {
       ),
     };
   }
+  // Per-IP request ceiling for the whole HTTP surface (static files, site
+  // assets, catch-all handlers) that touches the filesystem. Defaults are
+  // deliberately generous (1500 req/min) so a page load with many assets or a
+  // bulk editor session is never throttled, while scripted floods are bounded.
+  // Config: config.security.requestRateLimit { enabled, windowMs, max }.
+  getRequestRateLimitSettings() {
+    const defaults = { enabled: true, windowMs: 60 * 1000, max: 1500 };
+    let cfg = {};
+    if (
+      this.config &&
+      this.config.security &&
+      this.config.security.requestRateLimit
+    ) {
+      cfg = this.config.security.requestRateLimit;
+    }
+    let enabled = defaults.enabled;
+    if (typeof cfg.enabled !== "undefined") {
+      enabled = cfg.enabled === true;
+    }
+    return {
+      enabled: enabled,
+      windowMs: this.getIntConfigValue(
+        cfg.windowMs,
+        defaults.windowMs,
+        1000,
+        24 * 60 * 60 * 1000,
+      ),
+      max: this.getIntConfigValue(cfg.max, defaults.max, 1, 1000000),
+    };
+  }
   // Express `trust proxy` setting, sourced from config so deployments behind a
   // reverse proxy can opt in to forwarded client IPs. Defaults to false (do not
   // trust any proxy), which keeps single-host/local setups using the socket IP.
