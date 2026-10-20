@@ -757,7 +757,7 @@ paths:
       summary: Return system entity descriptors and links
       description: >
         Returns the full merged set of entity descriptors sourced from the
-        single entities.yaml registry (EntityRegistry.getDefinitions()).
+        single entities.yaml registry (EntityRegistry getDefinitions()).
         Both /x/api/v1/entities and /system/api/v1/entities read from the same
         registry, so the API surface and the in-code object are one shape.
         Optional ?scope=site|system filters the merged set by scope. Each
@@ -846,6 +846,15 @@ paths:
         - settings
       operationId: getApiKeys
       summary: Return configured API keys and provider statuses
+      description: >
+        Returns all configured system API keys and provider connection
+        statuses. security (F3/authz): this endpoint exposes system-wide
+        credentials and is restricted to the superUser (admin) principal on
+        the PHP backend (see
+        SystemRoutesMap::getSystemV1SuperUserReadRoutes and the handler
+        defense-in-depth superUser check); a non-superUser authenticated
+        caller receives 403. The NodeJS single-user backend does not model
+        an admin tier and allows the single authenticated dashboard user.
       security:
         - bearerAuth: []
           userTokenHeader: []
@@ -872,9 +881,12 @@ paths:
       description: >
         Read-only alias of GET /configuration/api-keys. POST is accepted for
         callers that prefer POST over GET but does not write; use PATCH to
-        update API key settings. Single-user deployment assumption: the
-        NodeJS backend does not model an admin/superUser tier; these settings
-        are written by the single authenticated dashboard user.
+        update API key settings. security (F3/authz): like the GET, this
+        endpoint exposes system-wide credentials and is restricted to the
+        superUser (admin) principal on the PHP backend; a non-superUser
+        authenticated caller receives 403. Single-user deployment assumption:
+        the NodeJS backend does not model an admin/superUser tier; these
+        settings are written by the single authenticated dashboard user.
       security:
         - bearerAuth: []
           userTokenHeader: []
@@ -1007,7 +1019,7 @@ paths:
       tags:
         - settings
       operationId: getLocalizationSettings
-      summary: Return localization configuration
+      summary: Return localization and system default configuration
       security:
         - bearerAuth: []
           userTokenHeader: []
@@ -1030,10 +1042,10 @@ paths:
       tags:
         - settings
       operationId: getLocalizationSettingsPost
-      summary: Return localization configuration (read alias of GET)
+      summary: Return localization and system default configuration (read alias of GET)
       description: >
-        Read-only alias of GET /configuration/localization. POST is accepted for
-        callers that prefer POST over GET but does not write; use PATCH to
+        Read-only alias of GET /configuration/localization. POST is accepted
+        for callers that prefer POST over GET but does not write; use PATCH to
         update localization settings. Single-user deployment assumption: the
         NodeJS backend does not model an admin/superUser tier; these settings
         are written by the single authenticated dashboard user.
@@ -1053,12 +1065,14 @@ paths:
       tags:
         - settings
       operationId: saveLocalizationSettingsPatch
-      summary: Update localization configuration
+      summary: Update localization and system default configuration
       description: >
-        Write operation — updates localization configuration (defaultLanguage,
-        a BCP-47 tag). Single-user deployment assumption: the NodeJS backend
-        does not model an admin/superUser tier; settings are written by the
-        single authenticated dashboard user.
+        Write operation — updates the system-wide default language (and future
+        localization defaults). The persisted value seeds the default language
+        applied to newly created sites and is editable post-install via the
+        Configuration admin panel. Single-user deployment assumption: the
+        NodeJS backend does not model an admin/superUser tier; settings are
+        written by the single authenticated dashboard user.
       security:
         - bearerAuth: []
           userTokenHeader: []
@@ -2968,7 +2982,7 @@ components:
       description: >
         Collection of entity descriptors returned by /system/api/v1/entities
         (and /x/api/v1/entities). Both endpoints read from the single merged
-        entities.yaml registry via EntityRegistry.getDefinitions().
+        entities.yaml registry via EntityRegistry getDefinitions().
       properties:
         count:
           type: integer
@@ -3186,6 +3200,17 @@ components:
     MediaSettings:
       type: object
       description: Media settings payload
+      additionalProperties: true
+    LocalizationSettings:
+      type: object
+      description: >
+        Localization / system default settings payload. The `defaultLanguage`
+        value is a BCP-47 shaped language tag (e.g. en-US) applied as the
+        default language for newly created sites.
+      properties:
+        defaultLanguage:
+          type: string
+          description: BCP-47 language tag (e.g. en-US, es-ES).
       additionalProperties: true
     EnabledCollectionSettings:
       type: object
@@ -3506,19 +3531,12 @@ components:
         acceptedFormats:
           type: string
       additionalProperties: true
-    LocalizationSettings:
-      type: object
-      description: Localization settings payload (defaultLanguage BCP-47 tag)
-      properties:
-        defaultLanguage:
-          type: string
-          description: BCP-47 language tag (e.g. en-US, es-ES, fr-FR)
-      additionalProperties: true
     LocalizationSettingsData:
       type: object
       description: >
         Localization settings returned by getLocalizationSettings and
-        saveLocalizationSettingsPatch. The front-end reads defaultLanguage.
+        saveLocalizationSettingsPatch. The front-end (haxcms-system-settings
+        Configuration panel) reads `data.defaultLanguage`.
       properties:
         defaultLanguage:
           type: string
