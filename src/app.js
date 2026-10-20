@@ -950,7 +950,7 @@ function injectLinkedDevImportMap(indexFile = "") {
 if (process.env.NODE_ENV === "development") {
   const child_process = require("child_process");
   const util = require("util");
-  const exec = util.promisify(child_process.exec);
+  const execFile = util.promisify(child_process.execFile);
   const ws = require("ws");
   const chokidar = require("chokidar");
   const customSrcPath = path.join(process.cwd(), "custom/src");
@@ -972,7 +972,14 @@ if (process.env.NODE_ENV === "development") {
   async function handleWatchedFileChange(filePath = "") {
     if (isPathInsideDirectory(customSrcPath, filePath)) {
       try {
-        await exec("cd custom && npm run build");
+        await execFile(
+          process.platform === "win32" ? "npm.cmd" : "npm",
+          ["run", "build"],
+          {
+            cwd: path.join(process.cwd(), "custom"),
+            shell: process.platform === "win32",
+          },
+        );
       } catch {
         // intentionally ignored
       }
