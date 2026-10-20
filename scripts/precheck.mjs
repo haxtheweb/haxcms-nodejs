@@ -36,8 +36,8 @@ const CONFIG = {
     // branch is reported but does not fail the check, so touching a legacy
     // file never forces a whole-file reformat. Use it only where CI does not
     // already enforce Prettier on those files.
-    // CI does not run Prettier here and ~300 legacy files fail it, so those
-    // stay exempt.
+    // CI runs this script on changed files only. About 300 legacy files fail
+    // Prettier, so those stay exempt.
     exemptPreexisting: true,
   },
   eslint: {
