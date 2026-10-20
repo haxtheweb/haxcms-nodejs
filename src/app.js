@@ -92,7 +92,7 @@ var cspBaseDirectives = {
   ],
   styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
   mediaSrc: ["'self'", "data:", "https:"],
-  imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
+  imgSrc: ["'self'", "data:", "https:", "blob:"],
   connectSrc: ["'self'", "https:", "ws:", "wss:"],
   defaultSrc: ["'self'", "data:", "https:"],
   objectSrc: ["'none'"],
