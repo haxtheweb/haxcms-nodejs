@@ -33,7 +33,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ matrix.node-version }}-yarn-
       - name: Install
-        run: yarn install
+        run: yarn install --frozen-lockfile
       - name: Build
         run: yarn run build
       - name: Unit + API conformance tests
@@ -85,7 +85,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ matrix.node-version }}-yarn-
       - name: Install
-        run: yarn install
+        run: yarn install --frozen-lockfile
       - name: Build
         run: yarn run build
       - name: E2E UI tests
