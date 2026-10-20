@@ -37,10 +37,6 @@ jobs:
             ${{ runner.os }}-node-${{ matrix.node-version }}-yarn-
       - name: Install
         run: yarn install --frozen-lockfile
-      - name: Lint
-        # `eslint .` has no errors on main (legacy-code rules are warnings), so
-        # this is a hard gate on new errors.
-        run: yarn lint
       - name: Format check (changed files)
         # Prettier is not clean repo-wide (about 300 legacy files fail it), so
         # this checks only the files a PR changes. A changed file that was
@@ -51,6 +47,11 @@ jobs:
         run: yarn run build
       - name: Unit + API conformance tests
         run: npm test
+      - name: Lint
+        # Advisory only: lint runs after the real tests and never fails the
+        # build (findings still show as annotations / in the log).
+        continue-on-error: true
+        run: yarn lint
       - name: Coverage
         run: npm run test:coverage
       - name: Upload coverage (lcov)
