@@ -997,14 +997,14 @@ if (process.env.NODE_ENV === "development") {
 // Security (HAX-SEC-012): express.urlencoded was previously applied globally
 // (including to static/GET requests). It is now scoped to POST/PUT/PATCH/
 // DELETE routes via formBodyParser in the per-route parser selectors above.
-// Security (SEC-DEPLOY / DNS rebinding): the no-login bypass binds loopback,
-// but a hostile web page can still reach it via DNS rebinding. Reject any
-// request whose Host header is not a loopback name in that mode. Runs first so
-// nothing else (static files, API routes) is reachable with a foreign Host.
 // Security (ReDoS, CodeQL #23/#39): oversized request URLs are rejected with
 // 414 before any static/asset/route handling (cap documented in
 // src/lib/requestUrlGuards.js).
 app.use(requestUrlGuard);
+// Security (SEC-DEPLOY / DNS rebinding): the no-login bypass binds loopback,
+// but a hostile web page can still reach it via DNS rebinding. Reject any
+// request whose Host header is not a loopback name in that mode. Runs first so
+// nothing else (static files, API routes) is reachable with a foreign Host.
 app.use((req, res, next) => {
   if (
     shouldEnforceLoopbackHostHeader(
