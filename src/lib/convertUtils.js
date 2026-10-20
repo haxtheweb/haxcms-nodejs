@@ -4,6 +4,7 @@ const {
   escapeHTMLAttribute,
 } = require("./sanitizeContent.js");
 const HTMLtoDOCX = require("html-to-docx");
+const { urlHostMatches } = require("./urlHost.js");
 const {
   resolveExportImages,
   finalizeExportHtml,
@@ -19,13 +20,7 @@ const {
  * only remote http(s) images are fetched and relative ones are dropped).
  */
 async function convertHtmlToDocxBuffer(html, imageOptions) {
-  let sanitized = String(html || "")
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/\x00/g, "")
-    .trim();
+  let sanitized = sanitizeUntrustedHtml(String(html || ""));
 
   if (!sanitized) {
     sanitized = "<p>No content available</p>";
@@ -425,6 +420,14 @@ function validURL(str) {
   return url.protocol === "http:" || url.protocol === "https:";
 }
 
+// hosts whose links become <video-player> elements
+const VIDEO_HOSTS = [
+  "youtube.com",
+  "youtu.be",
+  "youtube-nocookie.com",
+  "vimeo.com",
+];
+
 const CUSTOM_ELEMENT_NAME_RE = /^[a-z][a-z0-9._-]*-[a-z0-9._-]*$/;
 
 function escapeHTMLText(value) {
@@ -443,10 +446,7 @@ function htmlFromEl(el) {
   let textValue = el.innerText.trim();
   if (
     validURL(textValue) &&
-    (textValue.includes("youtube.com") ||
-      textValue.includes("youtu.be") ||
-      textValue.includes("youtube-nocookie.com") ||
-      textValue.includes("vimeo.com") ||
+    (urlHostMatches(textValue, VIDEO_HOSTS) ||
       textValue.toLowerCase().includes(".mp4"))
   ) {
     return `<video-player source="${escapeHTMLAttribute(textValue)}"></video-player>`;
@@ -483,8 +483,8 @@ function htmlFromEl(el) {
   } else if (textValue.startsWith("[") && textValue.endsWith("]")) {
     let tmp = textValue.split(":");
     if (tmp.length > 1) {
-      let type = tmp.shift().replace("[", "");
-      let text = tmp.join(":").replace("]", "").trim();
+      let type = tmp.shift().replace(/^\[/, "");
+      let text = tmp.join(":").replace(/\]$/, "").trim();
       switch (type) {
         case "math":
         case "mathjax":
@@ -497,14 +497,10 @@ function htmlFromEl(el) {
           return `<place-holder type="${type}" text="${escapeHTMLAttribute(text)}"></place-holder>`;
       }
     }
-    textValue = textValue.replace("[", "").replace("]", "").trim();
+    textValue = textValue.replace(/[[\]]/g, "").trim();
     if (
       validURL(textValue) &&
-      (textValue.includes("youtube.com") ||
-        textValue.includes("youtu.be") ||
-        textValue.includes("youtube-nocookie.com") ||
-        textValue.includes("vimeo.com") ||
-        textValue.includes("twitch.tv") ||
+      (urlHostMatches(textValue, VIDEO_HOSTS.concat(["twitch.tv"])) ||
         textValue.toLowerCase().includes(".mp4"))
     ) {
       return `<video-player source="${escapeHTMLAttribute(textValue)}"></video-player>`;
@@ -615,13 +611,7 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
       "No Chrome/Chromium executable found. Install Chrome or set PUPPETEER_EXECUTABLE_PATH.",
     );
   }
-  let sanitized = String(html || "")
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/\x00/g, "")
-    .trim();
+  let sanitized = sanitizeUntrustedHtml(String(html || ""));
   if (!sanitized) {
     sanitized = "<p>No content available</p>";
   }
@@ -661,6 +651,9 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
       args: launchArgs,
     });
     const page = await browser.newPage();
+    // Security: the sanitized markup never needs script; belt and braces
+    // against anything the sanitizer could miss.
+    await page.setJavaScriptEnabled(false);
     // Security (SEC-SSRF): belt and braces — images are already inlined, so
     // abort every request that is not data:/about: (CSS url(), <link>,
     // <object>, fonts, anything the inlining pass did not cover).

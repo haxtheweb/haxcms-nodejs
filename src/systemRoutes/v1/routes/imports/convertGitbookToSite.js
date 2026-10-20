@@ -3,6 +3,7 @@ const MarkdownIt = require("markdown-it");
 const JSONOutlineSchema = require("../../../../lib/JSONOutlineSchema.js");
 const JSONOutlineSchemaItem = require("../../../../lib/JSONOutlineSchemaItem.js");
 const { safeFetch } = require("../../../../lib/safeFetch.js");
+const { urlHostMatches } = require("../../../../lib/urlHost.js");
 // Security (L1): client-safe exception text (no paths / stack internals)
 const {
   clientSafeErrorDetail,
@@ -107,8 +108,8 @@ async function convertGitbookToSite(req, res) {
     // the same ref or it 404s on a 'main'-default repo.
     let tmp = new URL(sourceLink);
     // ensure we go from github to raw git response for the md
-    if (tmp.href.indexOf("github.com") !== -1) {
-      tmp.href = tmp.href.replace("github.com", "raw.githubusercontent.com");
+    if (urlHostMatches(tmp.href, ["github.com"])) {
+      tmp.hostname = "raw.githubusercontent.com";
     }
     // if we have /blob/ that's on the frontend so remove it from the path
     if (tmp.href.indexOf("/blob/") !== -1) {
