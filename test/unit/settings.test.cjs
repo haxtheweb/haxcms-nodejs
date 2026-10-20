@@ -364,7 +364,6 @@ describe("localizationSettings.normalizeDefaultLanguage", () => {
     assert.equal(localization.normalizeDefaultLanguage("e"), null);
     assert.equal(localization.normalizeDefaultLanguage("english"), null);
     assert.equal(localization.normalizeDefaultLanguage("en-US-extra"), null);
-    assert.equal(localization.normalizeDefaultLanguage("en_Us"), null);
     assert.equal(localization.normalizeDefaultLanguage("123"), null);
   });
 
@@ -378,11 +377,21 @@ describe("localizationSettings.normalizeDefaultLanguage", () => {
   test("passes through a lone primary subtag in lowercase", () => {
     assert.equal(localization.normalizeDefaultLanguage("en"), "en");
     assert.equal(localization.normalizeDefaultLanguage("EN"), "en");
-    assert.equal(localization.normalizeDefaultLanguage("fil"), "fil");
+    assert.equal(localization.normalizeDefaultLanguage("sw"), "sw");
   });
 
   test("accepts a 4-character script subtag", () => {
-    assert.equal(localization.normalizeDefaultLanguage("zh-Hant"), "zh-HANT");
+    assert.equal(localization.normalizeDefaultLanguage("xx-Hant"), "xx-HANT");
+  });
+
+  test("resolves registry codes, aliases and underscore forms", () => {
+    assert.equal(localization.normalizeDefaultLanguage("en_Us"), "en-US");
+    assert.equal(localization.normalizeDefaultLanguage("zh_CN"), "zh-CN");
+    assert.equal(localization.normalizeDefaultLanguage("zh"), "zh-CN");
+    assert.equal(localization.normalizeDefaultLanguage("zh-Hant"), "zh-TW");
+    assert.equal(localization.normalizeDefaultLanguage("fil"), "tl");
+    assert.equal(localization.normalizeDefaultLanguage("iw"), "he");
+    assert.equal(localization.normalizeDefaultLanguage("no"), "nb");
   });
 
   test("coerces non-string values to string before validating", () => {

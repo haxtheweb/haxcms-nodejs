@@ -1,5 +1,6 @@
 const fs = require('fs-extra');
 const path = require('path');
+const { matchLanguageCode } = require('./languageRegistry.js');
 
 const DEFAULT_LANGUAGE = 'en-US';
 const BCP47_LANGUAGE_REGEX = /^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?$/;
@@ -26,6 +27,12 @@ function normalizeDefaultLanguage(value) {
   value = value.trim();
   if (value === '') {
     return null;
+  }
+  // a language the registry knows (or an alias / underscore form of one)
+  // becomes its canonical code: zh_CN -> zh-CN, iw -> he
+  const known = matchLanguageCode(value);
+  if (known) {
+    return known;
   }
   if (!BCP47_LANGUAGE_REGEX.test(value)) {
     return null;
