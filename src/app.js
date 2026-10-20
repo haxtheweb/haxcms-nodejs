@@ -1374,9 +1374,13 @@ systemStructureContext().then((site) => {
     app.use("/.well-known/agent-skills", (req, res, next) => {
       const asRoot = path.join(process.cwd(), ".well-known", "agent-skills");
       const reqPath = getRequestPathWithoutQuery(req.url).replace(/^\/+/, "");
-      const targetFile = path.join(asRoot, reqPath);
+      // Security: contain the joined path before any filesystem access
+      const targetFile = reqPath
+        ? resolveContainedPath(asRoot, reqPath)
+        : false;
       if (
         !reqPath ||
+        targetFile === false ||
         !fs.existsSync(targetFile) ||
         fs.statSync(targetFile).isDirectory()
       ) {
@@ -1603,15 +1607,18 @@ systemStructureContext().then((site) => {
         // Security (M2): static index fallback — read+nonce+send so inline
         // scripts are authorized under the nonce CSP (no 'unsafe-inline').
         // Mirrors the prior res.sendFile path resolution.
-        var fallbackRelativePath = req.url.replace(
-          /\/(.*?)\/(.*)/,
-          `/${HAXCMS.sitesDirectory}/$1/index.html`,
+        // Security: derive the site segment via cleanTitle and confine the
+        // resulting index.html to the sites directory.
+        const fallbackIndexPath = HAXCMS.resolveSiteIndexPath(
+          path.join(process.cwd(), HAXCMS.sitesDirectory),
+          siteName,
         );
-        sendNonceIndex(
-          res,
-          req,
-          path.join(process.cwd(), fallbackRelativePath),
-        );
+        if (fallbackIndexPath === false) {
+          setNoStoreResponseHeaders(res);
+          res.status(404).send("Not found");
+          return;
+        }
+        sendNonceIndex(res, req, fallbackIndexPath);
       }
     });
     // published directory route if it exists
