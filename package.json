@@ -30,6 +30,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "precheck": "node scripts/precheck.mjs",
+    "precheck:fix": "node scripts/precheck.mjs --fix",
     "prepare": "husky install"
   },
   "repository": {
