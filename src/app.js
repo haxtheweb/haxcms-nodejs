@@ -29,6 +29,10 @@ const {
   isLoopbackHostHeader,
   shouldEnforceLoopbackHostHeader,
 } = require("./lib/listenHost.js");
+const {
+  requestUrlGuard,
+  getBuildAssetRequestPath,
+} = require("./lib/requestUrlGuards.js");
 const PAGE_VARIANT_CONTENT_TYPES = {
   html: "text/html; charset=utf-8",
   md: "text/markdown; charset=utf-8",
@@ -393,15 +397,6 @@ function isPathInsideDirectory(parentPath = "", targetPath = "") {
     return true;
   }
   return relativePath.indexOf("..") !== 0 && !path.isAbsolute(relativePath);
-}
-
-function getBuildAssetRequestPath(url = "") {
-  const requestPath = String(url || "").split("?")[0];
-  return requestPath
-    .replace(/\/(.*?)\/build\//g, "build/")
-    .replace(/\/(.*?)\/wc-registry.json/g, "wc-registry.json")
-    .replace(/\/(.*?)\/build.js/g, "build.js")
-    .replace(/\/(.*?)\/build-haxcms.js/g, "build-haxcms.js");
 }
 
 function isBuildAssetRequest(url = "") {
@@ -1002,6 +997,10 @@ if (process.env.NODE_ENV === "development") {
 // Security (HAX-SEC-012): express.urlencoded was previously applied globally
 // (including to static/GET requests). It is now scoped to POST/PUT/PATCH/
 // DELETE routes via formBodyParser in the per-route parser selectors above.
+// Security (ReDoS, CodeQL #23/#39): oversized request URLs are rejected with
+// 414 before any static/asset/route handling (cap documented in
+// src/lib/requestUrlGuards.js).
+app.use(requestUrlGuard);
 // Security (SEC-DEPLOY / DNS rebinding): the no-login bypass binds loopback,
 // but a hostile web page can still reach it via DNS rebinding. Reject any
 // request whose Host header is not a loopback name in that mode. Runs first so

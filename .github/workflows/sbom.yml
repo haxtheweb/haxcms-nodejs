@@ -1,0 +1,64 @@
+name: sbom
+# Generates a CycloneDX SBOM of the runtime (production) dependency tree from
+# the committed yarn.lock (haxtheweb/issues#3092). Mirrors the haxcms-php
+# workflow: artifact `sbom-cyclonedx`, file `sbom.cdx.json`.
+#
+# This workflow never publishes to npm. Releases are still cut by the
+# maintainer; when a GitHub Release is published, the SBOM is attached to it.
+on:
+  pull_request:
+    paths:
+      - package.json
+      - yarn.lock
+      - .github/workflows/sbom.yml
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sbom:
+    name: Generate CycloneDX SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install production dependencies from yarn.lock
+        # Lifecycle scripts are skipped: we only need the resolved tree.
+        run: yarn install --frozen-lockfile --production --ignore-scripts
+      - name: Generate CycloneDX SBOM
+        run: >
+          npx --yes @cyclonedx/cyclonedx-npm@6.0.1
+          --omit dev
+          --spec-version 1.6
+          --output-format JSON
+          --output-file sbom.cdx.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: error
+
+  attach-to-release:
+    name: Attach SBOM to release
+    if: github.event_name == 'release'
+    needs: sbom
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # only to upload an asset to the existing release
+    steps:
+      - name: Download SBOM
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: sbom-cyclonedx
+      - name: Upload SBOM to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" sbom.cdx.json --clobber --repo "$REPO"

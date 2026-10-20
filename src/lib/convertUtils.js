@@ -1,4 +1,8 @@
 const { parse } = require("node-html-parser");
+const {
+  sanitizeHTMLForStorage,
+  escapeHTMLAttribute,
+} = require("./sanitizeContent.js");
 const HTMLtoDOCX = require("html-to-docx");
 const {
   resolveExportImages,
@@ -262,9 +266,9 @@ function stripMSWord(input) {
       dropMatch,
     );
   }
-  output = output.replace(/ style='(\s|.)*?'/gim, "");
-  output = output.replace(/ style="(\s|.)*?"/gim, "");
-  output = output.replace(/ face="(\s|.)*?"/gim, "");
+  output = output.replace(/ style='[^']*'/gim, "");
+  output = output.replace(/ style="[^"]*"/gim, "");
+  output = output.replace(/ face="[^"]*"/gim, "");
   output = output.replace(/ align=.*? /g, "");
   output = output.replace(/ start='.*?'/g, "");
   // was: /line-height:.*?\"/g -> '"' and /line-height:.*?;/g -> ''
@@ -302,10 +306,10 @@ function stripMSWord(input) {
     dropMatch,
   );
   output = output.replace(/ style=""/g, "");
-  output = output.replace(/ id="(\s|.)*?"/gim, "");
-  output = output.replace(/ dir="(\s|.)*?"/gim, "");
-  output = output.replace(/ role="(\s|.)*?"/gim, "");
-  output = output.replace(/ contenteditable="(\s|.)*?"/gim, "");
+  output = output.replace(/ id="[^"]*"/gim, "");
+  output = output.replace(/ dir="[^"]*"/gim, "");
+  output = output.replace(/ role="[^"]*"/gim, "");
+  output = output.replace(/ contenteditable="[^"]*"/gim, "");
   // was: / data-(\s|.)*?\"(\s|.)*?\"/gim -> ''
   output = lazySequenceReplace(
     output,
@@ -313,7 +317,7 @@ function stripMSWord(input) {
     [{ re: /"/g }, { re: /"/g }],
     dropMatch,
   );
-  output = output.replace(/ class="(\s|.)*?"/gim, "");
+  output = output.replace(/ class="[^"]*"/gim, "");
   output = output.replace(/<pstyle/gm, "<p style");
   output = output.replace(/<a name="_GoBack"><\/a>/gm, "");
   output = output.replace(/&nbsp;/gm, " ");
@@ -392,11 +396,11 @@ function stripMSWord(input) {
   output = output.replace(/<p><br\/><\/p>/gm, "");
   output = output.replace(/<p><br><\/p>/gm, "");
   output = output.replace(/<\/p>(\s*)<p>/gm, "</p><p>");
-  output = output.replace(/ data-hax-ray="(\s|.)*?"/gim, "");
+  output = output.replace(/ data-hax-ray="[^"]*"/gim, "");
   output = output.replace(/ class=""/gim, "");
   output = output.replace(/ class="hax-active"/gim, "");
-  output = output.replace(/ contenteditable="(\s|.)*?"/gim, "");
-  output = output.replace(/ t="(\s|.)*?"/gim, "");
+  output = output.replace(/ contenteditable="[^"]*"/gim, "");
+  output = output.replace(/ t="[^"]*"/gim, "");
   for (let j in badTags) {
     let emptyTagRemove = new RegExp(
       "<" + badTags[j] + "></" + badTags[j] + ">",
@@ -421,6 +425,15 @@ function validURL(str) {
   return url.protocol === "http:" || url.protocol === "https:";
 }
 
+const CUSTOM_ELEMENT_NAME_RE = /^[a-z][a-z0-9._-]*-[a-z0-9._-]*$/;
+
+function escapeHTMLText(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 /**
  * Convert an element from parsed mammoth HTML into a single HTML string.
  * This replaces tabs, supports single-line video player calls, and handles
@@ -436,7 +449,7 @@ function htmlFromEl(el) {
       textValue.includes("vimeo.com") ||
       textValue.toLowerCase().includes(".mp4"))
   ) {
-    return `<video-player source="${textValue}"></video-player>`;
+    return `<video-player source="${escapeHTMLAttribute(textValue)}"></video-player>`;
   } else if (
     validURL(textValue) &&
     (textValue.toLowerCase().includes(".jpg") ||
@@ -444,10 +457,10 @@ function htmlFromEl(el) {
       textValue.toLowerCase().includes(".png") ||
       textValue.toLowerCase().includes(".webp"))
   ) {
-    return `<img src="${textValue}" loading="lazy" decoding="async" fetchpriority="high" alt="" />`;
+    return `<img src="${escapeHTMLAttribute(textValue)}" loading="lazy" decoding="async" fetchpriority="high" alt="" />`;
   } else if (validURL(textValue) && textValue.toLowerCase().includes(".gif")) {
-    return `<a11y-gif-player src="${textValue}" style="width: 300px;">
-      <simple-img width="300" src="${textValue}"></simple-img>
+    return `<a11y-gif-player src="${escapeHTMLAttribute(textValue)}" style="width: 300px;">
+      <simple-img width="300" src="${escapeHTMLAttribute(textValue)}"></simple-img>
     </a11y-gif-player>`;
   }
   // audio (mp3 / wav / ogg / m4a / flac / aac / mid / midi)
@@ -462,11 +475,11 @@ function htmlFromEl(el) {
       textValue.toLowerCase().includes(".mid") ||
       textValue.toLowerCase().includes(".midi"))
   ) {
-    return `<audio-player source="${textValue}"></audio-player>`;
+    return `<audio-player source="${escapeHTMLAttribute(textValue)}"></audio-player>`;
   }
   // pdf
   else if (validURL(textValue) && textValue.toLowerCase().includes(".pdf")) {
-    return `<pdf-browser-viewer file="${textValue}" width="100%"></pdf-browser-viewer>`;
+    return `<pdf-browser-viewer file="${escapeHTMLAttribute(textValue)}" width="100%"></pdf-browser-viewer>`;
   } else if (textValue.startsWith("[") && textValue.endsWith("]")) {
     let tmp = textValue.split(":");
     if (tmp.length > 1) {
@@ -475,13 +488,13 @@ function htmlFromEl(el) {
       switch (type) {
         case "math":
         case "mathjax":
-          return `<lrn-math>${text}</lrn-math>`;
+          return `<lrn-math>${escapeHTMLText(text)}</lrn-math>`;
         case "video":
         case "audio":
         case "document":
         case "text":
         case "image":
-          return `<place-holder type="${type}" text="${text}"></place-holder>`;
+          return `<place-holder type="${type}" text="${escapeHTMLAttribute(text)}"></place-holder>`;
       }
     }
     textValue = textValue.replace("[", "").replace("]", "").trim();
@@ -494,7 +507,7 @@ function htmlFromEl(el) {
         textValue.includes("twitch.tv") ||
         textValue.toLowerCase().includes(".mp4"))
     ) {
-      return `<video-player source="${textValue}"></video-player>`;
+      return `<video-player source="${escapeHTMLAttribute(textValue)}"></video-player>`;
     } else if (
       validURL(textValue) &&
       (textValue.toLowerCase().includes(".jpg") ||
@@ -502,13 +515,13 @@ function htmlFromEl(el) {
         textValue.toLowerCase().includes(".png") ||
         textValue.toLowerCase().includes(".webp"))
     ) {
-      return `<img src="${textValue}" loading="lazy" decoding="async" fetchpriority="high" alt="" />`;
+      return `<img src="${escapeHTMLAttribute(textValue)}" loading="lazy" decoding="async" fetchpriority="high" alt="" />`;
     } else if (
       validURL(textValue) &&
       textValue.toLowerCase().includes(".gif")
     ) {
-      return `<a11y-gif-player src="${textValue}" style="width: 300px;">
-        <simple-img width="300" src="${textValue}"></simple-img>
+      return `<a11y-gif-player src="${escapeHTMLAttribute(textValue)}" style="width: 300px;">
+        <simple-img width="300" src="${escapeHTMLAttribute(textValue)}"></simple-img>
       </a11y-gif-player>`;
     }
     // audio (mp3 / wav / ogg / m4a / flac / aac / mid / midi)
@@ -523,17 +536,21 @@ function htmlFromEl(el) {
         textValue.toLowerCase().includes(".mid") ||
         textValue.toLowerCase().includes(".midi"))
     ) {
-      return `<audio-player source="${textValue}"></audio-player>`;
+      return `<audio-player source="${escapeHTMLAttribute(textValue)}"></audio-player>`;
     }
     // pdf
     else if (validURL(textValue) && textValue.toLowerCase().includes(".pdf")) {
-      return `<pdf-browser-viewer file="${textValue}" width="100%"></pdf-browser-viewer>`;
+      return `<pdf-browser-viewer file="${escapeHTMLAttribute(textValue)}" width="100%"></pdf-browser-viewer>`;
     } else {
-      return `<place-holder type="text" text="${textValue}"></place-holder>`;
+      return `<place-holder type="text" text="${escapeHTMLAttribute(textValue)}"></place-holder>`;
     }
   } else if (textValue.startsWith("!") && textValue.includes("-")) {
     let tag = textValue.replace("!", "").trim();
-    return `<${tag}></${tag}>`;
+    // only emit well-formed custom element names; anything else could inject
+    // attributes or markup into the generated page
+    if (CUSTOM_ELEMENT_NAME_RE.test(tag)) {
+      return `<${tag}></${tag}>`;
+    }
   }
   let content = el.outerHTML
     .replace(/\t/g, "")
@@ -682,19 +699,21 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
 }
 
 /**
- * Strip scripts, styles, and other dangerous content from untrusted HTML.
+ * Sanitize untrusted HTML (uploaded files, remote URLs) before it is parsed
+ * into page content. Delegates to the shared DOMPurify-based allowlist
+ * sanitizer used for stored content (nested tags, event handlers and
+ * script-capable URL schemes are all handled there); a regex blacklist cannot
+ * do this safely.
  */
 function sanitizeUntrustedHtml(html) {
   if (typeof html !== "string") {
     return "";
   }
-  return html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/\x00/g, "")
-    .trim();
+  // imports never need embedded frames, so drop iframes on top of the
+  // storage policy
+  return sanitizeHTMLForStorage(html.replace(/\x00/g, ""), {
+    forbidTags: ["iframe"],
+  }).trim();
 }
 
 module.exports = {

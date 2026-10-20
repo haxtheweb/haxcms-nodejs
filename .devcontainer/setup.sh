@@ -3,7 +3,7 @@ set -e
 
 # Install dependencies and build dist/ (babel src -> dist) so the Express
 # server and CLI entrypoints (local.js / app.js / cli.js) are ready to run.
-yarn install
+yarn install --frozen-lockfile
 yarn run build
 
 printf "\033[34mhaxtheweb/haxcms-nodejs Next Steps:\033[0m\n"

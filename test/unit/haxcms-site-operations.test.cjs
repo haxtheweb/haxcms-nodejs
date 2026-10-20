@@ -980,6 +980,8 @@ test("lunrSearchIndex and cleanSearchData build the search corpus", async () => 
     "<p>Hello   world</p>\nunique unique words",
   );
   assert.ok(cleaned.indexOf("<") === -1);
+  // every newline is replaced, not only the first
+  assert.ok(!site.cleanSearchData("alpha\nbravo\ncharlie\ndelta").includes("\n"));
 });
 
 // ---------------------------------------------------------------------------
