@@ -184,8 +184,10 @@ function filter_var(input, filter, options) {
         var matches = options.regexp.exec(data);
         return matches ? matches[0] : failure;
       }
-    // TODO: support passing regexes as strings "#regex#is"
-    // falls through (existing behavior: a non-regexp option continues into IP validation)
+      // TODO: support passing regexes as strings "#regex#is"
+      // A missing/invalid regexp can never match, so fail instead of
+      // falling into IP validation.
+      return failure;
     case supportedFilters.FILTER_VALIDATE_IP:
       var ipv4 =
         /^(25[0-5]|2[0-4]\d|[01]?\d?\d)\.(25[0-5]|2[0-4]\d|[01]?\d?\d)\.(25[0-5]|2[0-4]\d|[01]?\d?\d)\.(25[0-5]|2[0-4]\d|[01]?\d?\d)$/;
