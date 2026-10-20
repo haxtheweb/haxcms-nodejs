@@ -209,7 +209,11 @@ function typeFromElement(el) {
       const src = String(el.getAttribute("src") || "");
       const className = String(el.getAttribute("class") || "");
       if (
-        urlHostMatches(src, ["youtube.com", "youtube-nocookie.com", "vimeo.com"])
+        urlHostMatches(src, [
+          "youtube.com",
+          "youtube-nocookie.com",
+          "vimeo.com",
+        ])
       ) {
         return "video";
       }
