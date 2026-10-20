@@ -237,6 +237,14 @@ addRouteHandler(
 addRouteHandler(SystemRoutesMap, 'get', 'themes', settingsRoutes.configurationThemes);
 addRouteHandler(SystemRoutesMap, 'post', 'themes', settingsRoutes.configurationThemes);
 addRouteHandler(SystemRoutesMap, 'patch', 'themes', settingsRoutes.configurationThemes);
+addRouteHandler(SystemRoutesMap, 'get', 'languages', settingsRoutes.languagesList);
+addRouteHandler(SystemRoutesMap, 'get', 'languages/:code', settingsRoutes.getLanguage);
+addRouteHandler(
+  SystemRoutesMap,
+  'get',
+  'languages/:code/translations',
+  settingsRoutes.languageTranslations,
+);
 addRouteHandler(SystemRoutesMap, 'get', 'blocks', settingsRoutes.configurationBlocks);
 addRouteHandler(SystemRoutesMap, 'post', 'blocks', settingsRoutes.configurationBlocks);
 addRouteHandler(SystemRoutesMap, 'patch', 'blocks', settingsRoutes.configurationBlocks);
@@ -337,6 +345,9 @@ const SystemV1AdminRoutes = [
   'configuration/localization',
   'configuration/schema-files/operations',
   'themes',
+  'languages',
+  'languages/:code',
+  'languages/:code/translations',
   'blocks',
   'skeletons',
   'skeletons/:skeletonName',
