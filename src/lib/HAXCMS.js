@@ -1931,7 +1931,7 @@ class HAXCMSSite {
     }
     // clean up initial, small, trim, replace end lines, utf8 no tags
     text = utf8.encode(
-      stripAngleTags(text, "").replace("\n", " ").toLowerCase().trim(),
+      stripAngleTags(text, "").replace(/\n/g, " ").toLowerCase().trim(),
     );
     // all weird chars
     text = text.replace("/[^a-z0-9']/", " ");
