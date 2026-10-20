@@ -235,7 +235,9 @@ async function readImageDimensions(filePath) {
         height: typeof metadata.height === "number" ? metadata.height : 0,
       };
     }
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   return { width: 0, height: 0 };
 }
 
@@ -980,7 +982,9 @@ class HAXCMSFile {
               };
             }
           }
-        } catch {}
+        } catch {
+          // intentionally ignored
+        }
       }
       // Bulk import: preserve the directory tree encoded in the incoming name
       // (e.g. 'files/assets/x.png' or 'assets/x.png'), mirroring PHP HAXCMSFile
@@ -1082,7 +1086,9 @@ class HAXCMSFile {
           ) {
             dlStreamCapMb = dlCapSettings.maxUploadSizeMb;
           }
-        } catch {}
+        } catch {
+          // intentionally ignored
+        }
         try {
           try {
             await downloadAndSaveFile(filedata, remoteDownloadPath, {
@@ -1128,7 +1134,9 @@ class HAXCMSFile {
                 };
               }
             }
-          } catch {}
+          } catch {
+            // intentionally ignored
+          }
         } catch (err) {
           console.warn(err);
           return {

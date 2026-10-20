@@ -61,7 +61,9 @@ describe('createSite linkImportedPageFiles — #2912', () => {
     try {
       await fs.remove(tmpRoot)
       await fs.remove(stagingDirectory)
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   })
 
   // a page as createSite leaves it: written, with no file references yet

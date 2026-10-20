@@ -375,7 +375,9 @@ function sanitizeFileRenameBaseName(inputValue = "") {
   }
   try {
     value = decodeURIComponent(value);
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   value = value
     .toLowerCase()
     .replace(/[^a-z0-9-]/g, "-")
@@ -407,7 +409,9 @@ function parseRenameRequestName(requestedName, sourceExtension) {
   }
   try {
     normalizedInput = decodeURIComponent(normalizedInput);
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   const segments = normalizedInput.split(".");
   if (segments.length > 2) {
     throw createStatusError("File name can only include one extension", 400);
@@ -846,7 +850,9 @@ async function scaleImageInPlace(
     try {
       const now = new Date();
       fs.utimesSync(sourcePath, now, now);
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   } catch (e) {
     if (fs.pathExistsSync(temporaryPath)) {
       fs.removeSync(temporaryPath);
@@ -903,7 +909,9 @@ async function compressImageInPlace(
     try {
       const now = new Date();
       fs.utimesSync(sourcePath, now, now);
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   } catch (e) {
     if (fs.pathExistsSync(temporaryPath)) {
       fs.removeSync(temporaryPath);
@@ -978,7 +986,9 @@ async function transformImageInPlace(
     try {
       const now = new Date();
       fs.utimesSync(sourcePath, now, now);
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   } catch (e) {
     if (fs.pathExistsSync(temporaryPath)) {
       fs.removeSync(temporaryPath);
@@ -1019,7 +1029,9 @@ async function rotateImageInPlace(sourcePath, rotation = 90) {
     try {
       const now = new Date();
       fs.utimesSync(sourcePath, now, now);
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   } catch (e) {
     if (fs.pathExistsSync(temporaryPath)) {
       fs.removeSync(temporaryPath);
@@ -1447,7 +1459,9 @@ async function listFiles(req, res) {
   const dataStore = new FilesDataStore(site);
   try {
     await dataStore.reconcileMissingFromDisk();
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   const orphans = dataStore.flagOrphans();
   // Build a set of orphan uuids so we can exclude them from the main files
   // list (orphans go only in the 'orphans' array, non-destructive).
@@ -1593,7 +1607,9 @@ async function createFile(req, res) {
         fileResult.data.file.name) ||
       "file";
     await site.gitCommit("File added: " + savedFileName);
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   return res.status(200).json(fileResult);
 }
 
@@ -1700,7 +1716,9 @@ async function updateFile(req, res) {
   let mediaSettings = {};
   try {
     mediaSettings = await readMediaSettings(HAXCMS);
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   const jpegQuality = resolveJpegQualityFromSettings(mediaSettings);
   try {
     // resolveRequestedFilePath can throw createStatusError (404 when the uuid
@@ -1769,7 +1787,9 @@ async function deleteFile(req, res) {
   let mediaSettings = {};
   try {
     mediaSettings = await readMediaSettings(HAXCMS);
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   const jpegQuality = resolveJpegQualityFromSettings(mediaSettings);
   // #3043: resolve the file uuid for post-delete data-layer cleanup.
   const params =

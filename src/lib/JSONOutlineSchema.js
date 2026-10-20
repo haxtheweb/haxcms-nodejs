@@ -100,7 +100,7 @@ class JSONOutlineSchema {
     let ary = item;
     for (var key in ary) {
       // only set what the element from spec allows into a new object
-      if (tmp.hasOwnProperty(key)) {
+      if (Object.prototype.hasOwnProperty.call(tmp, key)) {
         tmp[key] = ary[key];
       }
     }
@@ -165,7 +165,7 @@ class JSONOutlineSchema {
       // check for items and escalate to full JSONOutlineSchemaItem object
       // also ensures data matches only what is supported
       if (vars["items"]) {
-        for (var key in vars["items"]) {
+        for (let key in vars["items"]) {
           let item = vars["items"][key];
           if (item) {
             let newItem = new JSONOutlineSchemaItem();

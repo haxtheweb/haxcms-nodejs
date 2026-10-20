@@ -310,7 +310,9 @@ async function main() {
             }
           }
         }
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
       return {
         modalFound: !!modal,
         modalOpened: modal ? modal.opened === true : false,

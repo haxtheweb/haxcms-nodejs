@@ -79,7 +79,9 @@ function getSystemOpenApiOperationPaths() {
       }
     }
   }
-  catch {}
+  catch {
+    // intentionally ignored
+  }
   cachedSystemOpenApiOperationPaths = operationPaths;
   return cachedSystemOpenApiOperationPaths;
 }
@@ -244,7 +246,9 @@ async function connectionSettings(req, res) {
         sitename = String(singleSite.name);
       }
     }
-    catch {}
+    catch {
+      // intentionally ignored
+    }
   }
   const siteToken = includeRequestTokens
     ? HAXCMS.getRequestToken(HAXCMS.getActiveUserName() + ':' + sitename)

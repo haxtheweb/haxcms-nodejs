@@ -122,7 +122,9 @@ class FilesDataStore {
     } catch {
       try {
         fs.removeSync(temp);
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
       return false;
     }
     return true;

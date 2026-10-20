@@ -163,7 +163,9 @@ async function convertHaxcmsToSite(req, res) {
           siteFiles[filePath] = `${base}/${filePath}`;
         }
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   }
 
   const filename =

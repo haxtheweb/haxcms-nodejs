@@ -231,13 +231,19 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
       settled = true;
       if (timer) { clearTimeout(timer); }
       if (sink) {
-        try { sink.destroy(); } catch {}
+        try { sink.destroy(); } catch {
+          // intentionally ignored
+        }
       }
       if (activeResponse) {
-        try { activeResponse.destroy(); } catch {}
+        try { activeResponse.destroy(); } catch {
+          // intentionally ignored
+        }
       }
       if (req) {
-        try { req.destroy(); } catch {}
+        try { req.destroy(); } catch {
+          // intentionally ignored
+        }
       }
       reject(err);
     }
@@ -436,7 +442,9 @@ async function safeFetchToFile(urlString, filepath, options) {
     try {
       fs.unlinkSync(filepath);
     }
-    catch {}
+    catch {
+      // intentionally ignored
+    }
     throw e;
   }
   return filepath;

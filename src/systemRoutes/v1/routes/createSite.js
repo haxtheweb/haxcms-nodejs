@@ -921,7 +921,9 @@ async function createSite(req, res) {
             await fs.ensureDir(path.dirname(targetPath));
             await fs.writeFile(targetPath, content);
           }
-        } catch {}
+        } catch {
+          // intentionally ignored
+        }
       }
     }
     // main site schema doesn't care about publishing settings. NOTE:
@@ -951,7 +953,9 @@ async function createSite(req, res) {
         await git.createBranch(configuredBranch);
       }
     }
-    catch {}
+    catch {
+      // intentionally ignored
+    }
     res.send({
       "status": 200,
       "data": schema,

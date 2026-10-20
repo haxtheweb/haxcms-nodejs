@@ -436,7 +436,9 @@ class HAXCMSSite {
         // put domain into CNAME not the github.io address if that exists
         await fs.writeFileSync(directory + "/" + tmpname + "/CNAME", domain);
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     // load what we just created
     this.manifest = new JSONOutlineSchema();
     // where to save it to
@@ -655,7 +657,9 @@ class HAXCMSSite {
     try {
       // write the managed files to ensure we get happy copies
       await this.rebuildManagedFiles();
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     try {
       // put this in version control :) :) :)
       const git = new GitPlus({
@@ -884,7 +888,9 @@ class HAXCMSSite {
       }
       await this.rebuildManagedFiles();
       await this.gitCommit("Managed files upgraded: legacy bootstrap");
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   }
   /**
    * Reprocess the files that twig helps set in their static
@@ -912,7 +918,9 @@ class HAXCMSSite {
     // sha256 verification, no filtering, no site.json reads. Best-effort.
     try {
       await this.rebuildAgentSkills();
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     let licenseData = this.getLicenseData("all");
     let licenseLink = "";
     let licenseName = "";
@@ -1012,13 +1020,13 @@ class HAXCMSSite {
         }
       });
     }
-    for (var key in coreFiles) {
+    for (let key in coreFiles) {
       let coreItem = {};
       coreItem.location = coreFiles[key];
       swItems.push(coreItem);
     }
     // generate a legit hash value that's the same for each file name + file size
-    for (var key in swItems) {
+    for (let key in swItems) {
       let filesize;
       let item = swItems[key];
       if (item.location === "" || item.location === templateVars["basePath"]) {
@@ -1056,7 +1064,7 @@ class HAXCMSSite {
     }
     // put the twig written output into the file
     var Twig = require("twig");
-    for (var key in templates) {
+    for (let key in templates) {
       // ensure files exist before going to write them
       if (
         await fs.lstatSync(this.siteDirectory + "/" + templates[key]).isFile()
@@ -1078,12 +1086,16 @@ class HAXCMSSite {
             this.siteDirectory + "/" + templates[key],
             templatedHTML,
           );
-        } catch {}
+        } catch {
+          // intentionally ignored
+        }
       }
     }
     try {
       await this.updateAlternateFormats("llms");
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   }
   /**
    * Copy the boilerplate .well-known/agent-skills/ directory into the site.
@@ -1117,14 +1129,18 @@ class HAXCMSSite {
     // clean the site agent-skills dir so removed skills don't linger
     try {
       fs.removeSync(siteAS);
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     fs.mkdirpSync(siteAS);
     // scoped .htaccess: CORS + script-execution hardening (harmless on Node/static)
     fs.writeFileSync(siteAS + "/.htaccess", HAXCMS_AGENT_SKILLS_HTACCESS);
     // copy the index through verbatim
     try {
       fs.copySync(boilerIndex, siteAS + "/index.json");
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     let allowedAuxExt = { md: true, json: true, txt: true };
     for (let i = 0; i < index.skills.length; i++) {
       let skill = index.skills[i];
@@ -1263,7 +1279,9 @@ class HAXCMSSite {
           await git.push();
         }
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     return true;
   }
   /**
@@ -1276,7 +1294,9 @@ class HAXCMSSite {
         cliVersion: await this.gitTest(),
       });
       await git.revert(count);
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     return true;
   }
   /**
@@ -1291,7 +1311,9 @@ class HAXCMSSite {
       await git.add();
       await git.commit("commit forced");
       await git.push();
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     return true;
   }
 
@@ -1758,7 +1780,9 @@ class HAXCMSSite {
             fs.readFileSync(markdownPath, "utf8"),
           );
         }
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
     }
     if (
       source === "" &&
@@ -1779,7 +1803,9 @@ class HAXCMSSite {
         source = this.getLLMSSafeText(
           decodeLLMSEntities(String(html).replace(/<[^>]+>/g, " ")),
         );
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
     }
     const summary = this.getLLMSLeadingSentences(source);
     if (summary !== "") {
@@ -1941,7 +1967,9 @@ class HAXCMSSite {
           description: item.description,
           text: textData,
         });
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
     }
     return data;
   }
@@ -2348,7 +2376,9 @@ class HAXCMSSite {
         path.join(this.siteDirectory, markdownLocation),
         markdown,
       );
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     // JSON
     try {
       let jsonPayload = this.getPageAlternatePayload(page, content, "json");
@@ -2356,7 +2386,9 @@ class HAXCMSSite {
         path.join(this.siteDirectory, jsonPayload.location),
         JSON.stringify(jsonPayload, null, 2),
       );
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     // YAML
     try {
       let yamlPayload = this.getPageAlternatePayload(page, content, "yaml");
@@ -2364,7 +2396,9 @@ class HAXCMSSite {
         path.join(this.siteDirectory, yamlPayload.location),
         jsyaml.dump(yamlPayload),
       );
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     // XML
     try {
       let xmlPayload = this.getPageAlternatePayload(page, content, "xml");
@@ -2372,7 +2406,9 @@ class HAXCMSSite {
         path.join(this.siteDirectory, xmlPayload.location),
         this.getPageAlternateXML(xmlPayload),
       );
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     return true;
   }
   /**
@@ -3040,7 +3076,9 @@ class HAXCMSSite {
           preloadTags[tag] = tag;
         }
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     for (const tag in preloadTags) {
       const tagPath = HAXCMS.getContentTagPath(this, base, tag);
       if (tagPath === false) {
@@ -3492,7 +3530,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
         themes["key"] = key;
       }
       // this needs to be set dynamically
-      for (var key in coreFields.advanced) {
+      for (let key in coreFields.advanced) {
         let item = coreFields.advanced[key];
         if (item.property === "theme") {
           coreFields.advanced[key].options = themes;
@@ -3500,7 +3538,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       }
       // CORE fields
       if (coreFields.configure) {
-        for (var key in coreFields.configure) {
+        for (let key in coreFields.configure) {
           let item = coreFields.configure[key];
           // edge case for pathauto
           if (
@@ -3517,7 +3555,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
         }
       }
       if (coreFields.advanced) {
-        for (var key in coreFields.advanced) {
+        for (let key in coreFields.advanced) {
           let item = coreFields.advanced[key];
           fields["advanced"].push(item);
         }
@@ -3526,12 +3564,12 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     // fields can live globally in config
     if (HAXCMS.config.node.fields) {
       if (HAXCMS.config.node.fields.configure) {
-        for (var key in HAXCMS.config.node.fields.configure) {
+        for (let key in HAXCMS.config.node.fields.configure) {
           fields["configure"].push(HAXCMS.config.node.fields.configure[key]);
         }
       }
       if (HAXCMS.config.node.fields.advanced) {
-        for (var key in HAXCMS.config.node.fields.advanced) {
+        for (let key in HAXCMS.config.node.fields.advanced) {
           fields["advanced"].push(HAXCMS.config.node.fields.advanced[key]);
         }
       }
@@ -3563,12 +3601,12 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
         ),
       );
       if (themeFields.configure) {
-        for (var key in themeFields.configure) {
+        for (let key in themeFields.configure) {
           fields["configure"].push(themeFields.configure[key]);
         }
       }
       if (themeFields.advanced) {
-        for (var key in themeFields.advanced) {
+        for (let key in themeFields.advanced) {
           fields["advanced"].push(themeFields.advanced[key]);
         }
       }
@@ -3576,14 +3614,14 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     // fields can live in the site itself
     if (this.manifest.metadata.node.fields) {
       if (this.manifest.metadata.node.fields.configure) {
-        for (var key in this.manifest.metadata.node.fields.configure) {
+        for (let key in this.manifest.metadata.node.fields.configure) {
           fields["configure"].push(
             this.manifest.metadata.node.fields.configure[key],
           );
         }
       }
       if (this.manifest.metadata.node.fields.advanced) {
-        for (var key in this.manifest.metadata.node.fields.advanced) {
+        for (let key in this.manifest.metadata.node.fields.advanced) {
           fields["advanced"].push(
             this.manifest.metadata.node.fields.advanced[key],
           );
@@ -3600,7 +3638,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     };
     // now get the field data from the page
     if (page.metadata.fields) {
-      for (var key in page.metadata.fields) {
+      for (let key in page.metadata.fields) {
         let item = page.metadata.fields[key];
         if (key == "theme") {
           values[key] = item["key"];
@@ -4643,7 +4681,7 @@ class HAXCMSClass {
         "utf8",
       ),
     );
-    for (var name in publishingData) {
+    for (let name in publishingData) {
       this.config.site.publishers[name] = publishingData[name];
     }
     // site fields in HAXschema format
@@ -4657,13 +4695,13 @@ class HAXCMSClass {
         "utf8",
       ),
     );
-    for (var name in fieldsData) {
+    for (let name in fieldsData) {
       this.config.site.fields[0][name] = fieldsData[name];
     }
     let themeSelect = {};
     // ensure field schema has correct theme options
     // filter hidden / terrible themes from the site settings dialog
-    for (var name in this.config.themes) {
+    for (let name in this.config.themes) {
       let theme = this.config.themes[name];
       if (theme && (theme.hidden || theme.terrible)) {
         continue;
@@ -5475,19 +5513,14 @@ class HAXCMSClass {
     switch (type) {
       case "string":
         return "textfield";
-        break;
       case "number":
         return "number";
-        break;
       case "date":
         return "datepicker";
-        break;
       case "boolean":
         return "boolean";
-        break;
       default:
         return "textfield";
-        break;
     }
   }
   /**
@@ -5623,7 +5656,7 @@ class HAXCMSClass {
     // API keys
     const hax = new HAXAppStoreService();
     const apiDocs = hax.baseSupportedApps();
-    for (var key in apiDocs) {
+    for (let key in apiDocs) {
       let props = {};
       props.title = key;
       props.type = "string";
@@ -6862,7 +6895,9 @@ class HAXCMSClass {
       let v = value.trim();
       try {
         v = decodeURIComponent(v);
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
       return /^[A-Za-z0-9_-]+$/.test(v) ? v : "";
     };
     if (req && req.body && typeof req.body === "object") {
@@ -6919,7 +6954,9 @@ class HAXCMSClass {
         if (refererName) {
           return refererName;
         }
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
     }
     try {
       const singleSite = await systemStructureContext();
@@ -6935,7 +6972,9 @@ class HAXCMSClass {
       if (singleSite && singleSite.name) {
         return safe(String(singleSite.name));
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     return "";
   }
   /**
@@ -7092,7 +7131,6 @@ class HAXCMSClass {
       // this is for SaaS providers to provide global validation
       return usr.grantAccess;
     }
-    return false;
   }
   /**
    * test the active user login based on session.
@@ -7125,7 +7163,6 @@ class HAXCMSClass {
       // fire custom event for things to respond to as needed
       return usr.grantAccess;
     }
-    return false;
   }
   /**
    * Recursive copy to rename high level but copy all files
@@ -7169,7 +7206,9 @@ async function systemStructureContext(dir = null) {
       let site = new HAXCMSSite();
       await site.loadSingle(dir);
       return site;
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   }
   return null;
 }

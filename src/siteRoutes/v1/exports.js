@@ -303,7 +303,9 @@ function getSiteExportItems(site, ancestor) {
         (item) => item && item.id && branchIds.has(item.id),
       );
     }
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   return orderedItems;
 }
 
@@ -353,7 +355,9 @@ async function getItemMarkdownBody(site, item) {
           path.join(String(site.siteDirectory), markdownLocation),
           "utf8",
         );
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
     }
   }
   const html = await getItemContent(site, item);
@@ -454,7 +458,9 @@ async function buildSiteExportHtmlContent(site, ancestor, visibleOnly = false) {
           (item) => item && item.id && branchIds.has(item.id),
         );
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   }
 
   if (visibleOnly) {
@@ -497,7 +503,9 @@ async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
           (item) => item && item.id && branchIds.has(item.id),
         );
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   }
 
   if (visibleOnly) {
@@ -789,7 +797,9 @@ function removeEpubImageTempDir(dir) {
   }
   try {
     fs.rmSync(dir, { recursive: true, force: true });
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
 }
 
 // One image context per EPUB build: shared temp dir and a single per-export
@@ -891,7 +901,9 @@ async function buildSiteExportEpubBuffer(site, basePath = "/", ancestor) {
           return true;
         });
       }
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   }
 
   const siteTitle = buildSiteExportDocumentTitle(site);
@@ -1231,7 +1243,9 @@ async function siteExport(req, res) {
               getOrderedItems(site),
               "docx",
             );
-          } catch {}
+          } catch {
+            // intentionally ignored
+          }
           outputBuffer = await convertHtmlToDownloadBuffer(
             format,
             html,
@@ -1249,7 +1263,9 @@ async function siteExport(req, res) {
               getOrderedItems(site),
               "pdf",
             );
-          } catch {}
+          } catch {
+            // intentionally ignored
+          }
           outputBuffer = await convertHtmlToDownloadBuffer(
             format,
             html,
@@ -1428,7 +1444,9 @@ async function itemExport(req, res) {
         getOrderedItems(site),
         format,
       );
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     let outputBuffer = null;
     try {
       outputBuffer = await convertHtmlToDownloadBuffer(

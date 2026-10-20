@@ -350,12 +350,22 @@ async function main() {
     try {
       var dump = await page.evaluate(() => document.body.innerHTML.substring(0, 1500))
       console.error('PAGE BODY SNIPPET:', dump)
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
   } finally {
-    try { if (reqWatch) reqWatch.detach() } catch {}
-    try { if (collector) collector.detach() } catch {}
-    try { if (browser) await browser.close() } catch {}
-    try { await teardownE2ERuntime(runtime) } catch {}
+    try { if (reqWatch) reqWatch.detach() } catch {
+      // intentionally ignored
+    }
+    try { if (collector) collector.detach() } catch {
+      // intentionally ignored
+    }
+    try { if (browser) await browser.close() } catch {
+      // intentionally ignored
+    }
+    try { await teardownE2ERuntime(runtime) } catch {
+      // intentionally ignored
+    }
     console.log('\nTeardown complete.')
   }
 }

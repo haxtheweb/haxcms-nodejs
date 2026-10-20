@@ -523,7 +523,9 @@ async function siteSearch(req, res) {
       try {
         await site.writePageAlternateFormats(page, sanitizedContent);
       }
-      catch {}
+      catch {
+        // intentionally ignored
+      }
     }
     if (totalMatches < 1) {
       return res.status(400).json({

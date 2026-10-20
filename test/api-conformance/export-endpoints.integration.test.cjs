@@ -167,7 +167,9 @@ async function ensureSiteHasInitialCommit(runtimeRoot, siteName) {
   try {
     await runGitCommand(siteDirectory, ['rev-parse', '--verify', 'HEAD'])
     return
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   let isGitRepository = true
   try {
     const insideWorkTree = await runGitCommand(siteDirectory, ['rev-parse', '--is-inside-work-tree'])

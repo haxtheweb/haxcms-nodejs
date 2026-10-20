@@ -439,7 +439,7 @@ test('outline import + normalize-slugs e2e', { timeout: 360000 }, async (t) => {
   assert.ok(saveResult.clicked, 'Save button clicked on import hierarchy dialog: ' + JSON.stringify(saveResult))
 
   // 9. Wait for the POST /x/api/v1/items (createNode) response.
-  var createResp = await awaitCreateItemResponse(collector, 30000)
+  createResp = await awaitCreateItemResponse(collector, 30000)
   assert.ok(createResp, 'POST /x/api/v1/items response captured after import save')
   assert.strictEqual(createResp.status, 200, 'createNode API returned status 200 after import')
   t.diagnostic('[outline] createNode (import) 200, url=' + createResp.url)
@@ -572,7 +572,7 @@ test('outline import + normalize-slugs e2e', { timeout: 360000 }, async (t) => {
     // Verify at least one change is reflected: the new slug should appear in the items list.
     var slugUpdated = false
     var firstChange = applyBody.data.changes[0]
-    for (var i = 0; i < itemsAfterNormalize.length; i++) {
+    for (let i = 0; i < itemsAfterNormalize.length; i++) {
       if (itemsAfterNormalize[i].slug === firstChange.newSlug) {
         slugUpdated = true
         break

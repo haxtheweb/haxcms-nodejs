@@ -18,7 +18,9 @@ function getBulkImportStagingRoot() {
   const root = path.join(HAXCMS.configDirectory, "tmp", "imports");
   try {
     fs.ensureDirSync(root);
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   return root;
 }
 

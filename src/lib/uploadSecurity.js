@@ -184,7 +184,9 @@ function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
       fs.unlinkSync(entryPath);
       removed.push(entryPath);
     }
-    catch {}
+    catch {
+      // intentionally ignored
+    }
   }
   const importsRoot = path.join(root, IMPORT_STAGING_DIRNAME);
   let importEntries = [];
@@ -206,7 +208,9 @@ function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
       fs.removeSync(entryPath);
       removed.push(entryPath);
     }
-    catch {}
+    catch {
+      // intentionally ignored
+    }
   }
   return removed;
 }
@@ -221,7 +225,9 @@ function startUploadTempSweeper(uploadTempDirectory, options = {}) {
     try {
       sweepUploadTempDirectory(uploadTempDirectory, options);
     }
-    catch {}
+    catch {
+      // intentionally ignored
+    }
   };
   run();
   const timer = setInterval(run, intervalMs);

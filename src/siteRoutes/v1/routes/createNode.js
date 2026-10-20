@@ -140,11 +140,11 @@ async function createNode(req, res) {
       if (nodeParams['node']['duplicate']) {
         // verify we can load this id
         let nodeToDuplicate;
-        if (nodeToDuplicate = site.loadNode(nodeParams['node']['duplicate'])) {
+        if ((nodeToDuplicate = site.loadNode(nodeParams['node']['duplicate']))) {
             let content = await site.getPageContent(nodeToDuplicate);
             let page;
             // verify we actually have the id of an item that we just created
-            if (page = site.loadNode(item.id)) {
+            if ((page = site.loadNode(item.id))) {
             // write it to the file system
             // this all seems round about but it's more secure
             alternateContent = sanitizeHTMLForStorage(content);
@@ -160,7 +160,7 @@ async function createNode(req, res) {
       // html which becomes the boilerplated content in effect
       else if (nodeParams['node']['contents']) {
         let page;
-        if (page = site.loadNode(item.id)) {
+        if ((page = site.loadNode(item.id))) {
             // write it to the file system
             const { html: rewritten, uuids } = await materializeInlineImages(
               nodeParams['node']['contents'],

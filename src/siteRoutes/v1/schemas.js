@@ -83,7 +83,9 @@ function getHaxPropertiesSearchRoots(site) {
           roots.push(candidate);
         }
       }
-      catch {}
+      catch {
+        // intentionally ignored
+      }
     }
   }
   return roots;

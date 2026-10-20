@@ -972,7 +972,9 @@ if (process.env.NODE_ENV === "development") {
     if (isPathInsideDirectory(customSrcPath, filePath)) {
       try {
         await exec("cd custom && npm run build");
-      } catch {}
+      } catch {
+        // intentionally ignored
+      }
     }
     sendReloadToConnectedClients();
   }
@@ -1171,7 +1173,9 @@ try {
       break;
     }
   }
-} catch {}
+} catch {
+  // intentionally ignored
+}
 function getRuntimePort() {
   const address = server.address();
   if (
@@ -2860,7 +2864,9 @@ function getSiteNameFromSiteApiRequestReferer(req) {
     if (refererPathSiteName !== "") {
       return refererPathSiteName;
     }
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   return getSiteNameFromSiteApiRequestPath(referer);
 }
 async function resolveSiteApiRequestSiteName(req, _authContext = {}) {
@@ -2889,7 +2895,9 @@ async function resolveSiteApiRequestSiteName(req, _authContext = {}) {
     ) {
       return String(site.manifest.metadata.site.name);
     }
-  } catch {}
+  } catch {
+    // intentionally ignored
+  }
   return "";
 }
 function normalizeIamAuthorizationResult(iamAuthorization = null) {
@@ -3565,7 +3573,9 @@ async function ensurePageVariantFile(site, item, format = "json") {
   if (site && item && typeof site.writePageAlternateFormats === "function") {
     try {
       await site.writePageAlternateFormats(item);
-    } catch {}
+    } catch {
+      // intentionally ignored
+    }
     variantFilePath = resolveVariantFilePath(site, item, format);
     if (variantFilePath) {
       return variantFilePath;
