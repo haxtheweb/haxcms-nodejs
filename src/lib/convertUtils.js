@@ -262,9 +262,9 @@ function stripMSWord(input) {
       dropMatch,
     );
   }
-  output = output.replace(/ style='(\s|.)*?'/gim, "");
-  output = output.replace(/ style="(\s|.)*?"/gim, "");
-  output = output.replace(/ face="(\s|.)*?"/gim, "");
+  output = output.replace(/ style='[^']*'/gim, "");
+  output = output.replace(/ style="[^"]*"/gim, "");
+  output = output.replace(/ face="[^"]*"/gim, "");
   output = output.replace(/ align=.*? /g, "");
   output = output.replace(/ start='.*?'/g, "");
   // was: /line-height:.*?\"/g -> '"' and /line-height:.*?;/g -> ''
@@ -302,10 +302,10 @@ function stripMSWord(input) {
     dropMatch,
   );
   output = output.replace(/ style=""/g, "");
-  output = output.replace(/ id="(\s|.)*?"/gim, "");
-  output = output.replace(/ dir="(\s|.)*?"/gim, "");
-  output = output.replace(/ role="(\s|.)*?"/gim, "");
-  output = output.replace(/ contenteditable="(\s|.)*?"/gim, "");
+  output = output.replace(/ id="[^"]*"/gim, "");
+  output = output.replace(/ dir="[^"]*"/gim, "");
+  output = output.replace(/ role="[^"]*"/gim, "");
+  output = output.replace(/ contenteditable="[^"]*"/gim, "");
   // was: / data-(\s|.)*?\"(\s|.)*?\"/gim -> ''
   output = lazySequenceReplace(
     output,
@@ -313,7 +313,7 @@ function stripMSWord(input) {
     [{ re: /"/g }, { re: /"/g }],
     dropMatch,
   );
-  output = output.replace(/ class="(\s|.)*?"/gim, "");
+  output = output.replace(/ class="[^"]*"/gim, "");
   output = output.replace(/<pstyle/gm, "<p style");
   output = output.replace(/<a name="_GoBack"><\/a>/gm, "");
   output = output.replace(/&nbsp;/gm, " ");
@@ -392,11 +392,11 @@ function stripMSWord(input) {
   output = output.replace(/<p><br\/><\/p>/gm, "");
   output = output.replace(/<p><br><\/p>/gm, "");
   output = output.replace(/<\/p>(\s*)<p>/gm, "</p><p>");
-  output = output.replace(/ data-hax-ray="(\s|.)*?"/gim, "");
+  output = output.replace(/ data-hax-ray="[^"]*"/gim, "");
   output = output.replace(/ class=""/gim, "");
   output = output.replace(/ class="hax-active"/gim, "");
-  output = output.replace(/ contenteditable="(\s|.)*?"/gim, "");
-  output = output.replace(/ t="(\s|.)*?"/gim, "");
+  output = output.replace(/ contenteditable="[^"]*"/gim, "");
+  output = output.replace(/ t="[^"]*"/gim, "");
   for (let j in badTags) {
     let emptyTagRemove = new RegExp(
       "<" + badTags[j] + "></" + badTags[j] + ">",

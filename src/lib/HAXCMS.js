@@ -8,6 +8,16 @@ const JSONOutlineSchema = require("./JSONOutlineSchema.js");
 const { discoverConfigPath } = require("./discoverConfigPath.js");
 const filter_var = require("./filter_var.js");
 const { resolveContainedPath, hasTraversal } = require("./pathConfinement.js");
+const {
+  trimTrailingSlashes,
+  trimSlashes,
+  stripAngleTags,
+  hasAngleTag,
+  removeBackslashesBeforeQuote,
+  closingCustomElementNames,
+  findPageBreakSections,
+  matchAttributes,
+} = require("./linearText.js");
 const explodeImport = require("locutus/php/strings/explode");
 // may need to change as we get into CLI integration
 const HAXCMS_ROOT = process.env.HAXCMS_ROOT || path.join(process.cwd(), "/");
@@ -1921,11 +1931,7 @@ class HAXCMSSite {
     }
     // clean up initial, small, trim, replace end lines, utf8 no tags
     text = utf8.encode(
-      text
-        .replace(/(<([^>]+)>)/gi, "")
-        .replace("\n", " ")
-        .toLowerCase()
-        .trim(),
+      stripAngleTags(text, "").replace("\n", " ").toLowerCase().trim(),
     );
     // all weird chars
     text = text.replace("/[^a-z0-9']/", " ");
@@ -2394,9 +2400,9 @@ class HAXCMSSite {
     let basePath = canonicalPath;
     if (typeof basePath !== "string" || basePath == "") {
       basePath =
-        "/" + String(page.slug).replace(/^\/+/, "").replace(/\/+$/, "");
+        "/" + trimTrailingSlashes(String(page.slug).replace(/^\/+/, ""));
     }
-    basePath = String(basePath).replace(/\/+$/, "");
+    basePath = trimTrailingSlashes(String(basePath));
     if (basePath == "") {
       return "";
     }
@@ -2668,13 +2674,14 @@ class HAXCMSSite {
             );
           } else {
             canonicalUrl = sanitizeUrl(
-              String(canonicalBase).replace(/\/+$/, "") +
+              trimTrailingSlashes(String(canonicalBase)) +
                 normalizedCanonicalPath,
             );
           }
         } else {
           canonicalUrl = sanitizeUrl(
-            String(canonicalBase).replace(/\/+$/, "") + normalizedCanonicalPath,
+            trimTrailingSlashes(String(canonicalBase)) +
+              normalizedCanonicalPath,
           );
         }
       } else if (
@@ -2684,7 +2691,7 @@ class HAXCMSSite {
         page.slug != ""
       ) {
         canonicalUrl = sanitizeUrl(
-          String(this.manifest.metadata.site.domain).replace(/\/+$/, "") +
+          trimTrailingSlashes(String(this.manifest.metadata.site.domain)) +
             "/" +
             String(page.slug).replace(/^\/+/, ""),
         );
@@ -2743,7 +2750,7 @@ class HAXCMSSite {
       /^https?:\/\//i.test(String(canonicalBase || ""))
     ) {
       socialImageUrl =
-        String(canonicalBase).replace(/\/+$/, "") +
+        trimTrailingSlashes(String(canonicalBase)) +
         "/" +
         socialImageUrl.replace(/^\/+/, "");
     }
@@ -2762,7 +2769,7 @@ class HAXCMSSite {
         return normalizedSegment;
       }
       return (
-        normalizedBase.replace(/\/+$/, "") +
+        trimTrailingSlashes(normalizedBase) +
         "/" +
         normalizedSegment.replace(/^\/+/, "")
       );
@@ -3004,18 +3011,10 @@ class HAXCMSSite {
     try {
       const pageContent = await this.getPageContent(page);
       if (pageContent && typeof pageContent === "string") {
-        const tagMatches = pageContent.match(
-          /<(?:"[^"]*"['"]*|'[^']*'['"]*|[^'">])+>/g,
-        );
-        if (tagMatches) {
-          for (const match of tagMatches) {
-            if (match.indexOf("-") !== -1) {
-              // mirror PHP: strip '</' then '>'; opening tags keep a leading
-              // '<' so only closing-tag forms match the registry, identically
-              let tag = match.replace(/<\//g, "").replace(/>/g, "");
-              preloadTags[tag] = tag;
-            }
-          }
+        // only bare closing custom-element tags (</my-el>) can resolve in the
+        // registry (mirrors PHP); scanned with a linear regex (ReDoS safe)
+        for (const tag of closingCustomElementNames(pageContent)) {
+          preloadTags[tag] = tag;
         }
       }
     } catch (e) {}
@@ -3125,7 +3124,7 @@ ${
   <meta name="twitter:title" property="twitter:title" content="${safeTitle}" />
   <meta name="twitter:description" property="twitter:description" content="${safeDescription}" />
 ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" content="${safeSocialShareImage}" />` : ""}`;
-    metadata = metadata.replace(new RegExp('\\\\+"', "g"), '"');
+    metadata = removeBackslashesBeforeQuote(metadata);
     let structuredDataBaseUrl =
       siteUrlForStructuredData || pageUrlForStructuredData;
     let siteStructuredDataId =
@@ -3749,7 +3748,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
 
     // validate that content appears to be HTML by checking for basic HTML patterns
     // this follows similar pattern to how saveNode validates content structure
-    if (!/<[^>]+>/.test(cleanContent)) {
+    if (!hasAngleTag(cleanContent)) {
       return { status: 400, data: { message: "Content must be valid HTML" } };
     }
 
@@ -5041,12 +5040,12 @@ class HAXCMSClass {
     }
     const basePath = String(this.basePath || "").trim();
     if (basePath !== "" && basePath !== "/") {
-      const normalizedBase = "/" + basePath.replace(/^\/+|\/+$/g, "");
+      const normalizedBase = "/" + trimSlashes(basePath);
       if (pathOnly.indexOf(normalizedBase) === 0) {
         pathOnly = pathOnly.substring(normalizedBase.length);
       }
     }
-    const segments = pathOnly.replace(/^\/+|\/+$/g, "").split("/");
+    const segments = trimSlashes(pathOnly).split("/");
     if (!segments.length || segments[0] === "") {
       return null;
     }
@@ -5155,7 +5154,7 @@ class HAXCMSClass {
       candidates.push(
         userRoot +
           "/" +
-          String(this.sitesDirectory).replace(/^\/+|\/+$/g, "") +
+          trimSlashes(String(this.sitesDirectory)) +
           "/" +
           siteMachineName,
       );
@@ -5629,9 +5628,7 @@ class HAXCMSClass {
    */
   parse_attributes(attr) {
     let atList = [];
-    const regexp =
-      /\s*(?:([a-z0-9-]+)\s*=\s*"([^"]*)")|(?:\s+([a-z0-9-]+)(?=\s*|>|\s+[a..z0-9]+))/gi;
-    const matches = [...attr.matchAll(regexp)];
+    const matches = matchAttributes(attr);
     for (var i in matches) {
       if (matches[i][3]) atList[matches[i][3]] = null;
       else atList[matches[i][1]] = matches[i][2];
@@ -5645,15 +5642,13 @@ class HAXCMSClass {
   pageBreakParser(body = "<page-break></page-break>") {
     body += '<page-break fakeendcap="fakeendcap"></page-break>';
     let pageData = [];
-    // match all pages + content
-    const regexp =
-      /(<page-break([\s\S]*?)>([\s\S]*?)<\/page-break>)([\s\S]*?)(?=<page-break)/g;
-    const matches = [...body.matchAll(regexp)];
+    // match all pages + content (linear scan, see linearText.js)
+    const matches = findPageBreakSections(body);
     for (var i in matches) {
       // expand bare boolean attributes (published, locked) wherever they
       // sit in the tag, but never inside a quoted value such as a title,
       // and never when a value follows (published = "" stays as written)
-      let attrText = matches[i][2].replace(
+      let attrText = matches[i].attributes.replace(
         /("[^"]*")|(\s)(published|locked)(?!\s*=)(?=\s|\/|$)/g,
         (match, quoted, space, name) => {
           return quoted ? quoted : space + name + '="' + name + '"';
@@ -5662,7 +5657,7 @@ class HAXCMSClass {
       let content = "<div " + attrText + "></div>";
       let attrs = this.parse_attributes(content);
       pageData[i] = {
-        content: matches[i][4],
+        content: matches[i].content,
         // this assumes that the attributes are well formed; make sure front end did this
         // even for boolean attributes
         attributes: attrs,

@@ -29,6 +29,10 @@ const {
   isLoopbackHostHeader,
   shouldEnforceLoopbackHostHeader,
 } = require("./lib/listenHost.js");
+const {
+  requestUrlGuard,
+  getBuildAssetRequestPath,
+} = require("./lib/requestUrlGuards.js");
 const PAGE_VARIANT_CONTENT_TYPES = {
   html: "text/html; charset=utf-8",
   md: "text/markdown; charset=utf-8",
@@ -393,15 +397,6 @@ function isPathInsideDirectory(parentPath = "", targetPath = "") {
     return true;
   }
   return relativePath.indexOf("..") !== 0 && !path.isAbsolute(relativePath);
-}
-
-function getBuildAssetRequestPath(url = "") {
-  const requestPath = String(url || "").split("?")[0];
-  return requestPath
-    .replace(/\/(.*?)\/build\//g, "build/")
-    .replace(/\/(.*?)\/wc-registry.json/g, "wc-registry.json")
-    .replace(/\/(.*?)\/build.js/g, "build.js")
-    .replace(/\/(.*?)\/build-haxcms.js/g, "build-haxcms.js");
 }
 
 function isBuildAssetRequest(url = "") {
@@ -1006,6 +1001,10 @@ if (process.env.NODE_ENV === "development") {
 // but a hostile web page can still reach it via DNS rebinding. Reject any
 // request whose Host header is not a loopback name in that mode. Runs first so
 // nothing else (static files, API routes) is reachable with a foreign Host.
+// Security (ReDoS, CodeQL #23/#39): oversized request URLs are rejected with
+// 414 before any static/asset/route handling (cap documented in
+// src/lib/requestUrlGuards.js).
+app.use(requestUrlGuard);
 app.use((req, res, next) => {
   if (
     shouldEnforceLoopbackHostHeader(
