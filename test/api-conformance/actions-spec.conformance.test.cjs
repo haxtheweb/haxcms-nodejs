@@ -996,7 +996,7 @@ test('system actions endpoints conformance', async (t) => {
     )
   })
 
-  await t.test('docx-to-pdf converts valid docx to PDF download', async () => {
+  await t.test('docx-to-pdf converts valid docx to PDF download', { skip: require('../../src/lib/convertUtils.js').findChromeExecutable() ? false : 'PDF export needs Chrome/Chromium (install it or set PUPPETEER_EXECUTABLE_PATH)' }, async () => {
     const docxBuffer = await createMinimalDocxBuffer()
     const multipart = buildMultipartBody({
       fileName: 'test.docx',
