@@ -277,6 +277,7 @@ LICENSE
 - **PR Title Format**: `[<project_name>] <Descriptive Title>`
   - Example: `[my-element] Add dynamic property binding`
 - **Pre-commit checks**:
+  - Run `npm run precheck` before every push or PR. It runs this repo's ESLint and Prettier checks on the files you changed. Fix everything it reports and re-run until it passes (`npm run precheck:fix` auto-fixes formatting and fixable lint). A Claude Code hook in `.claude/` blocks `git push` and `gh pr create` until it passes.
   - Run `npm run test:e2e` before and after changes that touch the app-hax dashboard, the site editor, or system/site API routes. If UI rendering changed intentionally, regenerate baselines with `npm run test:e2e:update`.
   - Run `npm run test:api-conformance` if you changed system (`/system/api/v1/*`) or site (`/x/api/v1/*`) API routes.
   - Run `npm test` to ensure any generic tests pass.
