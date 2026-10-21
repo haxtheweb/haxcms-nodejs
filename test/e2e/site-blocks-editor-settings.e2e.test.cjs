@@ -213,6 +213,19 @@ async function getSubPanelDialog(page, dialogTag) {
   return el
 }
 
+// Poll for a sub-panel dialog instead of trusting a fixed sleep: the dialogs
+// are created after a dynamic import(), which can take longer than a few
+// seconds on a cold CI runner.
+async function waitForSubPanelDialog(page, dialogTag, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs
+  let el = await getSubPanelDialog(page, dialogTag)
+  while (!el && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 500))
+    el = await getSubPanelDialog(page, dialogTag)
+  }
+  return el
+}
+
 // Set a select value inside a dialog shadowRoot by CSS selector.
 // Uses recursive shadow walk to pierce simple-fields-field shadowRoots.
 async function setDialogSelect(dialogHandle, selector, value) {
@@ -439,7 +452,7 @@ test(
     assert.ok(clickEditor && clickEditor.clicked, 'Editor dashboard button clicked')
     await new Promise((r) => setTimeout(r, 3000))
 
-    let editorDialog = await getSubPanelDialog(
+    let editorDialog = await waitForSubPanelDialog(
       page,
       selectors.siteSettings.editorDialog,
     )
@@ -510,7 +523,7 @@ test(
     assert.ok(clickBlocks && clickBlocks.clicked, 'Blocks dashboard button clicked')
     await new Promise((r) => setTimeout(r, 3000))
 
-    let blocksDialog = await getSubPanelDialog(
+    let blocksDialog = await waitForSubPanelDialog(
       page,
       selectors.siteSettings.blocksDialog,
     )
