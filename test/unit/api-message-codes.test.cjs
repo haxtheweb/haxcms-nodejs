@@ -73,6 +73,9 @@ const EXAMPLES = [
   ['OpenStax has no book with the slug "nope"', 'IMPORT_SOURCE_INVALID', {}],
   ['OpenStax returned 503 for the book "physics"', 'IMPORT_FETCH_FAILED', {}],
   ['OpenStax returned an empty table of contents for "physics"', 'IMPORT_EMPTY', {}],
+  ['No _quarto.yml file found in example-org/widgets-book', 'IMPORT_SOURCE_INVALID', {}],
+  ['The Quarto project has no pages to import', 'IMPORT_EMPTY', {}],
+  ['Unable to import the Quarto project', 'IMPORT_FAILED', {}],
 ]
 
 test('known messages get the expected code and params', () => {
