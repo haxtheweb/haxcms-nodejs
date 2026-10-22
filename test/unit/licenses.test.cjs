@@ -46,31 +46,34 @@ const EXPECTED_CODES = [
   "lgpl-3.0",
   "agpl-3.0",
   "unlicense",
+  "all-rights-reserved",
 ];
 
 describe("license list", () => {
-  test("has the 19 canonical codes in spec order", () => {
+  test("has the 20 canonical codes in spec order", () => {
     assert.deepEqual(licenses.getLicenseCodes(), EXPECTED_CODES);
-    assert.equal(licenses.LICENSES.length, 19);
+    assert.equal(licenses.LICENSES.length, 20);
   });
 
-  test("is grouped creative-commons, public-domain, software", () => {
+  test("is grouped creative-commons, public-domain, software, copyright", () => {
     assert.deepEqual(Object.keys(licenses.LICENSE_GROUPS), [
       "creative-commons",
       "public-domain",
       "software",
+      "copyright",
     ]);
     const groups = licenses.LICENSES.map((license) => license.group);
     assert.deepEqual(groups.slice(0, 6), Array(6).fill("creative-commons"));
     assert.deepEqual(groups.slice(6, 8), Array(2).fill("public-domain"));
-    assert.deepEqual(groups.slice(8), Array(11).fill("software"));
+    assert.deepEqual(groups.slice(8, 19), Array(11).fill("software"));
+    assert.equal(groups[19], "copyright");
   });
 
   test("every license has a link; image only for CC and public domain", () => {
     for (const license of licenses.LICENSES) {
       assert.match(license.link, /^https:\/\//, license.code);
       assert.ok(license.name, license.code);
-      if (license.group === "software") {
+      if (license.group === "software" || license.group === "copyright") {
         assert.equal(license.image, "", license.code);
       } else {
         assert.match(license.image, /^https:\/\//, license.code);
@@ -186,5 +189,102 @@ describe("createSite license normalizer", () => {
     assert.equal(normalize(""), null);
     assert.equal(normalize(null), null);
     assert.equal(normalize(42), null);
+  });
+});
+
+describe("single-source license list", () => {
+  const data = require("../../src/lib/licenses.json");
+
+  test("licenses.json is well formed", () => {
+    assert.equal(data.version, 1);
+    const groupIds = data.groups.map((g) => g.id);
+    assert.equal(new Set(groupIds).size, groupIds.length);
+    const codes = data.licenses.map((l) => l.code);
+    assert.equal(new Set(codes).size, codes.length);
+    data.licenses.forEach((l) => {
+      assert.ok(groupIds.includes(l.group), l.code + " has a known group");
+      assert.ok(l.name && l.link, l.code + " is complete");
+    });
+  });
+
+  test("the module is built from the JSON", () => {
+    assert.deepEqual(
+      licenses.getLicenseCodes(),
+      data.licenses.map((l) => l.code),
+    );
+  });
+
+  test("applyLicenseOptions fills the site settings license field", () => {
+    const fields = [
+      { fields: [{ property: "manifest-license", options: {} }] },
+    ];
+    assert.equal(licenses.applyLicenseOptions(fields), true);
+    assert.deepEqual(
+      Object.keys(fields[0].fields[0].options),
+      Object.keys(licenses.getLicenseMap("select")),
+    );
+    assert.equal(licenses.applyLicenseOptions([{ property: "x" }]), false);
+  });
+
+  test("static siteFields.json does not carry a license copy", () => {
+    const text = fs.readFileSync(
+      path.join(__dirname, "../../src/coreConfig/siteFields.json"),
+      "utf8",
+    );
+    const fields = JSON.parse(text);
+    const found = [];
+    (function walk(node) {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (node && typeof node === "object") {
+        if (node.property === "manifest-license") found.push(node);
+        Object.keys(node).forEach((k) => walk(node[k]));
+      }
+    })(fields);
+    assert.equal(found.length, 1);
+    assert.equal(Object.keys(found[0].options || {}).length, 0);
+  });
+});
+
+describe("all rights reserved", () => {
+  test("is a license the owner can choose, with a link and no image", () => {
+    const entry = licenses.getLicense("all-rights-reserved");
+    assert.equal(entry.group, "copyright");
+    assert.equal(entry.image, "");
+    assert.match(entry.link, /^https:\/\//);
+    assert.equal(licenses.isAllRightsReserved("all-rights-reserved"), true);
+    assert.equal(licenses.isAllRightsReserved("by"), false);
+    assert.equal(licenses.isAllRightsReserved(null), false);
+  });
+
+  test("short wordings normalize to the code", () => {
+    [
+      "All rights reserved",
+      "all_rights_reserved",
+      "Proprietary",
+      "Copyright",
+    ].forEach((value) =>
+      assert.equal(
+        licenses.normalizeLicenseValue(value),
+        "all-rights-reserved",
+        value,
+      ),
+    );
+    assert.equal(licenses.normalizeLicenseValue("copyright holder"), null);
+  });
+
+  test("notices and license files are identified as reserved", () => {
+    const fromText = licenses.identifyLicense(
+      "Copyright (c) 2024 Someone. All rights reserved.",
+    );
+    assert.equal(fromText.code, "all-rights-reserved");
+    assert.deepEqual(licenses.getLicenseTerms("all-rights-reserved"), [
+      "all-rights-reserved",
+    ]);
+  });
+
+  test("a license that grants rights is never read as reserving them", () => {
+    const mit =
+      "MIT License\n\nCopyright (c) 2024 Someone. All rights reserved.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software";
+    assert.equal(licenses.identifyLicense(mit).code, "mit");
   });
 });

@@ -79,3 +79,11 @@ test('private sites disallow everything and name no AI crawler', () => {
   assert.equal(output.indexOf('GPTBot'), -1)
   assert.equal(output.indexOf('Sitemap:'), -1)
 })
+
+test('reserved sites ask AI crawlers to stay out and keep search crawlers', () => {
+  const output = render({ ...PUBLIC_VARS, reservedSite: true })
+  for (const agent of ['GPTBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended']) {
+    assert.deepEqual(groupFor(output, agent), ['Disallow: /'], agent)
+  }
+  assert.ok(groupFor(output, '*').indexOf('Allow: /') !== -1)
+})
