@@ -12,7 +12,7 @@ const LIMITS = {
 // createSite's build.files pipeline (importBuildFile) only accepts these
 // extensions, so anything else is never handed over in the first place
 // (mirrors SAFE_BULK_IMPORT_EXTENSION_REGEX in createSite.js).
-const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf)$/i
+const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf|h5p)$/i
 // Drupal public file URLs look like /sites/default/files/2024-06/x.jpg (or
 // /sites/< multisite >/files/..., /files/...). The captured remainder becomes
 // the files-relative key because HAXCMSFile.save preserves the bulk-import

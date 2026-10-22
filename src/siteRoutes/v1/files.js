@@ -76,6 +76,7 @@ const ALLOWED_RENAME_EXTENSIONS = [
   "html",
   "md",
   "xml",
+  "h5p",
 ];
 
 function getDateCreatedValue(entryStats) {

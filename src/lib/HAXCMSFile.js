@@ -11,7 +11,7 @@ const sharp = require("sharp");
 const dns = require("dns");
 
 const ALLOWED_UPLOAD_EXTENSION_PATTERN =
-  /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf)$/i;
+  /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf|h5p)$/i;
 const ALLOWED_MIME_BY_EXTENSION = {
   jpg: ["image/jpeg"],
   jpeg: ["image/jpeg"],
@@ -64,6 +64,10 @@ const ALLOWED_MIME_BY_EXTENSION = {
   // detected as text/html and rejected rather than stored and served
   ics: ["text/calendar", "text/x-vcalendar", "text/plain"],
   vcf: ["text/vcard", "text/x-vcard", "text/directory", "text/plain"],
+  // an H5P package is a zip archive (h5p.json plus libraries and content);
+  // it is stored as-is and unpacked in the browser by h5p-element, never on
+  // the server, so the same archive types the office formats use are accepted
+  h5p: ["application/zip", "application/x-zip-compressed"],
   css: ["text/css"],
   js: [
     "text/javascript",
