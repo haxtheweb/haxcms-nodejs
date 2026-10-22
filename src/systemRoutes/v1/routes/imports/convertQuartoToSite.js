@@ -8,6 +8,7 @@ const { escapeHTMLAttribute } = require("../../../../lib/sanitizeContent.js");
 const {
   identifyLicense,
   getLicenseTerms,
+  isAllRightsReserved,
 } = require("../../../../lib/licenses.js");
 // reached through the module object so the network boundary can be stubbed in tests
 const safeFetchLib = require("../../../../lib/safeFetch.js");
@@ -103,6 +104,10 @@ async function convertQuartoToSite(req, res) {
   }
   try {
     const source = await resolveRepository(repo);
+    // the owner kept the work to themselves: stop before reading any page
+    if (isAllRightsReserved(source.license)) {
+      throw importError(403, RESERVED_MESSAGE);
+    }
     const imported = await importSite(source);
     return res.json({
       status: 200,
@@ -149,6 +154,9 @@ function sendError(res, status, message) {
     data: { error: message, items: [], filename: null, files: {} },
   });
 }
+
+const RESERVED_MESSAGE =
+  "The source states all rights reserved, so it was not imported. Ask the owner for permission, or for a license that allows reuse.";
 
 function importError(status, message) {
   const error = new Error(message);
@@ -1082,6 +1090,10 @@ async function renderPage(raw, node, context) {
     node.item.title = pageTitle;
   }
   const pageLicense = licenseCode(split.data.license) || context.source.license;
+  // a page can reserve its rights even when the project does not
+  if (isAllRightsReserved(pageLicense)) {
+    throw importError(403, RESERVED_MESSAGE);
+  }
   const author = authorText(split.data.author) || context.source.config.author;
   if (pageLicense) {
     node.item.metadata.quarto.license = pageLicense;
