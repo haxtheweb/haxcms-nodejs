@@ -1,152 +1,29 @@
 "use strict";
 
 /**
- * Canonical HAXcms license list, shared by HAXCMS.getLicenseData,
+ * HAXcms license list, shared by HAXCMS.getLicenseData,
  * JSONOutlineSchema.getLicenseDetails and the createSite route.
+ *
+ * The list is data: licenses.json is a byte for byte copy of the canonical
+ * @haxtheweb/license-element/lib/licenses.json in the webcomponents repo,
+ * which haxcms-php and the client also use. Do not edit it here; change the
+ * canonical file and run `yarn run language-registry-sync` in webcomponents.
  * Order is significant: creative-commons, public-domain, software.
- * The same list is mirrored in haxcms-php and the webcomponents client.
  */
-const LICENSE_GROUPS = {
-  "creative-commons": "Creative Commons",
-  "public-domain": "Public domain",
-  software: "Software",
-};
+const licenseData = require("./licenses.json");
 
-const LICENSES = [
-  {
-    code: "by",
-    group: "creative-commons",
-    name: "Attribution",
-    link: "https://creativecommons.org/licenses/by/4.0/",
-    image: "https://i.creativecommons.org/l/by/4.0/88x31.png",
-  },
-  {
-    code: "by-sa",
-    group: "creative-commons",
-    name: "Attribution Share a like",
-    link: "https://creativecommons.org/licenses/by-sa/4.0/",
-    image: "https://i.creativecommons.org/l/by-sa/4.0/88x31.png",
-  },
-  {
-    code: "by-nd",
-    group: "creative-commons",
-    name: "Attribution No derivatives",
-    link: "https://creativecommons.org/licenses/by-nd/4.0/",
-    image: "https://i.creativecommons.org/l/by-nd/4.0/88x31.png",
-  },
-  {
-    code: "by-nc",
-    group: "creative-commons",
-    name: "Attribution non-commercial",
-    link: "https://creativecommons.org/licenses/by-nc/4.0/",
-    image: "https://i.creativecommons.org/l/by-nc/4.0/88x31.png",
-  },
-  {
-    code: "by-nc-sa",
-    group: "creative-commons",
-    name: "Attribution non-commercial share a like",
-    link: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
-    image: "https://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png",
-  },
-  {
-    code: "by-nc-nd",
-    group: "creative-commons",
-    name: "Attribution Non-commercial No derivatives",
-    link: "https://creativecommons.org/licenses/by-nc-nd/4.0/",
-    image: "https://i.creativecommons.org/l/by-nc-nd/4.0/88x31.png",
-  },
-  {
-    code: "cc0",
-    group: "public-domain",
-    name: "CC0 1.0 Universal",
-    link: "https://creativecommons.org/publicdomain/zero/1.0/",
-    image: "https://licensebuttons.net/p/zero/1.0/88x31.png",
-  },
-  {
-    code: "pdm",
-    group: "public-domain",
-    name: "Public Domain Mark 1.0",
-    link: "https://creativecommons.org/publicdomain/mark/1.0/",
-    image: "https://licensebuttons.net/p/mark/1.0/88x31.png",
-  },
-  {
-    code: "mit",
-    group: "software",
-    name: "MIT License",
-    link: "https://opensource.org/license/mit",
-    image: "",
-  },
-  {
-    code: "apache-2.0",
-    group: "software",
-    name: "Apache License 2.0",
-    link: "https://www.apache.org/licenses/LICENSE-2.0",
-    image: "",
-  },
-  {
-    code: "bsd-2-clause",
-    group: "software",
-    name: "BSD 2-Clause License",
-    link: "https://opensource.org/license/bsd-2-clause",
-    image: "",
-  },
-  {
-    code: "bsd-3-clause",
-    group: "software",
-    name: "BSD 3-Clause License",
-    link: "https://opensource.org/license/bsd-3-clause",
-    image: "",
-  },
-  {
-    code: "isc",
-    group: "software",
-    name: "ISC License",
-    link: "https://opensource.org/license/isc-license-txt",
-    image: "",
-  },
-  {
-    code: "mpl-2.0",
-    group: "software",
-    name: "Mozilla Public License 2.0",
-    link: "https://www.mozilla.org/MPL/2.0/",
-    image: "",
-  },
-  {
-    code: "gpl-2.0",
-    group: "software",
-    name: "GNU General Public License v2.0",
-    link: "https://www.gnu.org/licenses/old-licenses/gpl-2.0.html",
-    image: "",
-  },
-  {
-    code: "gpl-3.0",
-    group: "software",
-    name: "GNU General Public License v3.0",
-    link: "https://www.gnu.org/licenses/gpl-3.0.html",
-    image: "",
-  },
-  {
-    code: "lgpl-3.0",
-    group: "software",
-    name: "GNU Lesser General Public License v3.0",
-    link: "https://www.gnu.org/licenses/lgpl-3.0.html",
-    image: "",
-  },
-  {
-    code: "agpl-3.0",
-    group: "software",
-    name: "GNU Affero General Public License v3.0",
-    link: "https://www.gnu.org/licenses/agpl-3.0.html",
-    image: "",
-  },
-  {
-    code: "unlicense",
-    group: "software",
-    name: "The Unlicense",
-    link: "https://unlicense.org/",
-    image: "",
-  },
-];
+const LICENSE_GROUPS = {};
+licenseData.groups.forEach((group) => {
+  LICENSE_GROUPS[group.id] = group.name;
+});
+
+const LICENSES = licenseData.licenses.map((license) => ({
+  code: license.code,
+  group: license.group,
+  name: license.name,
+  link: license.link,
+  image: license.image,
+}));
 
 function getLicenseCodes() {
   return LICENSES.map((license) => license.code);
@@ -412,6 +289,31 @@ function getLicenseTerms(code) {
   return terms;
 }
 
+/**
+ * Fill the license choices of a site settings schema from the list, so the
+ * options are never a second copy. Finds the field by its property name
+ * ("manifest-license") wherever it sits in the schema.
+ */
+function applyLicenseOptions(fields) {
+  let applied = false;
+  const visit = (node, depth) => {
+    if (!node || typeof node !== "object" || depth > 8) {
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach((entry) => visit(entry, depth + 1));
+      return;
+    }
+    if (node.property === "manifest-license") {
+      node.options = getLicenseMap("select");
+      applied = true;
+    }
+    Object.keys(node).forEach((key) => visit(node[key], depth + 1));
+  };
+  visit(fields, 0);
+  return applied;
+}
+
 module.exports = {
   LICENSE_GROUPS,
   LICENSES,
@@ -419,6 +321,7 @@ module.exports = {
   getLicense,
   getLicenseDisplayName,
   getLicenseMap,
+  applyLicenseOptions,
   normalizeLicenseValue,
   identifyLicense,
   getLicenseTerms,

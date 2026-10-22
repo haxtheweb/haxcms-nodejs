@@ -188,3 +188,56 @@ describe("createSite license normalizer", () => {
     assert.equal(normalize(42), null);
   });
 });
+
+describe("single-source license list", () => {
+  const data = require("../../src/lib/licenses.json");
+
+  test("licenses.json is well formed", () => {
+    assert.equal(data.version, 1);
+    const groupIds = data.groups.map((g) => g.id);
+    assert.equal(new Set(groupIds).size, groupIds.length);
+    const codes = data.licenses.map((l) => l.code);
+    assert.equal(new Set(codes).size, codes.length);
+    data.licenses.forEach((l) => {
+      assert.ok(groupIds.includes(l.group), l.code + " has a known group");
+      assert.ok(l.name && l.link, l.code + " is complete");
+    });
+  });
+
+  test("the module is built from the JSON", () => {
+    assert.deepEqual(
+      licenses.getLicenseCodes(),
+      data.licenses.map((l) => l.code),
+    );
+  });
+
+  test("applyLicenseOptions fills the site settings license field", () => {
+    const fields = [
+      { fields: [{ property: "manifest-license", options: {} }] },
+    ];
+    assert.equal(licenses.applyLicenseOptions(fields), true);
+    assert.deepEqual(
+      Object.keys(fields[0].fields[0].options),
+      Object.keys(licenses.getLicenseMap("select")),
+    );
+    assert.equal(licenses.applyLicenseOptions([{ property: "x" }]), false);
+  });
+
+  test("static siteFields.json does not carry a license copy", () => {
+    const text = fs.readFileSync(
+      path.join(__dirname, "../../src/coreConfig/siteFields.json"),
+      "utf8",
+    );
+    const fields = JSON.parse(text);
+    const found = [];
+    (function walk(node) {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (node && typeof node === "object") {
+        if (node.property === "manifest-license") found.push(node);
+        Object.keys(node).forEach((k) => walk(node[k]));
+      }
+    })(fields);
+    assert.equal(found.length, 1);
+    assert.equal(Object.keys(found[0].options || {}).length, 0);
+  });
+});

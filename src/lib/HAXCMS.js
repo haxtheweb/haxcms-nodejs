@@ -5,7 +5,7 @@ const JWT = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 const GitPlus = require("./GitPlus.js");
 const JSONOutlineSchema = require("./JSONOutlineSchema.js");
-const { getLicenseMap } = require("./licenses.js");
+const { getLicenseMap, applyLicenseOptions } = require("./licenses.js");
 const { discoverConfigPath } = require("./discoverConfigPath.js");
 const filter_var = require("./filter_var.js");
 const { resolveContainedPath, hasTraversal } = require("./pathConfinement.js");
@@ -4690,6 +4690,8 @@ class HAXCMSClass {
     for (let name in fieldsData) {
       this.config.site.fields[0][name] = fieldsData[name];
     }
+    // license choices come from the shared license list, not siteFields.json
+    applyLicenseOptions(this.config.site.fields);
     let themeSelect = {};
     // ensure field schema has correct theme options
     // filter hidden / terrible themes from the site settings dialog
