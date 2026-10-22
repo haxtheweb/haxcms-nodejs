@@ -5,6 +5,7 @@ const JWT = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 const GitPlus = require("./GitPlus.js");
 const JSONOutlineSchema = require("./JSONOutlineSchema.js");
+const { getLicenseMap } = require("./licenses.js");
 const { discoverConfigPath } = require("./discoverConfigPath.js");
 const filter_var = require("./filter_var.js");
 const { resolveContainedPath, hasTraversal } = require("./pathConfinement.js");
@@ -3658,47 +3659,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
    * License data for common open license
    */
   getLicenseData(type = "select") {
-    let list = {
-      by: {
-        name: "Creative Commons: Attribution",
-        link: "https://creativecommons.org/licenses/by/4.0/",
-        image: "https://i.creativecommons.org/l/by/4.0/88x31.png",
-      },
-      "by-sa": {
-        name: "Creative Commons: Attribution Share a like",
-        link: "https://creativecommons.org/licenses/by-sa/4.0/",
-        image: "https://i.creativecommons.org/l/by-sa/4.0/88x31.png",
-      },
-      "by-nd": {
-        name: "Creative Commons: Attribution No derivatives",
-        link: "https://creativecommons.org/licenses/by-nd/4.0/",
-        image: "https://i.creativecommons.org/l/by-nd/4.0/88x31.png",
-      },
-      "by-nc": {
-        name: "Creative Commons: Attribution non-commercial",
-        link: "https://creativecommons.org/licenses/by-nc/4.0/",
-        image: "https://i.creativecommons.org/l/by-nc/4.0/88x31.png",
-      },
-      "by-nc-sa": {
-        name: "Creative Commons: Attribution non-commercial share a like",
-        link: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
-        image: "https://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png",
-      },
-      "by-nc-nd": {
-        name: "Creative Commons: Attribution Non-commercial No derivatives",
-        link: "https://creativecommons.org/licenses/by-nc-nd/4.0/",
-        image: "https://i.creativecommons.org/l/by-nc-nd/4.0/88x31.png",
-      },
-    };
-    let data = {};
-    if (type == "select") {
-      for (var key in list) {
-        data[key] = list[key]["name"];
-      }
-    } else {
-      data = list;
-    }
-    return data;
+    return getLicenseMap(type);
   }
   /**
    * Update page in the manifest list of items. useful if updating some

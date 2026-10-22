@@ -9,6 +9,7 @@ const { getBulkImportStagingRoot, stageRemoteFile } = require('../../../lib/stag
 const EntityRegistry = require('../../../lib/EntityRegistry.js');
 const FileStorage = require('../../../lib/FileStorage.js');
 const FileContentScanner = require('../../../lib/FileContentScanner.js');
+const { getLicenseCodes } = require('../../../lib/licenses.js');
 
 const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf)$/i;
 const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
@@ -78,14 +79,7 @@ function siteFileContentTypeAcceptable(response, normalizedPath) {
   }
   return false;
 }
-const DEFAULT_SUPPORTED_SITE_LICENSES = [
-  'by',
-  'by-sa',
-  'by-nd',
-  'by-nc',
-  'by-nc-sa',
-  'by-nc-nd'
-];
+const DEFAULT_SUPPORTED_SITE_LICENSES = getLicenseCodes();
 
 function normalizeBulkImportName(locationName) {
   if (typeof locationName !== 'string') {
@@ -150,12 +144,24 @@ function normalizeSiteLicenseValue(rawValue, supportedLicenses = []) {
   if (supportedLicenses.includes(value)) {
     return value;
   }
-  for (const code of supportedLicenses) {
+  // SPDX style suffixes, e.g. GPL-3.0-only or GPL-3.0-or-later
+  const spdxValue = value.replace(/-(only|or-later)$/, '');
+  if (spdxValue === '') {
+    return null;
+  }
+  if (supportedLicenses.includes(spdxValue)) {
+    return spdxValue;
+  }
+  // longest codes first so "by-nc-sa" is not shadowed by "by"
+  const codesByLength = [...supportedLicenses].sort(
+    (a, b) => b.length - a.length
+  );
+  for (const code of codesByLength) {
     if (
-      value.indexOf(`/licenses/${code}`) !== -1 ||
-      value.indexOf(`cc ${code}`) !== -1 ||
-      value.indexOf(`cc-${code}`) !== -1 ||
-      value.indexOf(`cc:${code}`) !== -1
+      spdxValue.indexOf(`/licenses/${code}`) !== -1 ||
+      spdxValue.indexOf(`cc ${code}`) !== -1 ||
+      spdxValue.indexOf(`cc-${code}`) !== -1 ||
+      spdxValue.indexOf(`cc:${code}`) !== -1
     ) {
       return code;
     }
@@ -1087,3 +1093,5 @@ module.exports = createSite;
 // exported for direct unit testing
 module.exports.importBuildFile = importBuildFile;
 module.exports.linkImportedPageFiles = linkImportedPageFiles;
+module.exports.getSupportedSiteLicenseCodes = getSupportedSiteLicenseCodes;
+module.exports.normalizeSiteLicenseValue = normalizeSiteLicenseValue;
