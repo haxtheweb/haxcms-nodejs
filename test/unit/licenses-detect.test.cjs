@@ -101,11 +101,16 @@ test("identifyLicense: the lesser and affero texts are not read as plain GPL", (
 });
 
 test("identifyLicense: unknown text is reported, never guessed", () => {
-  assert.deepEqual(identifyLicense("All rights reserved."), {
+  assert.deepEqual(identifyLicense("Licensed to the Acme guild."), {
     code: null,
     version: "",
-    label: "All rights reserved.",
+    label: "Licensed to the Acme guild.",
   });
+  // an owner keeping the work to themselves is a license, not an unknown
+  assert.equal(
+    identifyLicense("All rights reserved.").code,
+    "all-rights-reserved",
+  );
   assert.equal(identifyLicense("").code, null);
   assert.equal(identifyLicense(undefined).code, null);
   assert.equal(identifyLicense({}).code, null);

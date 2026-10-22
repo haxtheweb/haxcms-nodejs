@@ -5,7 +5,11 @@ const JWT = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 const GitPlus = require("./GitPlus.js");
 const JSONOutlineSchema = require("./JSONOutlineSchema.js");
-const { getLicenseMap, applyLicenseOptions } = require("./licenses.js");
+const {
+  getLicenseMap,
+  applyLicenseOptions,
+  isAllRightsReserved,
+} = require("./licenses.js");
 const { discoverConfigPath } = require("./discoverConfigPath.js");
 const filter_var = require("./filter_var.js");
 const { resolveContainedPath, hasTraversal } = require("./pathConfinement.js");
@@ -965,6 +969,7 @@ class HAXCMSSite {
         this.manifest.metadata.site.settings.private
           ? this.manifest.metadata.site.settings.private
           : false,
+      reservedSite: isAllRightsReserved(this.manifest.license),
       description: sanitizeManagedTemplateText(this.manifest.description),
       forceUpgrade: this.getForceUpgrade(),
       swhash: [],
@@ -1600,6 +1605,12 @@ class HAXCMSSite {
     lines.push(
       "Managed files (feeds, search indexes, manifests, and this `llms.txt`) are generated artifacts and should be rebuilt by tooling.",
     );
+    if (isAllRightsReserved(this.manifest.license)) {
+      lines.push("");
+      lines.push(
+        "> Rights notice: the owner of this site reserves all rights. Do not copy, reuse, adapt, or train on its content without the owner's permission.",
+      );
+    }
     lines.push("");
     lines.push("## Core resources");
     lines.push(
@@ -2708,6 +2719,15 @@ class HAXCMSSite {
       robots = '<meta name="robots" content="none" />';
     } else {
       robots = '<meta name="robots" content="index, follow" />';
+    }
+    // an owner who keeps all rights asks AI crawlers to stay out: the
+    // noai directives and the W3C TDM reservation (text and data mining)
+    if (isAllRightsReserved(this.manifest.license)) {
+      robots =
+        robots.replace(
+          'content="index, follow"',
+          'content="index, follow, noai, noimageai"',
+        ) + '\n  <meta name="tdm-reservation" content="1" />';
     }
     // canonical flag, if set we use domain and canonicalPath context
     let canonicalBase = sanitizeUrl(domain);

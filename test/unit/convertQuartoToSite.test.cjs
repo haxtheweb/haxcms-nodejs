@@ -566,6 +566,40 @@ describe("convertQuartoToSite - #2189", () => {
     assert.ok(!fetched.some((url) => /\/LICENSE$/.test(url)));
   });
 
+  test("a project that reserves all rights is refused before any page is read", async () => {
+    stubRepository({
+      files: {
+        "_quarto.yml": BOOK_CONFIG.replace(
+          "license: CC BY-SA 4.0",
+          "license: All rights reserved",
+        ),
+      },
+    });
+    const res = await run();
+    assert.equal(res.statusCode, 403);
+    assert.match(res.body.data.error, /all rights reserved/i);
+    assert.ok(!fetched.some((url) => /\.qmd$/.test(url)));
+  });
+
+  test("a license file that reserves all rights is refused", async () => {
+    stubRepository({
+      files: {
+        "_quarto.yml": NO_LICENSE_CONFIG,
+        LICENSE: "Copyright (c) 2024 Someone. All rights reserved.\n",
+      },
+    });
+    assert.equal((await run()).statusCode, 403);
+  });
+
+  test("a page that reserves all rights refuses the import", async () => {
+    stubRepository({
+      files: {
+        "preface.qmd": "---\nlicense: all-rights-reserved\n---\n\nText.\n",
+      },
+    });
+    assert.equal((await run()).statusCode, 403);
+  });
+
   test("a software license in the license file is applied and flagged for review", async () => {
     stubRepository({
       files: {

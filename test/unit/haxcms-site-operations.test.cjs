@@ -764,6 +764,19 @@ test("getPageContent reads the page body and filters it", async () => {
   assert.equal(await site.getPageContent({ location: "" }), undefined);
 });
 
+test("a site that reserves all rights tells AI agents so", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const original = site.manifest.license;
+  try {
+    site.manifest.license = "by-sa";
+    assert.equal(site.getLLMSTxt("").indexOf("Rights notice"), -1);
+    site.manifest.license = "all-rights-reserved";
+    assert.ok(site.getLLMSTxt("").indexOf("Rights notice") !== -1);
+  } finally {
+    site.manifest.license = original;
+  }
+});
+
 test("llms.txt helpers normalize titles, links, and URLs", async () => {
   const site = await HAXCMS.loadSite("unit-import");
   const llms = site.getLLMSTxt("https://unit.example");

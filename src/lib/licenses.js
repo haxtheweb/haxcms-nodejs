@@ -12,6 +12,11 @@
  */
 const licenseData = require("./licenses.json");
 
+// the code an owner chooses to keep a work to themselves
+const ALL_RIGHTS_RESERVED = "all-rights-reserved";
+// short wordings of the same choice, as a whole `license:` value
+const RESERVED_WORDING =
+  /^(?:all[- ]rights[- ]reserved|proprietary|copyright(?:ed)?)$/;
 const LICENSE_GROUPS = {};
 licenseData.groups.forEach((group) => {
   LICENSE_GROUPS[group.id] = group.name;
@@ -82,6 +87,12 @@ function normalizeLicenseValue(rawValue, supported) {
   const value = rawValue.trim().toLowerCase().replace(/_/g, "-");
   if (value === "") {
     return null;
+  }
+  if (
+    codes.indexOf(ALL_RIGHTS_RESERVED) !== -1 &&
+    RESERVED_WORDING.test(value)
+  ) {
+    return ALL_RIGHTS_RESERVED;
   }
   if (codes.indexOf(value) !== -1) {
     return value;
@@ -254,6 +265,15 @@ function identifyLicense(rawText) {
   ) {
     return { code: "mit", version: "", label: "MIT License" };
   }
+  // an owner keeping the work to themselves. Checked after every known
+  // license, so a file that grants rights is never read as reserving them.
+  if (/\ball\s+rights\s+(?:are\s+)?reserved\b/i.test(text)) {
+    return {
+      code: ALL_RIGHTS_RESERVED,
+      version: "",
+      label: getLicense(ALL_RIGHTS_RESERVED).name,
+    };
+  }
   // a bare code or URL, such as the value of a `license:` setting
   const trimmed = text.trim();
   if (trimmed.length <= 120) {
@@ -268,10 +288,22 @@ function identifyLicense(rawText) {
   return result;
 }
 
+/**
+ * True for the license an owner uses to say the work may not be copied,
+ * adapted or reused without their permission. Importers refuse such sources.
+ */
+function isAllRightsReserved(code) {
+  return code === ALL_RIGHTS_RESERVED;
+}
+
 /** Terms of a license code the person importing should know about. */
 function getLicenseTerms(code) {
   const terms = [];
   if (typeof code !== "string") {
+    return terms;
+  }
+  if (isAllRightsReserved(code)) {
+    terms.push("all-rights-reserved");
     return terms;
   }
   const group = getLicense(code);
@@ -325,4 +357,6 @@ module.exports = {
   normalizeLicenseValue,
   identifyLicense,
   getLicenseTerms,
+  isAllRightsReserved,
+  ALL_RIGHTS_RESERVED,
 };
