@@ -9,6 +9,10 @@ const { getBulkImportStagingRoot, stageRemoteFile } = require('../../../lib/stag
 const EntityRegistry = require('../../../lib/EntityRegistry.js');
 const FileStorage = require('../../../lib/FileStorage.js');
 const FileContentScanner = require('../../../lib/FileContentScanner.js');
+const {
+  getLicenseCodes,
+  normalizeLicenseValue
+} = require('../../../lib/licenses.js');
 
 const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf|h5p)$/i;
 const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
@@ -78,14 +82,7 @@ function siteFileContentTypeAcceptable(response, normalizedPath) {
   }
   return false;
 }
-const DEFAULT_SUPPORTED_SITE_LICENSES = [
-  'by',
-  'by-sa',
-  'by-nd',
-  'by-nc',
-  'by-nc-sa',
-  'by-nc-nd'
-];
+const DEFAULT_SUPPORTED_SITE_LICENSES = getLicenseCodes();
 
 function normalizeBulkImportName(locationName) {
   if (typeof locationName !== 'string') {
@@ -137,30 +134,7 @@ function getSupportedSiteLicenseCodes() {
 }
 
 function normalizeSiteLicenseValue(rawValue, supportedLicenses = []) {
-  if (!rawValue || typeof rawValue !== 'string') {
-    return null;
-  }
-  const value = rawValue
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, '-');
-  if (value === '') {
-    return null;
-  }
-  if (supportedLicenses.includes(value)) {
-    return value;
-  }
-  for (const code of supportedLicenses) {
-    if (
-      value.indexOf(`/licenses/${code}`) !== -1 ||
-      value.indexOf(`cc ${code}`) !== -1 ||
-      value.indexOf(`cc-${code}`) !== -1 ||
-      value.indexOf(`cc:${code}`) !== -1
-    ) {
-      return code;
-    }
-  }
-  return null;
+  return normalizeLicenseValue(rawValue, supportedLicenses);
 }
 
 async function resolveSkeletonBuildByMachineName(machineName) {
@@ -1087,3 +1061,5 @@ module.exports = createSite;
 // exported for direct unit testing
 module.exports.importBuildFile = importBuildFile;
 module.exports.linkImportedPageFiles = linkImportedPageFiles;
+module.exports.getSupportedSiteLicenseCodes = getSupportedSiteLicenseCodes;
+module.exports.normalizeSiteLicenseValue = normalizeSiteLicenseValue;

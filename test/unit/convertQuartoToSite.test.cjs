@@ -494,10 +494,205 @@ describe("convertQuartoToSite - #2189", () => {
     });
     const res = await run();
     assert.equal(res.body.data.site.license, null);
+    assert.deepEqual(
+      res.body.data.warnings.map((warning) => warning.code),
+      ["license:not-found"],
+    );
     assert.doesNotMatch(
       itemBySlug(res.body.data.items, "basics/setup").contents,
       /license-element/,
     );
+  });
+
+  // --- license detection and notices ------------------------------------------
+
+  const NO_LICENSE_CONFIG = BOOK_CONFIG.replace("license: CC BY-SA 4.0\n", "");
+  const warningCodes = (res) =>
+    res.body.data.warnings.map((warning) => warning.code);
+
+  test("a share-alike license in the project file warns about share-alike only", async () => {
+    stubRepository();
+    const res = await run();
+    assert.deepEqual(warningCodes(res), ["license:share-alike"]);
+  });
+
+  test("a no-derivatives license warns, and so does non-commercial", async () => {
+    stubRepository({
+      files: {
+        "_quarto.yml": BOOK_CONFIG.replace(
+          "license: CC BY-SA 4.0",
+          "license: CC BY-NC-ND 4.0",
+        ),
+      },
+    });
+    const res = await run();
+    assert.equal(res.body.data.site.license, "by-nc-nd");
+    assert.deepEqual(warningCodes(res), [
+      "license:no-derivatives",
+      "license:non-commercial",
+    ]);
+  });
+
+  test("a license file is read when the project file declares none", async () => {
+    stubRepository({
+      files: {
+        "_quarto.yml": NO_LICENSE_CONFIG,
+        LICENSE:
+          "This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivs 4.0 United States License. To view a copy of this license, visit https://creativecommons.org/licenses/by-nc-nd/4.0/\n",
+      },
+    });
+    const res = await run();
+    assert.equal(res.body.data.site.license, "by-nc-nd");
+    assert.deepEqual(warningCodes(res), [
+      "license:no-derivatives",
+      "license:non-commercial",
+      "license:from-file",
+    ]);
+    assert.match(
+      itemBySlug(res.body.data.items, "basics/setup").contents,
+      /<license-element license="by-nc-nd"/,
+    );
+  });
+
+  test("the project file wins and the license file is never fetched", async () => {
+    stubRepository({
+      files: {
+        LICENSE:
+          "Permission is hereby granted, free of charge, to any person obtaining a copy",
+      },
+    });
+    const res = await run();
+    assert.equal(res.body.data.site.license, "by-sa");
+    assert.ok(!fetched.some((url) => /\/LICENSE$/.test(url)));
+  });
+
+  test("a software license in the license file is applied and flagged for review", async () => {
+    stubRepository({
+      files: {
+        "_quarto.yml": NO_LICENSE_CONFIG,
+        "LICENSE.md":
+          "MIT License\n\nCopyright (c) 2024 Someone\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software\n",
+      },
+    });
+    const res = await run();
+    assert.equal(res.body.data.site.license, "mit");
+    assert.deepEqual(warningCodes(res), ["license:from-file"]);
+    assert.match(
+      itemBySlug(res.body.data.items, "basics/setup").contents,
+      /license="mit"/,
+    );
+  });
+
+  test("a project file can state a software license, by SPDX name or as a map", async () => {
+    stubRepository({
+      files: {
+        "_quarto.yml": BOOK_CONFIG.replace(
+          "license: CC BY-SA 4.0",
+          "license: Apache-2.0",
+        ),
+      },
+    });
+    assert.equal((await run()).body.data.site.license, "apache-2.0");
+    stubRepository({
+      files: {
+        "_quarto.yml": BOOK_CONFIG.replace(
+          "license: CC BY-SA 4.0",
+          "license:\n  text: Some text\n  url: https://creativecommons.org/publicdomain/zero/1.0/",
+        ),
+      },
+    });
+    const res = await run();
+    assert.equal(res.body.data.site.license, "cc0");
+    assert.deepEqual(warningCodes(res), []);
+  });
+
+  test("a Creative Commons license at another version is reported, not relabeled", async () => {
+    stubRepository({
+      files: {
+        "_quarto.yml": BOOK_CONFIG.replace(
+          "license: CC BY-SA 4.0",
+          "license: CC BY-SA 3.0",
+        ),
+      },
+    });
+    const res = await run();
+    assert.equal(res.body.data.site.license, null);
+    assert.deepEqual(warningCodes(res), ["license:unrecognized"]);
+    assert.match(res.body.data.warnings[0].message, /CC BY-SA 3\.0/);
+    assert.doesNotMatch(
+      itemBySlug(res.body.data.items, "basics/setup").contents,
+      /license-element/,
+    );
+  });
+
+  test("a license file that cannot be identified is reported as unrecognized", async () => {
+    stubRepository({
+      files: {
+        "_quarto.yml": NO_LICENSE_CONFIG,
+        LICENSE: "You may look at this but not touch it.\n",
+      },
+    });
+    const res = await run();
+    assert.equal(res.body.data.site.license, null);
+    assert.deepEqual(warningCodes(res), ["license:unrecognized"]);
+  });
+
+  test("a repository with no license says so", async () => {
+    stubRepository({ files: { "_quarto.yml": NO_LICENSE_CONFIG } });
+    const res = await run();
+    assert.equal(res.body.data.site.license, null);
+    assert.deepEqual(warningCodes(res), ["license:not-found"]);
+  });
+
+  test("an unreadable license file is the same as none", async () => {
+    stubRepository({
+      files: { "_quarto.yml": NO_LICENSE_CONFIG, LICENSE: "x" },
+      removed: {},
+    });
+    const original = safeFetchMod.safeFetch;
+    safeFetchMod.safeFetch = async function (url, options) {
+      if (/\/LICENSE$/.test(url)) {
+        throw new Error("boom");
+      }
+      return original(url, options);
+    };
+    const res = await run();
+    assert.deepEqual(warningCodes(res), ["license:not-found"]);
+  });
+
+  test("the license file beside the project file is preferred, then the repository root", async () => {
+    stubRepository({
+      only: true,
+      files: {
+        "book/_quarto.yml": NO_LICENSE_CONFIG,
+        "book/index.qmd": "# Home\n\nHi.\n",
+        "book/LICENSE": "Creative Commons Attribution 4.0 International",
+        LICENSE:
+          "Permission is hereby granted, free of charge, to any person obtaining a copy",
+      },
+    });
+    assert.equal((await run()).body.data.site.license, "by");
+    stubRepository({
+      only: true,
+      files: {
+        "book/_quarto.yml": NO_LICENSE_CONFIG,
+        "book/index.qmd": "# Home\n\nHi.\n",
+        LICENSE:
+          "Permission is hereby granted, free of charge, to any person obtaining a copy",
+      },
+    });
+    assert.equal((await run()).body.data.site.license, "mit");
+  });
+
+  test("a page license in front matter that cannot be applied falls back to the site license", async () => {
+    stubRepository({
+      files: {
+        "preface.qmd": "---\nlicense: CC BY 3.0\n---\n\nText.\n",
+      },
+    });
+    const res = await run();
+    const preface = itemBySlug(res.body.data.items, "preface");
+    assert.equal(preface.metadata.quarto.license, "by-sa");
   });
 
   // --- callouts, divs and chunks --------------------------------------------

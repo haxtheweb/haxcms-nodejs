@@ -5,6 +5,10 @@ const { parse } = require("node-html-parser");
 const JSONOutlineSchemaItem = require("../../../../lib/JSONOutlineSchemaItem.js");
 const { HAXCMS } = require("../../../../lib/HAXCMS.js");
 const { escapeHTMLAttribute } = require("../../../../lib/sanitizeContent.js");
+const {
+  identifyLicense,
+  getLicenseTerms,
+} = require("../../../../lib/licenses.js");
 // reached through the module object so the network boundary can be stubbed in tests
 const safeFetchLib = require("../../../../lib/safeFetch.js");
 // Security (L1): client-safe exception text (no paths / stack internals)
@@ -40,15 +44,11 @@ const CONFIG_PATH_REGEX = /(^|\/)_quarto\.ya?ml$/;
 const PAGE_EXTENSION_REGEX = /\.(qmd|rmd|md|ipynb)$/i;
 const PAGE_EXTENSIONS = [".qmd", ".Rmd", ".rmd", ".md", ".ipynb"];
 const NOTEBOOK_REGEX = /\.ipynb$/i;
-// license codes site.license and license-element both understand
-const SUPPORTED_LICENSES = [
-  "by",
-  "by-sa",
-  "by-nd",
-  "by-nc",
-  "by-nc-sa",
-  "by-nc-nd",
-];
+// repository files that state a license, best first; read only when the
+// project file does not declare one
+const LICENSE_FILE_REGEX =
+  /^(license|licence|copying|unlicense)([-._ ].*)?(\.(md|txt|rst))?$/i;
+const MAX_LICENSE_FILE_BYTES = 65536;
 // createSite only accepts these extensions in build.files, so anything else
 // (an .svg diagram, a .zip download) keeps its source URL instead
 const IMPORTABLE_ASSET_REGEX =
@@ -113,6 +113,7 @@ async function convertQuartoToSite(req, res) {
         site: { license: source.license },
         truncated: imported.truncated,
         unmappedComponents: imported.unmappedComponents,
+        warnings: licenseWarnings(source),
       },
     });
   } catch (error) {
@@ -279,6 +280,28 @@ async function resolveRepository(repo) {
     throw importError(422, `Unable to read ${configPath}`);
   }
   const config = readConfig(configSource);
+  // the project file wins; otherwise read what the repository itself says
+  let licenseInfo = config.licenseInfo;
+  let licenseSource = licenseInfo.label !== "" ? "config" : "";
+  if (licenseInfo.code === null && licenseInfo.label === "") {
+    const licenseFile = findLicenseFile(paths, root);
+    if (licenseFile !== null) {
+      const licenseText = await fetchText(
+        `${rawBase}/${encodeURI(licenseFile)}`,
+      );
+      if (licenseText !== null) {
+        const fromFile = identifyLicense(
+          licenseText.slice(0, MAX_LICENSE_FILE_BYTES),
+        );
+        licenseInfo = fromFile;
+        licenseSource = "license-file";
+        if (fromFile.label === "") {
+          // a LICENSE file we do not recognize is still a statement
+          licenseInfo = { code: null, version: "", label: licenseFile };
+        }
+      }
+    }
+  }
   return {
     owner: repo.owner,
     name: repo.name,
@@ -288,7 +311,9 @@ async function resolveRepository(repo) {
     rawBase: rawBase,
     config: config,
     title: config.title || repo.name,
-    license: config.license,
+    license: licenseInfo.code,
+    licenseInfo: licenseInfo,
+    licenseSource: licenseSource,
     accessed: new Date().toISOString(),
   };
 }
@@ -341,7 +366,7 @@ function readConfig(text) {
     title: stringOf(book.title) || stringOf(website.title),
     author: authorText(book.author) || authorText(data.author),
     siteUrl: stringOf(book["site-url"]) || stringOf(website["site-url"]),
-    license: normalizeLicense(data.license),
+    licenseInfo: licenseStatement(data.license),
     outputDir: stringOf(project["output-dir"]).replace(/^\.?\/|\/$/g, ""),
     render: render,
     chapters: Array.isArray(book.chapters) ? book.chapters : null,
@@ -387,18 +412,115 @@ function sidebarContents(sidebar) {
   return null;
 }
 
-/** CC BY-SA 4.0, cc-by-sa and by-sa all mean the same license code. */
-function normalizeLicense(value) {
-  if (typeof value !== "string") {
-    return null;
+/**
+ * The license a `license:` setting states. Quarto allows a string, a list, or
+ * a map with `text` and `url`; the first entry we can read wins, and one we
+ * cannot (an unsupported Creative Commons version, a custom text) is kept as
+ * a label so the person is told instead of the license silently vanishing.
+ */
+function licenseStatement(value) {
+  const candidates = [];
+  const collect = (entry) => {
+    if (typeof entry === "string") {
+      candidates.push(entry);
+    } else if (Array.isArray(entry)) {
+      entry.forEach(collect);
+    } else if (isObject(entry)) {
+      collect(entry.url);
+      collect(entry.text);
+      collect(entry.type);
+    }
+  };
+  collect(value);
+  let fallback = { code: null, version: "", label: "" };
+  for (let i = 0; i < candidates.length; i++) {
+    const info = identifyLicense(candidates[i]);
+    if (info.code) {
+      return info;
+    }
+    if (fallback.label === "" && info.label !== "") {
+      fallback = info;
+    }
   }
-  const code = value
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, "-")
-    .replace(/^cc-/, "")
-    .replace(/-\d+(\.\d+)*$/, "");
-  return SUPPORTED_LICENSES.indexOf(code) === -1 ? null : code;
+  return fallback;
+}
+
+/** The license a page's front matter states, as a code, or null. */
+function licenseCode(value) {
+  return licenseStatement(value).code;
+}
+
+/**
+ * The repository file that states a license: at the project root first, then
+ * the repository root. LICENSE, LICENSE.md and LICENSE.txt come first.
+ */
+function findLicenseFile(paths, root) {
+  const directories = root === "" ? [""] : [root, ""];
+  for (let d = 0; d < directories.length; d++) {
+    const prefix = directories[d] === "" ? "" : `${directories[d]}/`;
+    const names = Object.keys(paths)
+      .filter(
+        (path) =>
+          path.indexOf(prefix) === 0 &&
+          path.slice(prefix.length).indexOf("/") === -1 &&
+          LICENSE_FILE_REGEX.test(path.slice(prefix.length)),
+      )
+      .sort((a, b) => a.length - b.length || a.localeCompare(b));
+    if (names.length > 0) {
+      return names[0];
+    }
+  }
+  return null;
+}
+
+/**
+ * What the person importing should know about the source's license. These
+ * are notices, not a ruling: whether an import is permitted is theirs to
+ * decide, and the codes let a client show the right words.
+ */
+function licenseWarnings(source) {
+  const warnings = [];
+  const info = source.licenseInfo || { code: null, label: "" };
+  const add = (code, message) =>
+    warnings.push({ code: code, message: message });
+  if (info.code) {
+    const terms = getLicenseTerms(info.code);
+    if (terms.indexOf("no-derivatives") !== -1) {
+      add(
+        "license:no-derivatives",
+        "The source is licensed No Derivatives. Converting it into a new site may count as an adaptation; check the license or ask the author before publishing.",
+      );
+    }
+    if (terms.indexOf("non-commercial") !== -1) {
+      add(
+        "license:non-commercial",
+        "The source is licensed Non-commercial. The imported site must not be used commercially.",
+      );
+    }
+    if (terms.indexOf("share-alike") !== -1) {
+      add(
+        "license:share-alike",
+        "The source is licensed Share Alike. Keep the same license on the imported site.",
+      );
+    }
+    if (source.licenseSource === "license-file") {
+      add(
+        "license:from-file",
+        `The license (${info.code}) was read from the repository's license file because the project file declares none. Confirm it covers the written content and not only the code.`,
+      );
+    }
+  } else if (info.label !== "") {
+    add(
+      "license:unrecognized",
+      `The source states a license HAX cannot apply (${String(info.label).slice(0, 80)}). No license was set on the imported site.`,
+    );
+  } else {
+    add(
+      "license:not-found",
+      "No license was declared in the project file or found in a repository license file. Without one, the work is all rights reserved by default; get permission before publishing the import.",
+    );
+  }
+  return warnings;
 }
 
 /** Slug for one page title, trimmed the way convertOpenstaxToSite trims. */
@@ -959,8 +1081,7 @@ async function renderPage(raw, node, context) {
   if (pageTitle !== "" && !node.explicit) {
     node.item.title = pageTitle;
   }
-  const pageLicense =
-    normalizeLicense(split.data.license) || context.source.license;
+  const pageLicense = licenseCode(split.data.license) || context.source.license;
   const author = authorText(split.data.author) || context.source.config.author;
   if (pageLicense) {
     node.item.metadata.quarto.license = pageLicense;
