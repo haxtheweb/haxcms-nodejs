@@ -9,7 +9,10 @@ const { getBulkImportStagingRoot, stageRemoteFile } = require('../../../lib/stag
 const EntityRegistry = require('../../../lib/EntityRegistry.js');
 const FileStorage = require('../../../lib/FileStorage.js');
 const FileContentScanner = require('../../../lib/FileContentScanner.js');
-const { getLicenseCodes } = require('../../../lib/licenses.js');
+const {
+  getLicenseCodes,
+  normalizeLicenseValue
+} = require('../../../lib/licenses.js');
 
 const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf)$/i;
 const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
@@ -131,42 +134,7 @@ function getSupportedSiteLicenseCodes() {
 }
 
 function normalizeSiteLicenseValue(rawValue, supportedLicenses = []) {
-  if (!rawValue || typeof rawValue !== 'string') {
-    return null;
-  }
-  const value = rawValue
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, '-');
-  if (value === '') {
-    return null;
-  }
-  if (supportedLicenses.includes(value)) {
-    return value;
-  }
-  // SPDX style suffixes, e.g. GPL-3.0-only or GPL-3.0-or-later
-  const spdxValue = value.replace(/-(only|or-later)$/, '');
-  if (spdxValue === '') {
-    return null;
-  }
-  if (supportedLicenses.includes(spdxValue)) {
-    return spdxValue;
-  }
-  // longest codes first so "by-nc-sa" is not shadowed by "by"
-  const codesByLength = [...supportedLicenses].sort(
-    (a, b) => b.length - a.length
-  );
-  for (const code of codesByLength) {
-    if (
-      spdxValue.indexOf(`/licenses/${code}`) !== -1 ||
-      spdxValue.indexOf(`cc ${code}`) !== -1 ||
-      spdxValue.indexOf(`cc-${code}`) !== -1 ||
-      spdxValue.indexOf(`cc:${code}`) !== -1
-    ) {
-      return code;
-    }
-  }
-  return null;
+  return normalizeLicenseValue(rawValue, supportedLicenses);
 }
 
 async function resolveSkeletonBuildByMachineName(machineName) {
