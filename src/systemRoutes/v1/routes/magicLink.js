@@ -1,6 +1,5 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 const magicLinks = require('../../../lib/magicLinks.js');
-const refreshAccessToken = require('./refreshAccessToken.js');
 const {
   getAttemptKey,
   getTrackerEntry,
@@ -13,7 +12,22 @@ const {
 // separate from password-login buckets so a lockout on one does not block the
 // other recovery path.
 const RATE_LIMIT_SUBJECT = '__haxcms_magic_link__';
-const GENERIC_FAILURE = 'This sign-in link is invalid or has expired. Generate a new one and try again.';
+// Failures carry two texts: a friendly sentence for the HTML page a person
+// sees, and for JSON clients an existing message from haxcmsApiCodes.json so
+// the response gets a code (AUTH_TOKEN_INVALID, AUTH_RATE_LIMITED, ...) that
+// front ends and the CLI translate.
+const GENERIC_FAILURE = {
+  page: 'This sign-in link is invalid or has expired. Generate a new one and try again.',
+  api: 'Invalid or expired token',
+};
+const RATE_LIMITED = {
+  page: 'Too many failed sign-in attempts. Please try again later.',
+  api: 'Too many failed login attempts. Please try again later.',
+};
+const CROSS_ORIGIN = {
+  page: 'Cross-origin request denied',
+  api: 'Cross-origin request denied',
+};
 
 function escapeHtml(value) {
   return String(value)
@@ -65,15 +79,15 @@ function renderPage(title, bodyHtml) {
     '</style></head><body><main>' + bodyHtml + '</main></body></html>';
 }
 
-function sendFailure(req, res, status, message) {
+function sendFailure(req, res, status, failure) {
   HAXCMS.setRefreshTokenCookie(res, '', 1);
   if (wantsJson(req)) {
-    return res.status(status).json({ status: status, data: { message: message } });
+    return res.status(status).json({ status: status, data: { message: failure.api } });
   }
   res.status(status);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   return res.send(renderPage('Sign-in link not valid',
-    '<h1>Sign-in link not valid</h1><p>' + escapeHtml(message) + '</p>' +
+    '<h1>Sign-in link not valid</h1><p>' + escapeHtml(failure.page) + '</p>' +
     '<p><a class="button" href="' + escapeHtml(getAppRoot()) + '">Go to site</a></p>'));
 }
 
@@ -99,7 +113,8 @@ function magicLinkConfirm(req, res) {
   if (wantsJson(req)) {
     return res.status(405).json({
       status: 405,
-      data: { message: 'POST the token to this endpoint to complete sign-in.' },
+      // METHOD_NOT_ALLOWED: JSON clients complete sign-in with POST
+      data: { message: 'Method not allowed' },
     });
   }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -116,13 +131,15 @@ function magicLinkConfirm(req, res) {
  * POST: redeem the link once, issue the same refresh cookie as a password
  * login, then hand off to the app (which bootstraps via session/connection-test).
  */
-function magicLinkConsume(req, res) {
+async function magicLinkConsume(req, res) {
   setNoStoreHeaders(res);
   if (!magicLinks.isMagicLinkEnabled(HAXCMS)) {
     return sendNotFound(res);
   }
-  if (!refreshAccessToken.isSameOriginRequest(req)) {
-    return sendFailure(req, res, 403, 'Cross-origin request denied');
+  // shared with session/refresh and connection-test (Origin/Referer plus
+  // Sec-Fetch-Site), so all cookie-issuing session routes use one CSRF model
+  if (!HAXCMS.isSameOriginRequest(req)) {
+    return sendFailure(req, res, 403, CROSS_ORIGIN);
   }
   var settings = HAXCMS.getLoginRateLimitSettings();
   var now = Date.now();
@@ -133,7 +150,7 @@ function magicLinkConsume(req, res) {
     if (retryAfterSeconds > 0) {
       res.set('Retry-After', String(retryAfterSeconds));
     }
-    return sendFailure(req, res, 429, 'Too many failed sign-in attempts. Please try again later.');
+    return sendFailure(req, res, 429, RATE_LIMITED);
   }
   var result = magicLinks.consumeMagicLink(HAXCMS, getSubmittedToken(req), now);
   if (!result.ok) {
@@ -145,10 +162,24 @@ function magicLinkConsume(req, res) {
   clearTrackerEntry(attemptKey);
   HAXCMS.setRefreshTokenCookie(res, HAXCMS.getRefreshToken(result.user), 24 * 60 * 60 * 1000);
   if (wantsJson(req)) {
-    return res.json({
+    // same response shape as session/login: JWT plus the request tokens an
+    // in-page client needs (userToken always, siteToken with a site context)
+    var sessionTokens = {};
+    try {
+      sessionTokens = await HAXCMS.getSessionRequestTokens(req);
+    }
+    catch (e) {
+      sessionTokens = {};
+    }
+    if (!sessionTokens || typeof sessionTokens.userToken !== 'string') {
+      sessionTokens = Object.assign({}, sessionTokens, {
+        userToken: HAXCMS.getRequestToken(result.user),
+      });
+    }
+    return res.json(Object.assign({
       status: 200,
       jwt: HAXCMS.getJWT(result.user),
-    });
+    }, sessionTokens));
   }
   return res.redirect(303, getAppRoot());
 }

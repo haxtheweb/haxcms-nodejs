@@ -70,5 +70,3 @@ async function refreshAccessToken(req, res) {
   }
 }
 module.exports = refreshAccessToken;
-// shared with the magic-link consume route (same cookie, same CSRF model)
-module.exports.isSameOriginRequest = isSameOriginRequest;
