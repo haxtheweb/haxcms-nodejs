@@ -109,5 +109,5 @@ question has one right answer, it is leading; reclassify it and move it to K/S.
 
 ## References
 
-- `../hax-ubd-backward-design/references/ubd-element-map.md` — Stage 1 component map
+- `https://github.com/haxtheweb/praw/blob/main/skills/hax-ubd-backward-design/references/ubd-element-map.md` — Stage 1 component map
 - Source: Wiggins & McTighe (2005), _UbD_ Ch. 5, Fig 5.2–5.3.

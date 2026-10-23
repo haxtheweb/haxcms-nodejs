@@ -103,6 +103,6 @@ what teachers need to _see_ to conclude a student understands.
 
 ## References
 
-- `../hax-ubd-backward-design/references/ubd-element-map.md` — facet → evidence component map
-- `../hax-ubd-backward-design/references/validity-self-test.md` — Q4 (lovely product) is the facet-rubric failure to guard against
+- `https://github.com/haxtheweb/praw/blob/main/skills/hax-ubd-backward-design/references/ubd-element-map.md` — facet → evidence component map
+- `https://github.com/haxtheweb/praw/blob/main/skills/hax-ubd-backward-design/references/validity-self-test.md` — Q4 (lovely product) is the facet-rubric failure to guard against
 - Source: Wiggins & McTighe (2005), _UbD_ Ch. 4, Fig 7.8–7.9.

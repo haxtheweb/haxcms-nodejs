@@ -223,6 +223,6 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 ## References
 
 - `references/udl-element-map.md` — UDL → HAX component map (verified tags only; the iron rule)
-- `../hax-ubd-backward-design/references/ubd-element-map.md` — companion UbD map (Stage 2 evidence overlap)
+- `https://github.com/haxtheweb/praw/blob/main/skills/hax-ubd-backward-design/references/ubd-element-map.md` — companion UbD map (Stage 2 evidence overlap)
 - PRAW RULES.md: `https://github.com/haxtheweb/praw/blob/main/RULES.md`
 - CAST (2024). _Universal Design for Learning Guidelines version 3.0_. https://udlguidelines.cast.org/
