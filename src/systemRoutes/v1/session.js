@@ -5,6 +5,7 @@ const sessionRoute = require('./routes/session.js');
 const connectionSettingsRoute = require('./routes/connectionSettings.js');
 const connectionTestRoute = require('./routes/connectionTest.js');
 const getUserDataRoute = require('./routes/getUserData.js');
+const magicLinkRoute = require('./routes/magicLink.js');
 
 async function login(req, res, next) {
   return loginRoute(req, res, next);
@@ -33,8 +34,18 @@ async function getUserData(req, res, next) {
   return getUserDataRoute(req, res, next);
 }
 
+async function magicLinkConfirm(req, res, next) {
+  return magicLinkRoute.magicLinkConfirm(req, res, next);
+}
+
+async function magicLinkConsume(req, res, next) {
+  return magicLinkRoute.magicLinkConsume(req, res, next);
+}
+
 module.exports = {
   login,
+  magicLinkConfirm,
+  magicLinkConsume,
   logout,
   refreshAccessToken,
   session,
