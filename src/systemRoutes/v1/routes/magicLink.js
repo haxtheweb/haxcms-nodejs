@@ -77,12 +77,21 @@ function sendFailure(req, res, status, message) {
     '<p><a class="button" href="' + escapeHtml(getAppRoot()) + '">Go to site</a></p>'));
 }
 
+// When the feature is turned off the endpoint behaves as if it doesn't exist:
+// no confirmation page, nothing that suggests a recovery path is available.
+function sendNotFound(res) {
+  return res.status(404).json({ status: 404, data: { message: 'Not found' } });
+}
+
 /**
  * GET: show a confirmation page. GET never consumes the link, so link
  * scanners / chat unfurlers / browser prefetch cannot burn it.
  */
 function magicLinkConfirm(req, res) {
   setNoStoreHeaders(res);
+  if (!magicLinks.isMagicLinkEnabled(HAXCMS)) {
+    return sendNotFound(res);
+  }
   var token = getSubmittedToken(req);
   if (!magicLinks.isWellFormedToken(token)) {
     return sendFailure(req, res, 400, GENERIC_FAILURE);
@@ -109,6 +118,9 @@ function magicLinkConfirm(req, res) {
  */
 function magicLinkConsume(req, res) {
   setNoStoreHeaders(res);
+  if (!magicLinks.isMagicLinkEnabled(HAXCMS)) {
+    return sendNotFound(res);
+  }
   if (!refreshAccessToken.isSameOriginRequest(req)) {
     return sendFailure(req, res, 403, 'Cross-origin request denied');
   }

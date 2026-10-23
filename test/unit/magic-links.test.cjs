@@ -136,6 +136,29 @@ describe('magicLinks store', () => {
     assert.equal(magicLinks.consumeMagicLink(h, token).reason, 'disabled')
   })
 
+  test('HAXCMS_MAGIC_LINK_DISABLED turns the feature off and beats config', () => {
+    const h = fakeHaxcms({ config: { security: { magicLink: { enabled: true } } } })
+    const { token } = magicLinks.issueMagicLink(h)
+    for (const value of ['1', 'true', 'TRUE', 'yes', 'on']) {
+      process.env.HAXCMS_MAGIC_LINK_DISABLED = value
+      try {
+        assert.equal(magicLinks.isMagicLinkEnabled(h), false, value)
+        assert.throws(() => magicLinks.issueMagicLink(h), { code: 'MAGIC_LINK_DISABLED' })
+        assert.equal(magicLinks.consumeMagicLink(h, token).reason, 'disabled')
+      }
+      finally {
+        delete process.env.HAXCMS_MAGIC_LINK_DISABLED
+      }
+    }
+    process.env.HAXCMS_MAGIC_LINK_DISABLED = '0'
+    try {
+      assert.equal(magicLinks.isMagicLinkEnabled(h), true, '"0" leaves it on')
+    }
+    finally {
+      delete process.env.HAXCMS_MAGIC_LINK_DISABLED
+    }
+  })
+
   test('ttl is clamped to 60s..24h', () => {
     const h = fakeHaxcms()
     assert.equal(magicLinks.issueMagicLink(h, { ttlSeconds: 1 }).ttlSeconds, 60)
@@ -237,6 +260,25 @@ describe('session/magic-link route', () => {
     assert.equal(r.statusCode, 401)
     const cleared = r.cookies.find((c) => c.name === 'haxcms_refresh_token')
     assert.equal(cleared.value, '')
+  })
+
+  test('with the feature disabled both methods 404 and nothing is consumed', () => {
+    const { token } = magicLinks.issueMagicLink(HAXCMS)
+    process.env.HAXCMS_MAGIC_LINK_DISABLED = '1'
+    try {
+      const g = res()
+      route.magicLinkConfirm(req({ query: { token } }), g)
+      assert.equal(g.statusCode, 404)
+      assert.equal(typeof g.body, 'object', 'no HTML confirmation page')
+      const p = res()
+      route.magicLinkConsume(req({ body: { token } }), p)
+      assert.equal(p.statusCode, 404)
+      assert.equal(p.cookies.length, 0)
+    }
+    finally {
+      delete process.env.HAXCMS_MAGIC_LINK_DISABLED
+    }
+    assert.equal(magicLinks.consumeMagicLink(HAXCMS, token).ok, true)
   })
 
   test('cross-origin POST is refused without consuming', () => {

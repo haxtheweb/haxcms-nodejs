@@ -43,6 +43,14 @@ function clampInt(value, fallback, min, max) {
   return num;
 }
 
+function isTruthyFlag(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  var normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
 /**
  * Resolve magic-link policy from config.security.magicLink with env overrides.
  * Enabled by default: with no HTTP issuance path, the only exposure is the
@@ -60,7 +68,10 @@ function getMagicLinkSettings(haxcms) {
     source = haxcms.config.security.magicLink;
   }
   var enabled = source.enabled !== false;
-  if (process.env.HAXCMS_MAGIC_LINK_DISABLED === '1' || process.env.HAXCMS_MAGIC_LINK_DISABLED === 'true') {
+  // System-level kill switch, e.g. HAXiam deploys that sign in through a
+  // third-party OAuth/SSO provider and have no local password account to
+  // recover. Wins over config so a site-level config can't re-enable it.
+  if (isTruthyFlag(process.env.HAXCMS_MAGIC_LINK_DISABLED)) {
     enabled = false;
   }
   var ttlSeconds = clampInt(
@@ -166,7 +177,7 @@ function issueMagicLink(haxcms, options) {
   var opts = options || {};
   var settings = getMagicLinkSettings(haxcms);
   if (!settings.enabled) {
-    var disabled = new Error('One-time sign-in links are disabled for this HAXcms (security.magicLink.enabled=false).');
+    var disabled = new Error('One-time sign-in links are turned off for this HAXcms (HAXCMS_MAGIC_LINK_DISABLED or security.magicLink.enabled=false).');
     disabled.code = 'MAGIC_LINK_DISABLED';
     throw disabled;
   }
@@ -306,8 +317,13 @@ function revokeMagicLinks(haxcms, user) {
   return removed;
 }
 
+function isMagicLinkEnabled(haxcms) {
+  return getMagicLinkSettings(haxcms).enabled;
+}
+
 module.exports = {
   DEFAULT_TTL_SECONDS: DEFAULT_TTL_SECONDS,
+  isMagicLinkEnabled: isMagicLinkEnabled,
   getMagicLinkSettings: getMagicLinkSettings,
   getMagicLinksPath: getMagicLinksPath,
   issueMagicLink: issueMagicLink,
