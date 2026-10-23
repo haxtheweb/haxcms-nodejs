@@ -51,10 +51,26 @@ function isTruthyFlag(value) {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
+// config.iam is set by HAXiam; deploymentProfile is derived from it (or set
+// explicitly). Either one means a HAXiam-managed deployment.
+function isHaxiamDeployment(haxcms) {
+  if (!haxcms || !haxcms.config) {
+    return false;
+  }
+  if (haxcms.config.iam) {
+    return true;
+  }
+  return String(haxcms.config.deploymentProfile || '').toLowerCase() === 'haxiam-managed';
+}
+
 /**
- * Resolve magic-link policy from config.security.magicLink with env overrides.
- * Enabled by default: with no HTTP issuance path, the only exposure is the
- * consume endpoint, which can only redeem links minted by a trusted operator.
+ * Resolve magic-link policy.
+ *   single-site / self-hosted multisite: on by default (with no HTTP issuance
+ *     path, only links minted by someone with _config access can be redeemed);
+ *     config.security.magicLink.enabled=false turns it off.
+ *   HAXiam (config.iam or deploymentProfile haxiam-managed): off by default;
+ *     HAXCMS_MAGIC_LINK_ENABLED (env) turns it on. Tenant config is ignored.
+ *   HAXCMS_MAGIC_LINK_DISABLED (env) turns it off everywhere and wins.
  */
 function getMagicLinkSettings(haxcms) {
   var source = {};
@@ -67,10 +83,19 @@ function getMagicLinkSettings(haxcms) {
   ) {
     source = haxcms.config.security.magicLink;
   }
-  var enabled = source.enabled !== false;
-  // System-level kill switch, e.g. HAXiam deploys that sign in through a
-  // third-party OAuth/SSO provider and have no local password account to
-  // recover. Wins over config so a site-level config can't re-enable it.
+  var enabled;
+  if (isHaxiamDeployment(haxcms)) {
+    // HAXiam: off by default. Most HAXiam deploys sign in through third-party
+    // OAuth/SSO, so there's no local account to recover. Only the operator can
+    // turn it on (env), never a tenant's config.
+    enabled = isTruthyFlag(process.env.HAXCMS_MAGIC_LINK_ENABLED);
+  }
+  else {
+    // single-site / self-hosted multisite: on unless config turns it off
+    enabled = source.enabled !== false;
+  }
+  // System-level kill switch. Wins over everything, including
+  // HAXCMS_MAGIC_LINK_ENABLED, so "off" is always the safe answer.
   if (isTruthyFlag(process.env.HAXCMS_MAGIC_LINK_DISABLED)) {
     enabled = false;
   }
@@ -177,7 +202,7 @@ function issueMagicLink(haxcms, options) {
   var opts = options || {};
   var settings = getMagicLinkSettings(haxcms);
   if (!settings.enabled) {
-    var disabled = new Error('One-time sign-in links are turned off for this HAXcms (HAXCMS_MAGIC_LINK_DISABLED or security.magicLink.enabled=false).');
+    var disabled = new Error('One-time sign-in links are turned off for this HAXcms (off by default on HAXiam; see HAXCMS_MAGIC_LINK_ENABLED / HAXCMS_MAGIC_LINK_DISABLED / security.magicLink.enabled).');
     disabled.code = 'MAGIC_LINK_DISABLED';
     throw disabled;
   }
@@ -324,6 +349,7 @@ function isMagicLinkEnabled(haxcms) {
 module.exports = {
   DEFAULT_TTL_SECONDS: DEFAULT_TTL_SECONDS,
   isMagicLinkEnabled: isMagicLinkEnabled,
+  isHaxiamDeployment: isHaxiamDeployment,
   getMagicLinkSettings: getMagicLinkSettings,
   getMagicLinksPath: getMagicLinksPath,
   issueMagicLink: issueMagicLink,
