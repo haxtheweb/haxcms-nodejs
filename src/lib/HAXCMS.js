@@ -4229,11 +4229,13 @@ class HAXCMSClass {
   }
   // Per-IP request ceiling for the whole HTTP surface (static files, site
   // assets, catch-all handlers) that touches the filesystem. Defaults are
-  // deliberately generous (1500 req/min) so a page load with many assets or a
-  // bulk editor session is never throttled, while scripted floods are bounded.
-  // Config: config.security.requestRateLimit { enabled, windowMs, max }.
+  // deliberately generous (10000 req/min) because HAXcms ships unbundled: a
+  // single logged-in site page pulling in many blocks/components can
+  // legitimately fire 500+ individual requests (measured), so a tight ceiling
+  // false-positives on normal browsing long before it catches scripted
+  // floods. Config: config.security.requestRateLimit { enabled, windowMs, max }.
   getRequestRateLimitSettings() {
-    const defaults = { enabled: true, windowMs: 60 * 1000, max: 1500 };
+    const defaults = { enabled: true, windowMs: 60 * 1000, max: 10000 };
     let cfg = {};
     if (
       this.config &&

@@ -54,14 +54,14 @@ test("HAXCMS settings default generous and clamp config", () => {
     assert.deepStrictEqual(HAXCMS.getRequestRateLimitSettings(), {
       enabled: true,
       windowMs: 60000,
-      max: 1500,
+      max: 10000,
     });
     HAXCMS.config = {
       security: { requestRateLimit: { enabled: false, max: "x", windowMs: 5 } },
     };
     const s = HAXCMS.getRequestRateLimitSettings();
     assert.strictEqual(s.enabled, false);
-    assert.strictEqual(s.max, 1500);
+    assert.strictEqual(s.max, 10000);
     assert.strictEqual(s.windowMs, 1000);
   } finally {
     HAXCMS.config = saved;
