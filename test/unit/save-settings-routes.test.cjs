@@ -60,6 +60,12 @@ function siteReq(body, headers) {
   return {
     headers: Object.assign({ "x-haxcms-site-token": "token" }, headers || {}),
     body: body,
+    haxcmsSiteApiAuth: {
+      authenticated: true,
+      securityLevel: "authenticated-site",
+      userName: "tester",
+      siteName: body && body.site && body.site.name ? body.site.name : "demo",
+    },
   };
 }
 

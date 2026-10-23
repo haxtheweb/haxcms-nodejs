@@ -1,9 +1,12 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const {
   platformAllows,
   featureDisabledResponse,
-} = require('../../../lib/platformFeatures.js');
-const { getRequestHeaderValue, ensureSiteMetadataContainers } = require('../siteRouteUtils.js');
+} = require("../../../lib/platformFeatures.js");
+const {
+  getRequestHeaderValue,
+  ensureSiteMetadataContainers,
+} = require("../siteRouteUtils.js");
 
 /**
  * @OA\Post(
@@ -23,25 +26,39 @@ const { getRequestHeaderValue, ensureSiteMetadataContainers } = require('../site
  * )
  */
 async function saveAllowedBlocks(req, res) {
-  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  // Security: use the per-request authenticated identity resolved by
+  // validateSiteApiRouteAccess rather than a process-global username so a
+  // token minted for one authenticated user cannot validate under another.
+  const activeUserName =
+    req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "";
   if (
     siteToken &&
+    activeUserName &&
     HAXCMS.validateRequestToken(
       siteToken,
-      HAXCMS.getActiveUserName() + ':' + req.body['site']['name'],
+      activeUserName + ":" + req.body["site"]["name"],
     )
   ) {
     // load the site from name
-    let site = await HAXCMS.loadSite(req.body['site']['name']);
-    if (!platformAllows(site, 'siteManifest')) {
+    let site = await HAXCMS.loadSite(req.body["site"]["name"]);
+    if (!platformAllows(site, "siteManifest")) {
       return featureDisabledResponse(
         res,
-        'Allowed blocks settings are disabled for this site'
+        "Allowed blocks settings are disabled for this site",
       );
     }
 
-    if (!req.body || typeof req.body.platform !== 'object' || !req.body.platform) {
-      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+    if (
+      !req.body ||
+      typeof req.body.platform !== "object" ||
+      !req.body.platform
+    ) {
+      res
+        .status(400)
+        .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
 
@@ -49,7 +66,9 @@ async function saveAllowedBlocks(req, res) {
       req.body.platform.allowedBlocks !== null &&
       !Array.isArray(req.body.platform.allowedBlocks)
     ) {
-      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+      res
+        .status(400)
+        .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
 
@@ -59,23 +78,31 @@ async function saveAllowedBlocks(req, res) {
 
       const cleanAllowedBlocks = [];
       for (const tag of req.body.platform.allowedBlocks) {
-        if (typeof tag !== 'string') {
-          res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+        if (typeof tag !== "string") {
+          res
+            .status(400)
+            .json({ status: 400, data: { message: "Invalid request" } });
           return;
         }
 
         const cleanTag = tag.trim();
         if (!cleanTag) {
-          res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+          res
+            .status(400)
+            .json({ status: 400, data: { message: "Invalid request" } });
           return;
         }
 
         // Allow basic HTML primitives (no dash) OR web components found in wc-registry
-        const isHtmlTag = /^[a-z][a-z0-9]*$/.test(cleanTag) && !cleanTag.includes('-');
-        const isRegisteredWc = !isHtmlTag && wcMap && typeof wcMap[cleanTag] !== 'undefined';
+        const isHtmlTag =
+          /^[a-z][a-z0-9]*$/.test(cleanTag) && !cleanTag.includes("-");
+        const isRegisteredWc =
+          !isHtmlTag && wcMap && typeof wcMap[cleanTag] !== "undefined";
 
         if (!isHtmlTag && !isRegisteredWc) {
-          res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+          res
+            .status(400)
+            .json({ status: 400, data: { message: "Invalid request" } });
           return;
         }
 
@@ -86,9 +113,12 @@ async function saveAllowedBlocks(req, res) {
     }
 
     ensureSiteMetadataContainers(site);
-    if (!site.manifest.metadata.platform || typeof site.manifest.metadata.platform !== 'object') {
+    if (
+      !site.manifest.metadata.platform ||
+      typeof site.manifest.metadata.platform !== "object"
+    ) {
       site.manifest.metadata.platform = {
-        audience: 'expert',
+        audience: "expert",
         features: {},
         allowedBlocks: [],
       };
@@ -99,11 +129,13 @@ async function saveAllowedBlocks(req, res) {
 
     // don't reorganize the structure
     await site.manifest.save(false);
-    await site.gitCommit('Allowed blocks updated');
+    await site.gitCommit("Allowed blocks updated");
 
     res.json({ status: 200, data: site.manifest });
   } else {
-    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
+    res
+      .status(403)
+      .json({ status: 403, data: { message: "Authentication required" } });
   }
 }
 

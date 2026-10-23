@@ -1,61 +1,62 @@
-const fs = require('fs-extra');
-const path = require('path');
-const { HAXCMS, systemStructureContext } = require('../../lib/HAXCMS.js');
-const saveManifestRoute = require('./routes/saveManifest.js');
-const saveAppearanceSettingsRoute = require('./routes/saveAppearanceSettings.js');
-const savePlatformSettingsRoute = require('./routes/savePlatformSettings.js');
-const saveAllowedBlocksRoute = require('./routes/saveAllowedBlocks.js');
-const saveEditorSettingsRoute = require('./routes/saveEditorSettings.js');
-const saveSeoSettingsRoute = require('./routes/saveSeoSettings.js');
-const saveOutlineRoute = require('./routes/saveOutline.js');
-const { platformAllows } = require('../../lib/platformFeatures.js');
+const fs = require("fs-extra");
+const path = require("path");
+const { HAXCMS, systemStructureContext } = require("../../lib/HAXCMS.js");
+const saveManifestRoute = require("./routes/saveManifest.js");
+const saveAppearanceSettingsRoute = require("./routes/saveAppearanceSettings.js");
+const savePlatformSettingsRoute = require("./routes/savePlatformSettings.js");
+const saveAllowedBlocksRoute = require("./routes/saveAllowedBlocks.js");
+const saveEditorSettingsRoute = require("./routes/saveEditorSettings.js");
+const saveSeoSettingsRoute = require("./routes/saveSeoSettings.js");
+const saveOutlineRoute = require("./routes/saveOutline.js");
+const { platformAllows } = require("../../lib/platformFeatures.js");
 
 function getRequestPath(req) {
-  if (req && typeof req.originalUrl === 'string' && req.originalUrl !== '') {
-    return req.originalUrl.split('?')[0];
+  if (req && typeof req.originalUrl === "string" && req.originalUrl !== "") {
+    return req.originalUrl.split("?")[0];
   }
-  if (req && typeof req.url === 'string' && req.url !== '') {
-    return req.url.split('?')[0];
+  if (req && typeof req.url === "string" && req.url !== "") {
+    return req.url.split("?")[0];
   }
-  return '';
+  return "";
 }
 
-function getMultisiteSiteNameFromPath(requestPath = '') {
-  const parts = String(requestPath || '')
-    .split('/')
-    .filter((part) => part !== '');
+function getMultisiteSiteNameFromPath(requestPath = "") {
+  const parts = String(requestPath || "")
+    .split("/")
+    .filter((part) => part !== "");
   for (let i = 0; i < parts.length; i++) {
     if (parts[i] === HAXCMS.sitesDirectory && parts[i + 1]) {
       return decodeURIComponent(parts[i + 1]);
     }
   }
-  return '';
+  return "";
 }
 
-function getRequestHeaderValue(req, headerName = '') {
-  if (!req || !req.headers || typeof req.headers !== 'object') {
-    return '';
+function getRequestHeaderValue(req, headerName = "") {
+  if (!req || !req.headers || typeof req.headers !== "object") {
+    return "";
   }
-  const normalizedHeaderName = String(headerName || '').toLowerCase().trim();
-  if (normalizedHeaderName === '') {
-    return '';
+  const normalizedHeaderName = String(headerName || "")
+    .toLowerCase()
+    .trim();
+  if (normalizedHeaderName === "") {
+    return "";
   }
   const value = req.headers[normalizedHeaderName];
   if (Array.isArray(value)) {
     if (value.length > 0) {
-      return String(value[0] || '').trim();
+      return String(value[0] || "").trim();
     }
-    return '';
+    return "";
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return value.trim();
   }
-  return '';
+  return "";
 }
 
-
 function ensureRequestBodyObject(req) {
-  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
     req.body = {};
   }
   return req.body;
@@ -67,28 +68,31 @@ function getSiteNameFromResolvedSite(site) {
     site.manifest &&
     site.manifest.metadata &&
     site.manifest.metadata.site &&
-    typeof site.manifest.metadata.site.name === 'string' &&
-    site.manifest.metadata.site.name.trim() !== ''
+    typeof site.manifest.metadata.site.name === "string" &&
+    site.manifest.metadata.site.name.trim() !== ""
   ) {
     return site.manifest.metadata.site.name.trim();
   }
-  return '';
+  return "";
 }
 
 function ensureSiteTokenHeader(req) {
-  const headerToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-  if (headerToken === '') {
+  const headerToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  if (headerToken === "") {
     return null;
   }
   return headerToken;
 }
 
-function ensureSiteRequestBody(req, siteName = '') {
+function ensureSiteRequestBody(req, siteName = "") {
   const body = ensureRequestBodyObject(req);
-  if (!body.site || typeof body.site !== 'object' || Array.isArray(body.site)) {
+  if (!body.site || typeof body.site !== "object" || Array.isArray(body.site)) {
     body.site = {};
   }
-  if ((!body.site.name || String(body.site.name).trim() === '') && siteName !== '') {
+  if (
+    (!body.site.name || String(body.site.name).trim() === "") &&
+    siteName !== ""
+  ) {
     body.site.name = siteName;
   }
   return body;
@@ -121,14 +125,14 @@ function normalizeManifestItems(site) {
 function normalizeTagList(tags) {
   if (Array.isArray(tags)) {
     return tags
-      .map((tag) => String(tag || '').trim())
-      .filter((tag) => tag !== '');
+      .map((tag) => String(tag || "").trim())
+      .filter((tag) => tag !== "");
   }
-  if (typeof tags === 'string') {
+  if (typeof tags === "string") {
     return tags
-      .split(',')
+      .split(",")
       .map((tag) => tag.trim())
-      .filter((tag) => tag !== '');
+      .filter((tag) => tag !== "");
   }
   return [];
 }
@@ -137,11 +141,17 @@ function countSiteFiles(site) {
   if (!site || !site.siteDirectory) {
     return 0;
   }
-  const filesRoot = path.join(site.siteDirectory, 'files');
+  const filesRoot = path.join(site.siteDirectory, "files");
   if (!fs.pathExistsSync(filesRoot) || !fs.lstatSync(filesRoot).isDirectory()) {
     return 0;
   }
-  const ignoredNames = ['.gitkeep', '.DS_Store', '._.DS_Store', '.htaccess', '._htaccess'];
+  const ignoredNames = [
+    ".gitkeep",
+    ".DS_Store",
+    "._.DS_Store",
+    ".htaccess",
+    "._htaccess",
+  ];
   const stack = [filesRoot];
   let total = 0;
   while (stack.length > 0) {
@@ -149,21 +159,23 @@ function countSiteFiles(site) {
     let entries = [];
     try {
       entries = fs.readdirSync(current);
-    }
-    catch {
+    } catch {
       entries = [];
     }
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
-      if (entry === '.' || entry === '..' || ignoredNames.indexOf(entry) !== -1) {
+      if (
+        entry === "." ||
+        entry === ".." ||
+        ignoredNames.indexOf(entry) !== -1
+      ) {
         continue;
       }
       const entryPath = path.join(current, entry);
       let stats = null;
       try {
         stats = fs.lstatSync(entryPath);
-      }
-      catch {
+      } catch {
         stats = null;
       }
       if (!stats || stats.isSymbolicLink()) {
@@ -195,7 +207,7 @@ function getSiteLanguage(site) {
   if (site && site.language) {
     return String(site.language);
   }
-  return 'en';
+  return "en";
 }
 
 function getSiteTheme(site) {
@@ -219,38 +231,41 @@ function getSiteBasePath(site) {
     site.manifest.metadata.site &&
     site.manifest.metadata.site.name
   ) {
-    let basePath = String(HAXCMS.basePath || '/');
-    if (basePath.charAt(0) !== '/') {
-      basePath = '/' + basePath;
+    let basePath = String(HAXCMS.basePath || "/");
+    if (basePath.charAt(0) !== "/") {
+      basePath = "/" + basePath;
     }
-    if (basePath.charAt(basePath.length - 1) !== '/') {
-      basePath += '/';
+    if (basePath.charAt(basePath.length - 1) !== "/") {
+      basePath += "/";
     }
-    if (site.basePath && String(site.basePath).indexOf('/' + HAXCMS.sitesDirectory + '/') !== -1) {
+    if (
+      site.basePath &&
+      String(site.basePath).indexOf("/" + HAXCMS.sitesDirectory + "/") !== -1
+    ) {
       return `${basePath}${HAXCMS.sitesDirectory}/${site.manifest.metadata.site.name}/`;
     }
     return `${basePath}${site.manifest.metadata.site.name}/`;
   }
-  return String(HAXCMS.basePath || '/');
+  return String(HAXCMS.basePath || "/");
 }
 
-function normalizeBasePath(basePath = '/') {
-  let output = String(basePath || '/').trim();
-  if (output === '') {
-    output = '/';
+function normalizeBasePath(basePath = "/") {
+  let output = String(basePath || "/").trim();
+  if (output === "") {
+    output = "/";
   }
-  if (output.charAt(0) !== '/') {
-    output = '/' + output;
+  if (output.charAt(0) !== "/") {
+    output = "/" + output;
   }
-  if (output.charAt(output.length - 1) !== '/') {
-    output += '/';
+  if (output.charAt(output.length - 1) !== "/") {
+    output += "/";
   }
   return output;
 }
 
-function joinRelativePath(basePath = '/', relativePath = '') {
+function joinRelativePath(basePath = "/", relativePath = "") {
   const normalizedBasePath = normalizeBasePath(basePath);
-  const cleanRelativePath = String(relativePath || '').replace(/^\/+/, '');
+  const cleanRelativePath = String(relativePath || "").replace(/^\/+/, "");
   return `${normalizedBasePath}${cleanRelativePath}`;
 }
 
@@ -291,7 +306,7 @@ function buildSiteJsonLd(site, links, counts = {}) {
     site.manifest.metadata.site &&
     site.manifest.metadata.site.name
       ? String(site.manifest.metadata.site.name)
-      : String(site && site.name ? site.name : 'site');
+      : String(site && site.name ? site.name : "site");
   const siteTitle =
     site && site.manifest && site.manifest.title
       ? String(site.manifest.title)
@@ -299,59 +314,59 @@ function buildSiteJsonLd(site, links, counts = {}) {
   const siteDescription =
     site && site.manifest && site.manifest.description
       ? String(site.manifest.description)
-      : '';
+      : "";
   return {
-    '@context': 'https://schema.org',
-    '@type': 'Dataset',
-    '@id': `${links.self}#site-summary`,
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    "@id": `${links.self}#site-summary`,
     name: `${siteTitle} API summary`,
     description: siteDescription,
     url: links.self,
     inLanguage: getSiteLanguage(site),
     distribution: [
       {
-        '@type': 'DataDownload',
-        name: 'Site manifest (site.json)',
-        encodingFormat: 'application/json',
+        "@type": "DataDownload",
+        name: "Site manifest (site.json)",
+        encodingFormat: "application/json",
         contentUrl: links.siteJson,
       },
       {
-        '@type': 'DataDownload',
-        name: 'RSS feed',
-        encodingFormat: 'application/rss+xml',
+        "@type": "DataDownload",
+        name: "RSS feed",
+        encodingFormat: "application/rss+xml",
         contentUrl: links.rss,
       },
       {
-        '@type': 'DataDownload',
-        name: 'Sitemap',
-        encodingFormat: 'application/xml',
+        "@type": "DataDownload",
+        name: "Sitemap",
+        encodingFormat: "application/xml",
         contentUrl: links.sitemap,
       },
     ],
     variableMeasured: [
       {
-        '@type': 'PropertyValue',
-        name: 'items',
+        "@type": "PropertyValue",
+        name: "items",
         value: Number(counts.items || 0),
       },
       {
-        '@type': 'PropertyValue',
-        name: 'publishedItems',
+        "@type": "PropertyValue",
+        name: "publishedItems",
         value: Number(counts.publishedItems || 0),
       },
       {
-        '@type': 'PropertyValue',
-        name: 'tags',
+        "@type": "PropertyValue",
+        name: "tags",
         value: Number(counts.tags || 0),
       },
       {
-        '@type': 'PropertyValue',
-        name: 'regions',
+        "@type": "PropertyValue",
+        name: "regions",
         value: Number(counts.regions || 0),
       },
       {
-        '@type': 'PropertyValue',
-        name: 'files',
+        "@type": "PropertyValue",
+        name: "files",
         value: Number(counts.files || 0),
       },
     ],
@@ -360,8 +375,8 @@ function buildSiteJsonLd(site, links, counts = {}) {
 
 function buildSiteLinks(req, site) {
   const requestPath = getRequestPath(req);
-  const matched = String(requestPath || '').match(/^(.*\/x\/api)(?:\/.*)?$/);
-  const apiBasePath = matched && matched[1] ? matched[1] : '/x/api';
+  const matched = String(requestPath || "").match(/^(.*\/x\/api)(?:\/.*)?$/);
+  const apiBasePath = matched && matched[1] ? matched[1] : "/x/api";
   const siteBasePath = getSiteBasePath(site);
   return {
     self: `${apiBasePath}/v1/site`,
@@ -371,14 +386,14 @@ function buildSiteLinks(req, site) {
     openapi: `${apiBasePath}/openapi`,
     openapiJson: `${apiBasePath}/openapi.json`,
     openapiYaml: `${apiBasePath}/openapi.yaml`,
-    manifest: joinRelativePath(siteBasePath, 'manifest.json'),
-    serviceWorker: joinRelativePath(siteBasePath, 'service-worker.js'),
-    serviceWorkerManifest: joinRelativePath(siteBasePath, 'push-manifest.json'),
-    rss: joinRelativePath(siteBasePath, 'rss.xml'),
-    atom: joinRelativePath(siteBasePath, 'atom.xml'),
-    siteJson: joinRelativePath(siteBasePath, 'site.json'),
-    sitemap: joinRelativePath(siteBasePath, 'sitemap.xml'),
-    sitemapIndex: joinRelativePath(siteBasePath, 'sitemap-index.xml'),
+    manifest: joinRelativePath(siteBasePath, "manifest.json"),
+    serviceWorker: joinRelativePath(siteBasePath, "service-worker.js"),
+    serviceWorkerManifest: joinRelativePath(siteBasePath, "push-manifest.json"),
+    rss: joinRelativePath(siteBasePath, "rss.xml"),
+    atom: joinRelativePath(siteBasePath, "atom.xml"),
+    siteJson: joinRelativePath(siteBasePath, "site.json"),
+    sitemap: joinRelativePath(siteBasePath, "sitemap.xml"),
+    sitemapIndex: joinRelativePath(siteBasePath, "sitemap-index.xml"),
     exports: {
       zip: `${apiBasePath}/v1/site/export/zip`,
       markdown: `${apiBasePath}/v1/site/export/markdown`,
@@ -393,7 +408,7 @@ function buildSiteLinks(req, site) {
 async function resolveSiteForRequest(req) {
   const requestPath = getRequestPath(req);
   const siteName = getMultisiteSiteNameFromPath(requestPath);
-  if (siteName !== '') {
+  if (siteName !== "") {
     return await HAXCMS.loadSite(siteName);
   }
   return await systemStructureContext();
@@ -405,7 +420,7 @@ async function siteSummary(req, res) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Unable to resolve site context for /x/api/v1/site',
+        message: "Unable to resolve site context for /x/api/v1/site",
       },
     });
   }
@@ -422,16 +437,14 @@ async function siteSummary(req, res) {
         site.manifest.metadata.site &&
         site.manifest.metadata.site.name
           ? String(site.manifest.metadata.site.name)
-          : String(site.name || ''),
-      title: site.manifest.title || '',
-      description: site.manifest.description || '',
+          : String(site.name || ""),
+      title: site.manifest.title || "",
+      description: site.manifest.description || "",
       language: getSiteLanguage(site),
       basePath: getSiteBasePath(site),
       theme: getSiteTheme(site),
       updated:
-        site.manifest &&
-        site.manifest.metadata &&
-        site.manifest.metadata.site
+        site.manifest && site.manifest.metadata && site.manifest.metadata.site
           ? toIsoDateFromUnixTime(site.manifest.metadata.site.updated)
           : null,
       counts,
@@ -453,30 +466,34 @@ async function delegateToLegacySiteWrite(
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      data: { message: `Unable to resolve site context for ${routeLabel}`, }
+      data: { message: `Unable to resolve site context for ${routeLabel}` },
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
-  if (siteName === '') {
+  if (siteName === "") {
     return res.status(400).json({
       status: 400,
-      data: { message: `Unable to resolve site name for ${routeLabel}`, }
+      data: { message: `Unable to resolve site name for ${routeLabel}` },
     });
   }
   const siteToken = ensureSiteTokenHeader(req);
   if (!siteToken) {
     return res.status(403).json({
       status: 403,
-      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
+      data: {
+        message: "X-HAXCMS-Site-Token header is required for this endpoint",
+      },
     });
   }
   const body = ensureSiteRequestBody(req, siteName);
-  if (typeof validateBody === 'function') {
+  if (typeof validateBody === "function") {
     const validationResult = validateBody(body);
     if (validationResult && validationResult.valid === false) {
       return res.status(validationResult.status || 400).json({
         status: validationResult.status || 400,
-        data: { message: validationResult.message || 'Invalid request payload', }
+        data: {
+          message: validationResult.message || "Invalid request payload",
+        },
       });
     }
   }
@@ -488,7 +505,7 @@ async function updateSite(req, res, next) {
     req,
     res,
     next,
-    '/x/api/v1/site',
+    "/x/api/v1/site",
     saveManifestRoute,
   );
 }
@@ -498,7 +515,7 @@ async function updateSiteAppearance(req, res, next) {
     req,
     res,
     next,
-    '/x/api/v1/site/appearance',
+    "/x/api/v1/site/appearance",
     saveAppearanceSettingsRoute,
   );
 }
@@ -508,7 +525,7 @@ async function updateSitePlatform(req, res, next) {
     req,
     res,
     next,
-    '/x/api/v1/site/platform',
+    "/x/api/v1/site/platform",
     savePlatformSettingsRoute,
   );
 }
@@ -518,7 +535,7 @@ async function updateSiteBlocks(req, res, next) {
     req,
     res,
     next,
-    '/x/api/v1/site/blocks',
+    "/x/api/v1/site/blocks",
     saveAllowedBlocksRoute,
   );
 }
@@ -528,7 +545,7 @@ async function updateSiteEditor(req, res, next) {
     req,
     res,
     next,
-    '/x/api/v1/site/editor',
+    "/x/api/v1/site/editor",
     saveEditorSettingsRoute,
   );
 }
@@ -538,7 +555,7 @@ async function updateSiteSeo(req, res, next) {
     req,
     res,
     next,
-    '/x/api/v1/site/seo',
+    "/x/api/v1/site/seo",
     saveSeoSettingsRoute,
   );
 }
@@ -548,14 +565,14 @@ async function updateSiteOutline(req, res, next) {
     req,
     res,
     next,
-    '/x/api/v1/site/outline',
+    "/x/api/v1/site/outline",
     saveOutlineRoute,
     (body) => {
       if (!body || !Array.isArray(body.items)) {
         return {
           valid: false,
           status: 400,
-          message: 'Outline payload requires an items array',
+          message: "Outline payload requires an items array",
         };
       }
       return { valid: true };
@@ -568,58 +585,78 @@ async function updateSiteAlternativeFormats(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/site/updateAlternativeFormats', }
+      data: {
+        message:
+          "Unable to resolve site context for /x/api/v1/site/updateAlternativeFormats",
+      },
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
-  if (siteName === '') {
+  if (siteName === "") {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Unable to resolve site name for /x/api/v1/site/updateAlternativeFormats', }
+      data: {
+        message:
+          "Unable to resolve site name for /x/api/v1/site/updateAlternativeFormats",
+      },
     });
   }
-  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  // Security: use the per-request authenticated identity resolved by
+  // validateSiteApiRouteAccess rather than a process-global username so a
+  // token minted for one authenticated user cannot validate under another.
+  const activeUserName =
+    req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "";
   if (
     !siteToken ||
-    !HAXCMS.validateRequestToken(
-      siteToken,
-      HAXCMS.getActiveUserName() + ':' + siteName,
-    )
+    !activeUserName ||
+    !HAXCMS.validateRequestToken(siteToken, activeUserName + ":" + siteName)
   ) {
     return res.status(403).json({
       status: 403,
-      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
+      data: {
+        message: "X-HAXCMS-Site-Token header is required for this endpoint",
+      },
     });
   }
   let format = null;
   if (
     req &&
     req.body &&
-    typeof req.body === 'object' &&
+    typeof req.body === "object" &&
     !Array.isArray(req.body) &&
-    Object.prototype.hasOwnProperty.call(req.body, 'format')
+    Object.prototype.hasOwnProperty.call(req.body, "format")
   ) {
-    const requestedFormat = String(req.body.format || '').trim();
-    if (requestedFormat !== '') {
+    const requestedFormat = String(req.body.format || "").trim();
+    if (requestedFormat !== "") {
       format = requestedFormat;
     }
   }
   if (format !== null) {
-    const allowedFormats = ['rss', 'sitemap', 'search', 'llms', 'service-worker'];
+    const allowedFormats = [
+      "rss",
+      "sitemap",
+      "search",
+      "llms",
+      "service-worker",
+    ];
     if (!allowedFormats.includes(format)) {
       return res.status(400).json({
         status: 400,
-        data: { message: 'Invalid format requested for alternative formats update', }
+        data: {
+          message: "Invalid format requested for alternative formats update",
+        },
       });
     }
   }
   try {
     await site.updateAlternateFormats(format);
-  }
-  catch {
+  } catch {
     return res.status(500).json({
       status: 500,
-      data: { message: 'Unable to update alternative formats for this site', }
+      data: { message: "Unable to update alternative formats for this site" },
     });
   }
   return res.json({
@@ -639,46 +676,55 @@ async function normalizeSiteSlugs(req, res) {
   if (!site || !site.manifest) {
     return res.status(404).json({
       status: 404,
-      data: { message: 'Unable to resolve site context for /x/api/v1/site/normalize-slugs', }
+      data: {
+        message:
+          "Unable to resolve site context for /x/api/v1/site/normalize-slugs",
+      },
     });
   }
   const siteName = getSiteNameFromResolvedSite(site);
-  if (siteName === '') {
+  if (siteName === "") {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Unable to resolve site name for /x/api/v1/site/normalize-slugs', }
+      data: {
+        message:
+          "Unable to resolve site name for /x/api/v1/site/normalize-slugs",
+      },
     });
   }
-  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  // Security: use the per-request authenticated identity resolved by
+  // validateSiteApiRouteAccess rather than a process-global username so a
+  // token minted for one authenticated user cannot validate under another.
+  const activeUserName =
+    req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "";
   if (
     !siteToken ||
-    !HAXCMS.validateRequestToken(
-      siteToken,
-      HAXCMS.getActiveUserName() + ':' + siteName,
-    )
+    !activeUserName ||
+    !HAXCMS.validateRequestToken(siteToken, activeUserName + ":" + siteName)
   ) {
     return res.status(403).json({
       status: 403,
-      data: { message: 'X-HAXCMS-Site-Token header is required for this endpoint', }
+      data: {
+        message: "X-HAXCMS-Site-Token header is required for this endpoint",
+      },
     });
   }
-  if (!platformAllows(site, 'outlineDesigner')) {
+  if (!platformAllows(site, "outlineDesigner")) {
     return res.status(403).json({
       status: 403,
-      data: { message: 'Outline operations are disabled for this site', }
+      data: { message: "Outline operations are disabled for this site" },
     });
   }
   const body = ensureRequestBodyObject(req);
   let isPreview = false;
-  if (
-    body.preview === true ||
-    body.preview === 'true' ||
-    body.preview === 1
-  ) {
+  if (body.preview === true || body.preview === "true" || body.preview === 1) {
     isPreview = true;
   } else if (
     req.query &&
-    (req.query.preview === 'true' || req.query.preview === '1')
+    (req.query.preview === "true" || req.query.preview === "1")
   ) {
     isPreview = true;
   }
@@ -703,27 +749,27 @@ async function normalizeSiteSlugs(req, res) {
     const nextBatch = [];
     for (let i = 0; i < remaining.length; i++) {
       const item = remaining[i];
-      const parent = item.parent ? String(item.parent) : '';
-      const canProcess = parent === '' || processedIds.indexOf(parent) !== -1;
+      const parent = item.parent ? String(item.parent) : "";
+      const canProcess = parent === "" || processedIds.indexOf(parent) !== -1;
       if (!canProcess) {
         nextBatch.push(item);
         continue;
       }
       processedIds.push(String(item.id));
-      const oldSlug = item.slug ? String(item.slug) : '';
+      const oldSlug = item.slug ? String(item.slug) : "";
       let overridePathauto = false;
       if (
         item.metadata &&
-        typeof item.metadata === 'object' &&
+        typeof item.metadata === "object" &&
         item.metadata.overridePathauto === true
       ) {
         overridePathauto = true;
       }
       let shouldSkip = false;
-      let reason = '';
+      let reason = "";
       if (pathautoEnabled && overridePathauto) {
         shouldSkip = true;
-        reason = 'overridePathauto';
+        reason = "overridePathauto";
       }
       if (!shouldSkip) {
         const cleanTitle = HAXCMS.cleanTitle(item.title);
@@ -732,7 +778,7 @@ async function normalizeSiteSlugs(req, res) {
           item.slug = newSlug;
           changes.push({
             id: String(item.id),
-            title: item.title ? String(item.title) : '',
+            title: item.title ? String(item.title) : "",
             oldSlug: oldSlug,
             newSlug: newSlug,
           });
@@ -740,7 +786,7 @@ async function normalizeSiteSlugs(req, res) {
       } else {
         skipped.push({
           id: String(item.id),
-          title: item.title ? String(item.title) : '',
+          title: item.title ? String(item.title) : "",
           oldSlug: oldSlug,
           reason: reason,
         });
@@ -755,11 +801,11 @@ async function normalizeSiteSlugs(req, res) {
     await site.manifest.save(false);
     await site.updateAlternateFormats();
     await site.gitCommit(
-      'Bulk slug normalization: ' +
+      "Bulk slug normalization: " +
         changes.length +
-        ' changed, ' +
+        " changed, " +
         skipped.length +
-        ' skipped',
+        " skipped",
     );
   }
   return res.json({

@@ -6999,11 +6999,17 @@ class HAXCMSClass {
    * an editor that booted anonymously (connection-settings omits tokens for
    * anonymous callers) can pick them up without a page reload.
    * Returns { userToken, siteToken? } -- siteToken only when a site context
-   * is resolvable (see resolveSessionSiteName). Tokens bind to the same
-   * user identity connection-settings uses (getActiveUserName).
+   * is resolvable (see resolveSessionSiteName). Tokens bind to the per-request
+   * authenticated identity (getRequestAuthenticatedUserName) when it can be
+   * resolved from this request's bearer JWT or refresh cookie, so tokens are
+   * never minted against a different user than the one who authenticated this
+   * request; falls back to getActiveUserName() for flows (e.g. the initial
+   * username/password login request) where the request itself does not yet
+   * carry a verifiable credential.
    */
   async getSessionRequestTokens(req) {
-    const user = this.getActiveUserName();
+    const user =
+      this.getRequestAuthenticatedUserName(req) || this.getActiveUserName();
     const tokens = {
       userToken: this.getRequestToken(user),
     };

@@ -1,9 +1,12 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const {
   platformAllows,
   featureDisabledResponse,
-} = require('../../../lib/platformFeatures.js');
-const { getRequestHeaderValue, ensureSiteMetadataContainers } = require('../siteRouteUtils.js');
+} = require("../../../lib/platformFeatures.js");
+const {
+  getRequestHeaderValue,
+  ensureSiteMetadataContainers,
+} = require("../siteRouteUtils.js");
 
 /**
  * @OA\Post(
@@ -23,44 +26,60 @@ const { getRequestHeaderValue, ensureSiteMetadataContainers } = require('../site
  * )
  */
 async function saveEditorSettings(req, res) {
-  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  // Security: use the per-request authenticated identity resolved by
+  // validateSiteApiRouteAccess rather than a process-global username so a
+  // token minted for one authenticated user cannot validate under another.
+  const activeUserName =
+    req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "";
   if (
     siteToken &&
     req.body &&
     req.body.site &&
     req.body.site.name &&
+    activeUserName &&
     HAXCMS.validateRequestToken(
       siteToken,
-      HAXCMS.getActiveUserName() + ':' + req.body.site.name,
+      activeUserName + ":" + req.body.site.name,
     )
   ) {
     const site = await HAXCMS.loadSite(req.body.site.name);
-    if (!platformAllows(site, 'siteManifest')) {
+    if (!platformAllows(site, "siteManifest")) {
       return featureDisabledResponse(
         res,
-        'Editor settings are disabled for this site'
+        "Editor settings are disabled for this site",
       );
     }
 
-    if (!req.body || typeof req.body.platform !== 'object' || !req.body.platform) {
-      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+    if (
+      !req.body ||
+      typeof req.body.platform !== "object" ||
+      !req.body.platform
+    ) {
+      res
+        .status(400)
+        .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
 
     const audienceRaw =
-      typeof req.body.platform.audience === 'string'
+      typeof req.body.platform.audience === "string"
         ? req.body.platform.audience.trim().toLowerCase()
-        : '';
-    const allowedAudiences = ['novice', 'expert'];
+        : "";
+    const allowedAudiences = ["novice", "expert"];
     if (!allowedAudiences.includes(audienceRaw)) {
-      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+      res
+        .status(400)
+        .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
 
     ensureSiteMetadataContainers(site);
     if (
       !site.manifest.metadata.platform ||
-      typeof site.manifest.metadata.platform !== 'object' ||
+      typeof site.manifest.metadata.platform !== "object" ||
       Array.isArray(site.manifest.metadata.platform)
     ) {
       site.manifest.metadata.platform = {};
@@ -70,11 +89,13 @@ async function saveEditorSettings(req, res) {
     site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
 
     await site.manifest.save(false);
-    await site.gitCommit('Editor settings updated');
+    await site.gitCommit("Editor settings updated");
 
     res.json({ status: 200, data: site.manifest });
   } else {
-    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
+    res
+      .status(403)
+      .json({ status: 403, data: { message: "Authentication required" } });
   }
 }
 

@@ -169,6 +169,12 @@ test("saveSeoSettings: traversal logo is rejected with 400 and not stored", asyn
     await saveSeoSettings(
       {
         headers: { "x-haxcms-site-token": "t" },
+        haxcmsSiteApiAuth: {
+          authenticated: true,
+          securityLevel: "authenticated-site",
+          userName: "tester",
+          siteName: "mysite",
+        },
         body: { site: { name: "mysite" }, seo: { logo: bad } },
       },
       res,
@@ -186,6 +192,12 @@ test("saveSeoSettings: normal logo is stored", async (t) => {
   await saveSeoSettings(
     {
       headers: { "x-haxcms-site-token": "t" },
+      haxcmsSiteApiAuth: {
+        authenticated: true,
+        securityLevel: "authenticated-site",
+        userName: "tester",
+        siteName: "mysite",
+      },
       body: { site: { name: "mysite" }, seo: { logo: "files/logo.png" } },
     },
     res,
@@ -222,16 +234,30 @@ test("saveManifest: traversal logo is rejected with 400, normal logo accepted", 
       },
     },
   });
+  const siteAuth = {
+    authenticated: true,
+    securityLevel: "authenticated-site",
+    userName: "tester",
+    siteName: "mysite",
+  };
   const bad = stubRes();
   await saveManifest(
-    { headers: { "x-haxcms-site-token": "t" }, body: body("../../x.png") },
+    {
+      headers: { "x-haxcms-site-token": "t" },
+      haxcmsSiteApiAuth: siteAuth,
+      body: body("../../x.png"),
+    },
     bad,
   );
   assert.equal(bad.statusCode, 400);
   assert.notEqual(fx.site.manifest.metadata.site.logo, "../../x.png");
   const good = stubRes();
   await saveManifest(
-    { headers: { "x-haxcms-site-token": "t" }, body: body("files/logo.png") },
+    {
+      headers: { "x-haxcms-site-token": "t" },
+      haxcmsSiteApiAuth: siteAuth,
+      body: body("files/logo.png"),
+    },
     good,
   );
   assert.notEqual(good.statusCode, 400);
