@@ -264,10 +264,10 @@ describe('session/magic-link route', () => {
     assert.equal(r.body.indexOf('<script>'), -1)
   })
 
-  test('POST (form) sets the refresh cookie and redirects to the app root', () => {
+  test('POST (form) sets the refresh cookie and redirects to the app root', async () => {
     const { token } = magicLinks.issueMagicLink(HAXCMS)
     const r = res()
-    route.magicLinkConsume(req({ body: { token } }), r)
+    await route.magicLinkConsume(req({ body: { token } }), r)
     assert.equal(r.statusCode, 303)
     assert.equal(r.redirectedTo, HAXCMS.basePath || '/')
     const cookie = r.cookies.find((c) => c.name === 'haxcms_refresh_token')
@@ -276,25 +276,29 @@ describe('session/magic-link route', () => {
     assert.ok(HAXCMS.decodeRefreshToken(cookie.value))
   })
 
-  test('POST (json) returns a JWT for the account', () => {
+  test('POST (json) returns a JWT for the account', async () => {
     const { token, user } = magicLinks.issueMagicLink(HAXCMS)
     const r = res()
-    route.magicLinkConsume(req({ headers: { accept: 'application/json' }, body: { token } }), r)
+    await route.magicLinkConsume(req({ headers: { accept: 'application/json' }, body: { token } }), r)
     assert.equal(r.statusCode, 200)
     assert.equal(HAXCMS.decodeJWT(r.body.jwt).user, user)
+    assert.equal(typeof r.body.userToken, 'string', 'request token returned like session/login')
   })
 
-  test('replay gets a generic 401 and clears the cookie', () => {
+  test('replay gets a generic 401 and clears the cookie', async () => {
     const { token } = magicLinks.issueMagicLink(HAXCMS)
-    route.magicLinkConsume(req({ body: { token } }), res())
+    await route.magicLinkConsume(req({ body: { token } }), res())
     const r = res()
-    route.magicLinkConsume(req({ headers: { accept: 'application/json' }, body: { token } }), r)
+    await route.magicLinkConsume(req({ headers: { accept: 'application/json' }, body: { token } }), r)
     assert.equal(r.statusCode, 401)
+    // JSON failures use registry messages so the API middleware adds a code
+    const { matchApiMessage } = require('../../src/lib/apiMessageCodes.js')
+    assert.equal(matchApiMessage(r.body.data.message).code, 'AUTH_TOKEN_INVALID')
     const cleared = r.cookies.find((c) => c.name === 'haxcms_refresh_token')
     assert.equal(cleared.value, '')
   })
 
-  test('with the feature disabled both methods 404 and nothing is consumed', () => {
+  test('with the feature disabled both methods 404 and nothing is consumed', async () => {
     const { token } = magicLinks.issueMagicLink(HAXCMS)
     process.env.HAXCMS_MAGIC_LINK_DISABLED = '1'
     try {
@@ -303,7 +307,7 @@ describe('session/magic-link route', () => {
       assert.equal(g.statusCode, 404)
       assert.equal(typeof g.body, 'object', 'no HTML confirmation page')
       const p = res()
-      route.magicLinkConsume(req({ body: { token } }), p)
+      await route.magicLinkConsume(req({ body: { token } }), p)
       assert.equal(p.statusCode, 404)
       assert.equal(p.cookies.length, 0)
     }
@@ -313,10 +317,18 @@ describe('session/magic-link route', () => {
     assert.equal(magicLinks.consumeMagicLink(HAXCMS, token).ok, true)
   })
 
-  test('cross-origin POST is refused without consuming', () => {
+  test('cross-site Sec-Fetch-Site POST is refused without consuming', async () => {
     const { token } = magicLinks.issueMagicLink(HAXCMS)
     const r = res()
-    route.magicLinkConsume(req({ headers: { origin: 'https://evil.example', accept: 'application/json' }, body: { token } }), r)
+    await route.magicLinkConsume(req({ headers: { 'sec-fetch-site': 'cross-site', accept: 'application/json' }, body: { token } }), r)
+    assert.equal(r.statusCode, 403)
+    assert.equal(magicLinks.consumeMagicLink(HAXCMS, token).ok, true)
+  })
+
+  test('cross-origin POST is refused without consuming', async () => {
+    const { token } = magicLinks.issueMagicLink(HAXCMS)
+    const r = res()
+    await route.magicLinkConsume(req({ headers: { origin: 'https://evil.example', accept: 'application/json' }, body: { token } }), r)
     assert.equal(r.statusCode, 403)
     assert.equal(magicLinks.consumeMagicLink(HAXCMS, token).ok, true)
   })
