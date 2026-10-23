@@ -132,11 +132,13 @@
   },
   "resolutions": {
     "image-size": "^2.0.4",
-    "argparse": "^2.0.1"
+    "argparse": "^2.0.1",
+    "follow-redirects": "^1.16.1"
   },
   "overrides": {
     "image-size": "^2.0.4",
-    "argparse": "^2.0.1"
+    "argparse": "^2.0.1",
+    "follow-redirects": "^1.16.1"
   },
   "lint-staged": {
     "*.{js,cjs}": [

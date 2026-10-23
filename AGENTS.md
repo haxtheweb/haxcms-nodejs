@@ -19,7 +19,9 @@ https://github.com/haxtheweb/praw, and is read from there instead of being copie
 ## Development Environment Setup
 
 ### Issue Management
+
 Before starting any work, check the unified issue queue:
+
 - All HAX ecosystem issues are tracked at `haxtheweb/issues`
 - Use GitHub CLI to check issues: `gh issue list`
 - Reference existing issues when making contributions
@@ -88,20 +90,24 @@ Before starting any work, check the unified issue queue:
 This repository has three test tiers. Run the one(s) relevant to the area you changed.
 
 - **E2E UI workflow tests** (drive the real app-hax dashboard + site editor through a headless browser; validates login, create/archive/export site, edit & save content, and page management):
+
   ```bash
   npm run test:e2e
   ```
+
   - Requires Chrome/Chromium on the host (auto-detected at `/usr/bin/google-chrome`; override with `PUPPETEER_EXECUTABLE_PATH` for CI).
   - Each test boots an isolated haxcms-nodejs server in a temp dir on an ephemeral port with JWT auth enabled, then drives the UI via puppeteer-core + system Chrome.
   - Visual diffs WARN but do not fail; review `[visual] potential visual regression` notices. Regenerate baselines after intentional UI changes: `npm run test:e2e:update`.
   - Full details, prerequisites, and debugging instructions: `test/e2e/README.md`.
 
 - **API conformance tests** (validate the v1 system + site API routes against the OpenAPI specs):
+
   ```bash
   npm run test:api-conformance
   ```
 
 - **Generic tests** (if any are added outside the two suites above):
+
   ```bash
   npm test
   ```
@@ -133,6 +139,7 @@ This repository has three test tiers. Run the one(s) relevant to the area you ch
 
 ## Security Considerations
 
+- **Security Audits**: For recurring security audits of this repo, start with `SECURITY-AUDIT.md` — it defines the read order, scope, commands, regression guards, and reporting convention
 - **Dependencies**: Keep dependencies updated before running `npm install`
 - **Sensitive Data**: Avoid committing API keys or sensitive data to `package.json`, `site.json`, or public files
 - **Site Imports**: Validate source URLs when using `--import-site` to prevent malicious content
@@ -144,28 +151,32 @@ This repository has three test tiers. Run the one(s) relevant to the area you ch
 ## Troubleshooting Common Issues
 
 ### Build Failures
+
 - **Missing custom-elements.json**: Run `yarn run build` from component root
 - **DDD Audit Failures**: Check `.dddignore` and fix CSS token usage
 - **Lerna Issues**: Run `lerna clean && lerna bootstrap`
 
 ### Development Environment
+
 - **CLI Not Found**: Ensure `@haxtheweb/create` is globally installed
 - **Permission Errors**: Check file permissions and ownership
 
 ### Component Issues
+
 - **Theme Not Loading**: Verify HAXCMSLitElement inheritance and build process
 - **DDD Tokens Missing**: Import DDD properly and use CSS custom properties
 - **HAX Integration**: Ensure `haxProperties` are defined correctly
 - **Library Import Errors**: Verify you're importing JavaScript distributions, not TypeScript sources
 
 ### Performance Issues
+
 - **Slow Loading**: Check for unnecessary dependencies or large imports
 - **Bundle Size**: HAX's unbundled approach should keep individual files small
 - **Memory Usage**: Monitor component lifecycle and cleanup
 
 ---
 
-*This AGENTS.md file is maintained across all HAX ecosystem repositories to ensure consistent development experience regardless of entry point.*
+_This AGENTS.md file is maintained across all HAX ecosystem repositories to ensure consistent development experience regardless of entry point._
 
 ## Community & Support
 
