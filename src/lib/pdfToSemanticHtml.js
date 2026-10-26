@@ -1,5 +1,6 @@
 const { getResolvedPDFJS, extractImages } = require("unpdf");
 const sharp = require("sharp");
+const crypto = require("crypto");
 
 const DEFAULT_FONT_SIZE = 12;
 const HEADING_TOLERANCE = 0.75;
@@ -10,6 +11,14 @@ const MAX_HEADING_LENGTH = 140;
 // decorative artifact or gradient fill rather than real page content.
 const MIN_IMAGE_DIMENSION = 16;
 const IMAGE_QUALITY = 90;
+// Imported images are downscaled to this longest edge (pixels). PDF exports
+// embed photos at print resolution (e.g. 1536x2048), far more than a page
+// ever displays, and each one is stored inline in the page HTML.
+const MAX_IMAGE_EDGE = 1600;
+// Display box for an imported image: a portrait photo scaled to full column
+// width fills several screens, so cap the rendered width by orientation.
+const MAX_DISPLAY_WIDTH = 800;
+const MAX_DISPLAY_HEIGHT = 600;
 
 async function convertPdfBufferToHtml(buffer) {
   let loadingTask = null;
@@ -25,11 +34,21 @@ async function convertPdfBufferToHtml(buffer) {
     });
     const pdf = await loadingTask.promise;
     const pages = [];
+    // An image taller than a page is drawn on every page it spans (same
+    // image object, clipped per page), and pdf.js hands back the whole image
+    // each time; remember what we already extracted so it imports once.
+    const seenImages = new Set();
     for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex++) {
       const page = await pdf.getPage(pageIndex);
       const textContent = await page.getTextContent();
       const lines = normalizeTextItemsToLines(textContent.items);
-      const images = await extractPageImages(pdf, pageIndex);
+      const imageTops = await getPageImageTops(page, pdfjs.OPS);
+      const images = await extractPageImages(
+        pdf,
+        pageIndex,
+        seenImages,
+        imageTops,
+      );
       pages.push({ lines: lines, images: images });
     }
     return linesToSemanticHtml(pages);
@@ -52,8 +71,75 @@ async function convertPdfBufferToHtml(buffer) {
  * must not fail the whole import, so every failure here is swallowed and
  * simply yields no images for that page.
  */
-async function extractPageImages(pdf, pageIndex) {
-  const dataUris = [];
+/**
+ * Walk a page's operator list tracking the current transform matrix and
+ * return, per image key, the top edge (PDF user space, larger = higher on
+ * the page) of each paint of that image, in paint order. Lets images be
+ * placed between the text lines they sat between instead of all being
+ * appended after the page's text. Best effort: any failure yields an empty
+ * map and images fall back to the end of the page.
+ */
+async function getPageImageTops(page, OPS) {
+  const tops = new Map();
+  if (!OPS) {
+    return tops;
+  }
+  try {
+    const operatorList = await page.getOperatorList();
+    let ctm = [1, 0, 0, 1, 0, 0];
+    const stack = [];
+    const multiply = (m, n) => [
+      m[0] * n[0] + m[2] * n[1],
+      m[1] * n[0] + m[3] * n[1],
+      m[0] * n[2] + m[2] * n[3],
+      m[1] * n[2] + m[3] * n[3],
+      m[0] * n[4] + m[2] * n[5] + m[4],
+      m[1] * n[4] + m[3] * n[5] + m[5],
+    ];
+    for (let i = 0; i < operatorList.fnArray.length; i++) {
+      const op = operatorList.fnArray[i];
+      const args = operatorList.argsArray[i];
+      if (op === OPS.save) {
+        stack.push(ctm);
+      } else if (op === OPS.restore) {
+        if (stack.length > 0) {
+          ctm = stack.pop();
+        }
+      } else if (op === OPS.transform && Array.isArray(args)) {
+        ctm = multiply(ctm, args);
+      } else if (op === OPS.paintFormXObjectBegin) {
+        stack.push(ctm);
+        if (args && Array.isArray(args[0]) && args[0].length === 6) {
+          ctm = multiply(ctm, args[0]);
+        }
+      } else if (op === OPS.paintFormXObjectEnd) {
+        if (stack.length > 0) {
+          ctm = stack.pop();
+        }
+      } else if (op === OPS.paintImageXObject && args && args[0]) {
+        // images paint into the unit square; its top is the larger y of
+        // the transformed corners
+        const top = Math.max(
+          ctm[5],
+          ctm[3] + ctm[5],
+          ctm[1] + ctm[5],
+          ctm[1] + ctm[3] + ctm[5],
+        );
+        const key = String(args[0]);
+        if (!tops.has(key)) {
+          tops.set(key, []);
+        }
+        tops.get(key).push(top);
+      }
+    }
+  } catch {
+    return new Map();
+  }
+  return tops;
+}
+
+async function extractPageImages(pdf, pageIndex, seenImages, imageTops) {
+  const extracted = [];
   try {
     const images = await extractImages(pdf, pageIndex);
     for (const image of images) {
@@ -66,16 +152,42 @@ async function extractPageImages(pdf, pageIndex) {
       }
       try {
         const raw = Buffer.from(image.data);
-        const jpeg = await sharp(raw, {
+        let top = null;
+        const keyTops =
+          imageTops && image.key ? imageTops.get(image.key) : null;
+        if (keyTops && keyTops.length > 0) {
+          top = keyTops.shift();
+        }
+        if (seenImages) {
+          const key =
+            `${image.width}x${image.height}x${image.channels}:` +
+            crypto.createHash("sha256").update(raw).digest("hex");
+          if (seenImages.has(key)) {
+            continue;
+          }
+          seenImages.add(key);
+        }
+        const { data: jpeg, info } = await sharp(raw, {
           raw: {
             width: image.width,
             height: image.height,
             channels: image.channels,
           },
         })
+          .resize({
+            width: MAX_IMAGE_EDGE,
+            height: MAX_IMAGE_EDGE,
+            fit: "inside",
+            withoutEnlargement: true,
+          })
           .jpeg({ quality: IMAGE_QUALITY })
-          .toBuffer();
-        dataUris.push(`data:image/jpeg;base64,${jpeg.toString("base64")}`);
+          .toBuffer({ resolveWithObject: true });
+        extracted.push({
+          src: `data:image/jpeg;base64,${jpeg.toString("base64")}`,
+          width: info.width,
+          height: info.height,
+          top: top,
+        });
       } catch {
         // skip this image; a bad image can't fail the whole import
       }
@@ -83,7 +195,23 @@ async function extractPageImages(pdf, pageIndex) {
   } catch {
     // skip images for this page; a bad page can't fail the whole import
   }
-  return dataUris;
+  return extracted;
+}
+
+/**
+ * Width (CSS px) to render an imported image at: its natural size, but no
+ * wider than MAX_DISPLAY_WIDTH and no taller than MAX_DISPLAY_HEIGHT.
+ */
+function getImageDisplayWidth(width, height) {
+  if (!(width > 0) || !(height > 0)) {
+    return 0;
+  }
+  return Math.max(
+    1,
+    Math.round(
+      Math.min(width, MAX_DISPLAY_WIDTH, (MAX_DISPLAY_HEIGHT * width) / height),
+    ),
+  );
 }
 
 function normalizeTextItemsToLines(textItems) {
@@ -167,10 +295,18 @@ function normalizeTextItemsToLines(textItems) {
       lines.push({
         text: lineText,
         fontSize: lineFontSize,
+        y: row.y,
       });
     }
   }
   return lines;
+}
+
+function imageToHtml(image) {
+  const displayWidth = getImageDisplayWidth(image.width, image.height);
+  return displayWidth > 0
+    ? `<img src="${image.src}" width="${displayWidth}">`
+    : `<img src="${image.src}">`;
 }
 
 function linesToSemanticHtml(pages) {
@@ -182,9 +318,35 @@ function linesToSemanticHtml(pages) {
   for (const page of pages) {
     const lines = page.lines;
     const images = page.images || [];
+    // images with a known position go in reading order between the lines
+    // around them; any without one keep the old place after the page text
+    const placedImages = images
+      .filter((image) => Number.isFinite(image.top))
+      .sort((a, b) => b.top - a.top);
+    const trailingImages = images.filter(
+      (image) => !Number.isFinite(image.top),
+    );
     let paragraphBuffer = "";
     let activeListType = null;
     for (const line of lines) {
+      // an image whose top edge is above this line's baseline came first
+      if (
+        placedImages.length > 0 &&
+        Number.isFinite(line.y) &&
+        placedImages[0].top > line.y
+      ) {
+        if (paragraphBuffer !== "") {
+          htmlParts.push(`<p>${escapeHtml(paragraphBuffer)}</p>`);
+          paragraphBuffer = "";
+        }
+        if (activeListType) {
+          htmlParts.push(`</${activeListType}>`);
+          activeListType = null;
+        }
+        while (placedImages.length > 0 && placedImages[0].top > line.y) {
+          htmlParts.push(imageToHtml(placedImages.shift()));
+        }
+      }
       const lineInfo = getLineInfo(line, headingSizes);
       if (lineInfo.type === "paragraph") {
         if (activeListType) {
@@ -230,8 +392,8 @@ function linesToSemanticHtml(pages) {
     if (activeListType) {
       htmlParts.push(`</${activeListType}>`);
     }
-    for (const imageDataUri of images) {
-      htmlParts.push(`<img src="${imageDataUri}">`);
+    for (const image of placedImages.concat(trailingImages)) {
+      htmlParts.push(imageToHtml(image));
     }
   }
 

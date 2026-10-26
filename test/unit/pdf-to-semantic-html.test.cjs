@@ -224,3 +224,162 @@ test("an embedded image below the minimum pixel size is skipped", async () => {
   );
   assert.equal(html.indexOf("<img"), -1);
 });
+
+// Build a multi-page PDF that shares ONE grayscale Image XObject (/Im1).
+// pages: [{ texts: [{ y, text }], images: [{ x, y, w, h }] }] in PDF points.
+// Mirrors what Chrome writes when an image is taller than a page: the same
+// image object is painted on each page it spans.
+function buildPdfWithSharedImage(pages, imageWidth, imageHeight) {
+  const pixelBytes = Buffer.alloc(imageWidth * imageHeight, 0x80);
+  const pixelString = pixelBytes.toString("latin1");
+  const pageCount = pages.length;
+  // 1 catalog, 2 pages, 3 font, 4 image, then (page, content) pairs
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [" +
+      pages.map((p, i) => `${5 + i * 2} 0 R`).join(" ") +
+      `] /Count ${pageCount} >>`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Type /XObject /Subtype /Image /Width ${imageWidth} /Height ${imageHeight} ` +
+      `/ColorSpace /DeviceGray /BitsPerComponent 8 /Length ${pixelBytes.length} >>\nstream\n${pixelString}endstream`,
+  ];
+  pages.forEach((page, i) => {
+    let content = "";
+    (page.texts || []).forEach((t) => {
+      content += `BT\n/F1 12 Tf\n72 ${t.y} Td\n(${t.text}) Tj\nET\n`;
+    });
+    (page.images || []).forEach((im) => {
+      content += `q\n${im.w} 0 0 ${im.h} ${im.x} ${im.y} cm\n/Im1 Do\nQ\n`;
+    });
+    objects.push(
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] " +
+        `/Resources << /Font << /F1 3 0 R >> /XObject << /Im1 4 0 R >> >> /Contents ${6 + i * 2} 0 R >>`,
+    );
+    objects.push(
+      `<< /Length ${content.length} >>\nstream\n${content}endstream`,
+    );
+  });
+  let pdf = "%PDF-1.4\n";
+  const offsets = [];
+  objects.forEach((obj, i) => {
+    offsets.push(pdf.length);
+    pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  let xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.forEach((offset) => {
+    xref += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += xref;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(pdf, "latin1");
+}
+
+function imgTags(html) {
+  return html.split("\n").filter((part) => part.indexOf("<img ") === 0);
+}
+
+test("an image painted on several pages (split across a page break) imports once", async () => {
+  // page 1 shows the top of the photo, page 2 the bottom: same /Im1 object
+  const html = await convertPdfBufferToHtml(
+    buildPdfWithSharedImage(
+      [
+        {
+          texts: [{ y: 740, text: "Page one text" }],
+          images: [{ x: 72, y: -400, w: 300, h: 1100 }],
+        },
+        {
+          texts: [{ y: 200, text: "Page two text" }],
+          images: [{ x: 72, y: 300, w: 300, h: 1100 }],
+        },
+      ],
+      30,
+      40,
+    ),
+  );
+  assert.equal(
+    imgTags(html).length,
+    1,
+    html.replace(/base64,[^"]+/g, "base64,..."),
+  );
+  assert.ok(html.indexOf("<p>Page one text</p>") !== -1);
+  assert.ok(html.indexOf("<p>Page two text</p>") !== -1);
+});
+
+test("images are placed between the text lines they sat between", async () => {
+  const html = await convertPdfBufferToHtml(
+    buildPdfWithSharedImage(
+      [
+        {
+          texts: [
+            { y: 740, text: "Above the image." },
+            { y: 300, text: "Below the image." },
+          ],
+          images: [{ x: 72, y: 400, w: 200, h: 300 }],
+        },
+      ],
+      30,
+      40,
+    ),
+  );
+  const parts = html.split("\n");
+  const above = parts.indexOf("<p>Above the image.</p>");
+  const image = parts.findIndex((part) => part.indexOf("<img ") === 0);
+  const below = parts.indexOf("<p>Below the image.</p>");
+  assert.ok(
+    above !== -1 && image !== -1 && below !== -1,
+    html.replace(/base64,[^"]+/g, "base64,..."),
+  );
+  assert.ok(above < image && image < below, "reading order: text, image, text");
+});
+
+test("imported images get a display width that keeps portrait photos to a screen", async () => {
+  // portrait 300x400: capped by the 600px height box -> 450 wide;
+  // natural size wins when it is already small
+  const portrait = await convertPdfBufferToHtml(
+    buildPdfWithSharedImage(
+      [
+        {
+          texts: [{ y: 740, text: "p" }],
+          images: [{ x: 72, y: 100, w: 300, h: 400 }],
+        },
+      ],
+      300,
+      400,
+    ),
+  );
+  assert.match(imgTags(portrait)[0], / width="300">$/);
+  const tall = await convertPdfBufferToHtml(
+    buildPdfWithSharedImage(
+      [
+        {
+          texts: [{ y: 740, text: "t" }],
+          images: [{ x: 72, y: 100, w: 300, h: 400 }],
+        },
+      ],
+      900,
+      1200,
+    ),
+  );
+  assert.match(imgTags(tall)[0], / width="450">$/);
+});
+
+test("large embedded images are downscaled to the max edge on import", async () => {
+  const html = await convertPdfBufferToHtml(
+    buildPdfWithSharedImage(
+      [
+        {
+          texts: [{ y: 740, text: "big" }],
+          images: [{ x: 72, y: 100, w: 300, h: 400 }],
+        },
+      ],
+      1800,
+      2400,
+    ),
+  );
+  const sharp = require("sharp");
+  const b64 = /base64,([^"]+)"/.exec(imgTags(html)[0])[1];
+  const meta = await sharp(Buffer.from(b64, "base64")).metadata();
+  assert.equal(meta.height, 1600);
+  assert.equal(meta.width, 1200);
+});
