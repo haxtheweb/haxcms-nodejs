@@ -1,10 +1,15 @@
-const { getResolvedPDFJS } = require("unpdf");
+const { getResolvedPDFJS, extractImages } = require("unpdf");
+const sharp = require("sharp");
 
 const DEFAULT_FONT_SIZE = 12;
 const HEADING_TOLERANCE = 0.75;
 const Y_ALIGNMENT_TOLERANCE = 2;
 const MAX_HEADING_WORDS = 16;
 const MAX_HEADING_LENGTH = 140;
+// Below this size (either dimension) an extracted image is almost always a
+// decorative artifact or gradient fill rather than real page content.
+const MIN_IMAGE_DIMENSION = 16;
+const IMAGE_QUALITY = 90;
 
 async function convertPdfBufferToHtml(buffer) {
   let loadingTask = null;
@@ -24,7 +29,8 @@ async function convertPdfBufferToHtml(buffer) {
       const page = await pdf.getPage(pageIndex);
       const textContent = await page.getTextContent();
       const lines = normalizeTextItemsToLines(textContent.items);
-      pages.push(lines);
+      const images = await extractPageImages(pdf, pageIndex);
+      pages.push({ lines: lines, images: images });
     }
     return linesToSemanticHtml(pages);
   } catch (e) {
@@ -38,6 +44,46 @@ async function convertPdfBufferToHtml(buffer) {
       }
     }
   }
+}
+
+/**
+ * Extract embedded raster images for a single page and re-encode them as
+ * base64 JPEG data URIs. A page whose images pdf.js cannot decode (rare)
+ * must not fail the whole import, so every failure here is swallowed and
+ * simply yields no images for that page.
+ */
+async function extractPageImages(pdf, pageIndex) {
+  const dataUris = [];
+  try {
+    const images = await extractImages(pdf, pageIndex);
+    for (const image of images) {
+      if (
+        !image ||
+        image.width < MIN_IMAGE_DIMENSION ||
+        image.height < MIN_IMAGE_DIMENSION
+      ) {
+        continue;
+      }
+      try {
+        const raw = Buffer.from(image.data);
+        const jpeg = await sharp(raw, {
+          raw: {
+            width: image.width,
+            height: image.height,
+            channels: image.channels,
+          },
+        })
+          .jpeg({ quality: IMAGE_QUALITY })
+          .toBuffer();
+        dataUris.push(`data:image/jpeg;base64,${jpeg.toString("base64")}`);
+      } catch {
+        // skip this image; a bad image can't fail the whole import
+      }
+    }
+  } catch {
+    // skip images for this page; a bad page can't fail the whole import
+  }
+  return dataUris;
 }
 
 function normalizeTextItemsToLines(textItems) {
@@ -133,7 +179,9 @@ function linesToSemanticHtml(pages) {
   const headingSizes = getHeadingSizes(fontStats, bodyFontSize);
   const htmlParts = [];
 
-  for (const lines of pages) {
+  for (const page of pages) {
+    const lines = page.lines;
+    const images = page.images || [];
     let paragraphBuffer = "";
     let activeListType = null;
     for (const line of lines) {
@@ -181,6 +229,9 @@ function linesToSemanticHtml(pages) {
     }
     if (activeListType) {
       htmlParts.push(`</${activeListType}>`);
+    }
+    for (const imageDataUri of images) {
+      htmlParts.push(`<img src="${imageDataUri}">`);
     }
   }
 
@@ -233,8 +284,8 @@ function getListMatch(text) {
 
 function buildFontStats(pages) {
   const stats = {};
-  for (const lines of pages) {
-    for (const line of lines) {
+  for (const page of pages) {
+    for (const line of page.lines) {
       const size = normalizeFontSize(line.fontSize);
       if (!stats[size]) {
         stats[size] = 0;
