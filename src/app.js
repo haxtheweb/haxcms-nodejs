@@ -5,6 +5,19 @@ const express = require("express");
 // load config from dot files
 require("dotenv").config();
 const cookieParser = require("cookie-parser");
+// Headers the editor sends on site / system API calls. Authorization carries
+// the bearer JWT (the site API ignores cookies), and the two X-HAXCMS-* tokens
+// guard mutations; without them listed here a cross-origin editor (e.g. a dev
+// front end on another port) fails the CORS preflight and is treated as
+// anonymous, so pdf / docx / epub exports answer 401.
+const CORS_ALLOWED_HEADERS = [
+  "X-Requested-With",
+  "Content-Type",
+  "Accept",
+  "Authorization",
+  "X-HAXCMS-User-Token",
+  "X-HAXCMS-Site-Token",
+].join(", ");
 const compression = require("compression");
 const helmet = require("helmet");
 const app = express();
@@ -1118,8 +1131,22 @@ app.use((req, res, next) => {
   }
   next();
 });
-//pre-flight requests
+function setCorsHeaders(res) {
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    HAXCMS.getCorsAllowedOrigin(`${serverProtocol}://localhost:${currentPort}`),
+  );
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, OPTIONS, PUT, PATCH, DELETE",
+  );
+  res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS);
+}
+//pre-flight requests: answer with the same CORS headers as the real
+// responses, otherwise the browser rejects any cross-origin request that
+// carries Authorization or the X-HAXCMS-* tokens before it is ever sent
 app.options("*", function (req, res, _next) {
+  setCorsHeaders(res);
   res.sendStatus(200);
 });
 if (linkedWebcomponentsRoot) {
@@ -1243,20 +1270,7 @@ systemStructureContext().then((site) => {
       );
     }
     app.use("/", requestRateLimiter, async (req, res, next) => {
-      res.setHeader(
-        "Access-Control-Allow-Origin",
-        HAXCMS.getCorsAllowedOrigin(
-          `${serverProtocol}://localhost:${currentPort}`,
-        ),
-      );
-      res.setHeader(
-        "Access-Control-Allow-Methods",
-        "GET, POST, OPTIONS, PUT, PATCH, DELETE",
-      );
-      res.setHeader(
-        "Access-Control-Allow-Headers",
-        "X-Requested-With, Content-Type, Accept",
-      );
+      setCorsHeaders(res);
       res.setHeader("Content-Type", "application/json");
       if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
         next();
@@ -1420,20 +1434,7 @@ systemStructureContext().then((site) => {
       },
     );
     app.use("/", requestRateLimiter, (req, res, next) => {
-      res.setHeader(
-        "Access-Control-Allow-Origin",
-        HAXCMS.getCorsAllowedOrigin(
-          `${serverProtocol}://localhost:${currentPort}`,
-        ),
-      );
-      res.setHeader(
-        "Access-Control-Allow-Methods",
-        "GET, POST, OPTIONS, PUT, PATCH, DELETE",
-      );
-      res.setHeader(
-        "Access-Control-Allow-Headers",
-        "X-Requested-With, Content-Type, Accept",
-      );
+      setCorsHeaders(res);
       res.setHeader("Content-Type", "application/json");
       // advertise the deployment-root agent skills index to header-parsing agents
       res.setHeader(
