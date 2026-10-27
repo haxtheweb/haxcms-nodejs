@@ -43,8 +43,6 @@ const {
   newPage,
   createResponseCollector,
   captureScreenshot,
-  FIXED_SITE_NAME,
-  // flows helpers
   safeCompareBaseline,
   patchHaxcmsRootForHarness,
   loginViaUI,
@@ -68,13 +66,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -148,7 +146,7 @@ test(
       let body = null
       try {
         body = JSON.parse(String(resp.data || ''))
-      } catch (e) {
+      } catch {
         body = null
       }
       assert.ok(body && body.status === 200, 'themes body status 200')
@@ -175,7 +173,7 @@ test(
       let listBody = null
       try {
         listBody = JSON.parse(String(listResp.data || ''))
-      } catch (e) {
+      } catch {
         listBody = null
       }
       const themes =
@@ -209,7 +207,7 @@ test(
       let patchBody = null
       try {
         patchBody = JSON.parse(String(patchResp.data || ''))
-      } catch (e) {
+      } catch {
         patchBody = null
       }
       assert.ok(
@@ -257,7 +255,7 @@ test(
       let body = null
       try {
         body = JSON.parse(String(resp.data || ''))
-      } catch (e) {
+      } catch {
         body = null
       }
       assert.ok(body && body.status === 200, 'skeletons body status 200')
@@ -283,7 +281,7 @@ test(
       let listBody = null
       try {
         listBody = JSON.parse(String(listResp.data || ''))
-      } catch (e) {
+      } catch {
         listBody = null
       }
       const skeletons =
@@ -321,7 +319,7 @@ test(
       let patchBody = null
       try {
         patchBody = JSON.parse(String(patchResp.data || ''))
-      } catch (e) {
+      } catch {
         patchBody = null
       }
       assert.ok(
@@ -361,7 +359,7 @@ test(
       let body = null
       try {
         body = JSON.parse(String(resp.data || ''))
-      } catch (e) {
+      } catch {
         body = null
       }
       assert.ok(body && body.status === 200, 'getApiKeys body status 200')
@@ -393,7 +391,7 @@ test(
       let patchBody = null
       try {
         patchBody = JSON.parse(String(patchResp.data || ''))
-      } catch (e) {
+      } catch {
         patchBody = null
       }
       assert.ok(
@@ -410,7 +408,7 @@ test(
       let getBody = null
       try {
         getBody = JSON.parse(String(getResp.data || ''))
-      } catch (e) {
+      } catch {
         getBody = null
       }
       const getData = getBody && getBody.data
@@ -435,7 +433,7 @@ test(
       let body = null
       try {
         body = JSON.parse(String(resp.data || ''))
-      } catch (e) {
+      } catch {
         body = null
       }
       assert.ok(body && body.status === 200, 'getMediaSettings body status 200')
@@ -465,7 +463,7 @@ test(
       let patchBody = null
       try {
         patchBody = JSON.parse(String(patchResp.data || ''))
-      } catch (e) {
+      } catch {
         patchBody = null
       }
       assert.ok(
@@ -482,7 +480,7 @@ test(
       let getBody = null
       try {
         getBody = JSON.parse(String(getResp.data || ''))
-      } catch (e) {
+      } catch {
         getBody = null
       }
       const getData = getBody && getBody.data
@@ -517,7 +515,7 @@ test(
         let body = null
         try {
           body = JSON.parse(String(resp.data || ''))
-        } catch (e) {
+        } catch {
           body = null
         }
         assert.ok(
@@ -558,7 +556,7 @@ test(
         let patchBody = null
         try {
           patchBody = JSON.parse(String(patchResp.data || ''))
-        } catch (e) {
+        } catch {
           patchBody = null
         }
         assert.ok(
@@ -575,7 +573,7 @@ test(
         let getBody = null
         try {
           getBody = JSON.parse(String(getResp.data || ''))
-        } catch (e) {
+        } catch {
           getBody = null
         }
         const getData = getBody && getBody.data
@@ -605,7 +603,7 @@ test(
       let body = null
       try {
         body = JSON.parse(String(resp.data || ''))
-      } catch (e) {
+      } catch {
         body = null
       }
       assert.ok(body && body.status === 200, 'systemStatus body status 200')
@@ -626,7 +624,7 @@ test(
       let body = null
       try {
         body = JSON.parse(String(resp.data || ''))
-      } catch (e) {
+      } catch {
         body = null
       }
       assert.ok(body && body.status === 200, 'systemVersion body status 200')

@@ -1,17 +1,20 @@
 ---
 name: hax-ubd-backward-design
-description: >
-  Design HAX course units via Understanding by Design (UbD) backward design — start
-  from desired results, derive acceptable evidence, then plan learning experiences.
-  Produces a UbD unit plan AND the HAX site skeleton (site.json node + WHERETO pages
-  with OER schema metadata) that embodies it. Use when the user says "design a unit
-  on X", "backward-design this module", "turn this content into a HAX unit", "build
-  a course around big ideas", or "redesign this unit for understanding".
+description: 'Design HAX course units by Understanding by Design backward design, producing a UbD unit plan and a HAX site skeleton. Use for "design a unit on X" or "build a course around big ideas".'
 version: 1.0.0
 license: MIT
 metadata:
   author: PRAW
-  tags: [instructional-design, understanding-by-design, ubd, backward-design, hax, course-design, unit-planning]
+  tags:
+    [
+      instructional-design,
+      understanding-by-design,
+      ubd,
+      backward-design,
+      hax,
+      course-design,
+      unit-planning,
+    ]
   requirements: "A topic, standard, or existing HAX page content to design from. Writes a manifest to files/ubd/<unit-slug>.manifest.json and hands site structure off to the hax CLI."
 ---
 
@@ -26,7 +29,7 @@ point of the UbD family.
 
 ## The worldview in one paragraph
 
-Teachers are *designers*, and the best designs work *backward* from desired
+Teachers are _designers_, and the best designs work _backward_ from desired
 results. UbD attacks two "twin sins": **activity-oriented design** (fun
 activities that lead nowhere intellectually — "hands-on without being minds-on")
 and **coverage** (marching through a textbook, "teaching by mentioning it").
@@ -39,11 +42,13 @@ performance contexts, reflection, rubrics, progressive disclosure).
 ## When to Use
 
 **Trigger conditions:**
+
 - "Design a unit on X" / "backward-design this module" / "build a course around big ideas"
 - "Turn this content into a HAX unit" / "redesign this unit for understanding"
 - handed a standard, topic, or existing `pages/*.html` and asked to make it a coherent unit
 
 **When NOT to use (with redirect):**
+
 - Single-page readability / "wall of text" / chunking → `hax-content-chunking-audit` (page scope)
 - One objective's cognitive level/verb → `grad-blooms` (cognitive level)
 - Brand-new empty site with no learning goals yet → `hax-site-building`
@@ -129,7 +134,7 @@ Page-content handoff: {one line per page → component list}
 
 - Use the local/global `hax` command — **not** `npx hax`.
 - When scripting, pass automation flags: `--y --no-i --auto` (add `--quiet` / `--skip` as needed).
-- Never hand-edit `site.json` for structure — use `hax site node:add` / `site:items-import`. The CLI owns page structure; this skill owns the plan + page *content* handoff.
+- Never hand-edit `site.json` for structure — use `hax site node:add` / `site:items-import`. The CLI owns page structure; this skill owns the plan + page _content_ handoff.
 - `a11y-collapse` MUST set `heading-button`.
 - Audio via `media-playlist` + `audio-player`; inputs via `simple-fields`; tables via `editable-table`; educational elements get `oer-schema` metadata.
 - No optional chaining (`?.`) in any generated code; use `globalThis` not `window`.
@@ -148,5 +153,5 @@ Page-content handoff: {one line per page → component list}
 - `references/ubd-element-map.md` — consolidated UbD → HAX element map (single source of truth)
 - `references/design-standards.md` — the 12 UbD design standards + rating → diagnosis mapping
 - `references/validity-self-test.md` — the 7-question assessment validity self-test
-- PRAW RULES.md: `~/Documents/git/haxtheweb/praw/RULES.md`
-- Source: Wiggins, G. & McTighe, J. (2005). *Understanding by Design* (Expanded 2nd ed.). ASCD.
+- PRAW RULES.md: `https://github.com/haxtheweb/praw/blob/main/RULES.md`
+- Source: Wiggins, G. & McTighe, J. (2005). _Understanding by Design_ (Expanded 2nd ed.). ASCD.

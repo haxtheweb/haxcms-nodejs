@@ -72,6 +72,22 @@ function seedRuntimeConfig(runtimeConfigRoot) {
       path.join(runtimeConfigRoot, fileName),
     )
   }
+  // The app-wide per-IP request ceiling (config.security.requestRateLimit,
+  // default 1500 req/min) counts every static asset. The e2e browser loads the
+  // unbundled editor + dashboard from a single IP (127.0.0.1) and each test
+  // drives several page loads, so a long flow can trip the limiter and a
+  // mid-flow API call (e.g. PATCH /x/api/v1/site/blocks) comes back 429.
+  // Raise the ceiling to the maximum the setting accepts for the isolated
+  // runtime only; the limiter itself is covered by test/unit/request-rate-limiter.test.cjs.
+  const seededConfigPath = path.join(runtimeConfigRoot, 'config.json')
+  const seededConfig = JSON.parse(fs.readFileSync(seededConfigPath, 'utf8'))
+  seededConfig.security = seededConfig.security || {}
+  seededConfig.security.requestRateLimit = {
+    enabled: true,
+    windowMs: 60 * 1000,
+    max: 1000000,
+  }
+  fs.writeFileSync(seededConfigPath, JSON.stringify(seededConfig, null, 2))
   fs.ensureDirSync(path.join(runtimeConfigRoot, 'tmp'))
   fs.ensureDirSync(path.join(runtimeConfigRoot, 'cache'))
   fs.ensureDirSync(path.join(runtimeConfigRoot, 'user'))
@@ -103,7 +119,7 @@ async function loginForJwt(baseUrl, username, password) {
   let body = null
   try {
     body = JSON.parse(String(response.data || ''))
-  } catch (e) {
+  } catch {
     throw new Error(`E2E login returned non-JSON body: ${response.data}`)
   }
   if (!body || typeof body.jwt !== 'string' || body.jwt === '') {

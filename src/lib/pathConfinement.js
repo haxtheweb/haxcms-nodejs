@@ -1,5 +1,5 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
 /**
  * Security (N1/N5 parity): path confinement helpers for page locations.
@@ -12,19 +12,35 @@ const path = require('path');
  */
 
 /**
+ * Strip trailing `/` characters in linear time (a `/\/+$/` regex backtracks
+ * polynomially on long runs of slashes).
+ */
+function trimTrailingSlashes(value) {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) {
+    end--;
+  }
+  return value.slice(0, end);
+}
+
+/**
  * Trailing-slash prefix check: is resolvedPath equal to, or inside of,
  * resolvedBase. Both arguments should already be canonical (realpath'd).
  */
 function pathWithinBase(resolvedPath, resolvedBase) {
-  const normalizedPath = String(resolvedPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
-  const normalizedBase = String(resolvedBase || '').replace(/\\/g, '/').replace(/\/+$/, '');
-  if (normalizedPath === '' || normalizedBase === '') {
+  const normalizedPath = trimTrailingSlashes(
+    String(resolvedPath || "").replace(/\\/g, "/"),
+  );
+  const normalizedBase = trimTrailingSlashes(
+    String(resolvedBase || "").replace(/\\/g, "/"),
+  );
+  if (normalizedPath === "" || normalizedBase === "") {
     return false;
   }
   if (normalizedPath === normalizedBase) {
     return true;
   }
-  return normalizedPath.indexOf(normalizedBase + '/') === 0;
+  return normalizedPath.indexOf(normalizedBase + "/") === 0;
 }
 
 /**
@@ -33,20 +49,38 @@ function pathWithinBase(resolvedPath, resolvedBase) {
  * realpath containment.
  */
 function hasTraversal(value) {
-  if (typeof value !== 'string') {
+  if (typeof value !== "string") {
     return true;
   }
-  if (value.indexOf('\0') !== -1) {
+  if (value.indexOf("\0") !== -1) {
     return true;
   }
-  return value.replace(/\\/g, '/').split('/').indexOf('..') !== -1;
+  return value.replace(/\\/g, "/").split("/").indexOf("..") !== -1;
+}
+
+/**
+ * true when a value that is meant to be a site-relative path is unsafe:
+ * not a string, contains NUL or a `..` segment (either separator), or is
+ * absolute (leading slash/backslash or a drive letter). Remote URLs
+ * (scheme://) are not file paths and are not judged here.
+ */
+function isUnsafeRelativePath(value) {
+  if (typeof value !== "string") {
+    return true;
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    return false;
+  }
+  if (hasTraversal(value)) {
+    return true;
+  }
+  return /^([\\/]|[a-z]:)/i.test(value);
 }
 
 function safeRealpath(target) {
   try {
     return fs.realpathSync(target);
-  }
-  catch (e) {
+  } catch {
     return false;
   }
 }
@@ -63,10 +97,14 @@ function safeRealpath(target) {
  * @return string|false absolute (real when it exists) path, or false
  */
 function resolveContainedPath(basePath, location) {
-  if (typeof basePath !== 'string' || basePath === '') {
+  if (typeof basePath !== "string" || basePath === "") {
     return false;
   }
-  if (typeof location !== 'string' || location === '' || hasTraversal(location)) {
+  if (
+    typeof location !== "string" ||
+    location === "" ||
+    hasTraversal(location)
+  ) {
     return false;
   }
   const resolvedBase = safeRealpath(basePath);
@@ -88,7 +126,9 @@ function resolveContainedPath(basePath, location) {
   while (true) {
     const real = safeRealpath(ancestor);
     if (real !== false) {
-      return pathWithinBase(real, resolvedBase) ? path.resolve(candidate) : false;
+      return pathWithinBase(real, resolvedBase)
+        ? path.resolve(candidate)
+        : false;
     }
     const parent = path.dirname(ancestor);
     if (parent === ancestor) {
@@ -101,5 +141,6 @@ function resolveContainedPath(basePath, location) {
 module.exports = {
   pathWithinBase,
   hasTraversal,
+  isUnsafeRelativePath,
   resolveContainedPath,
 };

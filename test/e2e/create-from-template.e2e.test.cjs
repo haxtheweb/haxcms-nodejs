@@ -49,7 +49,6 @@ const {
   relocateCreatedSite,
 } = require('./helpers')
 
-const SITE_NAME_LOWER = FIXED_SITE_NAME.toLowerCase()
 const SITES_DIR = '_sites'
 const SKELETONS_DIR = path.join('_config', 'user', 'skeletons')
 // The new site name typed into the creation modal. Must be alphanumeric-only
@@ -233,7 +232,7 @@ test(
         let body = null
         try {
           body = JSON.parse(templateResp.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         assert.ok(body && body.data, 'save-as-template response must have data')
@@ -350,7 +349,7 @@ test(
         let body = null
         try {
           body = JSON.parse(createRespRecord.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         assert.ok(body && body.data, 'create response must have data')
@@ -435,17 +434,17 @@ test(
     } finally {
       try {
         collector.detach()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await browser.close()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await teardownE2ERuntime(runtime)
-      } catch (e) {
+      } catch {
         // ignore
       }
     }

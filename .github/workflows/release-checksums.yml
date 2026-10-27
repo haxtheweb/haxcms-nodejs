@@ -1,0 +1,46 @@
+name: release-checksums
+# Builds the package tarball for a published GitHub Release and attaches it
+# together with a SHA256SUMS file (haxtheweb/issues#3092).
+#
+# This does NOT publish to npm (the maintainer still runs `npm publish`).
+# Anyone can compare `npm pack` / the npm registry tarball against SHA256SUMS.
+# Tag signing is intentionally not done here: it needs a maintainer key.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to attach checksums to (e.g. v26.8.1)
+        required: true
+permissions:
+  contents: read
+jobs:
+  checksums:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # only to upload assets to an existing release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install
+        run: yarn install --frozen-lockfile --ignore-scripts
+      - name: Build
+        run: yarn run build
+      - name: Pack and checksum
+        # --ignore-scripts: `build` already ran; do not trigger prepare/husky.
+        run: |
+          npm pack --ignore-scripts
+          sha256sum ./*.tgz | tee SHA256SUMS
+      - name: Attach tarball and SHA256SUMS to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" ./*.tgz SHA256SUMS --clobber --repo "$REPO"

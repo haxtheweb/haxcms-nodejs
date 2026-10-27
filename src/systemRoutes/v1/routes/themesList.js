@@ -101,7 +101,7 @@ async function themesList(req, res) {
       data: items,
     });
   }
-  catch (e) {
+  catch {
     return res.status(500).json({
       status: 500,
       data: {

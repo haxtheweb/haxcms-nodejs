@@ -57,7 +57,7 @@ function findCookie(cookies, name) {
 function parseJsonSafely(value) {
   try {
     return JSON.parse(String(value || ""));
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -382,7 +382,7 @@ async function waitForLoginModalRetry(page, timeoutMs) {
       if (el) {
         return el;
       }
-    } catch (e) {
+    } catch {
       // Context likely destroyed by an in-flight reload; back off and retry.
       await new Promise((r) => setTimeout(r, 300));
     }
@@ -576,7 +576,7 @@ async function loginViaUI(page, collector, baseUrl) {
   let loginBody = null;
   try {
     loginBody = JSON.parse(loginResp.bodyText);
-  } catch (e) {
+  } catch {
     loginBody = null;
   }
   assert.ok(
@@ -620,7 +620,7 @@ async function findCreateSiteResponse(coll, expectedName, timeoutMs) {
       let parsed = null;
       try {
         parsed = JSON.parse(all[i].bodyText);
-      } catch (e) {
+      } catch {
         continue;
       }
       const metaSite =

@@ -226,7 +226,7 @@ describe('createSite latent branches — build.siteFiles gates', () => {
 })
 
 describe('createSite latent branches — importBuildFile boolean contract', () => {
-  test('non-string and empty-segment names answer false with warnings', async (t) => {
+  test('non-string and empty-segment names answer false with warnings', async (_t) => {
     const site = {
       siteDirectory: siteDirectoryFor('latent-import-contract'),
       manifest: { metadata: { site: { name: 'x' } }, items: [] },

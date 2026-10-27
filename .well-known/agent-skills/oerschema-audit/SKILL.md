@@ -1,22 +1,25 @@
 ---
 name: oerschema-audit
-description: >
-  READ-ONLY diagnostic: review authored HAX page HTML, site.json outline nodes, VitePress
-  markdown directives, JSON-LD blocks, and Google Docs export HTML against the OER Schema
-  vocabulary (Course/Unit/Module/Lesson, LearningObjective, Assessment/Quiz/Activity/Project,
-  Task/Practice, Rubric family, SupportingMaterial, TableOfContents, ActionType verbs) and emit a
-  report with the recommended class, properties, and markup surface for every finding. Use when the
-  user says "audit this page for OER schema", "what schema should this lesson have", "is this quiz
-  marked up as the right oer class", "does my site.json map to oerschema", "check my VitePress
-  directives against the vocabulary", "scan my site for content missing oerschema", or
-  "which of these pages need oer schema" — even if they don't say "audit" or "oerschema". Diagnoses
-  only; hands off to hax-claudehax / hax-site-building to apply remediation and to
-  oerschema-integration-finder when the gap is in a component (code), not the content.
+description: 'READ-ONLY audit of authored content (HAX HTML, site.json, VitePress, JSON-LD, Docs export) against the OER Schema vocabulary, recommending class, properties and markup per finding. Use for "audit this page for OER schema".'
 version: 1.0.0
 license: MIT
 metadata:
   author: PRAW
-  tags: [oer-schema, oerschema, schema, metadata, audit, diagnostic, pedagogy, instructional-design, microdata, json-ld, vitepress, hax]
+  tags:
+    [
+      oer-schema,
+      oerschema,
+      schema,
+      metadata,
+      audit,
+      diagnostic,
+      pedagogy,
+      instructional-design,
+      microdata,
+      json-ld,
+      vitepress,
+      hax,
+    ]
   requirements: "A HAX site path (site.json + pages/*.html), a single page (JOS node / raw HTML / markdown), a VitePress markdown file, a JSON-LD block, or Docs export HTML. Emits a report; does NOT edit pages, site.json, or source files."
 ---
 
@@ -26,7 +29,7 @@ Review authored content on an existing HAX site/page (or VitePress / JSON-LD / D
 against the **OER Schema vocabulary** and emit a diagnostic + remediation report. This skill
 **diagnoses and recommends only** — it does not edit pages, mutate `site.json`, or insert markup.
 It mirrors the `hax-a11y-audit` / `hax-udl-audit` pattern but operates through the OER Schema lens:
-does the authored content carry the correct *semantic pedagogical structure* that makes it
+does the authored content carry the correct _semantic pedagogical structure_ that makes it
 discoverable and interoperable as an open educational resource?
 
 ## The worldview in one paragraph
@@ -35,7 +38,7 @@ OER Schema is a vocabulary that extends schema.org with education-specific terms
 LearningObjective, Assessment, Rubric, etc.) so educational content is machine-readable and
 interoperable. The HAX ecosystem commits to applying OER Schema metadata to educational elements,
 and the UbD skill family already produces OER-schema-tagged unit skeletons — but no existing skill
-audits *authored content* to see whether the schema is present and correct. This skill fills that
+audits _authored content_ to see whether the schema is present and correct. This skill fills that
 gap. It is distinct from **a11y** (technical access for people with disabilities), from **UDL**
 (pedagogical inclusivity), from **content chunking** (cognitive load), and from **UbD unit audit**
 (instructional-design alignment). It is also distinct from **component-internal schema support**
@@ -46,6 +49,7 @@ remediation in the right markup surface — never an invented tag or property.
 ## When to Use
 
 **Trigger conditions:**
+
 - "Audit this page for OER schema" / "what schema should this lesson have"
 - "Is this quiz marked up as the right OER class" / "does my site.json map to oerschema"
 - "Check my VitePress directives against the vocabulary" / "is this JSON-LD valid OER schema"
@@ -55,6 +59,7 @@ remediation in the right markup surface — never an invented tag or property.
   educational content carries the right semantic metadata, this is the skill
 
 **When NOT to use (with redirect):**
+
 - A web component's own code doesn't emit schema (the gap is in the element, not the page) →
   `oerschema-integration-finder`
 - Technical WCAG access of the content → `hax-a11y-audit`
@@ -94,7 +99,7 @@ this skill.
    - **Presence:** pedagogical structures are present in the content but carry no OER Schema
      markup at all. A lesson page with heading "Lesson 3", a quiz section, learning objectives
      stated in prose, and a rubric table — but no `itemscope`/`itemtype`/`itemprop` or directives —
-     is a presence gap. Identify the *most specific* class for each structure (see mapping refs).
+     is a presence gap. Identify the _most specific_ class for each structure (see mapping refs).
    - **Classification:** schema is present but the class is wrong or too generic. A quiz tagged
      `itemtype="http://oerschema.org/Task"` should be `Assessment` (or `Quiz`, which subclasses
      `Assessment`). A unit page tagged `LearningComponent` could be the more specific
@@ -102,7 +107,7 @@ this skill.
    - **Property/domain validity:** a property is used on a class outside its `domain`. `skill` is
      domain `LearningObjective` — using `itemprop="skill"` on an `Assessment` is invalid.
      `hasLearningObjective` is domain `InstructionalPattern` — using it on a bare `Task` is invalid
-     (a `Task` is an `InstructionalPattern` subclass, so it *is* valid via inheritance — use
+     (a `Task` is an `InstructionalPattern` subclass, so it _is_ valid via inheritance — use
      `references/vocabulary.md` and the inheritance rule before flagging). Report the property,
      the class it was used on, and the declared domain.
    - **Range validity:** a property's value type doesn't match its `range`. `gradingFormat` range
@@ -114,7 +119,7 @@ this skill.
    - **Inverse consistency:** an inverse pair is used one-directionally without its partner, or a
      relationship that should be reciprocal is dangling (e.g. `forComponent` without a matching
      `hasComponent` on the parent). Note: `forComponent`/`hasComponent` declare themselves inverses
-     in their comments but do not set the `inverseOf` field in `schema.ts` — flag the *content*
+     in their comments but do not set the `inverseOf` field in `schema.ts` — flag the _content_
      gap (missing reciprocal link), not the vocabulary gap (which is `oerschema-validation`'s job).
    - **Rubric family integrity:** a `Rubric` should have `hasCriterion` → `RubricCriterion` and
      `rubricScale` → `RubricScale` → `hasLevel` → `RubricLevel`. A rubric directive with levels but
@@ -176,20 +181,32 @@ Format findings exactly like this structure (mirrors `hax-a11y-audit` / `hax-udl
 ## Worked example
 
 **Input** — a HAX page (`pages/lesson-3.html`) containing:
+
 ```html
 <h2>Lesson 3: Photosynthesis</h2>
 <p>Students will be able to explain the process of photosynthesis.</p>
 <div class="quiz">
   <h3>Quick Check</h3>
-  <ol><li>What are the reactants of photosynthesis?</li></ol>
+  <ol>
+    <li>What are the reactants of photosynthesis?</li>
+  </ol>
 </div>
 <table class="rubric">
-  <tr><th>Criterion</th><th>Level 4</th><th>Level 1</th></tr>
-  <tr><td>Explanation accuracy</td><td>Complete</td><td>Fragmentary</td></tr>
+  <tr>
+    <th>Criterion</th>
+    <th>Level 4</th>
+    <th>Level 1</th>
+  </tr>
+  <tr>
+    <td>Explanation accuracy</td>
+    <td>Complete</td>
+    <td>Fragmentary</td>
+  </tr>
 </table>
 ```
 
 **Output:**
+
 ```
 ### 📊 OER Schema Diagnostics
 * **Coverage Rating:** Uncovered
@@ -251,7 +268,7 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 
 - **`hax-claudehax`** — insert/replace schema-tagged components in existing pages:
   - `/hax wrap the quiz in pages/lesson-3 with itemscope itemtype=http://oerschema.org/Quiz`
-- **`hax-site-building`** — owns page structure; edit page *content* at `pages/<slug>.html` for
+- **`hax-site-building`** — owns page structure; edit page _content_ at `pages/<slug>.html` for
   microdata; add pages via `hax site node:add ... --y --no-i`; never hand-edit `site.json`.
 - **`oerschema-integration-finder`** — when the gap is a rendering element not emitting microdata
   (a code gap, not a content gap).
@@ -259,6 +276,7 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 - **`grad-blooms`** — cognitive level of an objective/assessment.
 
 **CLI rules (from PRAW RULES.md):**
+
 - Use the local/global `hax` command — **not** `npx hax` (resolves to a different package).
 - When scripting, pass automation flags to avoid prompts/new windows: `--y --no-i`.
 - Never hand-edit `site.json` for structure — use the CLI.
@@ -289,13 +307,13 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
   a Task. `Submission` is the other `Assessment` sibling. Get this right — it is the most common
   mis-classification.
 - **`forComponent` / `hasComponent` are inverses by comment, not by the `inverseOf` field.** Do
-  not flag this as a *content* error; it is a vocabulary-internal gap for `oerschema-validation`.
-  In content, flag a missing *reciprocal link* (a `forComponent` with no matching `hasComponent`
+  not flag this as a _content_ error; it is a vocabulary-internal gap for `oerschema-validation`.
+  In content, flag a missing _reciprocal link_ (a `forComponent` with no matching `hasComponent`
   on the parent) as a structural advisory, not a hard fail.
 - **`mainEntityOfPage.inverseOf = "mainEntity"` references an external schema.org property** that
   is not defined in this vocabulary. This is intentional (it aligns to schema.org), not a bug — do
   not flag it.
-- **Pick the most specific class.** `itemtype=".../InstructionalPattern"` on a lesson is *valid*
+- **Pick the most specific class.** `itemtype=".../InstructionalPattern"` on a lesson is _valid_
   but `Lesson` is more specific and more discoverable. Report as an advisory, not a fail.
 - **Surface matters.** Don't recommend microdata inside a VitePress markdown file — recommend the
   matching `:::` directive. Don't recommend a `:::` directive inside a HAX `pages/*.html` —
@@ -323,4 +341,4 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 - `references/hax-outline-mapping.md` — site.json JOS node → OER class + relationship properties
 - `references/ubd-mapping.md` — UbD artifacts (EU, GRASPS, WHERETO) → OER classes/properties
 - OER Schema vocabulary source: `oerschema` repo `app/lib/schema.ts`
-- PRAW RULES.md: `~/Documents/git/haxtheweb/praw/RULES.md`
+- PRAW RULES.md: `https://github.com/haxtheweb/praw/blob/main/RULES.md`

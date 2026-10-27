@@ -43,17 +43,10 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  selectors,
   FIXED_SITE_NAME,
-  deepQuery,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
   waitFor,
-  waitForDeep,
   loginViaUI,
   createSiteViaUI,
-  findCreateSiteResponse,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
   deepFindRecursive,
@@ -121,21 +114,21 @@ test.after(
     if (collector) {
       try {
         collector.detach();
-      } catch (e) {
+      } catch {
         /* ignore */
       }
     }
     if (browser) {
       try {
         await browser.close();
-      } catch (e) {
+      } catch {
         /* ignore */
       }
     }
     if (runtime) {
       try {
         await teardownE2ERuntime(runtime);
-      } catch (e) {
+      } catch {
         /* ignore */
       }
     }
@@ -210,7 +203,7 @@ test(
     let uploadBody = null;
     try {
       uploadBody = JSON.parse(uploadResp.data);
-    } catch (e) {
+    } catch {
       uploadBody = null;
     }
     assert.strictEqual(
@@ -249,7 +242,7 @@ test(
     t.diagnostic("[e2e] navigating to editor: " + editorUrl);
     try {
       await page.goto(editorUrl, { waitUntil: "networkidle2", timeout: 30000 });
-    } catch (e) {
+    } catch {
       await page.goto(editorUrl, {
         waitUntil: "domcontentloaded",
         timeout: 30000,
@@ -390,7 +383,7 @@ test(
     let saveBody = null;
     try {
       saveBody = JSON.parse(saveResp.bodyText);
-    } catch (e) {
+    } catch {
       saveBody = null;
     }
     assert.ok(saveBody && saveBody.data, "saveNode response has data");

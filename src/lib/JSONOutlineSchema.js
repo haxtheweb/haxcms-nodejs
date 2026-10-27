@@ -1,6 +1,7 @@
 const fs = require("fs-extra");
 const { v4: uuidv4 } = require("uuid");
 const JSONOutlineSchemaItem = require("./JSONOutlineSchemaItem.js");
+const { getLicenseMap } = require("./licenses.js");
 const arraySearchImport = require("locutus/php/array/array_search");
 const usortImport = require("locutus/php/array/usort");
 const array_search = arraySearchImport.array_search || arraySearchImport;
@@ -33,38 +34,7 @@ class JSONOutlineSchema {
    * Get a reasonable license name from the short hand
    */
   getLicenseDetails() {
-    let list = {
-      by: {
-        name: "Creative Commons: Attribution",
-        link: "https://creativecommons.org/licenses/by/4.0/",
-        image: "https://i.creativecommons.org/l/by/4.0/88x31.png",
-      },
-      "by-sa": {
-        name: "Creative Commons: Attribution Share a like",
-        link: "https://creativecommons.org/licenses/by-sa/4.0/",
-        image: "https://i.creativecommons.org/l/by-sa/4.0/88x31.png",
-      },
-      "by-nd": {
-        name: "Creative Commons: Attribution No derivatives",
-        link: "https://creativecommons.org/licenses/by-nd/4.0/",
-        image: "https://i.creativecommons.org/l/by-nd/4.0/88x31.png",
-      },
-      "by-nc": {
-        name: "Creative Commons: Attribution non-commercial",
-        link: "https://creativecommons.org/licenses/by-nc/4.0/",
-        image: "https://i.creativecommons.org/l/by-nc/4.0/88x31.png",
-      },
-      "by-nc-sa": {
-        name: "Creative Commons: Attribution non-commercial share a like",
-        link: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
-        image: "https://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png",
-      },
-      "by-nc-nd": {
-        name: "Creative Commons: Attribution Non-commercial No derivatives",
-        link: "https://creativecommons.org/licenses/by-nc-nd/4.0/",
-        image: "https://i.creativecommons.org/l/by-nc-nd/4.0/88x31.png",
-      },
-    };
+    const list = getLicenseMap("all");
     if (list[this.license]) {
       return list[this.license];
     }
@@ -100,7 +70,7 @@ class JSONOutlineSchema {
     let ary = item;
     for (var key in ary) {
       // only set what the element from spec allows into a new object
-      if (tmp.hasOwnProperty(key)) {
+      if (Object.prototype.hasOwnProperty.call(tmp, key)) {
         tmp[key] = ary[key];
       }
     }
@@ -165,7 +135,7 @@ class JSONOutlineSchema {
       // check for items and escalate to full JSONOutlineSchemaItem object
       // also ensures data matches only what is supported
       if (vars["items"]) {
-        for (var key in vars["items"]) {
+        for (let key in vars["items"]) {
           let item = vars["items"][key];
           if (item) {
             let newItem = new JSONOutlineSchemaItem();

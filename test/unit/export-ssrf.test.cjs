@@ -379,7 +379,9 @@ function makeSiteFixture(t) {
   try {
     fs.symlinkSync(path.join(root, 'outside.png'), path.join(siteDir, 'files', 'link.png'))
   }
-  catch (e) {}
+  catch {
+    // intentionally ignored
+  }
   return { root, siteDir }
 }
 

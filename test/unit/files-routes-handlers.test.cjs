@@ -1297,11 +1297,7 @@ describe('files routes — performFileOperation (direct error branches)', () => 
 // updateFile — convert-pptx-deck branch with a real minimal pptx
 // ---------------------------------------------------------------------------
 describe('files routes — updateFile (convert-pptx-deck)', () => {
-  const PNG_1X1 = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-    'base64',
-  )
-
+  
   async function buildPptxBuffer() {
     const zip = new JSZip()
     zip.file(

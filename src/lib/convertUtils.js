@@ -1,5 +1,10 @@
 const { parse } = require("node-html-parser");
+const {
+  sanitizeHTMLForStorage,
+  escapeHTMLAttribute,
+} = require("./sanitizeContent.js");
 const HTMLtoDOCX = require("html-to-docx");
+const { urlHostMatches } = require("./urlHost.js");
 const {
   resolveExportImages,
   finalizeExportHtml,
@@ -15,13 +20,7 @@ const {
  * only remote http(s) images are fetched and relative ones are dropped).
  */
 async function convertHtmlToDocxBuffer(html, imageOptions) {
-  let sanitized = String(html || "")
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/\x00/g, "")
-    .trim();
+  let sanitized = sanitizeUntrustedHtml(String(html || ""));
 
   if (!sanitized) {
     sanitized = "<p>No content available</p>";
@@ -42,7 +41,7 @@ async function convertHtmlToDocxBuffer(html, imageOptions) {
         allowSvg: false,
       }),
     );
-  } catch (e) {
+  } catch {
     sanitized = sanitized.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, "");
   }
   // Security (SEC-SSRF): fail-closed final pass on the exact string handed to
@@ -262,9 +261,9 @@ function stripMSWord(input) {
       dropMatch,
     );
   }
-  output = output.replace(/ style='(\s|.)*?'/gim, "");
-  output = output.replace(/ style="(\s|.)*?"/gim, "");
-  output = output.replace(/ face="(\s|.)*?"/gim, "");
+  output = output.replace(/ style='[^']*'/gim, "");
+  output = output.replace(/ style="[^"]*"/gim, "");
+  output = output.replace(/ face="[^"]*"/gim, "");
   output = output.replace(/ align=.*? /g, "");
   output = output.replace(/ start='.*?'/g, "");
   // was: /line-height:.*?\"/g -> '"' and /line-height:.*?;/g -> ''
@@ -302,10 +301,10 @@ function stripMSWord(input) {
     dropMatch,
   );
   output = output.replace(/ style=""/g, "");
-  output = output.replace(/ id="(\s|.)*?"/gim, "");
-  output = output.replace(/ dir="(\s|.)*?"/gim, "");
-  output = output.replace(/ role="(\s|.)*?"/gim, "");
-  output = output.replace(/ contenteditable="(\s|.)*?"/gim, "");
+  output = output.replace(/ id="[^"]*"/gim, "");
+  output = output.replace(/ dir="[^"]*"/gim, "");
+  output = output.replace(/ role="[^"]*"/gim, "");
+  output = output.replace(/ contenteditable="[^"]*"/gim, "");
   // was: / data-(\s|.)*?\"(\s|.)*?\"/gim -> ''
   output = lazySequenceReplace(
     output,
@@ -313,7 +312,7 @@ function stripMSWord(input) {
     [{ re: /"/g }, { re: /"/g }],
     dropMatch,
   );
-  output = output.replace(/ class="(\s|.)*?"/gim, "");
+  output = output.replace(/ class="[^"]*"/gim, "");
   output = output.replace(/<pstyle/gm, "<p style");
   output = output.replace(/<a name="_GoBack"><\/a>/gm, "");
   output = output.replace(/&nbsp;/gm, " ");
@@ -392,11 +391,11 @@ function stripMSWord(input) {
   output = output.replace(/<p><br\/><\/p>/gm, "");
   output = output.replace(/<p><br><\/p>/gm, "");
   output = output.replace(/<\/p>(\s*)<p>/gm, "</p><p>");
-  output = output.replace(/ data-hax-ray="(\s|.)*?"/gim, "");
+  output = output.replace(/ data-hax-ray="[^"]*"/gim, "");
   output = output.replace(/ class=""/gim, "");
   output = output.replace(/ class="hax-active"/gim, "");
-  output = output.replace(/ contenteditable="(\s|.)*?"/gim, "");
-  output = output.replace(/ t="(\s|.)*?"/gim, "");
+  output = output.replace(/ contenteditable="[^"]*"/gim, "");
+  output = output.replace(/ t="[^"]*"/gim, "");
   for (let j in badTags) {
     let emptyTagRemove = new RegExp(
       "<" + badTags[j] + "></" + badTags[j] + ">",
@@ -415,10 +414,27 @@ function validURL(str) {
   let url;
   try {
     url = new URL(str);
-  } catch (_) {
+  } catch {
     return false;
   }
   return url.protocol === "http:" || url.protocol === "https:";
+}
+
+// hosts whose links become <video-player> elements
+const VIDEO_HOSTS = [
+  "youtube.com",
+  "youtu.be",
+  "youtube-nocookie.com",
+  "vimeo.com",
+];
+
+const CUSTOM_ELEMENT_NAME_RE = /^[a-z][a-z0-9._-]*-[a-z0-9._-]*$/;
+
+function escapeHTMLText(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 /**
@@ -430,13 +446,10 @@ function htmlFromEl(el) {
   let textValue = el.innerText.trim();
   if (
     validURL(textValue) &&
-    (textValue.includes("youtube.com") ||
-      textValue.includes("youtu.be") ||
-      textValue.includes("youtube-nocookie.com") ||
-      textValue.includes("vimeo.com") ||
+    (urlHostMatches(textValue, VIDEO_HOSTS) ||
       textValue.toLowerCase().includes(".mp4"))
   ) {
-    return `<video-player source="${textValue}"></video-player>`;
+    return `<video-player source="${escapeHTMLAttribute(textValue)}"></video-player>`;
   } else if (
     validURL(textValue) &&
     (textValue.toLowerCase().includes(".jpg") ||
@@ -444,10 +457,10 @@ function htmlFromEl(el) {
       textValue.toLowerCase().includes(".png") ||
       textValue.toLowerCase().includes(".webp"))
   ) {
-    return `<img src="${textValue}" loading="lazy" decoding="async" fetchpriority="high" alt="" />`;
+    return `<img src="${escapeHTMLAttribute(textValue)}" loading="lazy" decoding="async" fetchpriority="high" alt="" />`;
   } else if (validURL(textValue) && textValue.toLowerCase().includes(".gif")) {
-    return `<a11y-gif-player src="${textValue}" style="width: 300px;">
-      <simple-img width="300" src="${textValue}"></simple-img>
+    return `<a11y-gif-player src="${escapeHTMLAttribute(textValue)}" style="width: 300px;">
+      <simple-img width="300" src="${escapeHTMLAttribute(textValue)}"></simple-img>
     </a11y-gif-player>`;
   }
   // audio (mp3 / wav / ogg / m4a / flac / aac / mid / midi)
@@ -462,39 +475,35 @@ function htmlFromEl(el) {
       textValue.toLowerCase().includes(".mid") ||
       textValue.toLowerCase().includes(".midi"))
   ) {
-    return `<audio-player source="${textValue}"></audio-player>`;
+    return `<audio-player source="${escapeHTMLAttribute(textValue)}"></audio-player>`;
   }
   // pdf
   else if (validURL(textValue) && textValue.toLowerCase().includes(".pdf")) {
-    return `<pdf-browser-viewer file="${textValue}" width="100%"></pdf-browser-viewer>`;
+    return `<pdf-browser-viewer file="${escapeHTMLAttribute(textValue)}" width="100%"></pdf-browser-viewer>`;
   } else if (textValue.startsWith("[") && textValue.endsWith("]")) {
     let tmp = textValue.split(":");
     if (tmp.length > 1) {
-      let type = tmp.shift().replace("[", "");
-      let text = tmp.join(":").replace("]", "").trim();
+      let type = tmp.shift().replace(/^\[/, "");
+      let text = tmp.join(":").replace(/\]$/, "").trim();
       switch (type) {
         case "math":
         case "mathjax":
-          return `<lrn-math>${text}</lrn-math>`;
+          return `<lrn-math>${escapeHTMLText(text)}</lrn-math>`;
         case "video":
         case "audio":
         case "document":
         case "text":
         case "image":
-          return `<place-holder type="${type}" text="${text}"></place-holder>`;
+          return `<place-holder type="${type}" text="${escapeHTMLAttribute(text)}"></place-holder>`;
       }
     }
-    textValue = textValue.replace("[", "").replace("]", "").trim();
+    textValue = textValue.replace(/[[\]]/g, "").trim();
     if (
       validURL(textValue) &&
-      (textValue.includes("youtube.com") ||
-        textValue.includes("youtu.be") ||
-        textValue.includes("youtube-nocookie.com") ||
-        textValue.includes("vimeo.com") ||
-        textValue.includes("twitch.tv") ||
+      (urlHostMatches(textValue, VIDEO_HOSTS.concat(["twitch.tv"])) ||
         textValue.toLowerCase().includes(".mp4"))
     ) {
-      return `<video-player source="${textValue}"></video-player>`;
+      return `<video-player source="${escapeHTMLAttribute(textValue)}"></video-player>`;
     } else if (
       validURL(textValue) &&
       (textValue.toLowerCase().includes(".jpg") ||
@@ -502,13 +511,13 @@ function htmlFromEl(el) {
         textValue.toLowerCase().includes(".png") ||
         textValue.toLowerCase().includes(".webp"))
     ) {
-      return `<img src="${textValue}" loading="lazy" decoding="async" fetchpriority="high" alt="" />`;
+      return `<img src="${escapeHTMLAttribute(textValue)}" loading="lazy" decoding="async" fetchpriority="high" alt="" />`;
     } else if (
       validURL(textValue) &&
       textValue.toLowerCase().includes(".gif")
     ) {
-      return `<a11y-gif-player src="${textValue}" style="width: 300px;">
-        <simple-img width="300" src="${textValue}"></simple-img>
+      return `<a11y-gif-player src="${escapeHTMLAttribute(textValue)}" style="width: 300px;">
+        <simple-img width="300" src="${escapeHTMLAttribute(textValue)}"></simple-img>
       </a11y-gif-player>`;
     }
     // audio (mp3 / wav / ogg / m4a / flac / aac / mid / midi)
@@ -523,17 +532,21 @@ function htmlFromEl(el) {
         textValue.toLowerCase().includes(".mid") ||
         textValue.toLowerCase().includes(".midi"))
     ) {
-      return `<audio-player source="${textValue}"></audio-player>`;
+      return `<audio-player source="${escapeHTMLAttribute(textValue)}"></audio-player>`;
     }
     // pdf
     else if (validURL(textValue) && textValue.toLowerCase().includes(".pdf")) {
-      return `<pdf-browser-viewer file="${textValue}" width="100%"></pdf-browser-viewer>`;
+      return `<pdf-browser-viewer file="${escapeHTMLAttribute(textValue)}" width="100%"></pdf-browser-viewer>`;
     } else {
-      return `<place-holder type="text" text="${textValue}"></place-holder>`;
+      return `<place-holder type="text" text="${escapeHTMLAttribute(textValue)}"></place-holder>`;
     }
   } else if (textValue.startsWith("!") && textValue.includes("-")) {
     let tag = textValue.replace("!", "").trim();
-    return `<${tag}></${tag}>`;
+    // only emit well-formed custom element names; anything else could inject
+    // attributes or markup into the generated page
+    if (CUSTOM_ELEMENT_NAME_RE.test(tag)) {
+      return `<${tag}></${tag}>`;
+    }
   }
   let content = el.outerHTML
     .replace(/\t/g, "")
@@ -590,6 +603,46 @@ function findChromeExecutable() {
  * Convert HTML string to a PDF Buffer using puppeteer-core.
  * Requires Chrome/Chromium to be installed on the host.
  */
+// Print stylesheet for PDF exports. The export HTML is sanitized (no <style>,
+// no theme web components, JS disabled), so without this Chrome falls back to
+// ~8pt Times and prints images at their natural size. A tall photo then
+// overflows the page and Chrome repeats the same image object on two pages,
+// which a later PDF import extracts as two images. Injected after sanitizing
+// because it is ours, not user content.
+const PDF_EXPORT_PRINT_CSS = [
+  "@page { size: A4; margin: 18mm 16mm; }",
+  "html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }",
+  "body { margin: 0; color: #1f2328; font-family: 'Helvetica Neue', Helvetica, Arial, 'Liberation Sans', 'Nimbus Sans', 'DejaVu Sans', sans-serif; font-size: 11.5pt; line-height: 1.55; }",
+  "h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.2em 0 0.45em; break-after: avoid; page-break-after: avoid; }",
+  "h1 { font-size: 22pt; } h2 { font-size: 17pt; } h3 { font-size: 14pt; } h4 { font-size: 12.5pt; } h5, h6 { font-size: 11.5pt; }",
+  "body > :first-child, h1:first-child { margin-top: 0; }",
+  "p, ul, ol, dl, blockquote, pre, table, figure { margin: 0 0 0.8em; }",
+  "p, li { orphans: 3; widows: 3; }",
+  "ul, ol { padding-left: 1.4em; } li { margin: 0.2em 0; }",
+  "a { color: #0b5cad; text-decoration: underline; }",
+  // keep every image on one page: never wider than the column, never taller
+  // than half an A4 content area, scaled proportionally and centred
+  "img, svg, video, canvas { display: block; max-width: 100%; max-height: 130mm; width: auto; height: auto; object-fit: contain; margin: 0.6em auto; break-inside: avoid; page-break-inside: avoid; }",
+  "figure { break-inside: avoid; page-break-inside: avoid; text-align: center; } figcaption { font-size: 9.5pt; color: #57606a; margin-top: 0.3em; }",
+  "blockquote { margin-left: 0; padding: 0.2em 0 0.2em 1em; border-left: 3px solid #d0d7de; color: #424a53; }",
+  "pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 9.5pt; }",
+  "pre { white-space: pre-wrap; padding: 0.6em 0.8em; background: #f6f8fa; border-radius: 4px; break-inside: avoid; }",
+  "table { border-collapse: collapse; width: 100%; font-size: 10pt; } th, td { border: 1px solid #d0d7de; padding: 4px 8px; text-align: left; vertical-align: top; } thead { display: table-header-group; } tr { break-inside: avoid; }",
+  "hr { border: 0; border-top: 1px solid #d0d7de; margin: 1.2em 0; }",
+].join("\n");
+
+/**
+ * Put the export print stylesheet in the document head (creating one when
+ * the sanitized markup has none).
+ */
+function withPdfExportStyles(html) {
+  const styleTag = `<style>${PDF_EXPORT_PRINT_CSS}</style>`;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (m) => `${m}${styleTag}`);
+  }
+  return `<head>${styleTag}</head>${html}`;
+}
+
 async function htmlToPdfBuffer(html, base = "/", imageOptions) {
   const puppeteer = require("puppeteer-core");
   const executablePath = findChromeExecutable();
@@ -598,13 +651,7 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
       "No Chrome/Chromium executable found. Install Chrome or set PUPPETEER_EXECUTABLE_PATH.",
     );
   }
-  let sanitized = String(html || "")
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/\x00/g, "")
-    .trim();
+  let sanitized = sanitizeUntrustedHtml(String(html || ""));
   if (!sanitized) {
     sanitized = "<p>No content available</p>";
   }
@@ -624,7 +671,7 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
   resolvedImageOptions.allowSvg = true;
   try {
     sanitized = await resolveExportImages(sanitized, resolvedImageOptions);
-  } catch (e) {
+  } catch {
     sanitized = sanitized.replace(/<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi, "");
   }
   let browser = null;
@@ -644,6 +691,9 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
       args: launchArgs,
     });
     const page = await browser.newPage();
+    // Security: the sanitized markup never needs script; belt and braces
+    // against anything the sanitizer could miss.
+    await page.setJavaScriptEnabled(false);
     // Security (SEC-SSRF): belt and braces — images are already inlined, so
     // abort every request that is not data:/about: (CSS url(), <link>,
     // <object>, fonts, anything the inlining pass did not cover).
@@ -663,6 +713,7 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
         sanitized = `<head>${baseTag}</head>${sanitized}`;
       }
     }
+    sanitized = withPdfExportStyles(sanitized);
     // Wait for network to be idle (inlined images decoded) before printing.
     await page.setContent(sanitized, {
       waitUntil: "networkidle0",
@@ -671,7 +722,8 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
-      margin: { top: "40px", right: "40px", bottom: "40px", left: "40px" },
+      // margins come from the @page rule in PDF_EXPORT_PRINT_CSS
+      preferCSSPageSize: true,
     });
     return Buffer.from(pdfBuffer);
   } finally {
@@ -682,22 +734,26 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
 }
 
 /**
- * Strip scripts, styles, and other dangerous content from untrusted HTML.
+ * Sanitize untrusted HTML (uploaded files, remote URLs) before it is parsed
+ * into page content. Delegates to the shared DOMPurify-based allowlist
+ * sanitizer used for stored content (nested tags, event handlers and
+ * script-capable URL schemes are all handled there); a regex blacklist cannot
+ * do this safely.
  */
 function sanitizeUntrustedHtml(html) {
   if (typeof html !== "string") {
     return "";
   }
-  return html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/\x00/g, "")
-    .trim();
+  // imports never need embedded frames, so drop iframes on top of the
+  // storage policy
+  return sanitizeHTMLForStorage(html.replace(/\x00/g, ""), {
+    forbidTags: ["iframe"],
+  }).trim();
 }
 
 module.exports = {
+  PDF_EXPORT_PRINT_CSS,
+  withPdfExportStyles,
   stripMSWord,
   stripDelimitedSpans,
   lazySequenceReplace,
@@ -706,5 +762,6 @@ module.exports = {
   processDocxHtml,
   convertHtmlToDocxBuffer,
   htmlToPdfBuffer,
+  findChromeExecutable,
   sanitizeUntrustedHtml,
 };

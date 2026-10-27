@@ -33,14 +33,22 @@ const FileContentScanner = require("../../../lib/FileContentScanner.js");
  */
 async function saveNode(req, res) {
   const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  // Security: use the per-request authenticated identity resolved by
+  // validateSiteApiRouteAccess rather than a process-global username so a
+  // token minted for one authenticated user cannot validate under another.
+  const activeUserName =
+    req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "";
   if (
     siteToken &&
     req.body &&
     req.body.site &&
     req.body.site.name &&
+    activeUserName &&
     HAXCMS.validateRequestToken(
       siteToken,
-      HAXCMS.getActiveUserName() + ":" + req.body.site.name,
+      activeUserName + ":" + req.body.site.name,
     )
   ) {
     let bodyParams = req.body;
@@ -79,7 +87,7 @@ async function saveNode(req, res) {
         bodyParams["node"]["details"]["node"] &&
         bodyParams["node"]["details"]["node"]["advanced"]
       ) {
-        for (var key in bodyParams["node"]["details"]["node"]["advanced"]) {
+        for (let key in bodyParams["node"]["details"]["node"]["advanced"]) {
           details[key] = bodyParams["node"]["details"]["node"]["advanced"][key];
         }
       }

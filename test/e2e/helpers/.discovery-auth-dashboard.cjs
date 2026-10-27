@@ -19,14 +19,10 @@ const {
   launchBrowser,
   newPage,
   createResponseCollector,
-  selectors,
   FIXED_SITE_NAME,
-  deepQuery,
   E2E_USER_NAME,
   E2E_USER_PASSWORD,
   // flows helpers
-  waitFor,
-  waitForDeep,
   loginViaUI,
   createSiteViaUI,
   patchHaxcmsRootForHarness,
@@ -314,7 +310,9 @@ async function main() {
             }
           }
         }
-      } catch (e) {}
+      } catch {
+        // intentionally ignored
+      }
       return {
         modalFound: !!modal,
         modalOpened: modal ? modal.opened === true : false,
@@ -467,28 +465,28 @@ async function main() {
     try {
       const dump = await page.evaluate(() => document.body.innerHTML.substring(0, 1500))
       console.error('PAGE BODY SNIPPET:', dump)
-    } catch (e) {
+    } catch {
       // ignore
     }
   } finally {
     try {
       if (statusWatcher) statusWatcher.detach()
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       if (collector) collector.detach()
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       if (browser) await browser.close()
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       await teardownE2ERuntime(runtime)
-    } catch (e) {
+    } catch {
       // ignore
     }
     console.log('\nTeardown complete.')

@@ -15,9 +15,6 @@ const EntityStorageNotImplementedException = require('../../src/lib/EntityStorag
 const FileStorage = require('../../src/lib/FileStorage.js')
 const FileEntity = require('../../src/lib/FileEntity.js')
 const FilesDataStore = require('../../src/lib/FilesDataStore.js')
-const {
-  getDeterministicFileUuid,
-} = require('../../src/lib/siteFileUuid.js')
 
 // Helper: create a temp site directory with a files/ subdir and a manifest.
 async function makeTempSite(siteName) {
@@ -53,7 +50,9 @@ describe('FileStorage — Phase 2 (#3043)', () => {
   afterEach(async () => {
     try {
       await fs.remove(tmpRoot)
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
   })
 
   describe('registerOn', () => {
@@ -431,7 +430,7 @@ describe('FileStorage — Phase 2 (#3043)', () => {
     test('file Entity.delete() delegates to FileStorage', () => {
       const registry = new EntityRegistry(site)
       const storage = FileStorage.registerOn(registry)
-      const fileDef = registry.getDefinition('file')
+      registry.getDefinition('file')
       storage.getDataStore().upsertRecord({
         uuid: 'del-entity',
         path: 'files/de.txt',

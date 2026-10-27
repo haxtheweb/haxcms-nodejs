@@ -1,29 +1,49 @@
-const { parse } = require('node-html-parser');
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
-const { getRequestHeaderValue, parseBooleanFromInput } = require('../siteRouteUtils.js');
+const { parse } = require("node-html-parser");
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const { sanitizeHTMLForStorage } = require("../../../lib/sanitizeContent.js");
+const {
+  getRequestHeaderValue,
+  parseBooleanFromInput,
+} = require("../siteRouteUtils.js");
 
-const SITE_SEARCH_DEFAULT_FIELDS = ['title', 'slug', 'description', 'tags', 'content'];
-const SITE_SEARCH_ALLOWED_FIELDS = ['id', 'title', 'slug', 'description', 'tags', 'content', 'location', 'parent'];
+const SITE_SEARCH_DEFAULT_FIELDS = [
+  "title",
+  "slug",
+  "description",
+  "tags",
+  "content",
+];
+const SITE_SEARCH_ALLOWED_FIELDS = [
+  "id",
+  "title",
+  "slug",
+  "description",
+  "tags",
+  "content",
+  "location",
+  "parent",
+];
 const SITE_SEARCH_DEFAULT_LIMIT = 25;
 const SITE_SEARCH_MAX_LIMIT = 200;
 const SITE_SEARCH_MAX_QUERY_LENGTH = 256;
-const SITE_SEARCH_OPERATION_SEARCH = 'search';
-const SITE_SEARCH_OPERATION_REPLACE = 'replace';
+const SITE_SEARCH_OPERATION_SEARCH = "search";
+const SITE_SEARCH_OPERATION_REPLACE = "replace";
 const SITE_SEARCH_ALLOWED_OPERATIONS = [
   SITE_SEARCH_OPERATION_SEARCH,
   SITE_SEARCH_OPERATION_REPLACE,
 ];
 
 function countTextMatches(value, searchTerm, caseSensitive = false) {
-  if (typeof value !== 'string' || value.length === 0) {
+  if (typeof value !== "string" || value.length === 0) {
     return 0;
   }
-  if (typeof searchTerm !== 'string' || searchTerm.length === 0) {
+  if (typeof searchTerm !== "string" || searchTerm.length === 0) {
     return 0;
   }
   const comparisonValue = caseSensitive ? value : value.toLowerCase();
-  const comparisonSearch = caseSensitive ? searchTerm : searchTerm.toLowerCase();
+  const comparisonSearch = caseSensitive
+    ? searchTerm
+    : searchTerm.toLowerCase();
   let total = 0;
   let startAt = 0;
   let foundAt = comparisonValue.indexOf(comparisonSearch, startAt);
@@ -35,14 +55,19 @@ function countTextMatches(value, searchTerm, caseSensitive = false) {
   return total;
 }
 
-function replaceTextMatches(value, searchTerm, replacement, caseSensitive = false) {
-  if (typeof value !== 'string' || value.length === 0) {
+function replaceTextMatches(
+  value,
+  searchTerm,
+  replacement,
+  caseSensitive = false,
+) {
+  if (typeof value !== "string" || value.length === 0) {
     return {
-      content: '',
+      content: "",
       total: 0,
     };
   }
-  if (typeof searchTerm !== 'string' || searchTerm.length === 0) {
+  if (typeof searchTerm !== "string" || searchTerm.length === 0) {
     return {
       content: value,
       total: 0,
@@ -61,7 +86,7 @@ function replaceTextMatches(value, searchTerm, replacement, caseSensitive = fals
   let foundAt = sourceLower.indexOf(searchLower, 0);
   let cursor = 0;
   let total = 0;
-  let output = '';
+  let output = "";
   while (foundAt !== -1) {
     output += source.slice(cursor, foundAt);
     output += replacement;
@@ -77,7 +102,7 @@ function replaceTextMatches(value, searchTerm, replacement, caseSensitive = fals
 }
 
 function parseLimitValue(value, fallback = SITE_SEARCH_DEFAULT_LIMIT) {
-  if (typeof value === 'undefined' || value === null || value === '') {
+  if (typeof value === "undefined" || value === null || value === "") {
     return fallback;
   }
   const parsed = Number.parseInt(value, 10);
@@ -100,9 +125,8 @@ function normalizeSearchFields(searchFieldValue) {
   let values = [];
   if (Array.isArray(searchFieldValue)) {
     values = searchFieldValue;
-  }
-  else {
-    values = String(searchFieldValue).split(',');
+  } else {
+    values = String(searchFieldValue).split(",");
   }
   const normalized = [];
   for (const value of values) {
@@ -110,7 +134,7 @@ function normalizeSearchFields(searchFieldValue) {
     if (!field) {
       continue;
     }
-    if (field === 'all') {
+    if (field === "all") {
       return [...SITE_SEARCH_DEFAULT_FIELDS];
     }
     if (SITE_SEARCH_ALLOWED_FIELDS.includes(field)) {
@@ -124,49 +148,52 @@ function normalizeSearchFields(searchFieldValue) {
 }
 
 function normalizeTagsValue(item) {
-  if (!item || !item.metadata || typeof item.metadata.tags === 'undefined' || item.metadata.tags === null) {
-    return '';
+  if (
+    !item ||
+    !item.metadata ||
+    typeof item.metadata.tags === "undefined" ||
+    item.metadata.tags === null
+  ) {
+    return "";
   }
   if (Array.isArray(item.metadata.tags)) {
-    return item.metadata.tags.join(', ');
+    return item.metadata.tags.join(", ");
   }
-  if (typeof item.metadata.tags === 'string') {
+  if (typeof item.metadata.tags === "string") {
     return item.metadata.tags;
   }
   try {
     return JSON.stringify(item.metadata.tags);
-  }
-  catch (e) {
+  } catch {
     return String(item.metadata.tags);
   }
 }
 
-function normalizeFieldValue(field, item, content = '') {
+function normalizeFieldValue(field, item, content = "") {
   switch (field) {
-    case 'id':
-      return item && item.id ? String(item.id) : '';
-    case 'title':
-      return item && item.title ? String(item.title) : '';
-    case 'slug':
-      return item && item.slug ? String(item.slug) : '';
-    case 'description':
-      return item && item.description ? String(item.description) : '';
-    case 'location':
-      return item && item.location ? String(item.location) : '';
-    case 'parent':
-      return item && item.parent ? String(item.parent) : '';
-    case 'tags':
+    case "id":
+      return item && item.id ? String(item.id) : "";
+    case "title":
+      return item && item.title ? String(item.title) : "";
+    case "slug":
+      return item && item.slug ? String(item.slug) : "";
+    case "description":
+      return item && item.description ? String(item.description) : "";
+    case "location":
+      return item && item.location ? String(item.location) : "";
+    case "parent":
+      return item && item.parent ? String(item.parent) : "";
+    case "tags":
       return normalizeTagsValue(item);
-    case 'content':
-      return typeof content === 'string' ? content : '';
+    case "content":
+      return typeof content === "string" ? content : "";
     default:
-      return '';
+      return "";
   }
 }
 
-
 function normalizeOperationValue(value) {
-  if (typeof value !== 'string') {
+  if (typeof value !== "string") {
     return SITE_SEARCH_OPERATION_SEARCH;
   }
   const normalized = value.trim().toLowerCase();
@@ -176,9 +203,11 @@ function normalizeOperationValue(value) {
   return normalized;
 }
 function buildTextMatcher(searchTerm, caseSensitive = false) {
-  const normalizedTerm = caseSensitive ? searchTerm : String(searchTerm).toLowerCase();
+  const normalizedTerm = caseSensitive
+    ? searchTerm
+    : String(searchTerm).toLowerCase();
   return (value) => {
-    if (typeof value !== 'string' || value.length === 0) {
+    if (typeof value !== "string" || value.length === 0) {
       return null;
     }
     const comparisonValue = caseSensitive ? value : value.toLowerCase();
@@ -189,56 +218,63 @@ function buildTextMatcher(searchTerm, caseSensitive = false) {
     return {
       index,
       length: searchTerm.length,
-      snippet: value.slice(Math.max(index - 60, 0), Math.min(index + searchTerm.length + 60, value.length)).replace(/\s+/g, ' ').trim(),
+      snippet: value
+        .slice(
+          Math.max(index - 60, 0),
+          Math.min(index + searchTerm.length + 60, value.length),
+        )
+        .replace(/\s+/g, " ")
+        .trim(),
     };
   };
 }
 
 function parseSimpleSelectorPart(selectorPart) {
-  const selector = String(selectorPart || '').trim();
+  const selector = String(selectorPart || "").trim();
   if (!selector) {
     return {
       valid: false,
-      reason: 'Selector query is required',
+      reason: "Selector query is required",
     };
   }
   if (
-    selector.includes('>') ||
-    selector.includes('+') ||
-    selector.includes('~') ||
-    selector.includes(':')
+    selector.includes(">") ||
+    selector.includes("+") ||
+    selector.includes("~") ||
+    selector.includes(":")
   ) {
     return {
       valid: false,
-      reason: 'Only simple selectors are supported (tag, tag[attr], tag[attr="value"], [attr])',
+      reason:
+        'Only simple selectors are supported (tag, tag[attr], tag[attr="value"], [attr])',
     };
   }
-  const matched = selector.match(/^([a-zA-Z][a-zA-Z0-9-]*)?(?:\[\s*([a-zA-Z_:][a-zA-Z0-9:._-]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\]\s"']+)))?\s*\])?$/);
+  const matched = selector.match(
+    /^([a-zA-Z][a-zA-Z0-9-]*)?(?:\[\s*([a-zA-Z_:][a-zA-Z0-9:._-]*)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\]\s"']+)))?\s*\])?$/,
+  );
   if (!matched) {
     return {
       valid: false,
-      reason: 'Invalid selector syntax',
+      reason: "Invalid selector syntax",
     };
   }
   const tagName = matched[1] ? matched[1].toLowerCase() : null;
   const attributeName = matched[2] ? matched[2].toLowerCase() : null;
   let attributeValue = null;
-  if (typeof matched[3] !== 'undefined') {
+  if (typeof matched[3] !== "undefined") {
     attributeValue = matched[3];
-  }
-  else if (typeof matched[4] !== 'undefined') {
+  } else if (typeof matched[4] !== "undefined") {
     attributeValue = matched[4];
-  }
-  else if (typeof matched[5] !== 'undefined') {
+  } else if (typeof matched[5] !== "undefined") {
     attributeValue = matched[5];
   }
   if (!tagName && !attributeName) {
     return {
       valid: false,
-      reason: 'Selector must include at least a tag or attribute',
+      reason: "Selector must include at least a tag or attribute",
     };
   }
-  let normalizedSelector = '';
+  let normalizedSelector = "";
   if (tagName) {
     normalizedSelector += tagName;
   }
@@ -246,9 +282,8 @@ function parseSimpleSelectorPart(selectorPart) {
     normalizedSelector += `[${attributeName}`;
     if (attributeValue !== null) {
       normalizedSelector += `="${attributeValue}"]`;
-    }
-    else {
-      normalizedSelector += ']';
+    } else {
+      normalizedSelector += "]";
     }
   }
   return {
@@ -258,20 +293,20 @@ function parseSimpleSelectorPart(selectorPart) {
 }
 
 function parseSimpleSelector(selectorString) {
-  const rawSelector = String(selectorString || '').trim();
+  const rawSelector = String(selectorString || "").trim();
   if (!rawSelector) {
     return {
       valid: false,
-      reason: 'Selector query is required',
+      reason: "Selector query is required",
     };
   }
-  const parts = rawSelector.split(',').map((part) => part.trim());
+  const parts = rawSelector.split(",").map((part) => part.trim());
   const normalizedParts = [];
   for (const part of parts) {
     if (!part) {
       return {
         valid: false,
-        reason: 'Selector groups cannot be empty',
+        reason: "Selector groups cannot be empty",
       };
     }
     const parsed = parseSimpleSelectorPart(part);
@@ -282,7 +317,7 @@ function parseSimpleSelector(selectorString) {
   }
   return {
     valid: true,
-    selector: normalizedParts.join(', '),
+    selector: normalizedParts.join(", "),
   };
 }
 
@@ -297,11 +332,13 @@ function selectorMatchesInContent(content, selector) {
   }
   const snippets = [];
   for (let i = 0; i < nodes.length && i < 3; i++) {
-    let snippet = '';
-    if (typeof nodes[i].toString === 'function') {
+    let snippet = "";
+    if (typeof nodes[i].toString === "function") {
       snippet = nodes[i].toString();
     }
-    snippet = String(snippet || '').replace(/\s+/g, ' ').trim();
+    snippet = String(snippet || "")
+      .replace(/\s+/g, " ")
+      .trim();
     if (snippet.length > 180) {
       snippet = `${snippet.slice(0, 177)}...`;
     }
@@ -315,9 +352,9 @@ function selectorMatchesInContent(content, selector) {
 
 function buildSearchResponse({
   operation = SITE_SEARCH_OPERATION_SEARCH,
-  searchTerm = '',
+  searchTerm = "",
   searchFields = [],
-  mode = 'text',
+  mode = "text",
   caseSensitive = false,
   searchLimit = SITE_SEARCH_DEFAULT_LIMIT,
   matches = [],
@@ -369,78 +406,111 @@ function buildSearchResponse({
  * )
  */
 async function siteSearch(req, res) {
-  const requestBody = req && req.body && typeof req.body === 'object'
-    ? req.body
-    : {};
-  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
-  const siteName = requestBody.site &&
-    typeof requestBody.site === 'object' &&
-    typeof requestBody.site.name === 'string'
-    ? requestBody.site.name.trim()
-    : '';
+  const requestBody =
+    req && req.body && typeof req.body === "object" ? req.body : {};
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  const siteName =
+    requestBody.site &&
+    typeof requestBody.site === "object" &&
+    typeof requestBody.site.name === "string"
+      ? requestBody.site.name.trim()
+      : "";
+  // Security: use the per-request authenticated identity resolved by
+  // validateSiteApiRouteAccess rather than a process-global username so a
+  // token minted for one authenticated user cannot validate under another.
+  const activeUserName =
+    req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "";
   if (
     !siteToken ||
     !siteName ||
-    !HAXCMS.validateRequestToken(siteToken, `${HAXCMS.getActiveUserName()}:${siteName}`)
+    !activeUserName ||
+    !HAXCMS.validateRequestToken(siteToken, `${activeUserName}:${siteName}`)
   ) {
-    return res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
+    return res
+      .status(403)
+      .json({ status: 403, data: { message: "Authentication required" } });
   }
   const operation = normalizeOperationValue(requestBody.operation);
-  const searchTerm = typeof requestBody.search === 'string'
-    ? requestBody.search.trim()
-    : '';
+  const searchTerm =
+    typeof requestBody.search === "string" ? requestBody.search.trim() : "";
   if (!searchTerm) {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Search query is required' },
+      data: { message: "Search query is required" },
     });
   }
   if (searchTerm.length > SITE_SEARCH_MAX_QUERY_LENGTH) {
     return res.status(400).json({
       status: 400,
-      data: { message: `Search query is too long (max ${SITE_SEARCH_MAX_QUERY_LENGTH} characters)` },
+      data: {
+        message: `Search query is too long (max ${SITE_SEARCH_MAX_QUERY_LENGTH} characters)`,
+      },
     });
   }
   if (operation === SITE_SEARCH_OPERATION_REPLACE && searchTerm.length <= 1) {
     return res.status(400).json({
       status: 400,
-      data: { message: 'Search text must be more than 1 character for replacement operations' },
+      data: {
+        message:
+          "Search text must be more than 1 character for replacement operations",
+      },
     });
   }
 
-  const selectorMode = operation !== SITE_SEARCH_OPERATION_REPLACE && (
-    parseBooleanFromInput(requestBody.searchSelector, false) ||
-    (typeof requestBody.searchMode === 'string' && requestBody.searchMode.toLowerCase() === 'selector')
+  const selectorMode =
+    operation !== SITE_SEARCH_OPERATION_REPLACE &&
+    (parseBooleanFromInput(requestBody.searchSelector, false) ||
+      (typeof requestBody.searchMode === "string" &&
+        requestBody.searchMode.toLowerCase() === "selector"));
+  const searchLimit = parseLimitValue(
+    requestBody.searchLimit,
+    SITE_SEARCH_DEFAULT_LIMIT,
   );
-  const searchLimit = parseLimitValue(requestBody.searchLimit, SITE_SEARCH_DEFAULT_LIMIT);
-  const caseSensitive = parseBooleanFromInput(requestBody.searchCaseSensitive, false);
-  const searchFields = operation === SITE_SEARCH_OPERATION_REPLACE
-    ? ['content']
-    : (selectorMode ? ['content'] : normalizeSearchFields(requestBody.searchField));
-  const mode = operation === SITE_SEARCH_OPERATION_REPLACE
-    ? 'replace'
-    : (selectorMode ? 'selector' : 'text');
-  let replacement = '';
+  const caseSensitive = parseBooleanFromInput(
+    requestBody.searchCaseSensitive,
+    false,
+  );
+  const searchFields =
+    operation === SITE_SEARCH_OPERATION_REPLACE
+      ? ["content"]
+      : selectorMode
+        ? ["content"]
+        : normalizeSearchFields(requestBody.searchField);
+  const mode =
+    operation === SITE_SEARCH_OPERATION_REPLACE
+      ? "replace"
+      : selectorMode
+        ? "selector"
+        : "text";
+  let replacement = "";
   if (operation === SITE_SEARCH_OPERATION_REPLACE) {
-    replacement = typeof requestBody.replace === 'string'
-      ? requestBody.replace.trim()
-      : '';
+    replacement =
+      typeof requestBody.replace === "string" ? requestBody.replace.trim() : "";
     if (replacement.length === 1) {
       return res.status(400).json({
         status: 400,
-        data: { message: 'Replacement text must be empty or more than 1 character' },
+        data: {
+          message: "Replacement text must be empty or more than 1 character",
+        },
       });
     }
     if (!parseBooleanFromInput(requestBody.replaceConfirm, false)) {
       return res.status(400).json({
         status: 400,
-        data: { message: 'Replacement requires confirmation' },
+        data: { message: "Replacement requires confirmation" },
       });
     }
-    if (replacement === '' && !parseBooleanFromInput(requestBody.replaceDestroyConfirm, false)) {
+    if (
+      replacement === "" &&
+      !parseBooleanFromInput(requestBody.replaceDestroyConfirm, false)
+    ) {
       return res.status(400).json({
         status: 400,
-        data: { message: 'Removing matched text requires a second confirmation' },
+        data: {
+          message: "Removing matched text requires a second confirmation",
+        },
       });
     }
   }
@@ -470,7 +540,7 @@ async function siteSearch(req, res) {
     !site ||
     !site.manifest ||
     !site.manifest.items ||
-    typeof site.manifest.orderTree !== 'function'
+    typeof site.manifest.orderTree !== "function"
   ) {
     return res.send(defaultResponse);
   }
@@ -490,8 +560,8 @@ async function siteSearch(req, res) {
         continue;
       }
       let content = await site.getPageContent(page);
-      if (typeof content !== 'string') {
-        content = '';
+      if (typeof content !== "string") {
+        content = "";
       }
       const replacementData = replaceTextMatches(
         content,
@@ -504,45 +574,48 @@ async function siteSearch(req, res) {
       }
       totalMatches += replacementData.total;
       const sanitizedContent = sanitizeHTMLForStorage(replacementData.content);
-      const writeResult = await page.writeLocation(sanitizedContent, site.siteDirectory);
+      const writeResult = await page.writeLocation(
+        sanitizedContent,
+        site.siteDirectory,
+      );
       if (!writeResult) {
         continue;
       }
       updatedItems++;
       totalReplacements += replacementData.total;
-      page.metadata = page.metadata && typeof page.metadata === 'object'
-        ? page.metadata
-        : {};
+      page.metadata =
+        page.metadata && typeof page.metadata === "object" ? page.metadata : {};
       page.metadata.updated = Math.floor(Date.now() / 1000);
       changedItems.push({
         id: item.id,
-        title: item.title || '',
-        slug: item.slug || '',
+        title: item.title || "",
+        slug: item.slug || "",
         replacements: replacementData.total,
       });
       try {
         await site.writePageAlternateFormats(page, sanitizedContent);
+      } catch {
+        // intentionally ignored
       }
-      catch (e) {}
     }
     if (totalMatches < 1) {
       return res.status(400).json({
         status: 400,
-        data: { message: 'Search term not found in site content' },
+        data: { message: "Search term not found in site content" },
       });
     }
     if (updatedItems < 1) {
       return res.status(500).json({
         status: 500,
-        data: { message: 'No pages could be updated' },
+        data: { message: "No pages could be updated" },
       });
     }
     site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
     await site.manifest.save();
     await site.updateAlternateFormats();
-    const commitReplacement = replacement === '' ? '[removed]' : replacement;
+    const commitReplacement = replacement === "" ? "[removed]" : replacement;
     await site.gitCommit(
-      `Bulk replace "${searchTerm}" -> "${commitReplacement}" across ${updatedItems} page${updatedItems === 1 ? '' : 's'}`,
+      `Bulk replace "${searchTerm}" -> "${commitReplacement}" across ${updatedItems} page${updatedItems === 1 ? "" : "s"}`,
     );
     return res.send({
       status: 200,
@@ -567,18 +640,17 @@ async function siteSearch(req, res) {
     }
     const fieldMatches = [];
     for (const field of searchFields) {
-      let content = '';
-      if (field === 'content') {
-        if (item && item.id && typeof contentCache[item.id] !== 'undefined') {
+      let content = "";
+      if (field === "content") {
+        if (item && item.id && typeof contentCache[item.id] !== "undefined") {
           content = contentCache[item.id];
-        }
-        else if (item && item.id) {
+        } else if (item && item.id) {
           const page = site.loadNode(item.id);
           if (page) {
             content = await site.getPageContent(page);
           }
-          if (typeof content !== 'string') {
-            content = '';
+          if (typeof content !== "string") {
+            content = "";
           }
           contentCache[item.id] = content;
         }
@@ -586,30 +658,31 @@ async function siteSearch(req, res) {
       const fieldValue = normalizeFieldValue(field, item, content);
       if (selectorMode) {
         try {
-          const selectorMatch = selectorMatchesInContent(fieldValue, selectorData.selector);
+          const selectorMatch = selectorMatchesInContent(
+            fieldValue,
+            selectorData.selector,
+          );
           if (selectorMatch) {
             fieldMatches.push({
-              field: 'content',
-              type: 'selector',
+              field: "content",
+              type: "selector",
               selector: selectorData.selector,
               count: selectorMatch.count,
               snippets: selectorMatch.snippets,
             });
           }
-        }
-        catch (e) {
+        } catch {
           return res.status(400).json({
             status: 400,
-            data: { message: 'Invalid selector query' },
+            data: { message: "Invalid selector query" },
           });
         }
-      }
-      else {
+      } else {
         const textMatch = textMatcher(fieldValue);
         if (textMatch) {
           fieldMatches.push({
             field,
-            type: 'text',
+            type: "text",
             index: textMatch.index,
             length: textMatch.length,
             snippet: textMatch.snippet,
@@ -620,11 +693,11 @@ async function siteSearch(req, res) {
     if (fieldMatches.length > 0) {
       matches.push({
         id: item && item.id ? item.id : null,
-        title: item && item.title ? item.title : '',
-        slug: item && item.slug ? item.slug : '',
-        location: item && item.location ? item.location : '',
+        title: item && item.title ? item.title : "",
+        slug: item && item.slug ? item.slug : "",
+        location: item && item.location ? item.location : "",
         parent: item && item.parent ? item.parent : null,
-        description: item && item.description ? item.description : '',
+        description: item && item.description ? item.description : "",
         tags: normalizeTagsValue(item),
         matches: fieldMatches,
       });

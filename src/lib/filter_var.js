@@ -46,8 +46,6 @@ function filter_var(input, filter, options) {
     return type === actual;
   }
 
-  function str2regex(str) {}
-
   function isPrimitive(val) {
     return val !== Object(val);
   }
@@ -186,7 +184,10 @@ function filter_var(input, filter, options) {
         var matches = options.regexp.exec(data);
         return matches ? matches[0] : failure;
       }
-    // TODO: support passing regexes as strings "#regex#is"
+      // TODO: support passing regexes as strings "#regex#is"
+      // A missing/invalid regexp can never match, so fail instead of
+      // falling into IP validation.
+      return failure;
     case supportedFilters.FILTER_VALIDATE_IP:
       var ipv4 =
         /^(25[0-5]|2[0-4]\d|[01]?\d?\d)\.(25[0-5]|2[0-4]\d|[01]?\d?\d)\.(25[0-5]|2[0-4]\d|[01]?\d?\d)\.(25[0-5]|2[0-4]\d|[01]?\d?\d)$/;
@@ -227,9 +228,9 @@ function filter_var(input, filter, options) {
       }
 
       if (mode & supportedFlags.FILTER_FLAG_IPV6) {
-        var ip = ipv6.test(input);
+        var ipv6Match = ipv6.test(input);
 
-        if (ip) {
+        if (ipv6Match) {
           // TODO: check ipv6 ranges
           return input;
         }
@@ -279,7 +280,7 @@ function filter_var(input, filter, options) {
 
     case supportedFilters.FILTER_DEFAULT:
     // is alias of FILTER_UNSAFE_RAW
-    // fall-through
+    // falls through
     case supportedFilters.FILTER_UNSAFE_RAW:
       data = input + "";
 

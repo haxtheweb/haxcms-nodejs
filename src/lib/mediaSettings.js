@@ -134,7 +134,7 @@ async function readMediaSettings(haxcms) {
     try {
       existing = JSON.parse(await fs.readFile(filePath, 'utf8'));
     }
-    catch (e) {
+    catch {
       existing = {};
     }
   }

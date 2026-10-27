@@ -73,7 +73,7 @@ function restoreGlobalValue(key, snapshot) {
 function parseJsonSafely(value) {
   try {
     return JSON.parse(String(value || ""));
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -264,7 +264,9 @@ async function ensureSiteHasInitialCommit(runtimeRoot, siteName) {
   try {
     await runGitCommand(siteDirectory, ["rev-parse", "--verify", "HEAD"]);
     return;
-  } catch (error) {}
+  } catch {
+    // intentionally ignored
+  }
   let isGitRepository = true;
   try {
     const insideWorkTree = await runGitCommand(siteDirectory, [
@@ -274,7 +276,7 @@ async function ensureSiteHasInitialCommit(runtimeRoot, siteName) {
     if (insideWorkTree !== "true") {
       isGitRepository = false;
     }
-  } catch (error) {
+  } catch {
     isGitRepository = false;
   }
   if (!isGitRepository) {

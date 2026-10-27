@@ -333,7 +333,7 @@ describe('content routes — contentDetail', () => {
 // content.js — updateContent (delegates to saveNode)
 // ---------------------------------------------------------------------------
 describe('content routes — updateContent', () => {
-  function mockNodeExtras(t, site) {
+  function mockNodeExtras(t, _site) {
     t.mock.method(FileContentScanner, 'rebuildPageFilesUuids', async () => {})
     t.mock.method(HAXCMS, 'recurseCopy', async () => {})
   }

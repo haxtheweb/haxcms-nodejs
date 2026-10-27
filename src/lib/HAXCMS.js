@@ -5,9 +5,24 @@ const JWT = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 const GitPlus = require("./GitPlus.js");
 const JSONOutlineSchema = require("./JSONOutlineSchema.js");
+const {
+  getLicenseMap,
+  applyLicenseOptions,
+  isAllRightsReserved,
+} = require("./licenses.js");
 const { discoverConfigPath } = require("./discoverConfigPath.js");
 const filter_var = require("./filter_var.js");
 const { resolveContainedPath, hasTraversal } = require("./pathConfinement.js");
+const {
+  trimTrailingSlashes,
+  trimSlashes,
+  stripAngleTags,
+  hasAngleTag,
+  removeBackslashesBeforeQuote,
+  closingCustomElementNames,
+  findPageBreakSections,
+  matchAttributes,
+} = require("./linearText.js");
 const explodeImport = require("locutus/php/strings/explode");
 // may need to change as we get into CLI integration
 const HAXCMS_ROOT = process.env.HAXCMS_ROOT || path.join(process.cwd(), "/");
@@ -426,7 +441,9 @@ class HAXCMSSite {
         // put domain into CNAME not the github.io address if that exists
         await fs.writeFileSync(directory + "/" + tmpname + "/CNAME", domain);
       }
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     // load what we just created
     this.manifest = new JSONOutlineSchema();
     // where to save it to
@@ -645,7 +662,9 @@ class HAXCMSSite {
     try {
       // write the managed files to ensure we get happy copies
       await this.rebuildManagedFiles();
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     try {
       // put this in version control :) :) :)
       const git = new GitPlus({
@@ -724,9 +743,9 @@ class HAXCMSSite {
   }
   async gitTest() {
     try {
-      const { stdout, stderr } = await exec("git --version");
+      const { stdout } = await exec("git --version");
       return stdout;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -743,7 +762,7 @@ class HAXCMSSite {
         // revisions.js, so no shell ever parses the key.
         const { stdout } = await execFile("git", ["config", key], { cwd: dir });
         return stdout.trim();
-      } catch (e) {
+      } catch {
         return "";
       }
     };
@@ -874,7 +893,9 @@ class HAXCMSSite {
       }
       await this.rebuildManagedFiles();
       await this.gitCommit("Managed files upgraded: legacy bootstrap");
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
   }
   /**
    * Reprocess the files that twig helps set in their static
@@ -902,7 +923,9 @@ class HAXCMSSite {
     // sha256 verification, no filtering, no site.json reads. Best-effort.
     try {
       await this.rebuildAgentSkills();
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     let licenseData = this.getLicenseData("all");
     let licenseLink = "";
     let licenseName = "";
@@ -946,6 +969,7 @@ class HAXCMSSite {
         this.manifest.metadata.site.settings.private
           ? this.manifest.metadata.site.settings.private
           : false,
+      reservedSite: isAllRightsReserved(this.manifest.license),
       description: sanitizeManagedTemplateText(this.manifest.description),
       forceUpgrade: this.getForceUpgrade(),
       swhash: [],
@@ -1002,13 +1026,13 @@ class HAXCMSSite {
         }
       });
     }
-    for (var key in coreFiles) {
+    for (let key in coreFiles) {
       let coreItem = {};
       coreItem.location = coreFiles[key];
       swItems.push(coreItem);
     }
     // generate a legit hash value that's the same for each file name + file size
-    for (var key in swItems) {
+    for (let key in swItems) {
       let filesize;
       let item = swItems[key];
       if (item.location === "" || item.location === templateVars["basePath"]) {
@@ -1046,7 +1070,7 @@ class HAXCMSSite {
     }
     // put the twig written output into the file
     var Twig = require("twig");
-    for (var key in templates) {
+    for (let key in templates) {
       // ensure files exist before going to write them
       if (
         await fs.lstatSync(this.siteDirectory + "/" + templates[key]).isFile()
@@ -1068,12 +1092,16 @@ class HAXCMSSite {
             this.siteDirectory + "/" + templates[key],
             templatedHTML,
           );
-        } catch (e) {}
+        } catch {
+          // intentionally ignored
+        }
       }
     }
     try {
       await this.updateAlternateFormats("llms");
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
   }
   /**
    * Copy the boilerplate .well-known/agent-skills/ directory into the site.
@@ -1097,7 +1125,7 @@ class HAXCMSSite {
     let index;
     try {
       index = JSON.parse(fs.readFileSync(boilerIndex, "utf8"));
-    } catch (e) {
+    } catch {
       return;
     }
     if (!index || !Array.isArray(index.skills)) {
@@ -1107,14 +1135,18 @@ class HAXCMSSite {
     // clean the site agent-skills dir so removed skills don't linger
     try {
       fs.removeSync(siteAS);
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     fs.mkdirpSync(siteAS);
     // scoped .htaccess: CORS + script-execution hardening (harmless on Node/static)
     fs.writeFileSync(siteAS + "/.htaccess", HAXCMS_AGENT_SKILLS_HTACCESS);
     // copy the index through verbatim
     try {
       fs.copySync(boilerIndex, siteAS + "/index.json");
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     let allowedAuxExt = { md: true, json: true, txt: true };
     for (let i = 0; i < index.skills.length; i++) {
       let skill = index.skills[i];
@@ -1122,9 +1154,13 @@ class HAXCMSSite {
         continue;
       }
       // skill.url is relative, e.g. "hax-site-structure/SKILL.md"
-      let skillMdBoiler = boilerAS + "/" + skill.url;
-      let skillMdSite = siteAS + "/" + skill.url;
-      if (fs.pathExistsSync(skillMdBoiler)) {
+      let skillMdBoiler = resolveContainedPath(boilerAS, String(skill.url));
+      let skillMdSite = resolveContainedPath(siteAS, String(skill.url));
+      if (
+        skillMdBoiler !== false &&
+        skillMdSite !== false &&
+        fs.pathExistsSync(skillMdBoiler)
+      ) {
         let bytes = fs.readFileSync(skillMdBoiler);
         let hash =
           "sha256:" + crypto.createHash("sha256").update(bytes).digest("hex");
@@ -1147,9 +1183,19 @@ class HAXCMSSite {
           if (!allowedAuxExt[ext]) {
             continue;
           }
-          let fBoiler = boilerAS + "/" + skill.name + "/" + f.path;
-          let fSite = siteAS + "/" + skill.name + "/" + f.path;
-          if (fs.pathExistsSync(fBoiler)) {
+          let fBoiler = resolveContainedPath(
+            boilerAS,
+            String(skill.name) + "/" + String(f.path),
+          );
+          let fSite = resolveContainedPath(
+            siteAS,
+            String(skill.name) + "/" + String(f.path),
+          );
+          if (
+            fBoiler !== false &&
+            fSite !== false &&
+            fs.pathExistsSync(fBoiler)
+          ) {
             let bytes = fs.readFileSync(fBoiler);
             let hash =
               "sha256:" +
@@ -1178,8 +1224,18 @@ class HAXCMSSite {
    * their folder tree
    */
   async renamePageLocation(oldItem, newItem) {
-    oldItem = oldItem.replace("./", "").replace("../", "");
-    newItem = newItem.replace("./", "").replace("../", "");
+    // reject any `..` segment / NUL / non-string rather than string-stripping
+    if (hasTraversal(oldItem) || hasTraversal(newItem)) {
+      return false;
+    }
+    oldItem = oldItem.replace(/^\.\//, "").replace(/^\/+/, "");
+    newItem = newItem.replace(/^\.\//, "").replace(/^\/+/, "");
+    if (
+      resolveContainedPath(this.siteDirectory, oldItem) === false ||
+      resolveContainedPath(this.siteDirectory, newItem) === false
+    ) {
+      return false;
+    }
     // ensure the path to the new folder is valid
     if (
       (await fs.pathExistsSync(this.siteDirectory + "/" + oldItem)) &&
@@ -1229,7 +1285,9 @@ class HAXCMSSite {
           await git.push();
         }
       }
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     return true;
   }
   /**
@@ -1242,7 +1300,9 @@ class HAXCMSSite {
         cliVersion: await this.gitTest(),
       });
       await git.revert(count);
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     return true;
   }
   /**
@@ -1257,7 +1317,9 @@ class HAXCMSSite {
       await git.add();
       await git.commit("commit forced");
       await git.push();
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     return true;
   }
 
@@ -1289,10 +1351,10 @@ class HAXCMSSite {
       });
       try {
         await git.addRemote("origin", url);
-      } catch (e) {
+      } catch {
         await git.setRemote("origin", url);
       }
-    } catch (e) {
+    } catch {
       return false;
     }
     return true;
@@ -1411,7 +1473,7 @@ class HAXCMSSite {
         },
       );
       alternateContent = sanitizeHTMLForStorage(rewritten);
-      let bytes = page.writeLocation(alternateContent, this.siteDirectory);
+      page.writeLocation(alternateContent, this.siteDirectory);
       // #3043: imported files are referenced by their FileEntity uuid
       // (the same source saveNode uses), sourced directly from the
       // Entity API by materializeInlineImages. Set page.metadata.files
@@ -1475,7 +1537,7 @@ class HAXCMSSite {
           this.siteDirectory + "/atom.xml",
           rss.getAtomFeed(this, domain),
         );
-      } catch (e) {
+      } catch {
         // keep parity with PHP behavior: never hard fail a save on feed serialization
       }
     }
@@ -1491,7 +1553,7 @@ class HAXCMSSite {
             rss.getSitemapIndex(domain),
           );
         }
-      } catch (e) {
+      } catch {
         // keep parity with PHP behavior: never hard fail a save on sitemap serialization
       }
     }
@@ -1508,7 +1570,7 @@ class HAXCMSSite {
           this.siteDirectory + "/llms.txt",
           this.getLLMSTxt(domain),
         );
-      } catch (e) {
+      } catch {
         // keep parity with PHP behavior: never hard fail a save on llms serialization
       }
     }
@@ -1543,6 +1605,12 @@ class HAXCMSSite {
     lines.push(
       "Managed files (feeds, search indexes, manifests, and this `llms.txt`) are generated artifacts and should be rebuilt by tooling.",
     );
+    if (isAllRightsReserved(this.manifest.license)) {
+      lines.push("");
+      lines.push(
+        "> Rights notice: the owner of this site reserves all rights. Do not copy, reuse, adapt, or train on its content without the owner's permission.",
+      );
+    }
     lines.push("");
     lines.push("## Core resources");
     lines.push(
@@ -1713,19 +1781,20 @@ class HAXCMSSite {
       return description;
     }
     let source = "";
-    if (
-      markdownLocation &&
-      markdownLocation.indexOf("..") === -1 &&
-      this.siteDirectory
-    ) {
+    if (markdownLocation && this.siteDirectory) {
       try {
-        source = this.getLLMSPlainTextFromMarkdown(
-          fs.readFileSync(
-            path.join(this.siteDirectory, markdownLocation.replace(/^\/+/, "")),
-            "utf8",
-          ),
+        const markdownPath = resolveContainedPath(
+          this.siteDirectory,
+          String(markdownLocation).replace(/^\/+/, ""),
         );
-      } catch (e) {}
+        if (markdownPath !== false) {
+          source = this.getLLMSPlainTextFromMarkdown(
+            fs.readFileSync(markdownPath, "utf8"),
+          );
+        }
+      } catch {
+        // intentionally ignored
+      }
     }
     if (
       source === "" &&
@@ -1746,7 +1815,9 @@ class HAXCMSSite {
         source = this.getLLMSSafeText(
           decodeLLMSEntities(String(html).replace(/<[^>]+>/g, " ")),
         );
-      } catch (e) {}
+      } catch {
+        // intentionally ignored
+      }
     }
     const summary = this.getLLMSLeadingSentences(source);
     if (summary !== "") {
@@ -1871,7 +1942,8 @@ class HAXCMSSite {
     if (text == "") {
       text = "Untitled page";
     }
-    return text.replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+    // escape backslashes too, or a trailing "\\" would swallow the bracket escape
+    return text.replace(/[\\[\]]/g, "\\$&");
   }
   /**
    * Create Lunr.js style search index
@@ -1908,7 +1980,9 @@ class HAXCMSSite {
           description: item.description,
           text: textData,
         });
-      } catch (e) {}
+      } catch {
+        // intentionally ignored
+      }
     }
     return data;
   }
@@ -1921,15 +1995,11 @@ class HAXCMSSite {
     }
     // clean up initial, small, trim, replace end lines, utf8 no tags
     text = utf8.encode(
-      text
-        .replace(/(<([^>]+)>)/gi, "")
-        .replace("\n", " ")
-        .toLowerCase()
-        .trim(),
+      stripAngleTags(text, "").replace(/\n/g, " ").toLowerCase().trim(),
     );
     // all weird chars
     text = text.replace("/[^a-z0-9']/", " ");
-    text = text.replace("'", "");
+    text = text.replace(/'/g, "");
     // all words 1 to 4 letters long
     text = text.replace("~\b[a-z]{1,4}\bs*~", "");
     // all excess white space
@@ -2076,10 +2146,6 @@ class HAXCMSSite {
    */
   getSocialShareImage(page = null) {
     // resolve a JOS Item vs null
-    let id = null;
-    if (page != null) {
-      id = page.id;
-    }
     let fileName;
     if (!fileName) {
       if (page == null) {
@@ -2308,7 +2374,7 @@ class HAXCMSSite {
     } else {
       try {
         content = await this.getPageContent(page);
-      } catch (e) {
+      } catch {
         content = "";
       }
     }
@@ -2323,7 +2389,9 @@ class HAXCMSSite {
         path.join(this.siteDirectory, markdownLocation),
         markdown,
       );
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     // JSON
     try {
       let jsonPayload = this.getPageAlternatePayload(page, content, "json");
@@ -2331,7 +2399,9 @@ class HAXCMSSite {
         path.join(this.siteDirectory, jsonPayload.location),
         JSON.stringify(jsonPayload, null, 2),
       );
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     // YAML
     try {
       let yamlPayload = this.getPageAlternatePayload(page, content, "yaml");
@@ -2339,7 +2409,9 @@ class HAXCMSSite {
         path.join(this.siteDirectory, yamlPayload.location),
         jsyaml.dump(yamlPayload),
       );
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     // XML
     try {
       let xmlPayload = this.getPageAlternatePayload(page, content, "xml");
@@ -2347,7 +2419,9 @@ class HAXCMSSite {
         path.join(this.siteDirectory, xmlPayload.location),
         this.getPageAlternateXML(xmlPayload),
       );
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     return true;
   }
   /**
@@ -2357,7 +2431,7 @@ class HAXCMSSite {
     let payload = {};
     try {
       payload = JSON.parse(JSON.stringify(page));
-    } catch (e) {
+    } catch {
       payload = {};
     }
     payload.location = this.getPageAlternateLocation(page.location, extension);
@@ -2394,9 +2468,9 @@ class HAXCMSSite {
     let basePath = canonicalPath;
     if (typeof basePath !== "string" || basePath == "") {
       basePath =
-        "/" + String(page.slug).replace(/^\/+/, "").replace(/\/+$/, "");
+        "/" + trimTrailingSlashes(String(page.slug).replace(/^\/+/, ""));
     }
-    basePath = String(basePath).replace(/\/+$/, "");
+    basePath = trimTrailingSlashes(String(basePath));
     if (basePath == "") {
       return "";
     }
@@ -2416,8 +2490,12 @@ class HAXCMSSite {
       if (!variantLocation) {
         continue;
       }
-      let variantPath = path.join(this.siteDirectory, variantLocation);
+      let variantPath = resolveContainedPath(
+        this.siteDirectory,
+        variantLocation,
+      );
       if (
+        variantPath !== false &&
         fs.pathExistsSync(variantPath) &&
         fs.lstatSync(variantPath).isFile()
       ) {
@@ -2642,6 +2720,15 @@ class HAXCMSSite {
     } else {
       robots = '<meta name="robots" content="index, follow" />';
     }
+    // an owner who keeps all rights asks AI crawlers to stay out: the
+    // noai directives and the W3C TDM reservation (text and data mining)
+    if (isAllRightsReserved(this.manifest.license)) {
+      robots =
+        robots.replace(
+          'content="index, follow"',
+          'content="index, follow, noai, noimageai"',
+        ) + '\n  <meta name="tdm-reservation" content="1" />';
+    }
     // canonical flag, if set we use domain and canonicalPath context
     let canonicalBase = sanitizeUrl(domain);
     if (
@@ -2668,13 +2755,14 @@ class HAXCMSSite {
             );
           } else {
             canonicalUrl = sanitizeUrl(
-              String(canonicalBase).replace(/\/+$/, "") +
+              trimTrailingSlashes(String(canonicalBase)) +
                 normalizedCanonicalPath,
             );
           }
         } else {
           canonicalUrl = sanitizeUrl(
-            String(canonicalBase).replace(/\/+$/, "") + normalizedCanonicalPath,
+            trimTrailingSlashes(String(canonicalBase)) +
+              normalizedCanonicalPath,
           );
         }
       } else if (
@@ -2684,7 +2772,7 @@ class HAXCMSSite {
         page.slug != ""
       ) {
         canonicalUrl = sanitizeUrl(
-          String(this.manifest.metadata.site.domain).replace(/\/+$/, "") +
+          trimTrailingSlashes(String(this.manifest.metadata.site.domain)) +
             "/" +
             String(page.slug).replace(/^\/+/, ""),
         );
@@ -2743,7 +2831,7 @@ class HAXCMSSite {
       /^https?:\/\//i.test(String(canonicalBase || ""))
     ) {
       socialImageUrl =
-        String(canonicalBase).replace(/\/+$/, "") +
+        trimTrailingSlashes(String(canonicalBase)) +
         "/" +
         socialImageUrl.replace(/^\/+/, "");
     }
@@ -2762,7 +2850,7 @@ class HAXCMSSite {
         return normalizedSegment;
       }
       return (
-        normalizedBase.replace(/\/+$/, "") +
+        trimTrailingSlashes(normalizedBase) +
         "/" +
         normalizedSegment.replace(/^\/+/, "")
       );
@@ -3004,21 +3092,15 @@ class HAXCMSSite {
     try {
       const pageContent = await this.getPageContent(page);
       if (pageContent && typeof pageContent === "string") {
-        const tagMatches = pageContent.match(
-          /<(?:"[^"]*"['"]*|'[^']*'['"]*|[^'">])+>/g,
-        );
-        if (tagMatches) {
-          for (const match of tagMatches) {
-            if (match.indexOf("-") !== -1) {
-              // mirror PHP: strip '</' then '>'; opening tags keep a leading
-              // '<' so only closing-tag forms match the registry, identically
-              let tag = match.replace(/<\//g, "").replace(/>/g, "");
-              preloadTags[tag] = tag;
-            }
-          }
+        // only bare closing custom-element tags (</my-el>) can resolve in the
+        // registry (mirrors PHP); scanned with a linear regex (ReDoS safe)
+        for (const tag of closingCustomElementNames(pageContent)) {
+          preloadTags[tag] = tag;
         }
       }
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     for (const tag in preloadTags) {
       const tagPath = HAXCMS.getContentTagPath(this, base, tag);
       if (tagPath === false) {
@@ -3125,7 +3207,7 @@ ${
   <meta name="twitter:title" property="twitter:title" content="${safeTitle}" />
   <meta name="twitter:description" property="twitter:description" content="${safeDescription}" />
 ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" content="${safeSocialShareImage}" />` : ""}`;
-    metadata = metadata.replace(new RegExp('\\\\+"', "g"), '"');
+    metadata = removeBackslashesBeforeQuote(metadata);
     let structuredDataBaseUrl =
       siteUrlForStructuredData || pageUrlForStructuredData;
     let siteStructuredDataId =
@@ -3390,30 +3472,51 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
         fileName = "assets/icon-" + height + "x" + width + ".png";
       } else {
         // ensure this path exists otherwise let's create it on the fly
-        let path = this.siteDirectory + "/";
-        fileName = this.manifest.metadata.site.logo.replace(
-          "files/",
-          "files/haxcms-managed/" + height + "x" + width + "-",
-        );
-        if (
-          fs.pathExistsSync(path + this.manifest.metadata.site.logo) &&
-          fs.lstatSync(path + this.manifest.metadata.site.logo).isFile() &&
-          !fs.pathExistsSync(path + fileName)
-        ) {
-          // make folder if doesnt exist
-          if (!fs.pathExistsSync(path + "files/haxcms-managed")) {
-            fs.mkdirSync(path + "files/haxcms-managed");
-          }
-          const image = await sharp(path + this.manifest.metadata.site.logo)
-            .metadata()
-            .then(({ width }) =>
-              sharp(path + this.manifest.metadata.site.logo)
-                .resize({
-                  width: parseInt(width),
-                  height: parseInt(height),
-                })
-                .toFile(path + fileName),
+        const logo = this.manifest.metadata.site.logo;
+        const fallback = "assets/icon-" + height + "x" + width + ".png";
+        const sizedName =
+          typeof logo === "string" && logo.startsWith("files/")
+            ? logo.replace(
+                "files/",
+                "files/haxcms-managed/" + height + "x" + width + "-",
+              )
+            : null;
+        // logo must live under files/ and resolve inside the site directory,
+        // both for the source read and the resized output write
+        const logoSource = sizedName
+          ? resolveContainedPath(this.siteDirectory, logo)
+          : false;
+        const logoTarget = sizedName
+          ? resolveContainedPath(this.siteDirectory, sizedName)
+          : false;
+        if (logoSource === false || logoTarget === false) {
+          fileName = fallback;
+        } else {
+          fileName = sizedName;
+          if (
+            fs.pathExistsSync(logoSource) &&
+            fs.lstatSync(logoSource).isFile() &&
+            !fs.pathExistsSync(logoTarget)
+          ) {
+            // make folder if doesnt exist
+            const managedDir = resolveContainedPath(
+              this.siteDirectory,
+              "files/haxcms-managed",
             );
+            if (managedDir !== false && !fs.pathExistsSync(managedDir)) {
+              fs.mkdirSync(managedDir);
+            }
+            await sharp(logoSource)
+              .metadata()
+              .then(({ width }) =>
+                sharp(logoSource)
+                  .resize({
+                    width: parseInt(width),
+                    height: parseInt(height),
+                  })
+                  .toFile(logoTarget),
+              );
+          }
         }
       }
     }
@@ -3449,7 +3552,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
         themes["key"] = key;
       }
       // this needs to be set dynamically
-      for (var key in coreFields.advanced) {
+      for (let key in coreFields.advanced) {
         let item = coreFields.advanced[key];
         if (item.property === "theme") {
           coreFields.advanced[key].options = themes;
@@ -3457,7 +3560,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       }
       // CORE fields
       if (coreFields.configure) {
-        for (var key in coreFields.configure) {
+        for (let key in coreFields.configure) {
           let item = coreFields.configure[key];
           // edge case for pathauto
           if (
@@ -3474,7 +3577,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
         }
       }
       if (coreFields.advanced) {
-        for (var key in coreFields.advanced) {
+        for (let key in coreFields.advanced) {
           let item = coreFields.advanced[key];
           fields["advanced"].push(item);
         }
@@ -3483,12 +3586,12 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     // fields can live globally in config
     if (HAXCMS.config.node.fields) {
       if (HAXCMS.config.node.fields.configure) {
-        for (var key in HAXCMS.config.node.fields.configure) {
+        for (let key in HAXCMS.config.node.fields.configure) {
           fields["configure"].push(HAXCMS.config.node.fields.configure[key]);
         }
       }
       if (HAXCMS.config.node.fields.advanced) {
-        for (var key in HAXCMS.config.node.fields.advanced) {
+        for (let key in HAXCMS.config.node.fields.advanced) {
           fields["advanced"].push(HAXCMS.config.node.fields.advanced[key]);
         }
       }
@@ -3520,12 +3623,12 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
         ),
       );
       if (themeFields.configure) {
-        for (var key in themeFields.configure) {
+        for (let key in themeFields.configure) {
           fields["configure"].push(themeFields.configure[key]);
         }
       }
       if (themeFields.advanced) {
-        for (var key in themeFields.advanced) {
+        for (let key in themeFields.advanced) {
           fields["advanced"].push(themeFields.advanced[key]);
         }
       }
@@ -3533,14 +3636,14 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     // fields can live in the site itself
     if (this.manifest.metadata.node.fields) {
       if (this.manifest.metadata.node.fields.configure) {
-        for (var key in this.manifest.metadata.node.fields.configure) {
+        for (let key in this.manifest.metadata.node.fields.configure) {
           fields["configure"].push(
             this.manifest.metadata.node.fields.configure[key],
           );
         }
       }
       if (this.manifest.metadata.node.fields.advanced) {
-        for (var key in this.manifest.metadata.node.fields.advanced) {
+        for (let key in this.manifest.metadata.node.fields.advanced) {
           fields["advanced"].push(
             this.manifest.metadata.node.fields.advanced[key],
           );
@@ -3557,7 +3660,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     };
     // now get the field data from the page
     if (page.metadata.fields) {
-      for (var key in page.metadata.fields) {
+      for (let key in page.metadata.fields) {
         let item = page.metadata.fields[key];
         if (key == "theme") {
           values[key] = item["key"];
@@ -3576,55 +3679,11 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
    * License data for common open license
    */
   getLicenseData(type = "select") {
-    let list = {
-      by: {
-        name: "Creative Commons: Attribution",
-        link: "https://creativecommons.org/licenses/by/4.0/",
-        image: "https://i.creativecommons.org/l/by/4.0/88x31.png",
-      },
-      "by-sa": {
-        name: "Creative Commons: Attribution Share a like",
-        link: "https://creativecommons.org/licenses/by-sa/4.0/",
-        image: "https://i.creativecommons.org/l/by-sa/4.0/88x31.png",
-      },
-      "by-nd": {
-        name: "Creative Commons: Attribution No derivatives",
-        link: "https://creativecommons.org/licenses/by-nd/4.0/",
-        image: "https://i.creativecommons.org/l/by-nd/4.0/88x31.png",
-      },
-      "by-nc": {
-        name: "Creative Commons: Attribution non-commercial",
-        link: "https://creativecommons.org/licenses/by-nc/4.0/",
-        image: "https://i.creativecommons.org/l/by-nc/4.0/88x31.png",
-      },
-      "by-nc-sa": {
-        name: "Creative Commons: Attribution non-commercial share a like",
-        link: "https://creativecommons.org/licenses/by-nc-sa/4.0/",
-        image: "https://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png",
-      },
-      "by-nc-nd": {
-        name: "Creative Commons: Attribution Non-commercial No derivatives",
-        link: "https://creativecommons.org/licenses/by-nc-nd/4.0/",
-        image: "https://i.creativecommons.org/l/by-nc-nd/4.0/88x31.png",
-      },
-    };
-    let data = {};
-    if (type == "select") {
-      for (var key in list) {
-        data[key] = list[key]["name"];
-      }
-    } else {
-      data = list;
-    }
-    return data;
+    return getLicenseMap(type);
   }
   /**
    * Update page in the manifest list of items. useful if updating some
    * data about an existing entry.
-   * @param page JSONOutlineSchemaItem to swap into the manifest
-   * @param persist when false only the in-memory manifest is updated, the
-   * caller owns saving site.json and rebuilding alternate formats once after
-   * a batch of changes (see saveOutline, haxtheweb/issues#3114)
    * @return JSONOutlineSchemaItem or false
    */
   async updateNode(page, persist = true) {
@@ -3661,7 +3720,10 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
    * Change the directory this site is located in
    */
   async changeName(newName) {
-    newName = newName.replace("./", "").replace("../", "");
+    if (hasTraversal(newName) || path.isAbsolute(newName)) {
+      return false;
+    }
+    newName = newName.replace(/^\.\//, "");
     // attempt to shift it on the file system
     if (newName != this.manifest.metadata.site.name) {
       this.manifest.metadata.site.name = newName;
@@ -3755,7 +3817,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
 
     // validate that content appears to be HTML by checking for basic HTML patterns
     // this follows similar pattern to how saveNode validates content structure
-    if (!/<[^>]+>/.test(cleanContent)) {
+    if (!hasAngleTag(cleanContent)) {
       return { status: 400, data: { message: "Content must be valid HTML" } };
     }
 
@@ -3764,7 +3826,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     if (!fs.existsSync(themeDirectory)) {
       try {
         await fs.ensureDir(themeDirectory);
-      } catch (error) {
+      } catch {
         return {
           status: 500,
           data: { message: "Failed to create theme directory" },
@@ -3797,7 +3859,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     const sanitizedContent = sanitizeHTMLForStorage(cleanContent);
     try {
       await fs.writeFile(styleGuideFile, sanitizedContent);
-    } catch (error) {
+    } catch {
       return {
         status: 500,
         data: { message: "Failed to write style guide file" },
@@ -4011,7 +4073,7 @@ class HAXCMSClass {
       try {
         salt = Buffer.from(parts[1], "hex");
         expected = Buffer.from(parts[2], "hex");
-      } catch (e) {
+      } catch {
         return false;
       }
       if (salt.length === 0 || expected.length === 0) {
@@ -4065,7 +4127,7 @@ class HAXCMSClass {
           path.join(this.configDirectory, ".user"),
           JSON.stringify({ name: this.user.name, password: hash }, null, 2),
         );
-      } catch (e) {
+      } catch {
         // non-fatal: in-memory hash is set; file will be retried next login
       }
     }
@@ -4165,6 +4227,38 @@ class HAXCMSClass {
         10 * 1000,
         24 * 60 * 60 * 1000,
       ),
+    };
+  }
+  // Per-IP request ceiling for the whole HTTP surface (static files, site
+  // assets, catch-all handlers) that touches the filesystem. Defaults are
+  // deliberately generous (10000 req/min) because HAXcms ships unbundled: a
+  // single logged-in site page pulling in many blocks/components can
+  // legitimately fire 500+ individual requests (measured), so a tight ceiling
+  // false-positives on normal browsing long before it catches scripted
+  // floods. Config: config.security.requestRateLimit { enabled, windowMs, max }.
+  getRequestRateLimitSettings() {
+    const defaults = { enabled: true, windowMs: 60 * 1000, max: 10000 };
+    let cfg = {};
+    if (
+      this.config &&
+      this.config.security &&
+      this.config.security.requestRateLimit
+    ) {
+      cfg = this.config.security.requestRateLimit;
+    }
+    let enabled = defaults.enabled;
+    if (typeof cfg.enabled !== "undefined") {
+      enabled = cfg.enabled === true;
+    }
+    return {
+      enabled: enabled,
+      windowMs: this.getIntConfigValue(
+        cfg.windowMs,
+        defaults.windowMs,
+        1000,
+        24 * 60 * 60 * 1000,
+      ),
+      max: this.getIntConfigValue(cfg.max, defaults.max, 1, 1000000),
     };
   }
   // Express `trust proxy` setting, sourced from config so deployments behind a
@@ -4388,7 +4482,7 @@ class HAXCMSClass {
       // already existed from an earlier seed
       this.chmodSecretFile(passwordFile);
       wroteFile = true;
-    } catch (e) {
+    } catch {
       wroteFile = false;
     }
     log("***************************************************************");
@@ -4422,15 +4516,15 @@ class HAXCMSClass {
     }
     try {
       fs.chmodSync(filePath, 0o600);
-    } catch (e) {
+    } catch {
       // non-fatal
     }
   }
   async gitTest() {
     try {
-      const { stdout, stderr } = await exec("git --version");
+      const { stdout } = await exec("git --version");
       return stdout;
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -4499,7 +4593,7 @@ class HAXCMSClass {
       if (!fs.existsSync(settingsDir)) {
         fs.mkdirSync(settingsDir, { recursive: true, mode: 0o700 });
       }
-    } catch (e) {
+    } catch {
       // non-fatal; directory creation can fail in some locked-down environments
     }
     // these are relative to the current path
@@ -4603,7 +4697,7 @@ class HAXCMSClass {
         "utf8",
       ),
     );
-    for (var name in publishingData) {
+    for (let name in publishingData) {
       this.config.site.publishers[name] = publishingData[name];
     }
     // site fields in HAXschema format
@@ -4617,13 +4711,15 @@ class HAXCMSClass {
         "utf8",
       ),
     );
-    for (var name in fieldsData) {
+    for (let name in fieldsData) {
       this.config.site.fields[0][name] = fieldsData[name];
     }
+    // license choices come from the shared license list, not siteFields.json
+    applyLicenseOptions(this.config.site.fields);
     let themeSelect = {};
     // ensure field schema has correct theme options
     // filter hidden / terrible themes from the site settings dialog
-    for (var name in this.config.themes) {
+    for (let name in this.config.themes) {
       let theme = this.config.themes[name];
       if (theme && (theme.hidden || theme.terrible)) {
         continue;
@@ -4656,7 +4752,7 @@ class HAXCMSClass {
         { encoding: "utf8", flag: "r" },
         "utf8",
       );
-    } catch (e) {
+    } catch {
       this.salt = crypto.randomBytes(32).toString("hex");
       this.writeSecretFile(
         path.join(this.configDirectory, "SALT.txt"),
@@ -4670,7 +4766,7 @@ class HAXCMSClass {
         { encoding: "utf8", flag: "r" },
         "utf8",
       );
-    } catch (e) {
+    } catch {
       this.privateKey = crypto.randomBytes(32).toString("hex");
       this.writeSecretFile(
         path.join(this.configDirectory, ".pk"),
@@ -4683,7 +4779,7 @@ class HAXCMSClass {
         { encoding: "utf8", flag: "r" },
         "utf8",
       );
-    } catch (e) {
+    } catch {
       this.refreshPrivateKey = crypto.randomBytes(32).toString("hex");
       this.writeSecretFile(
         path.join(this.configDirectory, ".rpk"),
@@ -4702,7 +4798,7 @@ class HAXCMSClass {
       // Security (HAX-SEC-001): credentials loaded from disk — allow lazy
       // plaintext-to-hash migration on next successful login.
       this.credentialsLoadedFromDisk = true;
-    } catch (e) {
+    } catch {
       // create a default user with secure random password
       const seededPassword = this.generateSecurePassword();
       // Security (HAX-SEC-001): store a scrypt hash, never the plaintext. The
@@ -4903,7 +4999,7 @@ class HAXCMSClass {
     // URL decode to catch encoded traversal attempts
     try {
       n = decodeURIComponent(n);
-    } catch (e) {
+    } catch {
       // if decode fails, fall back to original string
     }
     // Remove any path traversal sequences completely
@@ -4937,7 +5033,7 @@ class HAXCMSClass {
     // URL decode to catch encoded traversal attempts
     try {
       n = decodeURIComponent(n);
-    } catch (e) {
+    } catch {
       // ignore decode errors, keep original string
     }
     // Remove path traversal sequences while preserving forward slashes for URLs
@@ -4968,6 +5064,28 @@ class HAXCMSClass {
    */
   generateUUID() {
     return uuidv4();
+  }
+  /**
+   * Security: resolve <sitesRoot>/<site>/index.html for a raw (request
+   * derived) site segment. The segment is decoded and run through cleanTitle
+   * (strips dots/backslashes/NUL) and the result must be contained in
+   * sitesRoot. Returns false on any traversal or failure.
+   */
+  resolveSiteIndexPath(sitesRoot, rawSiteName) {
+    if (typeof rawSiteName !== "string" || rawSiteName === "") {
+      return false;
+    }
+    let decoded = rawSiteName;
+    try {
+      decoded = decodeURIComponent(rawSiteName);
+    } catch {
+      return false;
+    }
+    if (hasTraversal(decoded)) {
+      return false;
+    }
+    const siteSegment = HAXCMS.cleanTitle(decoded, false);
+    return resolveContainedPath(sitesRoot, siteSegment + "/index.html");
   }
   /**
    * Clean up a title / sanitize the input string for file system usage
@@ -5047,12 +5165,12 @@ class HAXCMSClass {
     }
     const basePath = String(this.basePath || "").trim();
     if (basePath !== "" && basePath !== "/") {
-      const normalizedBase = "/" + basePath.replace(/^\/+|\/+$/g, "");
+      const normalizedBase = "/" + trimSlashes(basePath);
       if (pathOnly.indexOf(normalizedBase) === 0) {
         pathOnly = pathOnly.substring(normalizedBase.length);
       }
     }
-    const segments = pathOnly.replace(/^\/+|\/+$/g, "").split("/");
+    const segments = trimSlashes(pathOnly).split("/");
     if (!segments.length || segments[0] === "") {
       return null;
     }
@@ -5124,7 +5242,7 @@ class HAXCMSClass {
     let site = false;
     try {
       site = await this.loadSite(siteName);
-    } catch (e) {
+    } catch {
       site = false;
     }
     if (
@@ -5161,7 +5279,7 @@ class HAXCMSClass {
       candidates.push(
         userRoot +
           "/" +
-          String(this.sitesDirectory).replace(/^\/+|\/+$/g, "") +
+          trimSlashes(String(this.sitesDirectory)) +
           "/" +
           siteMachineName,
       );
@@ -5224,16 +5342,9 @@ class HAXCMSClass {
    */
   async processForm(form_id, params, context = []) {
     // strict-mode fix: these were undeclared (class bodies are strict)
-    let value = {};
-    let fields = {};
     // make sure we have the original value / key pairs for the form
     if (this[form_id + "Value"]) {
-      value = await this[form_id + "Value"](context);
-    } else {
-      fields = {
-        status: 500,
-        data: { message: form_id + " does not exist" },
-      };
+      await this[form_id + "Value"](context);
     }
   }
   /**
@@ -5256,7 +5367,7 @@ class HAXCMSClass {
    * Return the form for the siteSettings
    */
   async siteSettingsForm(context) {
-    let site = await this.loadSite(context["site"]["name"]);
+    await this.loadSite(context["site"]["name"]);
     return this.config.site.fields;
   }
   /**
@@ -5420,19 +5531,14 @@ class HAXCMSClass {
     switch (type) {
       case "string":
         return "textfield";
-        break;
       case "number":
         return "number";
-        break;
       case "date":
         return "datepicker";
-        break;
       case "boolean":
         return "boolean";
-        break;
       default:
         return "textfield";
-        break;
     }
   }
   /**
@@ -5568,7 +5674,7 @@ class HAXCMSClass {
     // API keys
     const hax = new HAXAppStoreService();
     const apiDocs = hax.baseSupportedApps();
-    for (var key in apiDocs) {
+    for (let key in apiDocs) {
       let props = {};
       props.title = key;
       props.type = "string";
@@ -5635,9 +5741,7 @@ class HAXCMSClass {
    */
   parse_attributes(attr) {
     let atList = [];
-    const regexp =
-      /\s*(?:([a-z0-9-]+)\s*=\s*"([^"]*)")|(?:\s+([a-z0-9-]+)(?=\s*|>|\s+[a..z0-9]+))/gi;
-    const matches = [...attr.matchAll(regexp)];
+    const matches = matchAttributes(attr);
     for (var i in matches) {
       if (matches[i][3]) atList[matches[i][3]] = null;
       else atList[matches[i][1]] = matches[i][2];
@@ -5651,15 +5755,13 @@ class HAXCMSClass {
   pageBreakParser(body = "<page-break></page-break>") {
     body += '<page-break fakeendcap="fakeendcap"></page-break>';
     let pageData = [];
-    // match all pages + content
-    const regexp =
-      /(<page-break([\s\S]*?)>([\s\S]*?)<\/page-break>)([\s\S]*?)(?=<page-break)/g;
-    const matches = [...body.matchAll(regexp)];
+    // match all pages + content (linear scan, see linearText.js)
+    const matches = findPageBreakSections(body);
     for (var i in matches) {
       // expand bare boolean attributes (published, locked) wherever they
       // sit in the tag, but never inside a quoted value such as a title,
       // and never when a value follows (published = "" stays as written)
-      let attrText = matches[i][2].replace(
+      let attrText = matches[i].attributes.replace(
         /("[^"]*")|(\s)(published|locked)(?!\s*=)(?=\s|\/|$)/g,
         (match, quoted, space, name) => {
           return quoted ? quoted : space + name + '="' + name + '"';
@@ -5668,7 +5770,7 @@ class HAXCMSClass {
       let content = "<div " + attrText + "></div>";
       let attrs = this.parse_attributes(content);
       pageData[i] = {
-        content: matches[i][4],
+        content: matches[i].content,
         // this assumes that the attributes are well formed; make sure front end did this
         // even for boolean attributes
         attributes: attrs,
@@ -5830,7 +5932,7 @@ class HAXCMSClass {
         wcMap = JSON.parse(
           fs.readFileSync(wcPath, { encoding: "utf8", flag: "r" }),
         );
-      } catch (e) {
+      } catch {
         wcMap = {};
       }
     }
@@ -5876,7 +5978,7 @@ class HAXCMSClass {
         graph = JSON.parse(
           fs.readFileSync(gPath, { encoding: "utf8", flag: "r" }),
         );
-      } catch (e) {
+      } catch {
         graph = {};
       }
     }
@@ -5995,7 +6097,7 @@ class HAXCMSClass {
   /**
    * Validate a JTW during POST
    */
-  validateJWT(req, res) {
+  validateJWT(req, _res) {
     if (
       this.isCLI() ||
       (this.HAXCMS_DISABLE_JWT_CHECKS && !this.isProductionRuntime())
@@ -6070,7 +6172,7 @@ class HAXCMSClass {
         }
       }
       return decoded;
-    } catch (e) {
+    } catch {
       return false;
     }
   }
@@ -6098,7 +6200,7 @@ class HAXCMSClass {
           token["jti"],
           token["exp"],
         );
-      } catch (e) {
+      } catch {
         recorded = false;
       }
       // Security (SEC-SESSION): family-bearing tokens are only accepted when
@@ -6130,7 +6232,7 @@ class HAXCMSClass {
         }
       }
       return decoded;
-    } catch (e) {
+    } catch {
       return false;
     }
   }
@@ -6354,7 +6456,7 @@ class HAXCMSClass {
       }
       const raw = fs.readFileSync(storePath, { encoding: "utf8", flag: "r" });
       return this._normalizeRefreshStore(JSON.parse(raw));
-    } catch (e) {
+    } catch {
       return this._emptyRefreshStore();
     }
   }
@@ -6403,7 +6505,7 @@ class HAXCMSClass {
       this.writeSecretFile(storePath, JSON.stringify(cleaned, null, 2));
       this.chmodSecretFile(storePath);
       return true;
-    } catch (e) {
+    } catch {
       return false;
     }
   }
@@ -6811,7 +6913,9 @@ class HAXCMSClass {
       let v = value.trim();
       try {
         v = decodeURIComponent(v);
-      } catch (e) {}
+      } catch {
+        // intentionally ignored
+      }
       return /^[A-Za-z0-9_-]+$/.test(v) ? v : "";
     };
     if (req && req.body && typeof req.body === "object") {
@@ -6868,7 +6972,9 @@ class HAXCMSClass {
         if (refererName) {
           return refererName;
         }
-      } catch (e) {}
+      } catch {
+        // intentionally ignored
+      }
     }
     try {
       const singleSite = await systemStructureContext();
@@ -6884,7 +6990,9 @@ class HAXCMSClass {
       if (singleSite && singleSite.name) {
         return safe(String(singleSite.name));
       }
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     return "";
   }
   /**
@@ -6893,11 +7001,17 @@ class HAXCMSClass {
    * an editor that booted anonymously (connection-settings omits tokens for
    * anonymous callers) can pick them up without a page reload.
    * Returns { userToken, siteToken? } -- siteToken only when a site context
-   * is resolvable (see resolveSessionSiteName). Tokens bind to the same
-   * user identity connection-settings uses (getActiveUserName).
+   * is resolvable (see resolveSessionSiteName). Tokens bind to the per-request
+   * authenticated identity (getRequestAuthenticatedUserName) when it can be
+   * resolved from this request's bearer JWT or refresh cookie, so tokens are
+   * never minted against a different user than the one who authenticated this
+   * request; falls back to getActiveUserName() for flows (e.g. the initial
+   * username/password login request) where the request itself does not yet
+   * carry a verifiable credential.
    */
   async getSessionRequestTokens(req) {
-    const user = this.getActiveUserName();
+    const user =
+      this.getRequestAuthenticatedUserName(req) || this.getActiveUserName();
     const tokens = {
       userToken: this.getRequestToken(user),
     };
@@ -6950,7 +7064,7 @@ class HAXCMSClass {
     let parsed;
     try {
       parsed = new URL(originHeader);
-    } catch (e) {
+    } catch {
       return false;
     }
     if (!parsed || !parsed.host) {
@@ -7041,7 +7155,6 @@ class HAXCMSClass {
       // this is for SaaS providers to provide global validation
       return usr.grantAccess;
     }
-    return false;
   }
   /**
    * test the active user login based on session.
@@ -7074,12 +7187,11 @@ class HAXCMSClass {
       // fire custom event for things to respond to as needed
       return usr.grantAccess;
     }
-    return false;
   }
   /**
    * Recursive copy to rename high level but copy all files
    */
-  async recurseCopy(src, dst, skip = [], base = null) {
+  async recurseCopy(src, dst, _skip = [], base) {
     // Security (N1/N5 parity): reject traversal in the destination before
     // creating anything (mirrors PHP HAXCMSSite::recurseCopy). NUL bytes
     // and any `..` segment are refused; when the caller supplies the
@@ -7088,15 +7200,17 @@ class HAXCMSClass {
     if (typeof dst !== "string" || dst === "" || hasTraversal(dst)) {
       return false;
     }
-    if (base !== null && base !== undefined) {
-      const relativeDst = path.relative(path.resolve(base), path.resolve(dst));
-      if (
-        relativeDst === "" ||
-        path.isAbsolute(relativeDst) ||
-        resolveContainedPath(base, relativeDst) === false
-      ) {
-        return false;
-      }
+    // `base` is required: containment is never optional
+    if (typeof base !== "string" || base === "") {
+      return false;
+    }
+    const relativeDst = path.relative(path.resolve(base), path.resolve(dst));
+    if (
+      relativeDst === "" ||
+      path.isAbsolute(relativeDst) ||
+      resolveContainedPath(base, relativeDst) === false
+    ) {
+      return false;
     }
     await fs.copySync(src, dst);
     return true;
@@ -7116,7 +7230,9 @@ async function systemStructureContext(dir = null) {
       let site = new HAXCMSSite();
       await site.loadSingle(dir);
       return site;
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
   }
   return null;
 }

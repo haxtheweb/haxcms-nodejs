@@ -406,7 +406,7 @@ describe('items routes — itemDetail', () => {
 // updateItem
 // ---------------------------------------------------------------------------
 describe('items routes — updateItem', () => {
-  test('an unauthenticated request answers 403', async (t) => {
+  test('an unauthenticated request answers 403', async (_t) => {
     const res = stubRes()
     await updateItem(
       makeReq({ params: { idOrSlug: 'first-page' }, haxcmsSiteApiAuth: null }),

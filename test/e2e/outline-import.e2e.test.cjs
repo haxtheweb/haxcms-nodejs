@@ -34,8 +34,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const axios = require('axios')
-const fs = require('fs-extra')
-const path = require('path')
 const axeCore = require('axe-core')
 
 const {
@@ -86,13 +84,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -256,7 +254,7 @@ async function waitForImportDialog(page, t) {
 async function clickImportDialogSave(page, t) {
   // Auto-confirm the browser confirm() dialog.
   page.on('dialog', async function (dialog) {
-    try { await dialog.accept() } catch (e) { /* ignore */ }
+    try { await dialog.accept() } catch { /* ignore */ }
   })
   var result = await page.evaluate(function () {
     // The import hierarchy dialog has a Save button. It may be a .hax-modal-btn
@@ -441,7 +439,7 @@ test('outline import + normalize-slugs e2e', { timeout: 360000 }, async (t) => {
   assert.ok(saveResult.clicked, 'Save button clicked on import hierarchy dialog: ' + JSON.stringify(saveResult))
 
   // 9. Wait for the POST /x/api/v1/items (createNode) response.
-  var createResp = await awaitCreateItemResponse(collector, 30000)
+  createResp = await awaitCreateItemResponse(collector, 30000)
   assert.ok(createResp, 'POST /x/api/v1/items response captured after import save')
   assert.strictEqual(createResp.status, 200, 'createNode API returned status 200 after import')
   t.diagnostic('[outline] createNode (import) 200, url=' + createResp.url)
@@ -505,7 +503,7 @@ test('outline import + normalize-slugs e2e', { timeout: 360000 }, async (t) => {
   var previewBody = null
   try {
     previewBody = JSON.parse(String(previewResp.data || ''))
-  } catch (e) {
+  } catch {
     previewBody = null
   }
   assert.ok(previewBody && previewBody.data, 'normalize-slugs preview response has data')
@@ -550,7 +548,7 @@ test('outline import + normalize-slugs e2e', { timeout: 360000 }, async (t) => {
   var applyBody = null
   try {
     applyBody = JSON.parse(String(applyResp.data || ''))
-  } catch (e) {
+  } catch {
     applyBody = null
   }
   assert.ok(applyBody && applyBody.data, 'normalize-slugs apply response has data')
@@ -574,7 +572,7 @@ test('outline import + normalize-slugs e2e', { timeout: 360000 }, async (t) => {
     // Verify at least one change is reflected: the new slug should appear in the items list.
     var slugUpdated = false
     var firstChange = applyBody.data.changes[0]
-    for (var i = 0; i < itemsAfterNormalize.length; i++) {
+    for (let i = 0; i < itemsAfterNormalize.length; i++) {
       if (itemsAfterNormalize[i].slug === firstChange.newSlug) {
         slugUpdated = true
         break
@@ -646,7 +644,7 @@ test('outline import + normalize-slugs e2e', { timeout: 360000 }, async (t) => {
     var fallback = null
     try {
       fallback = await runA11y(page, 'simple-modal')
-    } catch (e) {
+    } catch {
       fallback = null
     }
     if (fallback) {

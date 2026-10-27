@@ -86,7 +86,9 @@ function getNodeMemoryLimitLabel() {
     ) {
       return formatBytes(heapStats.heap_size_limit);
     }
-  } catch (e) {}
+  } catch {
+    // intentionally ignored
+  }
   return "Unknown";
 }
 
@@ -114,7 +116,9 @@ function detectGitVersion() {
       }
       return "git installed";
     }
-  } catch (e) {}
+  } catch {
+    // intentionally ignored
+  }
   return "";
 }
 
@@ -137,7 +141,7 @@ function buildDirectoryStatusRow(directory = {}, processOwnership = {}) {
   let exists = false;
   try {
     exists = fs.pathExistsSync(directoryPath);
-  } catch (e) {
+  } catch {
     exists = false;
   }
   if (!exists) {
@@ -153,7 +157,7 @@ function buildDirectoryStatusRow(directory = {}, processOwnership = {}) {
   let stats = null;
   try {
     stats = fs.statSync(directoryPath);
-  } catch (e) {
+  } catch {
     stats = null;
   }
   if (!stats || !stats.isDirectory()) {
@@ -170,7 +174,7 @@ function buildDirectoryStatusRow(directory = {}, processOwnership = {}) {
   try {
     fs.accessSync(directoryPath, fs.constants.W_OK);
     writable = true;
-  } catch (e) {
+  } catch {
     writable = false;
   }
   const ownershipComparable =
@@ -224,7 +228,7 @@ async function fetchLatestReleaseVersion() {
         latestVersion = normalizeVersion(payload.tag_name);
       }
     }
-  } catch (e) {
+  } catch {
     latestVersion = "";
   }
   clearTimeout(timeoutHandle);

@@ -180,7 +180,7 @@ async function resolveExistingSchemaFile(schema, name) {
   try {
     files = await fs.readdir(schemaDirectory);
   }
-  catch (e) {
+  catch {
     return null;
   }
   for (let i = 0; i < files.length; i++) {
@@ -190,7 +190,7 @@ async function resolveExistingSchemaFile(schema, name) {
     try {
       stats = await fs.stat(filePath);
     }
-    catch (e) {
+    catch {
       continue;
     }
     if (!stats || !stats.isFile()) {
@@ -220,7 +220,7 @@ async function normalizeSkeletonUpload(tmpPath, machineName) {
   try {
     parsed = JSON.parse(raw);
   }
-  catch (e) {
+  catch {
     throw new Error('invalid skeleton json');
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -256,7 +256,9 @@ async function updateSkeletonMetaMachineName(filePath, machineName) {
     parsed.meta.machineName = machineName;
     await fs.writeFile(filePath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
   }
-  catch (e) {}
+  catch {
+    // intentionally ignored
+  }
 }
 
 /**
@@ -345,7 +347,7 @@ async function schemaFileOperation(req, res) {
       );
       await fs.writeFile(destinationPath, normalizedSkeleton, 'utf8');
     }
-    catch (e) {
+    catch {
       if (upload.path && (await fs.pathExists(upload.path))) {
         await fs.remove(upload.path);
       }

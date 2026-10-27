@@ -1,0 +1,45 @@
+# Teach CodeQL's js/path-injection query about this repo's containment helpers
+# (src/lib/pathConfinement.js). Each one proves a user-influenced path stays
+# inside a base directory, but CodeQL cannot see that on its own.
+extensions:
+  # resolveContainedPath(base, location) returns a realpath-verified path
+  # inside `base`, or false. Its return value is safe to use for file access.
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: barrierModel
+    data:
+      - [
+          "file:src/lib/pathConfinement.js",
+          "Member[resolveContainedPath].ReturnValue",
+          "path-injection",
+        ]
+  # hasTraversal(v) / isUnsafeRelativePath(v) return true for NUL bytes, `..`
+  # segments and absolute paths; a false result means `v` is safe to join.
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: barrierGuardModel
+    data:
+      - [
+          "file:src/lib/pathConfinement.js",
+          "Member[hasTraversal].Argument[0]",
+          "false",
+          "path-injection",
+        ]
+      - [
+          "file:src/lib/pathConfinement.js",
+          "Member[isUnsafeRelativePath].Argument[0]",
+          "false",
+          "path-injection",
+        ]
+  # HAXCMS.cleanTitle(value) maps everything outside [\w\-/] to "-", so no dot
+  # (and therefore no `..` segment) survives. Site and page names are passed
+  # through it and then appended to a fixed base directory.
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: barrierModel
+    data:
+      - [
+          "file:src/lib/HAXCMS.js",
+          "Member[HAXCMS].Member[cleanTitle].ReturnValue",
+          "path-injection",
+        ]

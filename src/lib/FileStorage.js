@@ -207,11 +207,15 @@ class FileStorage extends EntityStorage {
       if (site.manifest && typeof site.manifest.save === 'function') {
         try {
           site.manifest.save();
-        } catch (e) {}
+        } catch {
+          // intentionally ignored
+        }
       } else if (typeof site.save === 'function') {
         try {
           site.save();
-        } catch (e) {}
+        } catch {
+          // intentionally ignored
+        }
       }
     }
   }

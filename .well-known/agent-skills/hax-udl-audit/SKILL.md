@@ -1,17 +1,21 @@
 ---
 name: hax-udl-audit
-description: >
-  READ-ONLY diagnostic: review a HAX site/page against Universal Design for Learning (UDL) 3.0 —
-  multiple means of Engagement, Representation, and Action & Expression — and emit a report with
-  actionable HAX web-component remediation. Use when the user says "is this accessible to all
-  learners", "audit for UDL", "does this page reach everyone", "add multiple means of expression",
-  "my course is all reading and video with no interaction", or "universal design" — even if they
-  don't say "UDL". Diagnoses only; hands off to hax-claudehax / hax-site-building for remediation.
+description: 'READ-ONLY audit of a HAX page against UDL 3.0 (Engagement, Representation, Action & Expression) with HAX component remediation. Use for "audit for UDL" or "does this page reach everyone".'
 version: 1.0.0
 license: MIT
 metadata:
   author: PRAW
-  tags: [instructional-design, udl, universal-design-for-learning, accessibility, audit, hax, diagnostic, learner-agency]
+  tags:
+    [
+      instructional-design,
+      udl,
+      universal-design-for-learning,
+      accessibility,
+      audit,
+      hax,
+      diagnostic,
+      learner-agency,
+    ]
   requirements: "A HAX site path (site.json + pages/*.html) or a single page (JOS node / raw HTML / markdown). Emits a report; does NOT edit pages or site.json."
 ---
 
@@ -39,12 +43,14 @@ varied response methods. Bias the audit toward that gap.
 ## When to Use
 
 **Trigger conditions:**
+
 - "Is this accessible to all learners" / "does this page reach everyone" / "audit for UDL"
 - "My course is all reading and video with no interaction" / "add multiple means of expression"
 - "Universal design" / "learner agency" / "multiple means of representation"
 - even when the user does not say "UDL" — if they question whether a page reaches diverse learners or relies on a single medium/response type, this is the skill
 
 **When NOT to use (with redirect):**
+
 - Page readability / "wall of text" / chunking → `hax-content-chunking-audit` (page-scope cognitive load)
 - Unit alignment / "are assessments aligned" / backward design → `hax-ubd-unit-audit` (UbD owns alignment)
 - DDD/CSS compliance → `hax-design-system`
@@ -85,7 +91,7 @@ below). Never edit `pages/*.html` or `site.json` from within this skill.
    `link-preview`, `model-viewer` are excluded — use the documented gap handling).
 5. **Apply the UbD overlap rule.** If the unit was already audited/designed with the UbD family, do
    NOT re-report Stage 2 alignment as a UDL finding — defer alignment to `hax-ubd-unit-audit` and
-   limit the UDL report to the *variety of means* lens (multiple response methods? graduated
+   limit the UDL report to the _variety of means_ lens (multiple response methods? graduated
    practice? progress monitoring?).
 6. **Determine the overall rating:** Accessible (all three principles represented) | Partial (one
    principle thin/absent) | Single-Path (Action & Expression absent — the common HAX-course
@@ -122,6 +128,7 @@ Format findings exactly like this structure (mirrors `hax-ubd-unit-audit`):
 `stop-note` reflection prompt. No interactive blocks.
 
 **Output:**
+
 ```
 ### 📊 UDL 3.0 Diagnostics
 * **UDL Rating:** Single-Path
@@ -176,12 +183,13 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
   - `/hax add an interactive check-for-understanding section to <page> using HAX web components, not plain HTML`
   - `/hax add a multiple choice quiz to this page based on the page content`
   - `/hax add 5 flash cards to <page> using the best HAX web component`
-- **`hax-site-building`** — owns page structure; edit page *content* at `pages/<slug>.html`; add pages via `hax site node:add --title "<t>" --slug "<s>" --content <path> --format html --y --no-i` (single) or `hax site site:items-import --items-import <items.json> --y --no-i` (bulk); verify with `hax site site:items`. Never hand-edit `site.json`.
+- **`hax-site-building`** — owns page structure; edit page _content_ at `pages/<slug>.html`; add pages via `hax site node:add --title "<t>" --slug "<s>" --content <path> --format html --y --no-i` (single) or `hax site site:items-import --items-import <items.json> --y --no-i` (bulk); verify with `hax site site:items`. Never hand-edit `site.json`.
 - **`hax-design-system`** — DDD tokens for spacing, color, icon sizing on any inserted component.
 - **`grad-blooms`** — when a check-in/quiz is recommended, confirm its cognitive level matches the learning objective (don't insert a Remember-level quiz where an Apply prompt is needed).
 - **`hax-ubd-unit-audit` / `hax-ubd-backward-design`** — when the gap is really alignment (assessments don't match goals), defer to the UbD family rather than treating it as a UDL variety issue.
 
 **CLI rules (from PRAW RULES.md):**
+
 - Use the local/global `hax` command — **not** `npx hax` (resolves to a different package).
 - When scripting, pass automation flags to avoid prompts/new windows: `--y --no-i` (add `--auto` / `--quiet` / `--skip` as needed).
 - Never hand-edit `site.json` for structure — use the CLI.
@@ -198,7 +206,7 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 
 ## Gotchas
 
-- **A page can be media-rich and still be Single-Path.** Lots of `video-player` + `media-image` satisfies Representation but says nothing about Action & Expression. Do not rate a media-heavy page as Accessible just because it looks good — check whether the learner can *respond*.
+- **A page can be media-rich and still be Single-Path.** Lots of `video-player` + `media-image` satisfies Representation but says nothing about Action & Expression. Do not rate a media-heavy page as Accessible just because it looks good — check whether the learner can _respond_.
 - **`stop-note` is reflection, not response.** A `stop-note` supports Engagement (G9.3) but does not by itself satisfy Action & Expression (G4/G5) because it captures no learner artifact. Pair it with `self-check` or `simple-fields`.
 - **UDL is not a checklist; do not over-flag.** A page does not need every guideline to be Accessible. Flag genuine gaps that limit reach, not the absence of every possible block. A focused page with one strong response path can be Accessible.
 - **Do not double-report UbD findings.** Alignment (Stage 1↔2↔3) is the UbD skill's job; UDL owns variety of means. If a gap is really "the quiz doesn't assess the understanding," send it to `hax-ubd-unit-audit`, don't file it as UDL.
@@ -215,6 +223,6 @@ This audit is the diagnosis step. Apply fixes with the related skills and the `h
 ## References
 
 - `references/udl-element-map.md` — UDL → HAX component map (verified tags only; the iron rule)
-- `../hax-ubd-backward-design/references/ubd-element-map.md` — companion UbD map (Stage 2 evidence overlap)
-- PRAW RULES.md: `~/Documents/git/haxtheweb/praw/RULES.md`
-- CAST (2024). *Universal Design for Learning Guidelines version 3.0*. https://udlguidelines.cast.org/
+- `https://github.com/haxtheweb/praw/blob/main/skills/hax-ubd-backward-design/references/ubd-element-map.md` — companion UbD map (Stage 2 evidence overlap)
+- PRAW RULES.md: `https://github.com/haxtheweb/praw/blob/main/RULES.md`
+- CAST (2024). _Universal Design for Learning Guidelines version 3.0_. https://udlguidelines.cast.org/

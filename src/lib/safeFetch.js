@@ -33,7 +33,7 @@ async function resolveAndValidateUrl(urlString) {
   var parsed;
   try {
     parsed = new URL(urlString);
-  } catch (e) {
+  } catch {
     var err = new Error('Invalid URL');
     err.code = 'SSRF_INVALID_URL';
     throw err;
@@ -53,7 +53,7 @@ async function resolveAndValidateUrl(urlString) {
   var records;
   try {
     records = await dns.promises.lookup(hostname, { all: true });
-  } catch (e) {
+  } catch {
     var dnsErr = new Error('Unable to resolve URL hostname');
     dnsErr.code = 'SSRF_DNS';
     throw dnsErr;
@@ -231,13 +231,19 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
       settled = true;
       if (timer) { clearTimeout(timer); }
       if (sink) {
-        try { sink.destroy(); } catch (e) {}
+        try { sink.destroy(); } catch {
+          // intentionally ignored
+        }
       }
       if (activeResponse) {
-        try { activeResponse.destroy(); } catch (e) {}
+        try { activeResponse.destroy(); } catch {
+          // intentionally ignored
+        }
       }
       if (req) {
-        try { req.destroy(); } catch (e) {}
+        try { req.destroy(); } catch {
+          // intentionally ignored
+        }
       }
       reject(err);
     }
@@ -398,7 +404,7 @@ async function safeFetchInternal(urlString, options, sinkPath) {
     var nextUrl;
     try {
       nextUrl = new URL(locationHeader, currentUrl).toString();
-    } catch (e) {
+    } catch {
       var badLocErr = new Error('safeFetch received an invalid redirect Location');
       badLocErr.code = 'SSRF_REDIRECT';
       throw badLocErr;
@@ -436,7 +442,9 @@ async function safeFetchToFile(urlString, filepath, options) {
     try {
       fs.unlinkSync(filepath);
     }
-    catch (unlinkErr) {}
+    catch {
+      // intentionally ignored
+    }
     throw e;
   }
   return filepath;

@@ -162,12 +162,12 @@ async function main() {
     try {
       await page.waitForSelector('simple-modal', { timeout: 20000 })
       loginModalSeen = true
-    } catch (e) {
+    } catch {
       await new Promise((r) => setTimeout(r, 3000))
       try {
         await page.waitForSelector('simple-modal', { timeout: 10000 })
         loginModalSeen = true
-      } catch (e2) {
+      } catch {
         console.log('simple-modal NOT found after wait')
       }
     }
@@ -230,7 +230,7 @@ async function main() {
       try {
         const parsed = JSON.parse(loginResp.bodyText)
         logJSON('loginResponseParsed', { status: parsed.status, hasJwt: typeof parsed.jwt === 'string', jwtLen: parsed.jwt ? parsed.jwt.length : 0 })
-      } catch (e) {
+      } catch {
         console.log('login response not JSON parseable')
       }
     } catch (e) {

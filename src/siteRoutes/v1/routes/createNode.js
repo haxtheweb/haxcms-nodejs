@@ -1,9 +1,13 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const path = require('path');
-const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
-const { sanitizeHTMLForStorage } = require('../../../lib/sanitizeContent.js');
-const { materializeInlineImages } = require('../../../lib/materializeInlineImages.js');
-const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.js');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const path = require("path");
+const { sanitizeHTMLForStorage } = require("../../../lib/sanitizeContent.js");
+const {
+  materializeInlineImages,
+} = require("../../../lib/materializeInlineImages.js");
+const {
+  getRequestHeaderValue,
+  assertSiteFeature,
+} = require("../siteRouteUtils.js");
 /**
  * @OA\Post(
  *     path="/createNode",
@@ -73,47 +77,70 @@ const { getRequestHeaderValue, assertSiteFeature } = require('../siteRouteUtils.
  * )
  */
 async function createNode(req, res) {
-  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  // Security: use the per-request authenticated identity resolved by
+  // validateSiteApiRouteAccess rather than a process-global username so a
+  // token minted for one authenticated user cannot validate under another.
+  const activeUserName =
+    req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "";
   if (
     siteToken &&
     req.body &&
     req.body.site &&
     req.body.site.name &&
-    HAXCMS.validateRequestToken(siteToken, HAXCMS.getActiveUserName() + ':' + req.body.site.name)
+    activeUserName &&
+    HAXCMS.validateRequestToken(
+      siteToken,
+      activeUserName + ":" + req.body.site.name,
+    )
   ) {
     let nodeParams = req.body;
     let item;
     let site = await HAXCMS.loadSite(req.body.site.name.toLowerCase());
-    if (!assertSiteFeature(site, res, 'addPage', 'Adding pages is disabled for this site')) {
+    if (
+      !assertSiteFeature(
+        site,
+        res,
+        "addPage",
+        "Adding pages is disabled for this site",
+      )
+    ) {
       return;
     }
     // implies we've been TOLD to create nodes
     // this is typically from a docx import
-    if (nodeParams['items']) {
+    if (nodeParams["items"]) {
       // create pages
-      for (let i=0; i < nodeParams['items'].length; i++) {
+      for (let i = 0; i < nodeParams["items"].length; i++) {
         // outline-designer allows delete + confirmation but we don't have anything
         // so instead, just don't process the thing in question if asked to delete it
-        if (nodeParams['items'][i]['delete'] && nodeParams['items'][i]['delete'] == true) {
+        if (
+          nodeParams["items"][i]["delete"] &&
+          nodeParams["items"][i]["delete"] == true
+        ) {
           // do nothing
-        }
-        else {
+        } else {
           item = await site.addPage(
-          nodeParams['items'][i]['parent'], 
-          nodeParams['items'][i]['title'], 
-          'html', 
-          nodeParams['items'][i]['slug'],
-          nodeParams['items'][i]['id'],
-          nodeParams['items'][i]['indent'],
-          nodeParams['items'][i]['content'] || nodeParams['items'][i]['contents'] || '',
-          nodeParams['items'][i]['order'],
-          (nodeParams['items'][i]['metadata']) ? nodeParams['items'][i]['metadata'] : null,
-          );  
+            nodeParams["items"][i]["parent"],
+            nodeParams["items"][i]["title"],
+            "html",
+            nodeParams["items"][i]["slug"],
+            nodeParams["items"][i]["id"],
+            nodeParams["items"][i]["indent"],
+            nodeParams["items"][i]["content"] ||
+              nodeParams["items"][i]["contents"] ||
+              "",
+            nodeParams["items"][i]["order"],
+            nodeParams["items"][i]["metadata"]
+              ? nodeParams["items"][i]["metadata"]
+              : null,
+          );
         }
       }
-      await site.gitCommit(nodeParams['items'].length + ' pages added'); 
-    }
-    else {
+      await site.gitCommit(nodeParams["items"].length + " pages added");
+    } else {
       // generate a new item based on the site
       item = site.itemFromParams(nodeParams);
       item.metadata.images = [];
@@ -122,86 +149,88 @@ async function createNode(req, res) {
       // Security (N1/N5 parity): the copy must land inside this site's
       // directory; refuse rather than writing anywhere else.
       const copied = await HAXCMS.recurseCopy(
-        HAXCMS.boilerplatePath + 'page/default',
-        path.join(site.siteDirectory, item.location.replace('/index.html', '')),
+        HAXCMS.boilerplatePath + "page/default",
+        path.join(site.siteDirectory, item.location.replace("/index.html", "")),
         [],
-        site.siteDirectory
+        site.siteDirectory,
       );
       if (copied === false) {
         return res.status(400).json({
           status: 400,
-          data: { message: 'Invalid node location' },
+          data: { message: "Invalid node location" },
         });
       }
       // add the item back into the outline schema
       site.manifest.addItem(item);
       await site.manifest.save();
-      let alternateContent = '';
+      let alternateContent = "";
       // support for duplicating the content of another item
-      if (nodeParams['node']['duplicate']) {
+      if (nodeParams["node"]["duplicate"]) {
         // verify we can load this id
         let nodeToDuplicate;
-        if (nodeToDuplicate = site.loadNode(nodeParams['node']['duplicate'])) {
-            let content = await site.getPageContent(nodeToDuplicate);
-            let page;
-            // verify we actually have the id of an item that we just created
-            if (page = site.loadNode(item.id)) {
+        if (
+          (nodeToDuplicate = site.loadNode(nodeParams["node"]["duplicate"]))
+        ) {
+          let content = await site.getPageContent(nodeToDuplicate);
+          let page;
+          // verify we actually have the id of an item that we just created
+          if ((page = site.loadNode(item.id))) {
             // write it to the file system
             // this all seems round about but it's more secure
             alternateContent = sanitizeHTMLForStorage(content);
-            let bytes = await page.writeLocation(
-                alternateContent,
-                site.siteDirectory
-            );
-            }
+            await page.writeLocation(alternateContent, site.siteDirectory);
+          }
         }
       }
       // implies front end was told to generate a page with set content
       // this is possible when importing and processing a file to generate
       // html which becomes the boilerplated content in effect
-      else if (nodeParams['node']['contents']) {
+      else if (nodeParams["node"]["contents"]) {
         let page;
-        if (page = site.loadNode(item.id)) {
-            // write it to the file system
-            const { html: rewritten, uuids } = await materializeInlineImages(
-              nodeParams['node']['contents'],
-              site,
-              { pageTitle: item.title || (nodeParams['node'] && nodeParams['node']['title']) },
-            );
-            alternateContent = sanitizeHTMLForStorage(rewritten);
-            let bytes = await page.writeLocation(
-            alternateContent,
-            site.siteDirectory
-            );
-            // #3043: imported files are referenced by their FileEntity uuid
-            // (the same source saveNode uses), returned directly by
-            // materializeInlineImages from the Entity API. Set
-            // page.metadata.files from those uuids rather than re-scanning:
-            // mammoth docx output carries images as data URIs (which the
-            // helper just saved), not pre-existing files/ refs.
-            if (!page.metadata) {
-              page.metadata = {};
-            }
-            page.metadata.files = uuids;
-            if (uuids.length > 0) {
-              await site.manifest.save();
-            }
+        if ((page = site.loadNode(item.id))) {
+          // write it to the file system
+          const { html: rewritten, uuids } = await materializeInlineImages(
+            nodeParams["node"]["contents"],
+            site,
+            {
+              pageTitle:
+                item.title ||
+                (nodeParams["node"] && nodeParams["node"]["title"]),
+            },
+          );
+          alternateContent = sanitizeHTMLForStorage(rewritten);
+          await page.writeLocation(alternateContent, site.siteDirectory);
+          // #3043: imported files are referenced by their FileEntity uuid
+          // (the same source saveNode uses), returned directly by
+          // materializeInlineImages from the Entity API. Set
+          // page.metadata.files from those uuids rather than re-scanning:
+          // mammoth docx output carries images as data URIs (which the
+          // helper just saved), not pre-existing files/ refs.
+          if (!page.metadata) {
+            page.metadata = {};
+          }
+          page.metadata.files = uuids;
+          if (uuids.length > 0) {
+            await site.manifest.save();
+          }
         }
       }
       let createdPage = site.loadNode(item.id);
       if (createdPage) {
         site.writePageAlternateFormats(createdPage, alternateContent);
       }
-      await site.gitCommit('Page added:' + item.title + ' (' + item.id + ')'); 
+      await site.gitCommit("Page added:" + item.title + " (" + item.id + ")");
       // update the alternate formats as a new page exists
       await site.updateAlternateFormats();
     }
     res.send({
       status: 200,
-      data: item
+      data: item,
     });
   } else {
-    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
+    res
+      .status(403)
+      .json({ status: 403, data: { message: "Authentication required" } });
   }
 }
 module.exports = createNode;

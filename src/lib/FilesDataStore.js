@@ -6,6 +6,7 @@ const fs = require('fs-extra');
 const mime = require('mime');
 const sharp = require('sharp');
 const { buildFilePublicUrl } = require('./siteFileUrl.js');
+const { hasTraversal, pathWithinBase } = require('./pathConfinement.js');
 const {
   getDeterministicFileUuid,
   getCanonicalFilePathForUuid,
@@ -83,7 +84,7 @@ class FilesDataStore {
             return this.envelope;
           }
         }
-      } catch (e) {
+      } catch {
         // corrupt: fall through to auto-build
       }
     }
@@ -118,10 +119,12 @@ class FilesDataStore {
     try {
       fs.writeFileSync(temp, json, 'utf8');
       fs.renameSync(temp, jsonPath);
-    } catch (e) {
+    } catch {
       try {
         fs.removeSync(temp);
-      } catch (cleanupErr) {}
+      } catch {
+        // intentionally ignored
+      }
       return false;
     }
     return true;
@@ -382,7 +385,7 @@ class FilesDataStore {
       let entries = [];
       try {
         entries = fs.readdirSync(activeDir, { withFileTypes: true });
-      } catch (e) {
+      } catch {
         entries = [];
       }
       for (let i = 0; i < entries.length; i++) {
@@ -396,7 +399,7 @@ class FilesDataStore {
           if (fs.lstatSync(absoluteEntryPath).isSymbolicLink()) {
             continue;
           }
-        } catch (e) {
+        } catch {
           continue;
         }
         if (entry.isDirectory()) {
@@ -441,8 +444,16 @@ class FilesDataStore {
     if (relative.indexOf('files/') === 0) {
       relative = relative.substring(6);
     }
+    // Security: lexical containment (no `..`/NUL, stays inside files/).
+    // Symlink handling is deliberately left to the route-level realpath gate
+    // so records for symlinked subdirectories keep indexing as before.
     const absolutePath = path.join(filesDir, relative);
-    if (!fs.pathExistsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
+    if (
+      hasTraversal(relative) ||
+      !pathWithinBase(path.resolve(absolutePath), path.resolve(filesDir)) ||
+      !fs.pathExistsSync(absolutePath) ||
+      !fs.statSync(absolutePath).isFile()
+    ) {
       return null;
     }
     const stats = fs.statSync(absolutePath);
@@ -452,7 +463,7 @@ class FilesDataStore {
     let mimetype = '';
     try {
       mimetype = mime.getType(absolutePath) || '';
-    } catch (e) {
+    } catch {
       mimetype = '';
     }
     if (mimetype === '') {
@@ -484,7 +495,7 @@ class FilesDataStore {
           width = metadata.width;
           height = metadata.height;
         }
-      } catch (e) {
+      } catch {
         // not a valid raster image or unreadable — leave 0/0
       }
     }

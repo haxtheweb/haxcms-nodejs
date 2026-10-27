@@ -11,7 +11,6 @@ const vm = require('node:vm')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const APP_ENTRY_PATH = path.join(REPO_ROOT, 'src', 'app.js')
-const SYSTEM_SPEC_PATH = path.join(REPO_ROOT, 'src', 'openapi', 'system-spec.yaml')
 const SITE_DIRECTORY_NAME = '_sites'
 
 const TEST_USER_NAME = process.env.HAXCMS_TEST_USERNAME || 'api-conformance-user'
@@ -103,9 +102,6 @@ async function createMinimalXlsxBuffer() {
   return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
 }
 
-function createMinimalPdfBuffer() {
-  return Buffer.from('%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n')
-}
 
 async function createMinimalPptxBuffer() {
   const zip = new JSZip()
@@ -127,51 +123,11 @@ async function createMinimalPptxBuffer() {
 }
 
 // a well-known, minimal valid 1x1 transparent PNG
-const MINIMAL_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 
 // builds a real (single-slide) .pptx whose slide contains an actual embedded
 // image, so tests can verify the deck.json image path actually matches where
 // the extracted file gets written on disk (regression coverage for the
 // files/pptx-media/ vs files/decks/<name>/ path-mismatch bug).
-async function createPptxBufferWithImage() {
-  const zip = new JSZip()
-  zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Default Extension="png" ContentType="image/png"/>
-  <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
-</Types>`)
-  zip.folder('_rels').file('.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
-</Relationships>`)
-  zip.folder('ppt').file('presentation.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <p:sldIdLst><p:sldId id="256" r:id="rIdSlide1"/></p:sldIdLst>
-</p:presentation>`)
-  zip.folder('ppt/slides').file('slide1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-  <p:cSld>
-    <p:spTree>
-      <p:sp>
-        <p:nvSpPr><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
-        <p:txBody><a:p><a:r><a:t>Slide with an image</a:t></a:r></a:p></p:txBody>
-      </p:sp>
-      <p:pic>
-        <p:blipFill><a:blip r:embed="rId2"/></p:blipFill>
-      </p:pic>
-    </p:spTree>
-  </p:cSld>
-</p:sld>`)
-  zip.folder('ppt/slides/_rels').file('slide1.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
-</Relationships>`)
-  zip.folder('ppt/media').file('image1.png', Buffer.from(MINIMAL_PNG_BASE64, 'base64'))
-  return zip.generateAsync({ type: 'nodebuffer' })
-}
 
 async function sendHttpRequest(requestConfig) {
   const response = await axios({
@@ -302,50 +258,6 @@ async function requestConnectionSettings(baseUrl, jwt = '') {
   return parseConnectionSettingsScript(settingsResponse.bodyText)
 }
 
-async function createHarnessSite(baseUrl, jwt, dashboardSettings, siteName) {
-  const createSitePath =
-    dashboardSettings &&
-    typeof dashboardSettings.createSite === 'string' &&
-    dashboardSettings.createSite.trim() !== ''
-      ? dashboardSettings.createSite
-      : '/system/api/v1/sites'
-  const createSiteHeaders = {
-    accept: 'application/json',
-    'content-type': 'application/json',
-    Authorization: `Bearer ${jwt}`,
-  }
-  if (dashboardSettings && dashboardSettings.userToken) {
-    createSiteHeaders[dashboardSettings.userTokenHeader || 'X-HAXCMS-User-Token'] = dashboardSettings.userToken
-  }
-  const createSiteResponse = await sendHttpRequest({
-    method: 'POST',
-    url: `${baseUrl}${createSitePath}`,
-    headers: createSiteHeaders,
-    data: JSON.stringify({
-      jwt,
-      token: dashboardSettings.token,
-      site: {
-        name: siteName,
-        description: 'PPTX deck import conformance harness site',
-      },
-    }),
-  })
-  assert.equal(
-    createSiteResponse.status,
-    200,
-    `Expected createSite success but received ${createSiteResponse.status}: ${createSiteResponse.bodyText}`,
-  )
-  const createSiteBody = JSON.parse(createSiteResponse.bodyText)
-  assert.ok(
-    createSiteBody &&
-      createSiteBody.status === 200 &&
-      createSiteBody.data &&
-      createSiteBody.data.metadata &&
-      createSiteBody.data.metadata.site &&
-      createSiteBody.data.metadata.site.name === siteName,
-    `createSite did not return expected site name "${siteName}"`,
-  )
-}
 
 async function setupRuntime() {
   const runtime = {
@@ -1084,7 +996,7 @@ test('system actions endpoints conformance', async (t) => {
     )
   })
 
-  await t.test('docx-to-pdf converts valid docx to PDF download', async () => {
+  await t.test('docx-to-pdf converts valid docx to PDF download', { skip: require('../../src/lib/convertUtils.js').findChromeExecutable() ? false : 'PDF export needs Chrome/Chromium (install it or set PUPPETEER_EXECUTABLE_PATH)' }, async () => {
     const docxBuffer = await createMinimalDocxBuffer()
     const multipart = buildMultipartBody({
       fileName: 'test.docx',

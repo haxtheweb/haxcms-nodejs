@@ -29,8 +29,16 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@f443b600d91635bebf5b0d9ebc620189c0d6fba5 # v4.30.8
+        env:
+          # Advanced setup does not auto-discover in-repo extension packs, so
+          # pass ours to `codeql database run-queries` explicitly. It teaches
+          # js/path-injection about resolveContainedPath() and friends; the
+          # `actions` job ignores it (no matching extension targets).
+          CODEQL_ACTION_EXTRA_OPTIONS: >-
+            {"database":{"run-queries":["--additional-packs=${{ github.workspace }}/.github/codeql/extensions","--extension-packs=haxtheweb/haxcms-path-confinement"]}}
         with:
           category: "/language:${{ matrix.language }}"

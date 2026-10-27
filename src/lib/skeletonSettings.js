@@ -158,7 +158,7 @@ async function readEnabledSkeletonMap(haxcms) {
     }
     return normalizeEnabledSkeletonMap(haxcms, JSON.parse(raw));
   }
-  catch (e) {
+  catch {
     return {};
   }
 }
@@ -194,7 +194,7 @@ async function discoverSkeletons(haxcms) {
     try {
       files = await fs.readdir(entry.dir);
     }
-    catch (e) {
+    catch {
       continue;
     }
     for (let j = 0; j < files.length; j++) {
@@ -207,7 +207,7 @@ async function discoverSkeletons(haxcms) {
       try {
         stats = await fs.stat(filePath);
       }
-      catch (e) {
+      catch {
         continue;
       }
       if (
@@ -232,7 +232,7 @@ async function discoverSkeletons(haxcms) {
         const json = await fs.readFile(filePath, 'utf8');
         skeleton = JSON.parse(json);
       }
-      catch (e) {
+      catch {
         continue;
       }
       if (!skeleton || typeof skeleton !== 'object' || Array.isArray(skeleton)) {

@@ -1134,7 +1134,7 @@ test("recurseCopy copies a directory tree recursively", async () => {
   fs.ensureDirSync(path.join(srcDir, "nested"));
   fs.writeFileSync(path.join(srcDir, "top.txt"), "top");
   fs.writeFileSync(path.join(srcDir, "nested", "deep.txt"), "deep");
-  await HAXCMS.recurseCopy(srcDir, dstDir);
+  await HAXCMS.recurseCopy(srcDir, dstDir, [], tempRoot);
   assert.equal(fs.readFileSync(path.join(dstDir, "top.txt"), "utf8"), "top");
   assert.equal(
     fs.readFileSync(path.join(dstDir, "nested", "deep.txt"), "utf8"),

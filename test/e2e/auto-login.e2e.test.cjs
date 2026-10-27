@@ -30,12 +30,7 @@ const {
   createResponseCollector,
   captureScreenshot,
   selectors,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
-  waitFor,
   loginViaUI,
-  reloadDashboard,
   waitForDeep,
   waitForLoginModal,
   patchHaxcmsRootForHarness,
@@ -44,7 +39,6 @@ const {
   awaitCookie,
   findCookie,
   createStatusWatcher,
-  performLoginEvaluate,
 } = require('./helpers')
 
 // --- shared state ---
@@ -65,38 +59,22 @@ test.before(async () => {
 
 test.after(async () => {
   if (statusWatcher) {
-    try { statusWatcher.detach() } catch (e) { /* ignore */ }
+    try { statusWatcher.detach() } catch { /* ignore */ }
   }
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
 // --- helpers ---
 
 // Check if a JWT is present in localStorage (key contains 'jwt').
-async function jwtInLocalStorage(page) {
-  return page.evaluate(() => {
-    try {
-      for (let i = 0; i < globalThis.localStorage.length; i++) {
-        const key = globalThis.localStorage.key(i)
-        if (key && key.indexOf('jwt') !== -1) {
-          const val = globalThis.localStorage.getItem(key)
-          if (val && val.length > 10) {
-            return true
-          }
-        }
-      }
-    } catch (e) {}
-    return false
-  })
-}
 
 // Dump all localStorage keys (for diagnostics — to understand what the SPA
 // actually persists).
@@ -111,7 +89,9 @@ async function dumpLocalStorageKeys(page) {
           keys.push({ key: key, valueLen: val.length })
         }
       }
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     return keys
   })
 }

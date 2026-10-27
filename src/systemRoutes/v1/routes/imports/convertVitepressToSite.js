@@ -50,7 +50,6 @@ const SUPPORTED_LICENSES = [
 const IMPORTABLE_ASSET_REGEX =
   /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|xml)$/i;
 const IMAGE_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webp)$/i;
-const VIDEO_EXTENSION_REGEX = /\.(webm|mp4|mov)$/i;
 // The OER containers the VitePress OER plugin defines (vitepress-plugin in the
 // source repo). Each becomes an oer-schema element; the container's attributes
 // become nested oer-schema properties under the same names the plugin emits as
@@ -147,7 +146,7 @@ function readRequestBody(req) {
   if (typeof req.body === "string") {
     try {
       return JSON.parse(req.body.trim());
-    } catch (e) {
+    } catch {
       return {};
     }
   }
@@ -172,7 +171,7 @@ function parseRepoUrl(sourceUrl) {
   let parsed = null;
   try {
     parsed = new URL(sourceUrl);
-  } catch (e) {
+  } catch {
     throw importError(400, `Invalid repoUrl: ${sourceUrl}`);
   }
   if (parsed.hostname.toLowerCase() !== "github.com") {
@@ -216,7 +215,7 @@ async function fetchJson(url, description) {
   }
   try {
     return await response.json();
-  } catch (e) {
+  } catch {
     throw importError(400, `Unable to parse ${description}`);
   }
 }
@@ -231,7 +230,7 @@ async function fetchText(url) {
       return null;
     }
     return await response.text();
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -350,7 +349,7 @@ function readConfig(source) {
     try {
       const sidebar = parseJsLiteral(literal);
       config.sidebar = normalizeSidebar(sidebar);
-    } catch (e) {
+    } catch {
       config.sidebar = null;
     }
   }
@@ -911,7 +910,7 @@ function splitFrontmatter(markdown) {
     if (parsed && typeof parsed === "object") {
       data = parsed;
     }
-  } catch (e) {
+  } catch {
     data = {};
   }
   return { data: data, body: markdown.slice(match[0].length) };

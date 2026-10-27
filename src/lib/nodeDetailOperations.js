@@ -177,7 +177,7 @@ function applyMetadataMutation(page, details = {}, operation = null, site = null
       }
       break;
     case 'setMedia':
-    case 'setImage':
+    case 'setImage': {
       ensureMetadataObject(page);
       let imageValue = null;
       if (Object.prototype.hasOwnProperty.call(details, 'image')) {
@@ -195,6 +195,7 @@ function applyMetadataMutation(page, details = {}, operation = null, site = null
         }
       }
       break;
+    }
     case 'setRelatedItems':
       ensureMetadataObject(page);
       if (Object.prototype.hasOwnProperty.call(details, 'relatedItems')) {
@@ -328,7 +329,7 @@ function applyOutlineMutation(site, page, items = [], details = {}, operation = 
         }
       }
       break;
-    case 'setParent':
+    case 'setParent': {
       let newParent = Object.prototype.hasOwnProperty.call(details, 'parent')
         ? details.parent
         : null;
@@ -360,6 +361,7 @@ function applyOutlineMutation(site, page, items = [], details = {}, operation = 
         }
       }
       break;
+    }
     default:
       break;
   }
@@ -419,7 +421,7 @@ async function applyNodeDetailOperation(site, nodeId, details = {}) {
   if (site && typeof site.getPageContent === 'function') {
     try {
       pageContentForScan = String(await site.getPageContent(page) || '');
-    } catch (e) {
+    } catch {
       pageContentForScan = '';
     }
   }

@@ -58,7 +58,7 @@ function createSettingsResponseWatcher(page) {
     let method = 'GET'
     try {
       method = response.request().method()
-    } catch (e) {
+    } catch {
       method = 'GET'
     }
     const rec = {
@@ -115,13 +115,13 @@ function createSettingsRequestWatcher(page) {
     let method = 'GET'
     try {
       method = request.method()
-    } catch (e) {
+    } catch {
       method = 'GET'
     }
     let postData = ''
     try {
       postData = request.postData() || ''
-    } catch (e) {
+    } catch {
       postData = ''
     }
     requests.push({ url: url, method: method, postData: postData })
@@ -209,6 +209,19 @@ async function getSubPanelDialog(page, dialogTag) {
   if (!el) {
     await handle.dispose()
     return null
+  }
+  return el
+}
+
+// Poll for a sub-panel dialog instead of trusting a fixed sleep: the dialogs
+// are created after a dynamic import(), which can take longer than a few
+// seconds on a cold CI runner.
+async function waitForSubPanelDialog(page, dialogTag, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs
+  let el = await getSubPanelDialog(page, dialogTag)
+  while (!el && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 500))
+    el = await getSubPanelDialog(page, dialogTag)
   }
   return el
 }
@@ -369,19 +382,19 @@ test.before(async () => {
 
 test.after(async () => {
   if (requestWatcher) {
-    try { requestWatcher.detach() } catch (e) { /* ignore */ }
+    try { requestWatcher.detach() } catch { /* ignore */ }
   }
   if (settingsWatcher) {
-    try { settingsWatcher.detach() } catch (e) { /* ignore */ }
+    try { settingsWatcher.detach() } catch { /* ignore */ }
   }
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -404,7 +417,7 @@ test(
     t.diagnostic('[e2e] navigating to editor: ' + editorUrl)
     try {
       await page.goto(editorUrl, { waitUntil: 'networkidle2', timeout: 30000 })
-    } catch (e) {
+    } catch {
       await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
     }
     await page.waitForSelector('haxcms-site-editor-ui', { timeout: 30000 })
@@ -439,7 +452,7 @@ test(
     assert.ok(clickEditor && clickEditor.clicked, 'Editor dashboard button clicked')
     await new Promise((r) => setTimeout(r, 3000))
 
-    let editorDialog = await getSubPanelDialog(
+    let editorDialog = await waitForSubPanelDialog(
       page,
       selectors.siteSettings.editorDialog,
     )
@@ -510,7 +523,7 @@ test(
     assert.ok(clickBlocks && clickBlocks.clicked, 'Blocks dashboard button clicked')
     await new Promise((r) => setTimeout(r, 3000))
 
-    let blocksDialog = await getSubPanelDialog(
+    let blocksDialog = await waitForSubPanelDialog(
       page,
       selectors.siteSettings.blocksDialog,
     )

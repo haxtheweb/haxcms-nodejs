@@ -757,7 +757,7 @@ paths:
       summary: Return system entity descriptors and links
       description: >
         Returns the full merged set of entity descriptors sourced from the
-        single entities.yaml registry (EntityRegistry.getDefinitions()).
+        single entities.yaml registry (EntityRegistry getDefinitions()).
         Both /x/api/v1/entities and /system/api/v1/entities read from the same
         registry, so the API surface and the in-code object are one shape.
         Optional ?scope=site|system filters the merged set by scope. Each
@@ -846,6 +846,15 @@ paths:
         - settings
       operationId: getApiKeys
       summary: Return configured API keys and provider statuses
+      description: >
+        Returns all configured system API keys and provider connection
+        statuses. security (F3/authz): this endpoint exposes system-wide
+        credentials and is restricted to the superUser (admin) principal on
+        the PHP backend (see
+        SystemRoutesMap::getSystemV1SuperUserReadRoutes and the handler
+        defense-in-depth superUser check); a non-superUser authenticated
+        caller receives 403. The NodeJS single-user backend does not model
+        an admin tier and allows the single authenticated dashboard user.
       security:
         - bearerAuth: []
           userTokenHeader: []
@@ -872,9 +881,12 @@ paths:
       description: >
         Read-only alias of GET /configuration/api-keys. POST is accepted for
         callers that prefer POST over GET but does not write; use PATCH to
-        update API key settings. Single-user deployment assumption: the
-        NodeJS backend does not model an admin/superUser tier; these settings
-        are written by the single authenticated dashboard user.
+        update API key settings. security (F3/authz): like the GET, this
+        endpoint exposes system-wide credentials and is restricted to the
+        superUser (admin) principal on the PHP backend; a non-superUser
+        authenticated caller receives 403. Single-user deployment assumption:
+        the NodeJS backend does not model an admin/superUser tier; these
+        settings are written by the single authenticated dashboard user.
       security:
         - bearerAuth: []
           userTokenHeader: []
@@ -1007,7 +1019,7 @@ paths:
       tags:
         - settings
       operationId: getLocalizationSettings
-      summary: Return localization configuration
+      summary: Return localization and system default configuration
       security:
         - bearerAuth: []
           userTokenHeader: []
@@ -1030,10 +1042,10 @@ paths:
       tags:
         - settings
       operationId: getLocalizationSettingsPost
-      summary: Return localization configuration (read alias of GET)
+      summary: Return localization and system default configuration (read alias of GET)
       description: >
-        Read-only alias of GET /configuration/localization. POST is accepted for
-        callers that prefer POST over GET but does not write; use PATCH to
+        Read-only alias of GET /configuration/localization. POST is accepted
+        for callers that prefer POST over GET but does not write; use PATCH to
         update localization settings. Single-user deployment assumption: the
         NodeJS backend does not model an admin/superUser tier; these settings
         are written by the single authenticated dashboard user.
@@ -1053,12 +1065,14 @@ paths:
       tags:
         - settings
       operationId: saveLocalizationSettingsPatch
-      summary: Update localization configuration
+      summary: Update localization and system default configuration
       description: >
-        Write operation — updates localization configuration (defaultLanguage,
-        a BCP-47 tag). Single-user deployment assumption: the NodeJS backend
-        does not model an admin/superUser tier; settings are written by the
-        single authenticated dashboard user.
+        Write operation — updates the system-wide default language (and future
+        localization defaults). The persisted value seeds the default language
+        applied to newly created sites and is editable post-install via the
+        Configuration admin panel. Single-user deployment assumption: the
+        NodeJS backend does not model an admin/superUser tier; settings are
+        written by the single authenticated dashboard user.
       security:
         - bearerAuth: []
           userTokenHeader: []
@@ -1395,6 +1409,155 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiEnvelope"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /system/api/v1/languages:
+    get:
+      tags:
+        - settings
+      operationId: systemLanguagesGet
+      summary: List supported languages
+      description: |
+        The canonical language registry (the same languages.json the installer,
+        settings screens and CLI use). `regions` controls which regional
+        variants (en-GB, pt-BR...) are included.
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      parameters:
+        - name: regions
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, featured, none]
+            default: all
+      responses:
+        "200":
+          description: Supported languages, sorted by English name
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LanguageRecord"
+                additionalProperties: true
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /system/api/v1/languages/{code}:
+    get:
+      tags:
+        - settings
+      operationId: systemLanguageGet
+      summary: Get one supported language
+      description: |
+        Accepts a canonical code or an alias / underscore form (zh_CN, iw).
+        The returned `code` is always canonical.
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The language
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                  data:
+                    $ref: "#/components/schemas/LanguageRecord"
+                additionalProperties: true
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /system/api/v1/languages/{code}/translations:
+    get:
+      tags:
+        - settings
+      operationId: systemLanguageTranslationsGet
+      summary: Get translated strings for a language
+      description: |
+        Every translated string for the language, grouped by element
+        namespace (for translators, review tooling and LLMs). A full language
+        is several hundred KB; use `namespace` to fetch a single element.
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: namespace
+          in: query
+          required: false
+          description: Only this element, e.g. video-player (its UI and schema strings)
+          schema:
+            type: string
+        - name: type
+          in: query
+          required: false
+          description: ui = element UI strings, schema = HAX editor strings
+          schema:
+            type: string
+            enum: [all, ui, schema]
+            default: all
+      responses:
+        "200":
+          description: Translations for the language
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                  data:
+                    type: object
+                    properties:
+                      language:
+                        $ref: "#/components/schemas/LanguageRecord"
+                      locale:
+                        type: string
+                      count:
+                        type: integer
+                      namespaces:
+                        type: object
+                        additionalProperties:
+                          type: object
+                          properties:
+                            namespace:
+                              type: string
+                            package:
+                              type: string
+                            type:
+                              type: string
+                              enum: [ui, schema]
+                            file:
+                              type: string
+                            strings:
+                              type: object
+                              additionalProperties: true
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
@@ -2620,6 +2783,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /system/api/v1/site/import/quarto:
+    post:
+      tags:
+        - actions
+      operationId: quartoToSite
+      summary: Import a Quarto project (book or website) as a new site
+      security:
+        - bearerAuth: []
+          userTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repoUrl:
+                  type: string
+                  description: >-
+                    GitHub repository URL of the Quarto project, optionally
+                    with /tree/<branch>
+              required:
+                - repoUrl
+      responses:
+        "200":
+          description: Imported site schema items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                  data:
+                    $ref: "#/components/schemas/ImportData"
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: The repository is not a readable Quarto project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /system/api/v1/site/import/openstax:
     post:
       tags:
@@ -2682,7 +2891,7 @@ paths:
           required: true
           schema:
             type: string
-          description: Platform identifier (haxcms, html, pressbooks, gitbook, notion, wordpress, elmsln, drupal, plone)
+          description: Platform identifier (haxcms, html, pressbooks, gitbook, notion, wordpress, elmsln, drupal, plone, openstax, vitepress, quarto)
       requestBody:
         required: false
         content:
@@ -2819,7 +3028,7 @@ components:
       description: >
         Collection of entity descriptors returned by /system/api/v1/entities
         (and /x/api/v1/entities). Both endpoints read from the single merged
-        entities.yaml registry via EntityRegistry.getDefinitions().
+        entities.yaml registry via EntityRegistry getDefinitions().
       properties:
         count:
           type: integer
@@ -2997,7 +3206,7 @@ components:
               description: Theme element machine name (e.g. clean-one, learn-two-theme).
             license:
               type: string
-              description: Optional Creative Commons license code (by, by-sa, by-nd, by-nc, by-nc-sa, by-nc-nd).
+              description: Optional license code from the HAXcms license list (Creative Commons, public domain and software licenses). The list is licenses.json, shared by both backends and the client; an unrecognized value is ignored.
             domain:
               type: string
               description: Optional custom domain for the site.
@@ -3037,6 +3246,17 @@ components:
     MediaSettings:
       type: object
       description: Media settings payload
+      additionalProperties: true
+    LocalizationSettings:
+      type: object
+      description: >
+        Localization / system default settings payload. The `defaultLanguage`
+        value is a BCP-47 shaped language tag (e.g. en-US) applied as the
+        default language for newly created sites.
+      properties:
+        defaultLanguage:
+          type: string
+          description: BCP-47 language tag (e.g. en-US, es-ES).
       additionalProperties: true
     EnabledCollectionSettings:
       type: object
@@ -3235,6 +3455,37 @@ components:
         enabled:
           type: boolean
       additionalProperties: true
+    LanguageRecord:
+      type: object
+      description: One entry of the canonical language registry (languages.json)
+      properties:
+        code:
+          type: string
+          description: Canonical code that gets stored (en, pt-BR, zh-CN)
+        name:
+          type: string
+        nativeName:
+          type: string
+        locale:
+          type: string
+          description: Translation file suffix (zh-CN loads zh files)
+        dir:
+          type: string
+          enum: [ltr, rtl]
+        parent:
+          type: string
+          description: Present on regional variants (en-GB -> en)
+        featured:
+          type: boolean
+        popular:
+          type: integer
+          description: Rank 1-10 for the most common languages
+        aliases:
+          type: array
+          items:
+            type: string
+      required: [code, name, nativeName, locale, dir]
+      additionalProperties: true
     ThemeRecord:
       type: object
       description: >
@@ -3326,19 +3577,12 @@ components:
         acceptedFormats:
           type: string
       additionalProperties: true
-    LocalizationSettings:
-      type: object
-      description: Localization settings payload (defaultLanguage BCP-47 tag)
-      properties:
-        defaultLanguage:
-          type: string
-          description: BCP-47 language tag (e.g. en-US, es-ES, fr-FR)
-      additionalProperties: true
     LocalizationSettingsData:
       type: object
       description: >
         Localization settings returned by getLocalizationSettings and
-        saveLocalizationSettingsPatch. The front-end reads defaultLanguage.
+        saveLocalizationSettingsPatch. The front-end (haxcms-system-settings
+        Configuration panel) reads `data.defaultLanguage`.
       properties:
         defaultLanguage:
           type: string
@@ -3402,7 +3646,8 @@ components:
       description: >
         Import result returned by importDocx, importPdf, importPptx, importXlsx,
         htmlToSite, gitbookToSite, haxcmsToSite, notionToSite, pressbooksToSite,
-        wordpressToSite, drupalToSite, ploneToSite. The front-end
+        wordpressToSite, drupalToSite, ploneToSite, openstaxToSite, vitepressToSite,
+        quartoToSite. The front-end
         (processImportTemplate) reads `data.items` (array), `data.filename`
         (string), `data.files` (optional map), and `data.site.license`
         (optional string).
@@ -3425,7 +3670,31 @@ components:
           properties:
             license:
               type: string
+              nullable: true
+              description: >
+                License code from the HAXcms license list (for example by-sa,
+                cc0, mit), or null when the source states none HAX can apply.
           additionalProperties: true
+        warnings:
+          type: array
+          description: >
+            Notices about the source that the person importing should see
+            before publishing. Returned by quartoToSite; other importers may
+            omit it. A notice is information, not a refusal.
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+                description: >
+                  Stable identifier: license:no-derivatives,
+                  license:non-commercial, license:share-alike,
+                  license:from-file, license:unrecognized or license:not-found.
+              message:
+                type: string
+            required:
+              - code
+              - message
       additionalProperties: true
     ApiEnvelopeWithData:
       type: object

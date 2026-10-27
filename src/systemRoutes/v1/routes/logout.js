@@ -14,7 +14,9 @@ function logoutRoute(req, res)  {
         }
       }
     }
-    catch (e) {}
+    catch {
+      // intentionally ignored
+    }
     // Security (HAX-SEC / PHP [M3] parity): clear via the centralized helper so
     // the Secure/SameSite/HttpOnly flags match how the cookie was set (required
     // for the browser to actually delete it).

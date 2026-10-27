@@ -30,18 +30,13 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  compareBaseline,
   selectors,
   FIXED_SITE_NAME,
   deepQuery,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers (single source of truth in helpers/flows.cjs)
   waitFor,
   waitForDeep,
   safeCompareBaseline,
   dumpDashboard,
-  typeIntoShadow,
   performLoginEvaluate,
   reloadDashboard,
   createSiteViaUI,
@@ -49,7 +44,6 @@ const {
   waitForCardGone,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
-  findCreateSiteResponse: waitForCreateResponse,
 } = require('./helpers')
 
 const ARCHIVE_DIR_CANDIDATES = ['_archived', '_archive']
@@ -109,7 +103,7 @@ async function loginViaUI(page, collector) {
   let loginBody = null
   try {
     loginBody = JSON.parse(loginResp.bodyText)
-  } catch (e) {
+  } catch {
     loginBody = null
   }
   assert.ok(
@@ -302,7 +296,7 @@ test(
         let body = null
         try {
           body = JSON.parse(createResp.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         const siteNameReturned =
@@ -430,7 +424,7 @@ test(
         let body = null
         try {
           body = JSON.parse(archiveRespRecord.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         t.diagnostic('archive response body: ' + archiveRespRecord.bodyText.substring(0, 300))
@@ -475,7 +469,7 @@ test(
         let body = null
         try {
           body = JSON.parse(archiveRespRecord.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         const archivedName =
@@ -514,17 +508,17 @@ test(
       // 11. Teardown.
       try {
         collector.detach()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await browser.close()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await teardownE2ERuntime(_runtime)
-      } catch (e) {
+      } catch {
         // ignore
       }
       _runtime = null

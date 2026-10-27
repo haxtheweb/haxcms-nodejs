@@ -22,24 +22,13 @@ const {
   launchBrowser,
   newPage,
   createResponseCollector,
-  selectors,
   FIXED_SITE_NAME,
-  deepQuery,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
   waitFor,
-  waitForDeep,
-  typeIntoShadow,
-  loginSetInput,
-  loginClickButton,
   deepFindRecursive,
   WALK_HAX_BODY_FN,
   haxBodyEditModeActive,
   markerInHaxBody,
   clickEditorButtonById,
-  safeCompareBaseline,
-  findCreateSiteResponse,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
   loginViaUI,
@@ -71,7 +60,7 @@ function createRequestWatcher(page) {
       let postData = ''
       try {
         postData = request.postData() || ''
-      } catch (e) {
+      } catch {
         postData = ''
       }
       requests.push({ url, method: request.method(), postData })
@@ -89,7 +78,7 @@ function createRequestWatcher(page) {
 
 // Save the current page via the editor (#editbutton toggles to Save in edit mode).
 // Returns the saveNode API response record captured by the collector.
-async function saveCurrentPage(page, collector, t) {
+async function saveCurrentPage(page, collector, _t) {
   const saveResult = await clickEditorButtonById(page, '#editbutton')
   logJSON('SAVE CLICK', saveResult)
   let saveResp = null
@@ -251,7 +240,7 @@ function siteApiUrl(runtime, suffix) {
 // Generate the X-HAXCMS-Site-Token for authenticated-site routes.
 // The token is HMAC(userName + ':' + siteName) computed server-side via the
 // HAXCMS singleton (same privateKey+salt the server validates against).
-function getSiteToken(runtime) {
+function getSiteToken(_runtime) {
   const { HAXCMS } = require('../../../src/lib/HAXCMS.js')
   const userName = HAXCMS.getActiveUserName()
   const siteName = EXPECTED_SITE_NAME
@@ -330,7 +319,7 @@ async function main() {
     console.log('editorUrl:', editorUrl)
     try {
       await page.goto(editorUrl, { waitUntil: 'networkidle2', timeout: 30000 })
-    } catch (e) {
+    } catch {
       console.log('networkidle2 timed out, retrying domcontentloaded')
       await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
     }
@@ -365,7 +354,7 @@ async function main() {
             location: save2Body.data.location,
           }
         }
-      } catch (e) {
+      } catch {
         activeItemInfo = null
       }
     }
@@ -386,7 +375,7 @@ async function main() {
       let listBody = null
       try {
         listBody = JSON.parse(String(listResp.data || ''))
-      } catch (e) {
+      } catch {
         listBody = null
       }
       evidence.revisionsList = listBody
@@ -419,7 +408,7 @@ async function main() {
         let detailBody = null
         try {
           detailBody = JSON.parse(String(detailResp.data || ''))
-        } catch (e) {
+        } catch {
           detailBody = null
         }
         evidence.revisionDetail = detailBody
@@ -499,7 +488,7 @@ async function main() {
         let restoreBody = null
         try {
           restoreBody = JSON.parse(String(restoreResp.data || ''))
-        } catch (e) {
+        } catch {
           restoreBody = null
         }
         evidence.restoreResponse = restoreBody
@@ -579,28 +568,28 @@ async function main() {
     try {
       const dump = await page.evaluate(() => document.body.innerHTML.substring(0, 1500))
       console.error('PAGE BODY SNIPPET:', dump)
-    } catch (e) {
+    } catch {
       // ignore
     }
   } finally {
     try {
       if (reqWatch) reqWatch.detach()
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       if (collector) collector.detach()
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       if (browser) await browser.close()
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       await teardownE2ERuntime(runtime)
-    } catch (e) {
+    } catch {
       // ignore
     }
     console.log('\nTeardown complete.')

@@ -231,9 +231,9 @@ describe('createSite route handler', () => {
       }),
       res2,
     )
-    // URL licenses match the FIRST supported code whose /licenses/<code>
-    // path is a substring, so a by-nc URL normalizes to the by prefix match
-    assert.equal(res2.sent.data.metadata.site.license, 'by')
+    // URL licenses match the LONGEST supported code whose /licenses/<code>
+    // path is a substring, so a by-nc URL is not shadowed by the by prefix
+    assert.equal(res2.sent.data.metadata.site.license, 'by-nc')
     // an unrecognized license is simply dropped
     const res3 = stubRes()
     await createSiteRoute(

@@ -1,34 +1,33 @@
-const { HAXCMS, systemStructureContext } = require('../../../lib/HAXCMS.js');
-const fs = require('fs');
-const path = require('path');
-const url = require('url');
-const YAML = require('yaml');
-const { shouldEmbedBypassJwt } = require('../../../lib/listenHost.js');
+const { HAXCMS, systemStructureContext } = require("../../../lib/HAXCMS.js");
+const fs = require("fs");
+const path = require("path");
+const url = require("url");
+const YAML = require("yaml");
+const { shouldEmbedBypassJwt } = require("../../../lib/listenHost.js");
 
 let cachedSystemOpenApiOperationPaths = null;
 
-function stripLeadingSlash(pathValue = '') {
-  return String(pathValue || '').replace(/^\/+/, '');
+function stripLeadingSlash(pathValue = "") {
+  return String(pathValue || "").replace(/^\/+/, "");
 }
 
-function normalizePath(pathValue = '') {
-  let normalized = String(pathValue || '');
-  if (normalized === '') {
-    return '/';
+function normalizePath(pathValue = "") {
+  let normalized = String(pathValue || "");
+  if (normalized === "") {
+    return "/";
   }
-  normalized = normalized.replace(/\/+/g, '/');
-  if (normalized.charAt(0) !== '/') {
-    normalized = '/' + normalized;
+  normalized = normalized.replace(/\/+/g, "/");
+  if (normalized.charAt(0) !== "/") {
+    normalized = "/" + normalized;
   }
   if (
     normalized.length > 1 &&
-    normalized.charAt(normalized.length - 1) === '/'
+    normalized.charAt(normalized.length - 1) === "/"
   ) {
     normalized = normalized.substring(0, normalized.length - 1);
   }
   return normalized;
 }
-
 
 function getSystemOpenApiOperationPaths() {
   if (cachedSystemOpenApiOperationPaths) {
@@ -38,39 +37,41 @@ function getSystemOpenApiOperationPaths() {
   try {
     const systemSpecPath = path.join(
       __dirname,
-      '..',
-      '..',
-      '..',
-      'openapi',
-      'system-spec.yaml',
+      "..",
+      "..",
+      "..",
+      "openapi",
+      "system-spec.yaml",
     );
-    const systemSpecFile = fs.readFileSync(systemSpecPath, 'utf8');
+    const systemSpecFile = fs.readFileSync(systemSpecPath, "utf8");
     const parsedSpec = YAML.parse(systemSpecFile);
     const specPaths =
-      parsedSpec &&
-      parsedSpec.paths &&
-      typeof parsedSpec.paths === 'object'
+      parsedSpec && parsedSpec.paths && typeof parsedSpec.paths === "object"
         ? parsedSpec.paths
         : {};
-    const httpMethods = ['get', 'post', 'put', 'patch', 'delete'];
+    const httpMethods = ["get", "post", "put", "patch", "delete"];
     const specPathKeys = Object.keys(specPaths);
     for (let i = 0; i < specPathKeys.length; i++) {
       const specPathKey = specPathKeys[i];
       const pathConfig = specPaths[specPathKey];
-      if (!pathConfig || typeof pathConfig !== 'object') {
+      if (!pathConfig || typeof pathConfig !== "object") {
         continue;
       }
-      for (let methodIndex = 0; methodIndex < httpMethods.length; methodIndex++) {
+      for (
+        let methodIndex = 0;
+        methodIndex < httpMethods.length;
+        methodIndex++
+      ) {
         const httpMethod = httpMethods[methodIndex];
         const operationConfig = pathConfig[httpMethod];
-        if (!operationConfig || typeof operationConfig !== 'object') {
+        if (!operationConfig || typeof operationConfig !== "object") {
           continue;
         }
         const operationId =
-          typeof operationConfig.operationId === 'string'
+          typeof operationConfig.operationId === "string"
             ? operationConfig.operationId.trim()
-            : '';
-        if (operationId === '') {
+            : "";
+        if (operationId === "") {
           continue;
         }
         if (!operationPaths[operationId]) {
@@ -78,37 +79,36 @@ function getSystemOpenApiOperationPaths() {
         }
       }
     }
+  } catch {
+    // intentionally ignored
   }
-  catch (e) {}
   cachedSystemOpenApiOperationPaths = operationPaths;
   return cachedSystemOpenApiOperationPaths;
 }
 
 function resolveSystemOperationPath(
-  operationId = '',
-  systemApiV1BasePath = '',
-  fallbackRelativePath = '',
+  operationId = "",
+  systemApiV1BasePath = "",
+  fallbackRelativePath = "",
 ) {
   const normalizedSystemBasePath =
-    String(systemApiV1BasePath || '').replace(/\/+$/, '') + '/';
+    String(systemApiV1BasePath || "").replace(/\/+$/, "") + "/";
   const fallbackPath = stripLeadingSlash(fallbackRelativePath);
   const fallbackRoute = `${normalizedSystemBasePath}${fallbackPath}`;
   const operationPaths = getSystemOpenApiOperationPaths();
   const configuredPath =
     operationPaths && operationPaths[operationId]
       ? String(operationPaths[operationId]).trim()
-      : '';
-  if (configuredPath === '') {
+      : "";
+  if (configuredPath === "") {
     return fallbackRoute;
   }
   const normalizedConfiguredPath = normalizePath(configuredPath);
-  const normalizedSpecBasePath = '/system/api/v1';
+  const normalizedSpecBasePath = "/system/api/v1";
   if (normalizedConfiguredPath === normalizedSpecBasePath) {
-    return normalizedSystemBasePath.replace(/\/$/, '');
+    return normalizedSystemBasePath.replace(/\/$/, "");
   }
-  if (
-    normalizedConfiguredPath.indexOf(`${normalizedSpecBasePath}/`) === 0
-  ) {
+  if (normalizedConfiguredPath.indexOf(`${normalizedSpecBasePath}/`) === 0) {
     const routeSuffix = stripLeadingSlash(
       normalizedConfiguredPath.substring(normalizedSpecBasePath.length),
     );
@@ -116,7 +116,6 @@ function resolveSystemOperationPath(
   }
   return fallbackRoute;
 }
-
 
 /**
  * @OA\Get(
@@ -138,11 +137,14 @@ function resolveSystemOperationPath(
  */
 async function connectionSettings(req, res) {
   // D6: token/JWT-bearing JS — prevent any intermediary from caching
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  res.setHeader('Surrogate-Control', 'no-store');
-  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
+  res.setHeader("Content-Type", "application/javascript");
   // System API base path is always absolute (root-level), mirroring PHP
   // (HAXCMS.php appJWTConnectionSettings forces a leading slash). System
   // routes are not site-scoped; both backends serve them at
@@ -151,21 +153,21 @@ async function connectionSettings(req, res) {
   // path would resolve against the current page URL and produce a
   // site-scoped system endpoint (/_sites/<name>/system/api/v1/...) which
   // works on Node but is not standardized with PHP.
-  let systemNormalizedBasePath = String(HAXCMS.basePath || '/');
-  if (systemNormalizedBasePath.charAt(0) !== '/') {
-    systemNormalizedBasePath = '/' + systemNormalizedBasePath;
+  let systemNormalizedBasePath = String(HAXCMS.basePath || "/");
+  if (systemNormalizedBasePath.charAt(0) !== "/") {
+    systemNormalizedBasePath = "/" + systemNormalizedBasePath;
   }
   if (
-    systemNormalizedBasePath.charAt(systemNormalizedBasePath.length - 1) !== '/'
+    systemNormalizedBasePath.charAt(systemNormalizedBasePath.length - 1) !== "/"
   ) {
-    systemNormalizedBasePath += '/';
+    systemNormalizedBasePath += "/";
   }
   let baseAPIPath = `${systemNormalizedBasePath}${HAXCMS.systemRequestBase}`;
-  var sitename = '';
+  var sitename = "";
   // name parsed from a multisite site-context URL (/_sites/<name>/...).
   // tracked separately because it must drive the site API base path, whereas
   // sitename (below) may also be resolved from the single-site context.
-  var multisiteUrlName = '';
+  var multisiteUrlName = "";
   // Security (SEC-SESSION): derive the site context from the Referer PER
   // REQUEST using the trusted protocol/host resolvers. The Referer is
   // attacker-controlled, so it must never be written onto the process-global
@@ -177,11 +179,15 @@ async function connectionSettings(req, res) {
   const trustedProtocol = HAXCMS.resolveTrustedProtocol(req);
   const trustedHost = HAXCMS.resolveTrustedHost(req);
   let refererDetails = null;
-  if (req && req.headers && typeof req.headers.referer === 'string' && req.headers.referer !== '') {
+  if (
+    req &&
+    req.headers &&
+    typeof req.headers.referer === "string" &&
+    req.headers.referer !== ""
+  ) {
     try {
       refererDetails = new url.URL(req.headers.referer);
-    }
-    catch (e) {
+    } catch {
       refererDetails = null;
     }
   }
@@ -189,15 +195,14 @@ async function connectionSettings(req, res) {
   // HAXCMS.isSameOriginRequest). The recorded protocol always comes from the
   // trusted resolver, never from the referer.
   const sameOriginReferer = !!(
-    refererDetails &&
-    refererDetails.host === trustedHost
+    refererDetails && refererDetails.host === trustedHost
   );
   if (refererDetails) {
     const siteContextPrefix = `${HAXCMS.basePath}${HAXCMS.sitesDirectory}/`;
     const refererPath = refererDetails.pathname;
     if (refererPath.indexOf(siteContextPrefix) === 0) {
       const sitepath = refererPath.substring(siteContextPrefix.length);
-      const siteparts = sitepath.split('/');
+      const siteparts = sitepath.split("/");
       multisiteUrlName = siteparts[0];
     }
   }
@@ -214,7 +219,7 @@ async function connectionSettings(req, res) {
   // (HAXCMS.getDomain / getURI / siteConnectionJSON), but only from an
   // authenticated, same-origin editor load and only from the trusted
   // protocol/host resolvers -- never from Referer-supplied values.
-  if (authenticatedUser !== '' && sameOriginReferer && trustedHost !== '') {
+  if (authenticatedUser !== "" && sameOriginReferer && trustedHost !== "") {
     HAXCMS.protocol = trustedProtocol;
     HAXCMS.domain = trustedHost;
     HAXCMS.request_url = new url.URL(
@@ -228,7 +233,7 @@ async function connectionSettings(req, res) {
   // metadata.site.name so the appStore param + site token match what the site
   // API validates (resolveSiteApiRequestSiteName resolves the same value). A
   // multisite root has no site.json in cwd, so this stays blank there.
-  if (sitename === '') {
+  if (sitename === "") {
     try {
       const singleSite = await systemStructureContext();
       if (
@@ -239,54 +244,63 @@ async function connectionSettings(req, res) {
         singleSite.manifest.metadata.site.name
       ) {
         sitename = String(singleSite.manifest.metadata.site.name);
-      }
-      else if (singleSite && singleSite.name) {
+      } else if (singleSite && singleSite.name) {
         sitename = String(singleSite.name);
       }
+    } catch {
+      // intentionally ignored
     }
-    catch (e) {}
   }
+  // Security: mint tokens against the per-request authenticated identity
+  // (resolved above via shouldIncludeRequestTokens -> getRequestAuthenticatedUserName)
+  // instead of a process-global username, so a token handed to one
+  // authenticated user can never validate under a different user's requests.
+  // Falls back to getActiveUserName() only in the legacy
+  // requireSessionForRequestTokens=false anonymous opt-out, where there is no
+  // authenticated identity to bind to.
   const siteToken = includeRequestTokens
-    ? HAXCMS.getRequestToken(HAXCMS.getActiveUserName() + ':' + sitename)
-    : '';
+    ? HAXCMS.getRequestToken(
+        (authenticatedUser || HAXCMS.getActiveUserName()) + ":" + sitename,
+      )
+    : "";
   // user token is just the name of the logged in user
   const userToken = includeRequestTokens
-    ? HAXCMS.getRequestToken(HAXCMS.getActiveUserName())
-    : '';
-  let normalizedBasePath = String(HAXCMS.basePath || '/');
-  if (normalizedBasePath.charAt(0) !== '/') {
-    normalizedBasePath = '/' + normalizedBasePath;
+    ? HAXCMS.getRequestToken(authenticatedUser || HAXCMS.getActiveUserName())
+    : "";
+  let normalizedBasePath = String(HAXCMS.basePath || "/");
+  if (normalizedBasePath.charAt(0) !== "/") {
+    normalizedBasePath = "/" + normalizedBasePath;
   }
-  if (normalizedBasePath.charAt(normalizedBasePath.length - 1) !== '/') {
-    normalizedBasePath += '/';
+  if (normalizedBasePath.charAt(normalizedBasePath.length - 1) !== "/") {
+    normalizedBasePath += "/";
   }
   let siteApiBasePath = `${normalizedBasePath}x/api`;
   if (multisiteUrlName) {
     siteApiBasePath = `${normalizedBasePath}${HAXCMS.sitesDirectory}/${multisiteUrlName}/x/api`;
   }
   const systemApiV1BasePath = `${baseAPIPath}v1/`;
-  const systemApiBasePath = systemApiV1BasePath.replace(/\/$/, '');
+  const systemApiBasePath = systemApiV1BasePath.replace(/\/$/, "");
   const systemOpenApiPath = resolveSystemOperationPath(
-    'systemOpenapiJson',
+    "systemOpenapiJson",
     systemApiV1BasePath,
-    'openapi.json',
+    "openapi.json",
   );
-  const userTokenHeaderName = 'X-HAXCMS-User-Token';
+  const userTokenHeaderName = "X-HAXCMS-User-Token";
   const appStorePath = resolveSystemOperationPath(
-    'generateAppStore',
+    "generateAppStore",
     systemApiV1BasePath,
-    'integrations/app-store',
+    "integrations/app-store",
   );
   const userDataPath = resolveSystemOperationPath(
-    'sessionUserGet',
+    "sessionUserGet",
     systemApiV1BasePath,
-    'session/user',
+    "session/user",
   );
   const userDataHeaders = {};
   const appStoreHeaders = {};
   if (includeRequestTokens) {
     userDataHeaders[userTokenHeaderName] = userToken;
-    appStoreHeaders['X-HAXCMS-Site-Token'] = siteToken;
+    appStoreHeaders["X-HAXCMS-Site-Token"] = siteToken;
   }
   const returnDataObj = {
     token: HAXCMS.getRequestToken(),
@@ -301,24 +315,24 @@ async function connectionSettings(req, res) {
     systemApiBasePath: systemApiBasePath,
     systemOpenApiPath: systemOpenApiPath,
     login: resolveSystemOperationPath(
-      'sessionLogin',
+      "sessionLogin",
       systemApiV1BasePath,
-      'session/login',
+      "session/login",
     ),
     refreshUrl: resolveSystemOperationPath(
-      'sessionRefreshGet',
+      "sessionRefreshGet",
       systemApiV1BasePath,
-      'session/refresh',
+      "session/refresh",
     ),
     logout: resolveSystemOperationPath(
-      'sessionLogout',
+      "sessionLogout",
       systemApiV1BasePath,
-      'session/logout',
+      "session/logout",
     ),
     connectionTest: resolveSystemOperationPath(
-      'sessionConnectionTestGet',
+      "sessionConnectionTestGet",
       systemApiV1BasePath,
-      'session/connection-test',
+      "session/connection-test",
     ),
     getUserDataPath: userDataPath,
     getUserDataHeaders: userDataHeaders,
@@ -327,20 +341,22 @@ async function connectionSettings(req, res) {
     appStore: {
       url: appStorePath,
       params: {
-        'siteName': sitename,
+        siteName: sitename,
       },
       headers: appStoreHeaders,
     },
   });
   const returnData = JSON.stringify(returnDataObj);
-  let after='';
+  let after = "";
   // Security (SEC-DEPLOY / PHP SEC-03 parity): the superuser JWT is only handed
   // out by the no-login bypass outside production and to loopback clients
   // (unless HAXCMS_HOST deliberately exposes the bypass beyond loopback).
-  if (shouldEmbedBypassJwt(req, {
-    jwtChecksDisabled: !!HAXCMS.HAXCMS_DISABLE_JWT_CHECKS,
-    isProduction: HAXCMS.isProductionRuntime(),
-  })) {
+  if (
+    shouldEmbedBypassJwt(req, {
+      jwtChecksDisabled: !!HAXCMS.HAXCMS_DISABLE_JWT_CHECKS,
+      isProduction: HAXCMS.isProductionRuntime(),
+    })
+  ) {
     after = `window.appSettings.jwt = "${HAXCMS.getJWT(HAXCMS.superUser.name)}"`;
   }
   res.send(`window.MicroFrontendRegistryConfig = window.MicroFrontendRegistryConfig || {};

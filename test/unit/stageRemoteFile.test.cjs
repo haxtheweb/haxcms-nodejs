@@ -41,7 +41,9 @@ describe("stageRemoteFile — #3060", () => {
     HAXCMS.configDirectory = realConfigDirectory;
     try {
       await fs.remove(tmpRoot);
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
   });
 
   // answer every request with { status, body }, or throw the given Error

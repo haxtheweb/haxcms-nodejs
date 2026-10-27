@@ -23,8 +23,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const axios = require('axios')
-const fs = require('fs-extra')
-const path = require('path')
 const axeCore = require('axe-core')
 
 const {
@@ -43,7 +41,6 @@ const {
   waitFor,
   waitForDeep,
   typeIntoShadow,
-  setShadowInput,
   loginSetInput,
   loginClickButton,
   findCreateSiteResponse,
@@ -76,13 +73,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -173,32 +170,9 @@ async function openOutlineDialog(page, t) {
 
 // --- helper: get outline-designer element handle ---------------------------
 
-async function getOutlineDesigner(page) {
-  return page.evaluateHandle(() => {
-    var modals = document.querySelectorAll('simple-modal')
-    for (var i = 0; i < modals.length; i++) {
-      var d = modals[i].querySelector('haxcms-outline-editor-dialog')
-      if (d && d.shadowRoot) {
-        var od = d.shadowRoot.querySelector('#outline')
-        if (od) return od
-      }
-    }
-    return null
-  })
-}
 
 // --- helper: get the outline-editor-dialog element handle ------------------
 
-async function getOutlineDialog(page) {
-  return page.evaluateHandle(() => {
-    var modals = document.querySelectorAll('simple-modal')
-    for (var i = 0; i < modals.length; i++) {
-      var d = modals[i].querySelector('haxcms-outline-editor-dialog')
-      if (d) return d
-    }
-    return null
-  })
-}
 
 // --- helper: click a row's actions menu button (icons:more-vert) -----------
 
@@ -243,7 +217,7 @@ async function clickMenuAction(page, actionValue, t) {
     // Find the open actions-menu (there should be exactly one open)
     var menus = outline.shadowRoot.querySelectorAll('simple-context-menu.actions-menu')
     var openMenu = null
-    for (var i = 0; i < menus.length; i++) {
+    for (let i = 0; i < menus.length; i++) {
       if (menus[i].hasAttribute('open') || menus[i].open === true) {
         openMenu = menus[i]
         break
@@ -255,7 +229,7 @@ async function clickMenuAction(page, actionValue, t) {
     }
     if (!openMenu) return { error: 'no open actions menu' }
     var btns = openMenu.querySelectorAll('simple-toolbar-button')
-    for (var i = 0; i < btns.length; i++) {
+    for (let i = 0; i < btns.length; i++) {
       var v = btns[i].getAttribute('value') || btns[i].value || ''
       if (v === val) {
         var inner = btns[i].shadowRoot ? btns[i].shadowRoot.querySelector('button') : null
@@ -296,7 +270,7 @@ async function typeNewTitle(page, rowIndex, newTitle, t) {
     var itemId = row.getAttribute('data-item-id')
     // Set the title directly in the items array + sync the UI (same as monitorTitle).
     var found = false
-    for (var i = 0; i < outline.items.length; i++) {
+    for (let i = 0; i < outline.items.length; i++) {
       if (outline.items[i].id === itemId) {
         outline.items[i].title = title
         if (!outline.items[i].new) outline.items[i].modified = true
@@ -318,7 +292,7 @@ async function typeNewTitle(page, rowIndex, newTitle, t) {
 async function clickSaveOutline(page, t) {
   // Auto-confirm the browser confirm() dialog that _saveTap triggers.
   page.on('dialog', async function (dialog) {
-    try { await dialog.accept() } catch (e) { /* ignore */ }
+    try { await dialog.accept() } catch { /* ignore */ }
   })
   var result = await page.evaluate(function () {
     var modals = document.querySelectorAll('simple-modal')
@@ -436,9 +410,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   var initialItems = await getOutlineItems(page)
   t.diagnostic('[outline] initial items: ' + JSON.stringify(initialItems))
   assert.ok(initialItems && initialItems.length > 0, 'outline-designer has items loaded')
-  var firstItemId = initialItems[0].id
-  var firstItemTitle = initialItems[0].title
-
+    
   // Add a second page so we can test reorder + nest.
   t.diagnostic('[outline] adding a second page for reorder/nest tests')
   var addResult = await page.evaluate(function () {
@@ -528,7 +500,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   var itemsAfterRenameApi = await getItemsViaAxios(runtime, t)
   assert.ok(itemsAfterRenameApi, 'GET /x/api/v1/items returned a list after rename')
   var renamedInApi = false
-  for (var i = 0; i < itemsAfterRenameApi.length; i++) {
+  for (let i = 0; i < itemsAfterRenameApi.length; i++) {
     if (itemsAfterRenameApi[i].id === renameTargetId && itemsAfterRenameApi[i].title === newTitle) {
       renamedInApi = true
       break
@@ -550,10 +522,8 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   // Move the first item DOWN so it swaps with the second.
   var reorderIndex = 0
   var firstId = itemsBeforeReorder[reorderIndex].id
-  var firstOrderBefore = itemsBeforeReorder[reorderIndex].order
-  var secondId = itemsBeforeReorder[reorderIndex + 1] ? itemsBeforeReorder[reorderIndex + 1].id : null
-  var secondOrderBefore = itemsBeforeReorder[reorderIndex + 1] ? itemsBeforeReorder[reorderIndex + 1].order : null
-  assert.ok(secondId, 'at least 2 items present for reorder test')
+    var secondId = itemsBeforeReorder[reorderIndex + 1] ? itemsBeforeReorder[reorderIndex + 1].id : null
+    assert.ok(secondId, 'at least 2 items present for reorder test')
 
   // Open actions menu + click move-down.
   var menuResult2 = await clickRowActionsMenu(page, reorderIndex, t)
@@ -571,7 +541,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   // (itemOp swaps the order values; __syncUIAndDataModel re-sorts).
   var firstItemAfterReorder = null
   var secondItemAfterReorder = null
-  for (var i = 0; i < itemsAfterReorderInMemory.length; i++) {
+  for (let i = 0; i < itemsAfterReorderInMemory.length; i++) {
     if (itemsAfterReorderInMemory[i].id === firstId) firstItemAfterReorder = itemsAfterReorderInMemory[i]
     if (itemsAfterReorderInMemory[i].id === secondId) secondItemAfterReorder = itemsAfterReorderInMemory[i]
   }
@@ -598,7 +568,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   assert.ok(itemsAfterReorderApi, 'GET /x/api/v1/items returned a list after reorder')
   var firstItemApi = null
   var secondItemApi = null
-  for (var i = 0; i < itemsAfterReorderApi.length; i++) {
+  for (let i = 0; i < itemsAfterReorderApi.length; i++) {
     if (itemsAfterReorderApi[i].id === firstId) firstItemApi = itemsAfterReorderApi[i]
     if (itemsAfterReorderApi[i].id === secondId) secondItemApi = itemsAfterReorderApi[i]
   }
@@ -641,7 +611,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   var itemsAfterNestInMemory = await getOutlineItems(page)
   t.diagnostic('[outline] items after nest (in-memory): ' + JSON.stringify(itemsAfterNestInMemory))
   var nestedItem = null
-  for (var i = 0; i < itemsAfterNestInMemory.length; i++) {
+  for (let i = 0; i < itemsAfterNestInMemory.length; i++) {
     if (itemsAfterNestInMemory[i].id === nestTargetId) {
       nestedItem = itemsAfterNestInMemory[i]
       break
@@ -672,7 +642,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   var itemsAfterNestApi = await getItemsViaAxios(runtime, t)
   assert.ok(itemsAfterNestApi, 'GET /x/api/v1/items returned a list after nest')
   var nestedItemApi = null
-  for (var i = 0; i < itemsAfterNestApi.length; i++) {
+  for (let i = 0; i < itemsAfterNestApi.length; i++) {
     if (itemsAfterNestApi[i].id === nestTargetId) {
       nestedItemApi = itemsAfterNestApi[i]
       break
@@ -697,7 +667,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   t.diagnostic('[outline] items before outdent: ' + JSON.stringify(itemsBeforeOutdent))
   // Find the nested item's current index.
   var outdentIndex = -1
-  for (var i = 0; i < itemsBeforeOutdent.length; i++) {
+  for (let i = 0; i < itemsBeforeOutdent.length; i++) {
     if (itemsBeforeOutdent[i].id === nestTargetId) {
       outdentIndex = i
       break
@@ -721,7 +691,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   var itemsAfterOutdentInMemory = await getOutlineItems(page)
   t.diagnostic('[outline] items after outdent (in-memory): ' + JSON.stringify(itemsAfterOutdentInMemory))
   var outdentedItem = null
-  for (var i = 0; i < itemsAfterOutdentInMemory.length; i++) {
+  for (let i = 0; i < itemsAfterOutdentInMemory.length; i++) {
     if (itemsAfterOutdentInMemory[i].id === nestTargetId) {
       outdentedItem = itemsAfterOutdentInMemory[i]
       break
@@ -752,7 +722,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   var itemsAfterOutdentApi = await getItemsViaAxios(runtime, t)
   assert.ok(itemsAfterOutdentApi, 'GET /x/api/v1/items returned a list after outdent')
   var outdentedItemApi = null
-  for (var i = 0; i < itemsAfterOutdentApi.length; i++) {
+  for (let i = 0; i < itemsAfterOutdentApi.length; i++) {
     if (itemsAfterOutdentApi[i].id === nestTargetId) {
       outdentedItemApi = itemsAfterOutdentApi[i]
       break
@@ -822,7 +792,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
     var fallback = null
     try {
       fallback = await runA11y(page, 'simple-modal')
-    } catch (e) {
+    } catch {
       fallback = null
     }
     if (fallback) {

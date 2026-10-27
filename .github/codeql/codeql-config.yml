@@ -1,0 +1,11 @@
+name: "haxcms-nodejs CodeQL config"
+
+# Paths excluded from analysis.
+# - test/**: test-only code (self-signed localhost TLS servers, string assertions,
+#   and old backtracking regexes kept on purpose for differential tests).
+# - src/lib/vendor/xlsx/**: vendored upstream SheetJS; findings there are upstream
+#   patterns, and the library is only used to parse authenticated uploads.
+# Everything else (including other vendored code and src/boilerplate) stays scanned.
+paths-ignore:
+  - test/**
+  - src/lib/vendor/xlsx/**

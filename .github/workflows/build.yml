@@ -17,6 +17,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history so the format check below can diff against the base branch.
+          fetch-depth: 0
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -33,11 +36,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ matrix.node-version }}-yarn-
       - name: Install
-        run: yarn install
+        run: yarn install --frozen-lockfile
+      - name: Format check (changed files)
+        # Prettier is not clean repo-wide (about 300 legacy files fail it), so
+        # this checks only the files a PR changes. A changed file that was
+        # already unformatted on the base branch is reported but does not fail.
+        # Runs the same script as `yarn precheck` locally.
+        run: yarn precheck
       - name: Build
         run: yarn run build
       - name: Unit + API conformance tests
         run: npm test
+      - name: Lint
+        # Advisory only: lint runs after the real tests and never fails the
+        # build (findings still show as annotations / in the log).
+        continue-on-error: true
+        run: yarn lint
       - name: Coverage
         run: npm run test:coverage
       - name: Upload coverage (lcov)
@@ -47,13 +61,29 @@ jobs:
           name: coverage-lcov
           path: coverage/lcov.info
           if-no-files-found: ignore
-      - name: Dependency audit
-        # Security (HAX-SEC-010): surface high-severity runtime dependency
-        # vulnerabilities. --omit=dev ignores dev-tool noise; --audit-level=high
-        # focuses on high/critical. continue-on-error keeps CI green while
-        # pre-existing advisories are triaged; flip to blocking once triaged.
-        continue-on-error: true
-        run: npm audit --omit=dev --audit-level=high
+      - name: Dependency audit (reporting only)
+        # Security (HAX-SEC-010, haxtheweb/issues#3092): surface high/critical
+        # advisories in runtime dependencies. This repo's lockfile is yarn.lock
+        # (package-lock.json is gitignored), so `npm audit` cannot run here (it
+        # exits ENOLOCK); `yarn audit` (Yarn 1) reads yarn.lock instead.
+        # Reporting-only: a finding emits a workflow warning and a job summary
+        # but does not fail CI. Remove the `|| ...` fallback to make it blocking
+        # once existing advisories are triaged.
+        run: |
+          set +e
+          yarn audit --groups dependencies --level high | tee audit.txt
+          status=${PIPESTATUS[0]}
+          {
+            echo '### Dependency audit (yarn audit, runtime deps, level >= high)'
+            echo
+            echo '```'
+            tail -n 60 audit.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::warning title=Dependency audit::yarn audit reported high/critical advisories or failed to run (exit $status). Reporting only; see job summary."
+          fi
+          exit 0
 
   e2e:
     name: "e2e UI (node ${{ matrix.node-version }})"
@@ -85,7 +115,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ matrix.node-version }}-yarn-
       - name: Install
-        run: yarn install
+        run: yarn install --frozen-lockfile
       - name: Build
         run: yarn run build
       - name: E2E UI tests

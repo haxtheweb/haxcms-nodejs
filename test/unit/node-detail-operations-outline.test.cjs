@@ -234,7 +234,7 @@ test('setMedia and setImage write and clear the metadata image', async () => {
     operation: 'setMedia',
     media: '',
   })
-  assert.equal(cleared.item.metadata.hasOwnProperty('image'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(cleared.item.metadata, 'image'), false)
 })
 
 test('setIcon and setRelatedItems clear their metadata on empty values', async () => {
@@ -245,12 +245,12 @@ test('setIcon and setRelatedItems clear their metadata on empty values', async (
     operation: 'setIcon',
     icon: '',
   })
-  assert.equal(iconCleared.item.metadata.hasOwnProperty('icon'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(iconCleared.item.metadata, 'icon'), false)
   const relatedCleared = await applyNodeDetailOperation(site, 'a', {
     operation: 'setRelatedItems',
     relatedItems: null,
   })
-  assert.equal(relatedCleared.item.metadata.hasOwnProperty('relatedItems'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(relatedCleared.item.metadata, 'relatedItems'), false)
 })
 
 test('moveUp and moveDown are no-ops without a matching sibling order', async () => {

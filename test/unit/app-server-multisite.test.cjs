@@ -166,6 +166,7 @@ function parseAppSettings(scriptSource) {
 const runtime = {
   baseUrl: '',
   jwt: '',
+  loginCookie: '',
   userToken: '',
   siteToken: '',
   sitePageId: '',
@@ -194,6 +195,13 @@ test.before(async () => {
   assert.equal(login.status, 200, login.bodyText)
   const loginBody = JSON.parse(login.bodyText)
   runtime.jwt = loginBody.jwt
+  // keep the session cookies the browser would hold after this login
+  runtime.loginCookie = []
+    .concat(login.headers['set-cookie'] || [])
+    .map(function (c) {
+      return String(c).split(';')[0]
+    })
+    .join('; ')
   // Security (SEC-SESSION): request tokens are only handed to authenticated
   // callers, so fetch connection-settings with the login JWT
   const settings = await request(
@@ -289,6 +297,58 @@ test('unknown non-API paths fall through to the dashboard catch-all', async () =
 test('OPTIONS preflight answers 200 for any path', async () => {
   const result = await request('OPTIONS', runtime.baseUrl + '/anything/at/all', {})
   assert.equal(result.status, 200)
+})
+
+test('CORS allows the auth headers the editor sends to the site and system APIs', async () => {
+  // a cross-origin editor (dev front end on another port) is preflighted; if
+  // Authorization is not allowed the browser drops it and every export is
+  // answered as anonymous (401 for pdf / docx / epub)
+  const urls = [
+    runtime.baseUrl + '/_sites/' + SITE_NAME + '/x/api/v1/site/export/pdf',
+    runtime.baseUrl + '/system/api/v1/session/connection-settings',
+  ]
+  for (let i = 0; i < urls.length; i++) {
+    const result = await request('OPTIONS', urls[i], {
+      headers: {
+        origin: runtime.baseUrl,
+        'access-control-request-method': 'GET',
+        'access-control-request-headers': 'authorization',
+      },
+    })
+    assert.equal(result.status, 200, urls[i])
+    const allowed = String(result.headers['access-control-allow-headers'] || '')
+      .toLowerCase()
+      .split(',')
+      .map(function (h) {
+        return h.trim()
+      })
+    const required = ['authorization', 'x-haxcms-user-token', 'x-haxcms-site-token']
+    for (let j = 0; j < required.length; j++) {
+      assert.ok(
+        allowed.indexOf(required[j]) !== -1,
+        urls[i] + ' must allow ' + required[j] + ' (got: ' + allowed.join(', ') + ')',
+      )
+    }
+  }
+})
+
+test('site binary exports authenticate by bearer token, never by cookies alone', async () => {
+  // Pins the contract the editor client must honor: a logged-in browser that
+  // sends only its cookies is anonymous to the site API. The export buttons
+  // shipped doing exactly that and 401'd while this suite (which always sent
+  // a bearer) stayed green.
+  const url = runtime.baseUrl + '/_sites/' + SITE_NAME + '/x/api/v1/site/export/docx'
+  const cookieHeaders = runtime.loginCookie ? { cookie: runtime.loginCookie } : {}
+  const cookieOnly = await request('GET', url, { headers: cookieHeaders })
+  assert.equal(cookieOnly.status, 401, 'cookies alone must not authenticate a binary export')
+  assert.ok(
+    cookieOnly.bodyText.indexOf('Authentication required for docx site exports') !== -1,
+    cookieOnly.bodyText,
+  )
+  const withBearer = await request('GET', url, {
+    headers: Object.assign({}, cookieHeaders, { authorization: 'Bearer ' + runtime.jwt }),
+  })
+  assert.equal(withBearer.status, 200, withBearer.bodyText.substring(0, 300))
 })
 
 // ---------------------------------------------------------------------------

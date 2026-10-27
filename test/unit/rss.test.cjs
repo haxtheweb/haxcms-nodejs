@@ -36,8 +36,7 @@ function extractTag(xml, tag, start) {
 function buildKnownSite(options) {
   const opts = options || {}
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rss-site-'))
-  const pagesDir = path.join(tmpRoot, 'pages')
-  const items = opts.items || [
+    const items = opts.items || [
     {
       id: 'item-gamma',
       title: 'Gamma Page',

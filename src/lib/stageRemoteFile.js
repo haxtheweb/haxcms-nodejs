@@ -18,7 +18,9 @@ function getBulkImportStagingRoot() {
   const root = path.join(HAXCMS.configDirectory, "tmp", "imports");
   try {
     fs.ensureDirSync(root);
-  } catch (e) {}
+  } catch {
+    // intentionally ignored
+  }
   return root;
 }
 
@@ -48,7 +50,7 @@ async function stageRemoteFile(url, stagingRoot, idx, relPath) {
     );
     fs.writeFileSync(stagedPath, buf, { mode: 0o600, flag: "wx" });
     return stagedPath;
-  } catch (e) {
+  } catch {
     return null;
   }
 }

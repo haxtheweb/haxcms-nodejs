@@ -19,7 +19,7 @@ async function getApiKeys(req, res) {
       data: apiKeys,
     });
   }
-  catch (e) {
+  catch {
     return res.status(500).json({
       status: 500,
       data: {

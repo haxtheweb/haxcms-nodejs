@@ -4,6 +4,7 @@ const { parse } = require("node-html-parser");
 const JSONOutlineSchema = require("./JSONOutlineSchema.js");
 const { resolveContainedPath } = require("./pathConfinement.js");
 const { safeFetch } = require("./safeFetch.js");
+const { urlHostMatches } = require("./urlHost.js");
 
 const WORDSPERMIN = 225;
 
@@ -155,7 +156,7 @@ async function getItemHTML(site, item) {
       encoding: "utf8",
       flag: "r",
     });
-  } catch (e) {
+  } catch {
     return "";
   }
 }
@@ -167,7 +168,7 @@ function resolveLocalFile(siteLocation, filePath) {
   if (filePath.indexOf("https://") === 0 || filePath.indexOf("http://") === 0) {
     try {
       return new URL(filePath);
-    } catch (e) {
+    } catch {
       return fallbackURL(filePath);
     }
   }
@@ -184,7 +185,7 @@ function resolveLocalFile(siteLocation, filePath) {
       return new URL(tmp.origin + tmp.pathname + filePath);
     }
     return new URL(tmp.origin + tmp.pathname + "/" + filePath);
-  } catch (e) {
+  } catch {
     return fallbackURL(filePath);
   }
 }
@@ -208,9 +209,11 @@ function typeFromElement(el) {
       const src = String(el.getAttribute("src") || "");
       const className = String(el.getAttribute("class") || "");
       if (
-        src.indexOf("youtube.com") !== -1 ||
-        src.indexOf("youtube-nocookie.com") !== -1 ||
-        src.indexOf("vimeo.com") !== -1
+        urlHostMatches(src, [
+          "youtube.com",
+          "youtube-nocookie.com",
+          "vimeo.com",
+        ])
       ) {
         return "video";
       }
@@ -271,7 +274,7 @@ function tracksValueHasSource(tracksValue) {
       return true;
     }
     return false;
-  } catch (e) {
+  } catch {
     if (normalized !== "[]" && normalized !== "{}") {
       return true;
     }
@@ -367,7 +370,7 @@ async function getYoutubeDuration(vid) {
     // Security (L5): routed through safeFetch so every outbound call shares
     // the SSRF guard, byte cap, and timeout baseline.
     ytData = await safeFetch(url).then((d) => (d.ok ? d.json() : {}));
-  } catch (e) {
+  } catch {
     ytData = {};
   }
   if (ytData && Array.isArray(ytData.items)) {
@@ -406,7 +409,7 @@ function getMediaSourceData(el, siteLocation) {
     ) {
       try {
         urlData = new URL(sourceAttr);
-      } catch (e) {
+      } catch {
         urlData = fallbackURL(sourceAttr);
       }
     } else {
@@ -417,7 +420,7 @@ function getMediaSourceData(el, siteLocation) {
     if (srcAttr.indexOf("https://") === 0 || srcAttr.indexOf("http://") === 0) {
       try {
         urlData = new URL(srcAttr);
-      } catch (e) {
+      } catch {
         urlData = fallbackURL(srcAttr);
       }
     } else {
@@ -636,7 +639,7 @@ async function courseStatsFromOutline(
                   vimData = await safeFetch(vimURL).then((d) =>
                     d.ok ? d.json() : {},
                   );
-                } catch (e) {
+                } catch {
                   vimData = {};
                 }
                 if (vimData && vimData.duration) {

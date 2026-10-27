@@ -87,7 +87,7 @@ class EntityRegistry {
     let contents = '';
     try {
       contents = fs.readFileSync(resolvedPath, 'utf8');
-    } catch (e) {
+    } catch {
       return;
     }
     if (!contents) {
@@ -96,7 +96,7 @@ class EntityRegistry {
     let data = null;
     try {
       data = yaml.load(contents);
-    } catch (e) {
+    } catch {
       return;
     }
     if (!data || typeof data !== 'object' || !data.entities || typeof data.entities !== 'object') {

@@ -110,7 +110,7 @@ async function importXlsx(req, res) {
   }
 }
 
-function rowsToSiteItems(rows, filename) {
+function rowsToSiteItems(rows, _filename) {
   if (!Array.isArray(rows) || rows.length === 0) {
     throw new Error("Spreadsheet is empty");
   }

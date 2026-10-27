@@ -466,7 +466,7 @@ test("malformed JSON body returns 400 envelope and does not log the raw body", a
           if (a && typeof a === "object") {
             try {
               return JSON.stringify(a) + " " + String(a.body || "");
-            } catch (e) {
+            } catch {
               return String(a);
             }
           }

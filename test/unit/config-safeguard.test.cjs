@@ -54,7 +54,7 @@ describe('loadConfigJson — missing config.json', () => {
 })
 
 describe('loadConfigJson — corrupt/malformed config.json', () => {
-  test('corrupt JSON does not throw, yields a valid fallback, and leaves the file byte-for-byte unchanged', (t) => {
+  test('corrupt JSON does not throw, yields a valid fallback, and leaves the file byte-for-byte unchanged', (_t) => {
     const tmpDir = mkTmpDir('haxcms-cfg-corrupt-')
     try {
       const configPath = path.join(tmpDir, 'config.json')

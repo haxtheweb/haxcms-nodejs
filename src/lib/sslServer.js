@@ -33,7 +33,7 @@ function isMkcertAvailable() {
     // Security (PR8-7): argv arrays via execFileSync, never a shell string.
     child_process.execFileSync('mkcert', ['--version'], { stdio: 'ignore' });
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -56,7 +56,7 @@ function generateMkcertCerts() {
   try {
     // Ensure the local CA is installed in system/browser trust stores
     child_process.execFileSync('mkcert', ['-install'], { stdio: 'ignore' });
-  } catch (e) {
+  } catch {
     // -install may already be done or may fail silently; continue to cert generation
   }
   try {
@@ -70,7 +70,7 @@ function generateMkcertCerts() {
     console.log(`Generated locally-trusted SSL certificates via mkcert in ${SSL_DIR}`);
     console.log('These certificates are trusted by your system/browser because mkcert installed a local CA.');
     return true;
-  } catch (e) {
+  } catch {
     console.error('mkcert failed to generate certificates. Falling back to openssl.');
     return false;
   }
@@ -120,7 +120,7 @@ IP.2 = ::1
     console.log('WARNING: Browsers will show a security warning for this certificate.');
     console.log('Install mkcert (https://github.com/FiloSottile/mkcert) for trusted local certificates.');
     return true;
-  } catch (e) {
+  } catch {
     console.error('Failed to generate local SSL certificates. Ensure openssl is installed.');
     return false;
   }

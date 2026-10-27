@@ -69,6 +69,13 @@ const EXAMPLES = [
   ['Unsupported site export format "rtf"', 'EXPORT_FORMAT_UNSUPPORTED', { format: 'rtf' }],
   ['Too many failed login attempts. Please try again later.', 'AUTH_RATE_LIMITED', {}],
   ['Style guide saved successfully', 'STYLE_GUIDE_SAVED', {}],
+  ['`repoUrl` must be an openstax.org URL, got: evil.example', 'URL_NOT_ALLOWED', { host: 'evil.example' }],
+  ['OpenStax has no book with the slug "nope"', 'IMPORT_SOURCE_INVALID', {}],
+  ['OpenStax returned 503 for the book "physics"', 'IMPORT_FETCH_FAILED', {}],
+  ['OpenStax returned an empty table of contents for "physics"', 'IMPORT_EMPTY', {}],
+  ['No _quarto.yml file found in example-org/widgets-book', 'IMPORT_SOURCE_INVALID', {}],
+  ['The Quarto project has no pages to import', 'IMPORT_EMPTY', {}],
+  ['Unable to import the Quarto project', 'IMPORT_FAILED', {}],
 ]
 
 test('known messages get the expected code and params', () => {

@@ -128,7 +128,7 @@ function normalizeRepoUrl(value) {
   }
   try {
     return new URL(tmp).toString()
-  } catch (e) {
+  } catch {
     return null
   }
 }
@@ -153,7 +153,7 @@ function buildPloneBaseCandidates(inputUrl) {
   let parsed = null
   try {
     parsed = new URL(inputUrl)
-  } catch (e) {
+  } catch {
     return candidates
   }
   const origin = `${parsed.protocol}//${parsed.host}`
@@ -429,7 +429,7 @@ function getRelativePath(itemUrl, baseUrl) {
   let parsedItem = null
   try {
     parsedItem = new URL(itemUrl)
-  } catch (e) {
+  } catch {
     return ''
   }
   let itemPath = parsedItem.pathname
@@ -449,7 +449,7 @@ function getRelativePath(itemUrl, baseUrl) {
   itemPath = itemPath.replace(/\/+$/, '')
   try {
     itemPath = decodeURIComponent(itemPath)
-  } catch (e) {
+  } catch {
     // ignore decode errors
   }
   return itemPath
@@ -618,7 +618,7 @@ function getSiteFilename(siteData, base) {
     if (bits.length > 0) {
       return HAXCMS.cleanTitle(bits[bits.length - 1], false)
     }
-  } catch (e) {
+  } catch {
     // ignore
   }
   return 'plone-import'
@@ -662,7 +662,7 @@ function registerBinaryFile(item, files) {
 function absolutizeFromItem(value, itemId) {
   try {
     return new URL(value, itemId).toString()
-  } catch (e) {
+  } catch {
     return value
   }
 }
@@ -705,7 +705,7 @@ async function fetchJSONWithMeta(url, fetchOptions = {}) {
     let data = null
     try {
       data = await response.json()
-    } catch (e) {
+    } catch {
       data = null
     }
     return {
@@ -713,7 +713,7 @@ async function fetchJSONWithMeta(url, fetchOptions = {}) {
       status: response.status,
       data: data
     }
-  } catch (e) {
+  } catch {
     return {
       ok: false,
       status: 0,
@@ -727,7 +727,7 @@ function absolutizeRootUrls(content, base) {
   try {
     const parsed = new URL(base)
     origin = `${parsed.protocol}//${parsed.host}`
-  } catch (e) {
+  } catch {
     origin = ''
   }
   if (origin === '') {

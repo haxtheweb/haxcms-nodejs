@@ -40,7 +40,6 @@ const {
   createResponseCollector,
   runA11y,
   captureScreenshot,
-  compareBaseline,
   selectors,
   FIXED_SITE_NAME,
   deepQuery,
@@ -50,7 +49,6 @@ const {
   waitFor,
   waitForDeep,
   safeCompareBaseline,
-  typeIntoShadow,
   loginSetInput,
   loginClickButton,
   createSiteViaUI,
@@ -58,11 +56,9 @@ const {
   findSiteCard,
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
-  findCreateSiteResponse: waitForCreateResponse,
 } = require('./helpers')
 
 const EXPECTED_SITE_NAME = FIXED_SITE_NAME.toLowerCase()
-const SITES_DIR = '_sites'
 const PUBLISHED_DIR = '_published'
 
 // patchHaxcmsRootForHarness + relocateCreatedSite are imported from helpers/flows.cjs.
@@ -228,7 +224,7 @@ test.after(async () => {
   if (_runtime) {
     try {
       await teardownE2ERuntime(_runtime)
-    } catch (e) {
+    } catch {
       // ignore
     }
     _runtime = null
@@ -273,7 +269,7 @@ test(
         let body = null
         try {
           body = JSON.parse(createResp.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         const siteNameReturned =
@@ -416,7 +412,7 @@ test(
         let body = null
         try {
           body = JSON.parse(downloadRespRecord.bodyText)
-        } catch (e) {
+        } catch {
           body = null
         }
         t.diagnostic('download response body: ' + (downloadRespRecord.bodyText || '').substring(0, 300))
@@ -533,12 +529,12 @@ test(
       // 14. Teardown.
       try {
         collector.detach()
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
         await browser.close()
-      } catch (e) {
+      } catch {
         // ignore
       }
     }

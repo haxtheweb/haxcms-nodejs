@@ -14,6 +14,9 @@ const systemBlocksListRoute = require('./routes/systemBlocksList.js');
 const skeletonsListRoute = require('./routes/skeletonsList.js');
 const getSkeletonRoute = require('./routes/getSkeleton.js');
 const themesListRoute = require('./routes/themesList.js');
+const languagesListRoute = require('./routes/languagesList.js');
+const getLanguageRoute = require('./routes/getLanguage.js');
+const languageTranslationsRoute = require('./routes/languageTranslations.js');
 const systemVersionRoute = require('./routes/systemVersion.js');
 const systemEntitiesRoute = require('./routes/systemEntities.js');
 const systemSchemasRoute = require('./routes/systemSchemas.js');
@@ -167,6 +170,18 @@ async function configurationThemes(req, res, next) {
   return themesListRoute(req, res, next);
 }
 
+async function languagesList(req, res, next) {
+  return languagesListRoute(req, res, next);
+}
+
+async function getLanguage(req, res, next) {
+  return getLanguageRoute(req, res, next);
+}
+
+async function languageTranslations(req, res, next) {
+  return languageTranslationsRoute(req, res, next);
+}
+
 async function systemVersion(req, res, next) {
   return systemVersionRoute(req, res, next);
 }
@@ -205,4 +220,7 @@ module.exports = {
   getSkeleton,
   themesList,
   configurationThemes,
+  languagesList,
+  getLanguage,
+  languageTranslations,
 };

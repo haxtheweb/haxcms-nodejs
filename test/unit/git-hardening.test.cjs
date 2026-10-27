@@ -35,7 +35,7 @@ function hasGit() {
   try {
     execFileSync('git', ['--version'], { stdio: 'ignore' })
     return true
-  } catch (e) {
+  } catch {
     return false
   }
 }

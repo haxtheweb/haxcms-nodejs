@@ -1,4 +1,3 @@
-const { parse } = require("node-html-parser");
 const MarkdownIt = require("markdown-it");
 const JSONOutlineSchema = require("../../../../lib/JSONOutlineSchema.js");
 const JSONOutlineSchemaItem = require("../../../../lib/JSONOutlineSchemaItem.js");
@@ -25,7 +24,7 @@ async function convertNotionToSite(req, res) {
   } else if (req && req.body && typeof req.body === "string") {
     try {
       body = JSON.parse(req.body.trim());
-    } catch (e) {
+    } catch {
       body = {};
     }
   }

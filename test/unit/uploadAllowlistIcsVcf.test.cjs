@@ -109,7 +109,9 @@ describe('ics/vcf upload allowlist — haxtheweb/issues#2941', () => {
     HAXCMS.configDirectory = realConfigDirectory
     try {
       await fs.remove(tmpRoot)
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
   })
 
   function stubNetwork(responses) {

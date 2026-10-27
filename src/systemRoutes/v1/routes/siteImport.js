@@ -9,13 +9,14 @@ const { convertDrupalToSite } = require('./imports/convertDrupalToSite.js')
 const { convertPloneToSite } = require('./imports/convertPloneToSite.js')
 const { convertOpenstaxToSite } = require('./imports/convertOpenstaxToSite.js')
 const { convertVitepressToSite } = require('./imports/convertVitepressToSite.js')
+const { convertQuartoToSite } = require('./imports/convertQuartoToSite.js')
 
 /**
  * POST /system/api/v1/site/import/:platform
  * Dispatcher that routes platform import requests to the correct converter.
  *
  * Supported platforms: haxcms, html, pressbooks, gitbook, notion, wordpress,
- * elmsln, drupal, plone, openstax, vitepress.
+ * elmsln, drupal, plone, openstax, vitepress, quarto.
  * Returns { status: 200, data: { items: [...], filename: string, ... } }.
  */
 async function siteImport(req, res) {
@@ -47,6 +48,8 @@ async function siteImport(req, res) {
       return convertOpenstaxToSite(req, res)
     case 'vitepress':
       return convertVitepressToSite(req, res)
+    case 'quarto':
+      return convertQuartoToSite(req, res)
     default:
       return res.status(400).json({
         status: 400,

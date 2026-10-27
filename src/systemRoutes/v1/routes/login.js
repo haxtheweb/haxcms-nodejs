@@ -56,12 +56,15 @@ async function loginRoute(req, res) {
     let sessionTokens = {};
     try {
       sessionTokens = await HAXCMS.getSessionRequestTokens(req);
-    } catch (e) {
+    } catch {
       sessionTokens = {};
     }
     if (!sessionTokens || typeof sessionTokens.userToken !== "string") {
+      // Security: `u` is the identity just verified by HAXCMS.testLogin above
+      // for this request, so mint the fallback token against it rather than
+      // a process-global username.
       sessionTokens = Object.assign({}, sessionTokens, {
-        userToken: HAXCMS.getRequestToken(HAXCMS.getActiveUserName()),
+        userToken: HAXCMS.getRequestToken(u),
       });
     }
     return res.json(

@@ -1,5 +1,9 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const { getRequestHeaderValue, assertSiteFeature, ensureSiteMetadataContainers } = require('../siteRouteUtils.js');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const {
+  getRequestHeaderValue,
+  assertSiteFeature,
+  ensureSiteMetadataContainers,
+} = require("../siteRouteUtils.js");
 
 /**
  * @OA\Post(
@@ -19,22 +23,43 @@ const { getRequestHeaderValue, assertSiteFeature, ensureSiteMetadataContainers }
  * )
  */
 async function savePlatformSettings(req, res) {
-  const siteToken = getRequestHeaderValue(req, 'x-haxcms-site-token');
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  // Security: use the per-request authenticated identity resolved by
+  // validateSiteApiRouteAccess rather than a process-global username so a
+  // token minted for one authenticated user cannot validate under another.
+  const activeUserName =
+    req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "";
   if (
     siteToken &&
+    activeUserName &&
     HAXCMS.validateRequestToken(
       siteToken,
-      HAXCMS.getActiveUserName() + ':' + req.body['site']['name'],
+      activeUserName + ":" + req.body["site"]["name"],
     )
   ) {
     // load the site from name
-    let site = await HAXCMS.loadSite(req.body['site']['name']);
-    if (!assertSiteFeature(site, res, 'siteManifest', 'Platform settings are disabled for this site')) {
+    let site = await HAXCMS.loadSite(req.body["site"]["name"]);
+    if (
+      !assertSiteFeature(
+        site,
+        res,
+        "siteManifest",
+        "Platform settings are disabled for this site",
+      )
+    ) {
       return;
     }
 
-    if (!req.body || typeof req.body.platform !== 'object' || !req.body.platform) {
-      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+    if (
+      !req.body ||
+      typeof req.body.platform !== "object" ||
+      !req.body.platform
+    ) {
+      res
+        .status(400)
+        .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
 
@@ -43,65 +68,74 @@ async function savePlatformSettings(req, res) {
     // Validate payload shape
 
     const validFeatureKeys = [
-      'addPage',
-      'saveAndEdit',
-      'deletePage',
-      'outlineDesigner',
-      'styleGuide',
-      'insights',
-      'siteManifest',
-      'themeManifest',
-      'authorManifest',
-      'seoManifest',
-      'pageBreak',
-      'addBlock',
-      'popularGizmos',
-      'recentGizmos',
-      'contentMap',
-      'viewSource',
-      'uploadMedia',
-      'onlineMedia',
-      'community',
-      'pageTemplates',
-      'blockTemplates',
+      "addPage",
+      "saveAndEdit",
+      "deletePage",
+      "outlineDesigner",
+      "styleGuide",
+      "insights",
+      "siteManifest",
+      "themeManifest",
+      "authorManifest",
+      "seoManifest",
+      "pageBreak",
+      "addBlock",
+      "popularGizmos",
+      "recentGizmos",
+      "contentMap",
+      "viewSource",
+      "uploadMedia",
+      "onlineMedia",
+      "community",
+      "pageTemplates",
+      "blockTemplates",
     ];
     const legacyFeatureKeyMap = {
-      manifest: ['siteManifest', 'themeManifest', 'authorManifest', 'seoManifest'],
-      onlineSearch: ['onlineMedia'],
-      delete: ['deletePage'],
+      manifest: [
+        "siteManifest",
+        "themeManifest",
+        "authorManifest",
+        "seoManifest",
+      ],
+      onlineSearch: ["onlineMedia"],
+      delete: ["deletePage"],
     };
     const featureSources = [];
     if (
       platform.features &&
-      typeof platform.features === 'object' &&
+      typeof platform.features === "object" &&
       !Array.isArray(platform.features)
     ) {
       featureSources.push(platform.features);
     }
     if (
       platform.cmsFeatures &&
-      typeof platform.cmsFeatures === 'object' &&
+      typeof platform.cmsFeatures === "object" &&
       !Array.isArray(platform.cmsFeatures)
     ) {
       featureSources.push(platform.cmsFeatures);
     }
     if (
       platform.editorFeatures &&
-      typeof platform.editorFeatures === 'object' &&
+      typeof platform.editorFeatures === "object" &&
       !Array.isArray(platform.editorFeatures)
     ) {
       featureSources.push(platform.editorFeatures);
     }
     if (featureSources.length === 0) {
-      res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+      res
+        .status(400)
+        .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
 
     const normalizedFeatures = {};
     for (const source of featureSources) {
       for (const key of Object.keys(source)) {
-        if (typeof source[key] !== 'boolean') {
-          res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+        if (typeof source[key] !== "boolean") {
+          res
+            .status(400)
+            .json({ status: 400, data: { message: "Invalid request" } });
           return;
         }
         if (validFeatureKeys.includes(key)) {
@@ -111,7 +145,9 @@ async function savePlatformSettings(req, res) {
             normalizedFeatures[mappedKey] = source[key];
           }
         } else {
-          res.status(400).json({ status: 400, data: { message: 'Invalid request' } });
+          res
+            .status(400)
+            .json({ status: 400, data: { message: "Invalid request" } });
           return;
         }
       }
@@ -122,7 +158,7 @@ async function savePlatformSettings(req, res) {
     ensureSiteMetadataContainers(site);
     if (
       !site.manifest.metadata.platform ||
-      typeof site.manifest.metadata.platform !== 'object' ||
+      typeof site.manifest.metadata.platform !== "object" ||
       Array.isArray(site.manifest.metadata.platform)
     ) {
       site.manifest.metadata.platform = {};
@@ -131,7 +167,7 @@ async function savePlatformSettings(req, res) {
 
     // only store supported feature keys
     for (const k of validFeatureKeys) {
-      if (typeof normalizedFeatures[k] === 'boolean') {
+      if (typeof normalizedFeatures[k] === "boolean") {
         site.manifest.metadata.platform.features[k] = normalizedFeatures[k];
       }
     }
@@ -140,11 +176,13 @@ async function savePlatformSettings(req, res) {
 
     // don't reorganize the structure
     await site.manifest.save(false);
-    await site.gitCommit('Platform settings updated');
+    await site.gitCommit("Platform settings updated");
 
     res.json({ status: 200, data: site.manifest });
   } else {
-    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
+    res
+      .status(403)
+      .json({ status: 403, data: { message: "Authentication required" } });
   }
 }
 

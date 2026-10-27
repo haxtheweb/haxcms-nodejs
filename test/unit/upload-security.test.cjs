@@ -217,6 +217,16 @@ test('force-download decision is made on the decoded files/ path', () => {
     '/_sites/s/files%2fx.svg',
     '/files/x.html',
     '/_sites/s/files/x%252ehtml.svg',
+    // send resolves "." / ".." / repeated slashes, so these reach x.html on disk
+    '/_sites/s/files/x.html/.',
+    '/_sites/s/files/x.html/%2e',
+    '/_sites/s/files/./x.html',
+    '/_sites/s/files//x.html',
+    '/_sites/s/files/sub/../x.html',
+    '/_sites/s/files/x.svg/./.',
+    // case-insensitive filesystems resolve /FILES/ to the upload directory
+    '/_sites/s/FILES/x.html',
+    '/_sites/s/Files/x.SVG',
   ]
   for (let i = 0; i < yes.length; i++) {
     assert.equal(uploadSecurity.shouldForceDownloadFilesRequest(yes[i]), true, yes[i])
@@ -229,9 +239,63 @@ test('force-download decision is made on the decoded files/ path', () => {
     '/_sites/s/files',
     '/_sites/s/x.html',
     '/_sites/s/files/%E0%A4%A',
+    '/_sites/s/files/x.png/.',
+    '/_sites/s/files/x.html/',
+    '/_sites/s/files/x.html/..',
+    '/_sites/s/pages/x.html/.',
   ]
   for (let i = 0; i < no.length; i++) {
     assert.equal(uploadSecurity.shouldForceDownloadFilesRequest(no[i]), false, no[i])
   }
   assert.deepEqual(uploadSecurity.FORCE_DOWNLOAD_FILES_EXTENSIONS, ['html', 'htm', 'xhtml', 'xml', 'svg'])
+})
+
+test('decoded files/ guard path is normalized like the filesystem lookup', () => {
+  assert.equal(uploadSecurity.decodeRequestPathForFilesGuard('/a/files/x.html/.'), '/a/files/x.html')
+  assert.equal(uploadSecurity.decodeRequestPathForFilesGuard('/a/files//x.html?y=1'), '/a/files/x.html')
+  assert.equal(uploadSecurity.decodeRequestPathForFilesGuard('/a/files/s/../x%2ehtml'), '/a/files/x.html')
+  assert.equal(uploadSecurity.decodeRequestPathForFilesGuard('\\a\\files\\x.html'), '/a/files/x.html')
+  assert.equal(uploadSecurity.decodeRequestPathForFilesGuard(''), '')
+  assert.equal(uploadSecurity.isFilesDirectoryRequestPath('/a/FILES/x.html'), true)
+  assert.equal(uploadSecurity.isFilesDirectoryRequestPath('/a/files'), false)
+})
+
+test('resolved-file guard keys on the file served, relative to the static root', () => {
+  const root = path.join(path.sep, 'srv', 'haxcms')
+  const f = (...parts) => path.join(root, ...parts)
+  const yes = [
+    f('files', 'x.html'),
+    f('files', 'sub', 'x.HTM'),
+    f('_sites', 's', 'files', 'x.svg'),
+    f('_sites', 's', 'files', 'x.xhtml'),
+    f('_sites', 's', 'FILES', 'x.xml'),
+  ]
+  for (let i = 0; i < yes.length; i++) {
+    assert.equal(uploadSecurity.shouldForceDownloadResolvedFile(root, yes[i]), true, yes[i])
+  }
+  const no = [
+    f('files', 'x.png'),
+    f('files', 'x.html.png'),
+    f('_sites', 's', 'pages', 'p', 'index.html'),
+    f('_sites', 's', 'index.html'),
+    f('index.html'),
+    // outside the static root: not decided here
+    path.join(path.sep, 'srv', 'other', 'files', 'x.html'),
+    root,
+  ]
+  for (let i = 0; i < no.length; i++) {
+    assert.equal(uploadSecurity.shouldForceDownloadResolvedFile(root, no[i]), false, no[i])
+  }
+  // a parent directory named "files" must not force every page to download
+  const parentNamedFiles = path.join(path.sep, 'srv', 'files', 'haxcms')
+  assert.equal(
+    uploadSecurity.shouldForceDownloadResolvedFile(parentNamedFiles, path.join(parentNamedFiles, 'index.html')),
+    false,
+  )
+  assert.equal(
+    uploadSecurity.shouldForceDownloadResolvedFile(parentNamedFiles, path.join(parentNamedFiles, 'files', 'x.html')),
+    true,
+  )
+  assert.equal(uploadSecurity.shouldForceDownloadResolvedFile('', path.join(root, 'files', 'x.html')), false)
+  assert.equal(uploadSecurity.shouldForceDownloadResolvedFile(root, ''), false)
 })

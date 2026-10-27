@@ -12,7 +12,7 @@ const LIMITS = {
 // createSite's build.files pipeline (importBuildFile) only accepts these
 // extensions, so anything else is never handed over in the first place
 // (mirrors SAFE_BULK_IMPORT_EXTENSION_REGEX in createSite.js).
-const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf)$/i
+const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf|h5p)$/i
 // Drupal public file URLs look like /sites/default/files/2024-06/x.jpg (or
 // /sites/< multisite >/files/..., /files/...). The captured remainder becomes
 // the files-relative key because HAXCMSFile.save preserves the bulk-import
@@ -138,7 +138,7 @@ async function fetchJSON(url, fetchOptions = {}) {
       return null
     }
     return await response.json()
-  } catch (e) {
+  } catch {
     return null
   }
 }
@@ -165,7 +165,7 @@ function buildDrupalBaseCandidates(inputUrl) {
         candidates.push(candidate)
       }
     }
-  } catch (e) {
+  } catch {
     return []
   }
   return candidates
@@ -203,7 +203,7 @@ function withPageLimit(url, pageLimit = 50) {
       parsed.searchParams.set('page[limit]', `${pageLimit}`)
     }
     return parsed.toString()
-  } catch (e) {
+  } catch {
     if (url.indexOf('?') === -1) {
       return `${url}?page[limit]=${pageLimit}`
     }
@@ -411,7 +411,7 @@ function getFilenameFromUrl(repoUrl) {
     if (hostClean && hostClean !== '' && hostClean !== 'blank') {
       return hostClean
     }
-  } catch (e) {
+  } catch {
     // fall through to the default
   }
   return 'drupal-import'
@@ -443,7 +443,7 @@ function pathnameFromFileUrl(urlValue) {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) {
     try {
       return new URL(v).pathname
-    } catch (e) {
+    } catch {
       return null
     }
   }
@@ -478,7 +478,7 @@ function absolutizeFileUrl(urlValue, base) {
     const parsed = new URL(base)
     const origin = `${parsed.protocol}//${parsed.host}`
     return `${origin}${v.charAt(0) === '/' ? '' : '/'}${v}`
-  } catch (e) {
+  } catch {
     return v
   }
 }
@@ -728,7 +728,7 @@ function fileReferenceFor(value, fileMap) {
     try {
       const parsed = new URL(v)
       return fileMap.filesByPath[parsed.pathname] || null
-    } catch (e) {
+    } catch {
       return null
     }
   }
@@ -780,7 +780,7 @@ function rewriteFileReferences(content, fileMap) {
     // body directly and reading root.innerHTML round-trips the fragment
     // without a wrapper element leaking into the stored page content
     container = parse(content)
-  } catch (e) {
+  } catch {
     return content
   }
   const elements = container.querySelectorAll('*')
@@ -829,7 +829,7 @@ function absolutizeRootUrls(content, base) {
   try {
     const parsed = new URL(base)
     origin = `${parsed.protocol}//${parsed.host}`
-  } catch (e) {
+  } catch {
     origin = ''
   }
   if (origin === '') {

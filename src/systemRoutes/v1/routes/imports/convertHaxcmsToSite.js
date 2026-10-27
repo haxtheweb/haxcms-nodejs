@@ -52,7 +52,7 @@ async function convertHaxcmsToSite(req, res) {
   let parsedUrl;
   try {
     parsedUrl = new URL(url);
-  } catch (e) {
+  } catch {
     return res.status(400).json({
       status: 400,
       data: {
@@ -121,7 +121,7 @@ async function convertHaxcmsToSite(req, res) {
       try {
         const response = await safeFetch(`${base}/${item.location}`);
         item.contents = response.ok ? await response.text() : "";
-      } catch (e) {
+      } catch {
         item.contents = "";
       }
     }
@@ -163,7 +163,9 @@ async function convertHaxcmsToSite(req, res) {
           siteFiles[filePath] = `${base}/${filePath}`;
         }
       }
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
   }
 
   const filename =

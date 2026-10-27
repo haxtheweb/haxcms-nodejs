@@ -2,6 +2,7 @@ const path = require("path");
 const fs = require("fs-extra");
 const crypto = require("crypto");
 const { HAXCMS } = require("./HAXCMS.js");
+const { isUnsafeRelativePath } = require("./pathConfinement.js");
 const { buildFilePublicUrl } = require("./siteFileUrl.js");
 const { getDeterministicFileUuid } = require("./siteFileUuid.js");
 const { readMediaSettings } = require("./mediaSettings.js");
@@ -10,7 +11,7 @@ const sharp = require("sharp");
 const dns = require("dns");
 
 const ALLOWED_UPLOAD_EXTENSION_PATTERN =
-  /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf)$/i;
+  /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf|h5p)$/i;
 const ALLOWED_MIME_BY_EXTENSION = {
   jpg: ["image/jpeg"],
   jpeg: ["image/jpeg"],
@@ -63,6 +64,10 @@ const ALLOWED_MIME_BY_EXTENSION = {
   // detected as text/html and rejected rather than stored and served
   ics: ["text/calendar", "text/x-vcalendar", "text/plain"],
   vcf: ["text/vcard", "text/x-vcard", "text/directory", "text/plain"],
+  // an H5P package is a zip archive (h5p.json plus libraries and content);
+  // it is stored as-is and unpacked in the browser by h5p-element, never on
+  // the server, so the same archive types the office formats use are accepted
+  h5p: ["application/zip", "application/x-zip-compressed"],
   css: ["text/css"],
   js: [
     "text/javascript",
@@ -186,7 +191,7 @@ async function applyConfiguredJpegUploadQuality(filePath) {
   let mediaSettings = {};
   try {
     mediaSettings = await readMediaSettings(HAXCMS);
-  } catch (e) {
+  } catch {
     return;
   }
   if (
@@ -234,7 +239,9 @@ async function readImageDimensions(filePath) {
         height: typeof metadata.height === "number" ? metadata.height : 0,
       };
     }
-  } catch (e) {}
+  } catch {
+    // intentionally ignored
+  }
   return { width: 0, height: 0 };
 }
 
@@ -401,7 +408,7 @@ async function verifyImageContent(filePath) {
       return false;
     }
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -467,7 +474,7 @@ function getBulkImportStagingRootPath() {
       return null;
     }
     return resolvedRoot;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -508,13 +515,13 @@ function isValidBulkImportStagedPath(inputPath) {
     if (lstats.isSymbolicLink()) {
       return false;
     }
-  } catch (e) {
+  } catch {
     return false;
   }
   let resolvedSource = null;
   try {
     resolvedSource = fs.realpathSync(normalizedSource);
-  } catch (e) {
+  } catch {
     return false;
   }
   if (!resolvedSource) {
@@ -523,7 +530,7 @@ function isValidBulkImportStagedPath(inputPath) {
   let sourceStats = null;
   try {
     sourceStats = fs.statSync(resolvedSource);
-  } catch (e) {
+  } catch {
     return false;
   }
   if (!sourceStats || !sourceStats.isFile()) {
@@ -870,7 +877,7 @@ async function validateUrlNotSSRF(urlString) {
   var parsed;
   try {
     parsed = new URL(urlString);
-  } catch (e) {
+  } catch {
     return false;
   }
   var protocol = parsed.protocol.toLowerCase();
@@ -891,7 +898,7 @@ async function validateUrlNotSSRF(urlString) {
         return false;
       }
     }
-  } catch (e) {
+  } catch {
     return false;
   }
   return true;
@@ -902,7 +909,7 @@ class HAXCMSFile {
   /**
    * Save file into this site, optionally updating reference inside the page
    */
-  async save(tmpFile, site, page = null, imageOps = null, subfolder = "") {
+  async save(tmpFile, site, _page = null, imageOps = null, subfolder = "") {
     var returnData = {};
     // check for a file upload
     if (tmpFile["path"]) {
@@ -915,6 +922,13 @@ class HAXCMSFile {
       // strip leading/trailing slashes so the join is predictable.
       var subfolderPart = "";
       if (subfolder && typeof subfolder === "string") {
+        // Security: subfolder must stay under files/ (no `..`, no absolute)
+        if (isUnsafeRelativePath(subfolder)) {
+          return {
+            status: 500,
+            data: { message: "Invalid subfolder" },
+          };
+        }
         subfolderPart = subfolder.replace(/^\/+|\/+$/g, "");
         if (subfolderPart) {
           subfolderPart = subfolderPart + "/";
@@ -972,7 +986,9 @@ class HAXCMSFile {
               };
             }
           }
-        } catch (e) {}
+        } catch {
+          // intentionally ignored
+        }
       }
       // Bulk import: preserve the directory tree encoded in the incoming name
       // (e.g. 'files/assets/x.png' or 'assets/x.png'), mirroring PHP HAXCMSFile
@@ -1074,7 +1090,9 @@ class HAXCMSFile {
           ) {
             dlStreamCapMb = dlCapSettings.maxUploadSizeMb;
           }
-        } catch (capErr) {}
+        } catch {
+          // intentionally ignored
+        }
         try {
           try {
             await downloadAndSaveFile(filedata, remoteDownloadPath, {
@@ -1120,7 +1138,9 @@ class HAXCMSFile {
                 };
               }
             }
-          } catch (sizeErr) {}
+          } catch {
+            // intentionally ignored
+          }
         } catch (err) {
           console.warn(err);
           return {
@@ -1160,7 +1180,7 @@ class HAXCMSFile {
               },
             };
           }
-        } catch (e) {
+        } catch {
           return {
             status: 500,
             data: {
@@ -1243,9 +1263,9 @@ class HAXCMSFile {
       if (imageOps != null) {
         switch (imageOps) {
           case "thumbnail":
-            const image = await sharp(fullpath)
+            await sharp(fullpath)
               .metadata()
-              .then(({ width }) =>
+              .then(({ width: _width }) =>
                 sharp(fullpath)
                   .resize({
                     width: 250,
@@ -1281,7 +1301,7 @@ class HAXCMSFile {
         const dims = await readImageDimensions(fullpath);
         returnData.file.width = dims.width;
         returnData.file.height = dims.height;
-      } catch (enrichErr) {
+      } catch {
         // best-effort enrichment; never block an otherwise-successful upload
       }
       // #3043: upsert the file record into the per-site files.json datastore
@@ -1296,7 +1316,7 @@ class HAXCMSFile {
           if (storeRecord) {
             dataStore.upsertRecord(storeRecord);
           }
-        } catch (dataStoreErr) {
+        } catch {
           // best-effort; never block an otherwise-successful upload
         }
       }

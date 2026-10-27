@@ -9,7 +9,16 @@ version: 1.0.0
 license: MIT
 metadata:
   author: PRAW
-  tags: [instructional-design, understanding-by-design, ubd, grasps, performance-task, authentic-assessment, hax]
+  tags:
+    [
+      instructional-design,
+      understanding-by-design,
+      ubd,
+      grasps,
+      performance-task,
+      authentic-assessment,
+      hax,
+    ]
   requirements: "A targeted enduring understanding to assess (manifest.stage1). Emits a GRASPS task spec + authentic-context media selection."
 ---
 
@@ -22,14 +31,14 @@ performance task framed or made authentic.
 
 ## The six letters (UbD Fig 7.7)
 
-| Letter | Element | Prompt stem |
-|---|---|---|
-| G | Goal | Your task is… / The goal is to… / The challenge is… / The obstacles are… |
-| R | Role | You are… / You have been asked to… / Your job is… |
-| A | Audience | Your clients are… / The target audience is… / You need to convince… |
-| S | Situation | The context is… / The challenge involves dealing with… |
-| P | Performance/Product | You will create a… in order to… / You need to develop… so that… |
-| S | Standards | Your performance needs to… / Your work will be judged by… / Your product must meet… |
+| Letter | Element             | Prompt stem                                                                         |
+| ------ | ------------------- | ----------------------------------------------------------------------------------- |
+| G      | Goal                | Your task is… / The goal is to… / The challenge is… / The obstacles are…            |
+| R      | Role                | You are… / You have been asked to… / Your job is…                                   |
+| A      | Audience            | Your clients are… / The target audience is… / You need to convince…                 |
+| S      | Situation           | The context is… / The challenge involves dealing with…                              |
+| P      | Performance/Product | You will create a… in order to… / You need to develop… so that…                     |
+| S      | Standards           | Your performance needs to… / Your work will be judged by… / Your product must meet… |
 
 ## When to Use
 
@@ -42,6 +51,7 @@ performance task framed or made authentic.
 ## Authenticity checklist (UbD Ch. 7)
 
 A task is authentic if it:
+
 - Is **realistically contextualized** (replicates real-world ways knowledge is tested)
 - Requires **judgment and innovation** (not a cued plug-in)
 - Asks the student to **"do the subject"** (resembles work in the field)
@@ -54,15 +64,15 @@ If a task fails ≥2 of these, it is an exercise, not a problem — rework it an
 
 ## HAX authentic-context media picker
 
-| Context need | Component |
-|---|---|
-| Video scenario / documentary context | `video-player` |
-| Audio interview / oral history / radio context | `audio-player` (prefer via `media-playlist`) |
-| Multi-asset media sequence (audio program) | `media-playlist` + `audio-player` |
+| Context need                                          | Component                                    |
+| ----------------------------------------------------- | -------------------------------------------- |
+| Video scenario / documentary context                  | `video-player`                               |
+| Audio interview / oral history / radio context        | `audio-player` (prefer via `media-playlist`) |
+| Multi-asset media sequence (audio program)            | `media-playlist` + `audio-player`            |
 | Compare two visuals (then/now, two designs, two maps) | `image-compare-slider`, `a11y-compare-image` |
-| Interactive image map (explore a scene/diagram) | `lrndesign-imagemap` |
-| Constructed response / product / report | `simple-fields` |
-| Rubric / standards / criteria display | `editable-table` |
+| Interactive image map (explore a scene/diagram)       | `lrndesign-imagemap`                         |
+| Constructed response / product / report               | `simple-fields`                              |
+| Rubric / standards / criteria display                 | `editable-table`                             |
 
 ## Output Format
 
@@ -100,7 +110,7 @@ If a task fails ≥2 of these, it is an exercise, not a problem — rework it an
 
 ## Gotchas
 
-- **A GRASPS task can still be an exercise.** If the Situation gives away the exact approach, it's a cued plug-in. Remove cues; make the student decide *which* knowledge to use.
+- **A GRASPS task can still be an exercise.** If the Situation gives away the exact approach, it's a cued plug-in. Remove cues; make the student decide _which_ knowledge to use.
 - **Audience and purpose transform a task.** A "report on nutrition" becomes authentic when framed as "advise a specific client with specific constraints." Don't skip A and the purpose in P.
 - **Not every assessment needs GRASPS.** Use it for the core performance task(s); quizzes and academic prompts round out the scrapbook without GRASPS framing.
 
@@ -112,6 +122,6 @@ If a task fails ≥2 of these, it is an exercise, not a problem — rework it an
 
 ## References
 
-- `../hax-ubd-backward-design/references/ubd-element-map.md` — Stage 2 component map
-- `../hax-ubd-backward-design/references/validity-self-test.md` — run on the framed task
-- Source: Wiggins & McTighe (2005), *UbD* Ch. 7, Fig 7.6–7.7.
+- `https://github.com/haxtheweb/praw/blob/main/skills/hax-ubd-backward-design/references/ubd-element-map.md` — Stage 2 component map
+- `https://github.com/haxtheweb/praw/blob/main/skills/hax-ubd-backward-design/references/validity-self-test.md` — run on the framed task
+- Source: Wiggins & McTighe (2005), _UbD_ Ch. 7, Fig 7.6–7.7.

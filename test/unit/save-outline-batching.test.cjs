@@ -1,4 +1,4 @@
-'use strict'
+"use strict";
 
 // saveOutline batching (haxtheweb/issues#3114): the request used to call
 // site.updateNode() for every existing item, and each call rewrote site.json
@@ -18,104 +18,111 @@
 // Constraints honored: CommonJS (.cjs), require(), globalThis (not window),
 // NO optional chaining (explicit && guards), node:test + node:assert/strict.
 
-const { test } = require('node:test')
-const assert = require('node:assert/strict')
-const fs = require('fs-extra')
-const os = require('os')
-const path = require('path')
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("fs-extra");
+const os = require("os");
+const path = require("path");
 
 // sites are created under the module-level HAXCMS_ROOT resolved at require time
-const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'saveoutline-batch-'))
-process.env.HAXCMS_ROOT = testRoot + '/'
+const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), "saveoutline-batch-"));
+process.env.HAXCMS_ROOT = testRoot + "/";
 
-const { HAXCMS } = require('../../src/lib/HAXCMS.js')
-const saveOutline = require('../../src/siteRoutes/v1/routes/saveOutline.js')
+const { HAXCMS } = require("../../src/lib/HAXCMS.js");
+const saveOutline = require("../../src/siteRoutes/v1/routes/saveOutline.js");
 
 test.after(() => {
-  fs.removeSync(testRoot)
-})
+  fs.removeSync(testRoot);
+});
 
 const GENERATED = [
-  'site.json',
-  'rss.xml',
-  'atom.xml',
-  'sitemap.xml',
-  'llms.txt',
-  'lunrSearchIndex.json',
-]
+  "site.json",
+  "rss.xml",
+  "atom.xml",
+  "sitemap.xml",
+  "llms.txt",
+  "lunrSearchIndex.json",
+];
 
 function stubRes() {
   return {
     statusCode: 200,
     body: null,
     status(code) {
-      this.statusCode = code
-      return this
+      this.statusCode = code;
+      return this;
     },
     json(obj) {
-      this.body = obj
-      return this
+      this.body = obj;
+      return this;
     },
-  }
+  };
 }
 
 function useTempConfigDirectory(t) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'saveoutline-config-'))
-  const originalConfigDirectory = HAXCMS.configDirectory
-  HAXCMS.configDirectory = tmpDir
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "saveoutline-config-"));
+  const originalConfigDirectory = HAXCMS.configDirectory;
+  HAXCMS.configDirectory = tmpDir;
   t.after(() => {
-    HAXCMS.configDirectory = originalConfigDirectory
-    fs.removeSync(tmpDir)
-  })
+    HAXCMS.configDirectory = originalConfigDirectory;
+    fs.removeSync(tmpDir);
+  });
 }
 
 function mockAuth(t) {
-  t.mock.method(HAXCMS, 'validateRequestToken', () => true)
-  t.mock.method(HAXCMS, 'getActiveUserName', () => 'tester')
+  t.mock.method(HAXCMS, "validateRequestToken", () => true);
+  t.mock.method(HAXCMS, "getActiveUserName", () => "tester");
 }
 
 function makeReq(siteName, items) {
   return {
-    headers: { 'x-haxcms-site-token': 'token' },
+    headers: { "x-haxcms-site-token": "token" },
+    // the authenticated identity validateSiteApiRouteAccess resolves
+    haxcmsSiteApiAuth: {
+      authenticated: true,
+      securityLevel: "authenticated-site",
+      userName: "tester",
+      siteName: siteName,
+    },
     body: { site: { name: siteName }, items: items },
-  }
+  };
 }
 
 // site with a root page, a child under it, and (itemCount - 2) more root pages
 async function buildSite(t, siteName, itemCount) {
-  const created = await HAXCMS.createSite(siteName)
-  assert.ok(created, 'site is created')
-  mockAuth(t)
-  const items = []
+  const created = await HAXCMS.createSite(siteName);
+  assert.ok(created, "site is created");
+  mockAuth(t);
+  const items = [];
   for (let i = 0; i < itemCount; i++) {
     items.push({
-      id: 'client-' + i,
-      title: 'Page ' + i,
-      parent: i === 1 ? 'client-0' : null,
+      id: "client-" + i,
+      title: "Page " + i,
+      parent: i === 1 ? "client-0" : null,
       indent: i === 1 ? 1 : 0,
       order: i,
       metadata: {},
       new: true,
-    })
+    });
   }
-  const res = stubRes()
-  await saveOutline(makeReq(siteName, items), res)
-  assert.equal(res.statusCode, 200, JSON.stringify(res.body))
-  const site = await HAXCMS.loadSite(siteName)
-  return site
+  const res = stubRes();
+  await saveOutline(makeReq(siteName, items), res);
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  const site = await HAXCMS.loadSite(siteName);
+  return site;
 }
 
 function siteDir(siteName) {
-  return path.join(testRoot, '_sites', siteName)
+  return path.join(testRoot, "_sites", siteName);
 }
 
 function snapshot(siteName) {
-  const out = {}
+  const out = {};
   GENERATED.forEach((file) => {
-    const p = path.join(siteDir(siteName), file)
-    out[file] = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null
-  })
-  return out
+    const p = path.join(siteDir(siteName), file);
+    out[file] = fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null;
+  });
+  return out;
 }
 
 // the request a client sends when saving the outline: every item, renamed
@@ -124,91 +131,100 @@ function snapshot(siteName) {
 function editRequest(site, withDelete = true) {
   const existing = site.manifest.items.map((i) => ({
     id: i.id,
-    title: i.title + ' edited',
+    title: i.title + " edited",
     parent: i.parent,
     indent: i.indent,
     order: i.order,
     metadata: {},
-  }))
+  }));
   existing.reverse().forEach((item, index) => {
-    item.order = index
-  })
-  const parent = existing.find((i) => i.parent === null && i.title.indexOf('Page 0') === 0)
+    item.order = index;
+  });
+  const parent = existing.find(
+    (i) => i.parent === null && i.title.indexOf("Page 0") === 0,
+  );
   if (withDelete) {
-    parent.delete = true
+    parent.delete = true;
   }
-  return existing
+  return existing;
 }
 
 async function runCounted(t, siteName, legacy, withDelete = true) {
-  const site = await HAXCMS.loadSite(siteName)
-  const counts = { manifestSave: 0, alternateFormats: 0 }
-  const origSave = site.manifest.save.bind(site.manifest)
-  t.mock.method(site.manifest, 'save', async (...args) => {
-    counts.manifestSave++
-    return origSave(...args)
-  })
-  const origAlt = site.updateAlternateFormats.bind(site)
-  t.mock.method(site, 'updateAlternateFormats', async (...args) => {
-    counts.alternateFormats++
-    return origAlt(...args)
-  })
+  const site = await HAXCMS.loadSite(siteName);
+  const counts = { manifestSave: 0, alternateFormats: 0 };
+  const origSave = site.manifest.save.bind(site.manifest);
+  t.mock.method(site.manifest, "save", async (...args) => {
+    counts.manifestSave++;
+    return origSave(...args);
+  });
+  const origAlt = site.updateAlternateFormats.bind(site);
+  t.mock.method(site, "updateAlternateFormats", async (...args) => {
+    counts.alternateFormats++;
+    return origAlt(...args);
+  });
   if (legacy) {
     // pre-#3114 behaviour: updateNode always saved site.json and rebuilt
-    const origUpdate = site.updateNode.bind(site)
-    t.mock.method(site, 'updateNode', (page) => origUpdate(page, true))
+    const origUpdate = site.updateNode.bind(site);
+    t.mock.method(site, "updateNode", (page) => origUpdate(page, true));
   }
-  t.mock.method(HAXCMS, 'loadSite', async () => site)
-  const res = stubRes()
-  await saveOutline(makeReq(site.manifest.metadata.site.name, editRequest(site, withDelete)), res)
-  t.mock.restoreAll()
-  return { res, counts }
+  t.mock.method(HAXCMS, "loadSite", async () => site);
+  const res = stubRes();
+  await saveOutline(
+    makeReq(site.manifest.metadata.site.name, editRequest(site, withDelete)),
+    res,
+  );
+  t.mock.restoreAll();
+  return { res, counts };
 }
 
-test('saveOutline output matches the one-save-per-item flow', async (t) => {
-  useTempConfigDirectory(t)
-  mockAuth(t)
-  t.mock.method(Date, 'now', () => 1760000000000)
-  const name = 'batch-parity'
-  await buildSite(t, name, 6)
-  const before = path.join(testRoot, 'snapshot-' + name)
-  fs.copySync(siteDir(name), before)
+test("saveOutline output matches the one-save-per-item flow", async (t) => {
+  useTempConfigDirectory(t);
+  mockAuth(t);
+  t.mock.method(Date, "now", () => 1760000000000);
+  const name = "batch-parity";
+  await buildSite(t, name, 6);
+  const before = path.join(testRoot, "snapshot-" + name);
+  fs.copySync(siteDir(name), before);
 
-  const batched = await runCounted(t, name, false)
-  assert.equal(batched.res.statusCode, 200, JSON.stringify(batched.res.body))
-  const batchedFiles = snapshot(name)
-  const batchedBody = JSON.stringify(batched.res.body)
+  const batched = await runCounted(t, name, false);
+  assert.equal(batched.res.statusCode, 200, JSON.stringify(batched.res.body));
+  const batchedFiles = snapshot(name);
+  const batchedBody = JSON.stringify(batched.res.body);
 
   // restore the original site and replay the request the legacy way
-  fs.removeSync(siteDir(name))
-  fs.copySync(before, siteDir(name))
-  mockAuth(t)
-  t.mock.method(Date, 'now', () => 1760000000000)
-  const legacy = await runCounted(t, name, true)
-  assert.equal(legacy.res.statusCode, 200, JSON.stringify(legacy.res.body))
+  fs.removeSync(siteDir(name));
+  fs.copySync(before, siteDir(name));
+  mockAuth(t);
+  t.mock.method(Date, "now", () => 1760000000000);
+  const legacy = await runCounted(t, name, true);
+  assert.equal(legacy.res.statusCode, 200, JSON.stringify(legacy.res.body));
 
-  assert.equal(batchedBody, JSON.stringify(legacy.res.body), 'same response')
-  const legacyFiles = snapshot(name)
+  assert.equal(batchedBody, JSON.stringify(legacy.res.body), "same response");
+  const legacyFiles = snapshot(name);
   GENERATED.forEach((file) => {
-    assert.ok(batchedFiles[file] !== null, file + ' is generated')
-    assert.equal(batchedFiles[file], legacyFiles[file], file + ' is identical')
-  })
+    assert.ok(batchedFiles[file] !== null, file + " is generated");
+    assert.equal(batchedFiles[file], legacyFiles[file], file + " is identical");
+  });
   // sanity: the request did something, and the legacy flow really did more work
-  assert.ok(batchedFiles['site.json'].indexOf('edited') !== -1)
-  assert.ok(legacy.counts.alternateFormats > batched.counts.alternateFormats)
-})
+  assert.ok(batchedFiles["site.json"].indexOf("edited") !== -1);
+  assert.ok(legacy.counts.alternateFormats > batched.counts.alternateFormats);
+});
 
-test('saveOutline saves and rebuilds once per request, not once per item', async (t) => {
-  useTempConfigDirectory(t)
-  const results = {}
+test("saveOutline saves and rebuilds once per request, not once per item", async (t) => {
+  useTempConfigDirectory(t);
+  const results = {};
   for (const size of [4, 12]) {
-    mockAuth(t)
-    const name = 'batch-count-' + size
-    await buildSite(t, name, size)
-    results[size] = (await runCounted(t, name, false, false)).counts
+    mockAuth(t);
+    const name = "batch-count-" + size;
+    await buildSite(t, name, size);
+    results[size] = (await runCounted(t, name, false, false)).counts;
   }
-  assert.deepEqual(results[12], results[4], 'cost does not grow with item count')
+  assert.deepEqual(
+    results[12],
+    results[4],
+    "cost does not grow with item count",
+  );
   // rebuildManagedFiles() refreshes llms.txt (1) + the final full rebuild (1)
-  assert.equal(results[12].alternateFormats, 2)
-  assert.ok(results[12].manifestSave <= 3, 'fixed number of site.json saves')
-})
+  assert.equal(results[12].alternateFormats, 2);
+  assert.ok(results[12].manifestSave <= 3, "fixed number of site.json saves");
+});

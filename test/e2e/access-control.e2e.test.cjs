@@ -36,7 +36,6 @@ const {
   newPage,
   createResponseCollector,
   captureScreenshot,
-  selectors,
   FIXED_SITE_NAME,
   // flows helpers
   waitFor,
@@ -69,16 +68,16 @@ test.before(async () => {
 
 test.after(async () => {
   if (statusWatcher) {
-    try { statusWatcher.detach() } catch (e) { /* ignore */ }
+    try { statusWatcher.detach() } catch { /* ignore */ }
   }
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -276,7 +275,9 @@ test('access-control e2e: anonymous vs authenticated site access', { timeout: 24
               }
             }
           }
-        } catch (e) {}
+        } catch {
+          // intentionally ignored
+        }
         return {
           modalFound: !!modal,
           modalOpened: modal ? modal.opened === true : false,
@@ -313,10 +314,7 @@ test('access-control e2e: anonymous vs authenticated site access', { timeout: 24
       // auth is verified. If a login modal surfaced, that also counts as
       // blocked. The contrast test below proves the authenticated browser
       // DOES see the editor-ui.
-      const loginSurfaced =
-        (state.modalFound && state.modalOpened && state.usernameInputFound) ||
-        (state.loginElFound && state.usernameInputFound)
-
+      
       if (state.editorUiFound) {
         // The editor-ui rendered — this shouldn't happen for a truly
         // anonymous user. If it did, check if the edit button is disabled
@@ -364,10 +362,10 @@ test('access-control e2e: anonymous vs authenticated site access', { timeout: 24
       }
     } finally {
       if (anonWatcher) {
-        try { anonWatcher.detach() } catch (e) { /* ignore */ }
+        try { anonWatcher.detach() } catch { /* ignore */ }
       }
       if (anonPage) {
-        try { await anonPage.close() } catch (e) { /* ignore */ }
+        try { await anonPage.close() } catch { /* ignore */ }
       }
     }
   })

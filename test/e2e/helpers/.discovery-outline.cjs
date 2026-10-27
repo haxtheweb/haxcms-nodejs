@@ -122,7 +122,7 @@ async function dumpOutlineDesigner(page) {
     // Dump the dialog shadowRoot buttons
     var btns = dialog.shadowRoot.querySelectorAll('.hax-modal-btn')
     info.dialogButtons = []
-    for (var i = 0; i < btns.length; i++) {
+    for (let i = 0; i < btns.length; i++) {
       info.dialogButtons.push({
         text: (btns[i].textContent || '').trim(),
         classes: btns[i].className,
@@ -148,7 +148,7 @@ async function dumpOutlineDesigner(page) {
       info.controlsFound = true
       var controlBtns = controls.querySelectorAll('simple-toolbar-button.control')
       info.controlButtons = []
-      for (var i = 0; i < controlBtns.length; i++) {
+      for (let i = 0; i < controlBtns.length; i++) {
         info.controlButtons.push({
           icon: controlBtns[i].getAttribute('icon') || '',
           label: controlBtns[i].getAttribute('label') || controlBtns[i].label || '',
@@ -161,7 +161,7 @@ async function dumpOutlineDesigner(page) {
     var items = outline.shadowRoot.querySelectorAll('li.item')
     info.rowCount = items.length
     info.firstRows = []
-    for (var i = 0; i < Math.min(items.length, 3); i++) {
+    for (let i = 0; i < Math.min(items.length, 3); i++) {
       var row = items[i]
       var rowInfo = {
         dataItemId: row.getAttribute('data-item-id'),
@@ -267,7 +267,7 @@ function createRequestWatcher(page) {
       url.indexOf('/x/api/v1/site/normalize-slugs') !== -1
     ) {
       var postData = ''
-      try { postData = request.postData() || '' } catch (e) { postData = '' }
+      try { postData = request.postData() || '' } catch { postData = '' }
       requests.push({ url: url, method: request.method(), postData: postData })
     }
   }
@@ -402,7 +402,7 @@ async function main() {
       var isOpen = menu.hasAttribute('open') || menu.open === true
       var items = menu.querySelectorAll('simple-toolbar-button')
       var itemInfo = []
-      for (var i = 0; i < items.length; i++) {
+      for (let i = 0; i < items.length; i++) {
         itemInfo.push({
           value: items[i].getAttribute('value') || items[i].value || '',
           label: items[i].getAttribute('label') || items[i].label || '',
@@ -521,12 +521,12 @@ async function main() {
     try {
       var dump = await page.evaluate(function () { return document.body.innerHTML.substring(0, 1500) })
       console.error('PAGE BODY SNIPPET:', dump)
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
   } finally {
-    try { if (reqWatch) reqWatch.detach() } catch (e) { /* ignore */ }
-    try { if (collector) collector.detach() } catch (e) { /* ignore */ }
-    try { if (browser) await browser.close() } catch (e) { /* ignore */ }
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { if (reqWatch) reqWatch.detach() } catch { /* ignore */ }
+    try { if (collector) collector.detach() } catch { /* ignore */ }
+    try { if (browser) await browser.close() } catch { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
     console.log('\nTeardown complete.')
   }
 }

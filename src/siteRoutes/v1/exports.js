@@ -303,7 +303,9 @@ function getSiteExportItems(site, ancestor) {
         (item) => item && item.id && branchIds.has(item.id),
       );
     }
-  } catch (e) {}
+  } catch {
+    // intentionally ignored
+  }
   return orderedItems;
 }
 
@@ -353,13 +355,15 @@ async function getItemMarkdownBody(site, item) {
           path.join(String(site.siteDirectory), markdownLocation),
           "utf8",
         );
-      } catch (e) {}
+      } catch {
+        // intentionally ignored
+      }
     }
   }
   const html = await getItemContent(site, item);
   try {
     return turndownService.turndown(String(html || ""));
-  } catch (e) {
+  } catch {
     return String(html || "");
   }
 }
@@ -454,7 +458,9 @@ async function buildSiteExportHtmlContent(site, ancestor, visibleOnly = false) {
           (item) => item && item.id && branchIds.has(item.id),
         );
       }
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
   }
 
   if (visibleOnly) {
@@ -497,7 +503,9 @@ async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
           (item) => item && item.id && branchIds.has(item.id),
         );
       }
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
   }
 
   if (visibleOnly) {
@@ -670,7 +678,7 @@ function normalizeHtmlForDocumentExport(html, basePath, items, mode = "epub") {
         } else {
           videoId = videoUrl;
         }
-      } catch (e) {
+      } catch {
         videoId = videoUrl;
       }
 
@@ -737,7 +745,7 @@ function normalizeHtmlForDocumentExport(html, basePath, items, mode = "epub") {
         let urlData;
         try {
           urlData = new URL(href, basePath);
-        } catch (e) {
+        } catch {
           el.remove();
           continue;
         }
@@ -761,7 +769,7 @@ function normalizeHtmlForDocumentExport(html, basePath, items, mode = "epub") {
         } else {
           el.remove();
         }
-      } catch (e) {
+      } catch {
         el.remove();
       }
     }
@@ -789,7 +797,9 @@ function removeEpubImageTempDir(dir) {
   }
   try {
     fs.rmSync(dir, { recursive: true, force: true });
-  } catch (e) {}
+  } catch {
+    // intentionally ignored
+  }
 }
 
 // One image context per EPUB build: shared temp dir and a single per-export
@@ -813,7 +823,7 @@ async function resolveEpubImages(html, site, imageContext) {
         allowSvg: false,
       }),
     );
-  } catch (e) {
+  } catch {
     resolved = String(html || "").replace(
       /<img(?![a-z0-9_:.-])[^>]*(?:>|$)/gi,
       "",
@@ -891,7 +901,9 @@ async function buildSiteExportEpubBuffer(site, basePath = "/", ancestor) {
           return true;
         });
       }
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
   }
 
   const siteTitle = buildSiteExportDocumentTitle(site);
@@ -1086,7 +1098,7 @@ function convertItemHtmlToMarkdown(item, html) {
   let markdown = "";
   try {
     markdown = turndownService.turndown(body);
-  } catch (e) {
+  } catch {
     markdown = body;
   }
   const sections = [];
@@ -1104,7 +1116,6 @@ async function buildItemExportRecord(site, item, apiBasePath = "/x/api") {
 }
 
 function buildSiteExportDetails(site, apiBasePath = "/x/api", format = "") {
-  const siteBasePath = getSiteBasePath(site);
   const systemApiBasePath = getSystemApiBasePath(apiBasePath);
   const normalizedFormat = normalizeFormatValue(format);
   const siteName =
@@ -1232,7 +1243,9 @@ async function siteExport(req, res) {
               getOrderedItems(site),
               "docx",
             );
-          } catch (e) {}
+          } catch {
+            // intentionally ignored
+          }
           outputBuffer = await convertHtmlToDownloadBuffer(
             format,
             html,
@@ -1250,7 +1263,9 @@ async function siteExport(req, res) {
               getOrderedItems(site),
               "pdf",
             );
-          } catch (e) {}
+          } catch {
+            // intentionally ignored
+          }
           outputBuffer = await convertHtmlToDownloadBuffer(
             format,
             html,
@@ -1429,7 +1444,9 @@ async function itemExport(req, res) {
         getOrderedItems(site),
         format,
       );
-    } catch (e) {}
+    } catch {
+      // intentionally ignored
+    }
     let outputBuffer = null;
     try {
       outputBuffer = await convertHtmlToDownloadBuffer(
@@ -1481,7 +1498,7 @@ async function itemExport(req, res) {
     let html = "";
     try {
       html = await getItemContent(site, item);
-    } catch (e) {
+    } catch {
       html = "";
     }
     const markdown = convertItemHtmlToMarkdown(item, html);

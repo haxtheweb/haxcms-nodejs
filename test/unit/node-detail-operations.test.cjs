@@ -214,7 +214,7 @@ test('applyNodeDetailOperation setTags stores a sanitized string and deletes the
 
   const site2 = mkSite([node('n1', 0, '', 0, { metadata: { tags: 'x' } })])
   const r2 = await applyNodeDetailOperation(site2, 'n1', { operation: 'setTags', tags: null })
-  assert.strictEqual(r2.item.metadata.hasOwnProperty('tags'), false)
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(r2.item.metadata, 'tags'), false)
 })
 
 test('applyNodeDetailOperation setIcon stores a sanitized icon string on metadata', async () => {

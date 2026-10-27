@@ -75,13 +75,13 @@ test.before(async () => {
 
 test.after(async () => {
   if (collector) {
-    try { collector.detach() } catch (e) { /* ignore */ }
+    try { collector.detach() } catch { /* ignore */ }
   }
   if (browser) {
-    try { await browser.close() } catch (e) { /* ignore */ }
+    try { await browser.close() } catch { /* ignore */ }
   }
   if (runtime) {
-    try { await teardownE2ERuntime(runtime) } catch (e) { /* ignore */ }
+    try { await teardownE2ERuntime(runtime) } catch { /* ignore */ }
   }
 }, { timeout: 60000 })
 
@@ -193,7 +193,7 @@ async function editAndSaveWithContent() {
   let saveResp = null
   try {
     saveResp = await collector.awaitCollectorFor('/x/api/v1/content/', 30000)
-  } catch (e) {
+  } catch {
     // non-fatal; assert below
   }
   assert.ok(saveResp, 'saveNode response captured')
@@ -224,7 +224,7 @@ async function addTagToActiveItem(itemId, tag) {
   let detailsResp = null
   try {
     detailsResp = await collector.awaitCollectorFor('/x/api/v1/items/', 20000)
-  } catch (e) {
+  } catch {
     // non-fatal; we assert the tag shows up in the tags API below
   }
   return detailsResp
@@ -249,7 +249,7 @@ test(
     t.diagnostic('[e2e] navigating to editor: ' + editorUrl)
     try {
       await page.goto(editorUrl, { waitUntil: 'networkidle2', timeout: 30000 })
-    } catch (e) {
+    } catch {
       t.diagnostic('[e2e] networkidle2 timed out, retrying domcontentloaded')
       await page.goto(editorUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
     }
@@ -261,7 +261,7 @@ test(
     try {
       const saveBody = JSON.parse(saveResp.bodyText)
       itemId = saveBody && saveBody.data && saveBody.data.id
-    } catch (e) {
+    } catch {
       itemId = null
     }
     assert.ok(itemId, 'active item id extracted from saveNode response')
@@ -284,7 +284,7 @@ test(
       let body = null
       try {
         body = JSON.parse(String(resp.data || ''))
-      } catch (e) {
+      } catch {
         body = null
       }
       assert.ok(body && body.status === 200, 'search body status 200')
@@ -363,7 +363,7 @@ test(
       let body = null
       try {
         body = JSON.parse(String(resp.data || ''))
-      } catch (e) {
+      } catch {
         body = null
       }
       assert.ok(body && body.status === 200, 'tags body status 200')
@@ -415,7 +415,7 @@ test(
       let body = null
       try {
         body = JSON.parse(String(resp.data || ''))
-      } catch (e) {
+      } catch {
         body = null
       }
       assert.ok(body && body.status === 200, 'site summary body status 200')
@@ -527,7 +527,7 @@ test(
           waitUntil: 'domcontentloaded',
           timeout: 30000,
         })
-      } catch (e) {
+      } catch {
         // non-fatal
       }
       await page.waitForSelector('haxcms-site-editor-ui', { timeout: 30000 })

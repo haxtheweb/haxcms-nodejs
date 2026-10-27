@@ -10,6 +10,11 @@ const util = require('node:util')
 const childProcess = require('node:child_process')
 const axios = require('axios')
 
+// PDF export drives Chrome; skip those cases where it is not installed
+// probed in a child process so loading the converter does not touch this process's server state
+const CHROME_PATH = childProcess.spawnSync(process.execPath, ['-e', "process.stdout.write(require('./src/lib/convertUtils.js').findChromeExecutable() || '')"], { cwd: path.resolve(__dirname, '..', '..'), encoding: 'utf8' }).stdout.trim()
+const PDF_SKIP = CHROME_PATH ? false : 'PDF export needs Chrome/Chromium (install it or set PUPPETEER_EXECUTABLE_PATH)'
+
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const APP_ENTRY_PATH = path.join(REPO_ROOT, 'src', 'app.js')
 const SITE_DIRECTORY_NAME = '_sites'
@@ -64,7 +69,7 @@ function getBinarySignature(buffer, format) {
 function parseJsonSafely(value) {
   try {
     return JSON.parse(String(value || ''))
-  } catch (error) {
+  } catch {
     return null
   }
 }
@@ -167,12 +172,14 @@ async function ensureSiteHasInitialCommit(runtimeRoot, siteName) {
   try {
     await runGitCommand(siteDirectory, ['rev-parse', '--verify', 'HEAD'])
     return
-  } catch (error) {}
+  } catch {
+    // intentionally ignored
+  }
   let isGitRepository = true
   try {
     const insideWorkTree = await runGitCommand(siteDirectory, ['rev-parse', '--is-inside-work-tree'])
     if (insideWorkTree !== 'true') isGitRepository = false
-  } catch (error) { isGitRepository = false }
+  } catch { isGitRepository = false }
   if (!isGitRepository) await runGitCommand(siteDirectory, ['init'])
   await runGitCommand(siteDirectory, ['add', '.'])
   await runGitCommand(siteDirectory, ['commit', '--no-gpg-sign', '--allow-empty', '-m', 'Initialize export integration test site'])
@@ -285,7 +292,7 @@ test('item export endpoints produce real file downloads across all 8 formats', a
   const itemBase = `${runtime.baseUrl}/${SITE_DIRECTORY_NAME}/${runtime.createdSiteName}/${runtime.siteApiBasePath}/v1/items/${encodeURIComponent(runtime.firstItemLookup)}/export`
   for (let i = 0; i < ITEM_EXPORT_FORMATS.length; i++) {
     const format = ITEM_EXPORT_FORMATS[i]
-    await t.test(`item export ${format} returns 200 with correct content-type and disposition`, async () => {
+    await t.test(`item export ${format} returns 200 with correct content-type and disposition`, { skip: format === 'pdf' ? PDF_SKIP : false }, async () => {
       const result = await sendHttpRequest({
         method: 'GET',
         url: `${itemBase}/${format}`,
@@ -363,7 +370,7 @@ test('site export endpoints produce real file downloads for pdf/docx/html/epub',
   const siteBase = `${runtime.baseUrl}/${SITE_DIRECTORY_NAME}/${runtime.createdSiteName}/${runtime.siteApiBasePath}/v1/site/export`
   for (let i = 0; i < SITE_EXPORT_FORMATS.length; i++) {
     const format = SITE_EXPORT_FORMATS[i]
-    await t.test(`site export ${format} returns 200 with correct content-type and disposition`, async () => {
+    await t.test(`site export ${format} returns 200 with correct content-type and disposition`, { skip: format === 'pdf' ? PDF_SKIP : false }, async () => {
       const result = await sendHttpRequest({
         method: 'GET',
         url: `${siteBase}/${format}`,

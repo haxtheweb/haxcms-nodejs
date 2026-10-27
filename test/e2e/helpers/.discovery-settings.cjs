@@ -9,23 +9,14 @@
 //
 // Run: node test/e2e/helpers/.discovery-settings.cjs  (from repo root)
 
-const path = require("path");
-const fs = require("fs-extra");
-
 const {
   setupE2ERuntime,
   teardownE2ERuntime,
   launchBrowser,
   newPage,
   createResponseCollector,
-  selectors,
   FIXED_SITE_NAME,
-  deepQuery,
-  E2E_USER_NAME,
-  E2E_USER_PASSWORD,
-  // flows helpers
   waitFor,
-  waitForDeep,
   loginViaUI,
   createSiteViaUI,
   patchHaxcmsRootForHarness,
@@ -33,7 +24,6 @@ const {
   clickEditorButtonById,
 } = require("./index.cjs");
 
-const SITES_DIR = "_sites";
 const EXPECTED_SITE_NAME = FIXED_SITE_NAME.toLowerCase();
 
 function section(title) {
@@ -58,7 +48,7 @@ function createRequestWatcher(page) {
       let postData = "";
       try {
         postData = request.postData() || "";
-      } catch (e) {
+      } catch {
         postData = "";
       }
       requests.push({ url, method: request.method(), postData });
@@ -76,101 +66,6 @@ function createRequestWatcher(page) {
 
 // Recursively dump the shadow-DOM tree under a root element. Returns a nested
 // object describing tag names, ids, classes, attributes, and text content.
-function dumpShadowTree(root, maxDepth) {
-  if (!root || maxDepth < 0) {
-    return null;
-  }
-  function describeEl(el) {
-    if (!el || !el.tagName) {
-      return null;
-    }
-    var tag = el.tagName.toLowerCase();
-    var id = el.id ? "#" + el.id : "";
-    var cls = "";
-    if (
-      el.className &&
-      typeof el.className === "string" &&
-      el.className.trim()
-    ) {
-      cls = "." + el.className.trim().split(/\s+/).join(".");
-    }
-    var attrs = {};
-    if (el.hasAttribute && el.hasAttribute("label")) {
-      attrs.label = el.getAttribute("label");
-    }
-    if (el.hasAttribute && el.hasAttribute("icon")) {
-      attrs.icon = el.getAttribute("icon");
-    }
-    if (el.hasAttribute && el.hasAttribute("slot")) {
-      attrs.slot = el.getAttribute("slot");
-    }
-    if (el.hasAttribute && el.hasAttribute("name")) {
-      attrs.name = el.getAttribute("name");
-    }
-    if (el.hasAttribute && el.hasAttribute("type")) {
-      attrs.type = el.getAttribute("type");
-    }
-    if (el.hasAttribute && el.hasAttribute("data-event")) {
-      attrs.dataEvent = el.getAttribute("data-event");
-    }
-    if (el.hasAttribute && el.hasAttribute("disabled")) {
-      attrs.disabled = true;
-    }
-    if (el.hasAttribute && el.hasAttribute("hidden")) {
-      attrs.hidden = true;
-    }
-    if (el.hasAttribute && el.hasAttribute("checked")) {
-      attrs.checked = true;
-    }
-    var text = "";
-    if (el.textContent && el.textContent.trim()) {
-      text = el.textContent.trim().substring(0, 60);
-    }
-    var info = { tag: tag + id + cls, attrs: attrs };
-    if (text) {
-      info.text = text;
-    }
-    return info;
-  }
-  function walk(el, depth) {
-    if (!el || depth < 0) {
-      return null;
-    }
-    var desc = describeEl(el);
-    if (!desc) {
-      return null;
-    }
-    // children in light DOM
-    var children = [];
-    if (el.children && el.children.length > 0 && depth > 0) {
-      for (var i = 0; i < Math.min(el.children.length, 50); i++) {
-        var childInfo = walk(el.children[i], depth - 1);
-        if (childInfo) {
-          children.push(childInfo);
-        }
-      }
-    }
-    if (children.length > 0) {
-      desc.children = children;
-    }
-    // shadow DOM children
-    if (el.shadowRoot && depth > 0) {
-      var shadowChildren = [];
-      var shadowEls = el.shadowRoot.children;
-      for (var j = 0; j < Math.min(shadowEls.length, 50); j++) {
-        var sChildInfo = walk(shadowEls[j], depth - 1);
-        if (sChildInfo) {
-          shadowChildren.push(sChildInfo);
-        }
-      }
-      if (shadowChildren.length > 0) {
-        desc.shadowChildren = shadowChildren;
-      }
-    }
-    return desc;
-  }
-  return walk(root, maxDepth);
-}
 
 // Dump all custom elements in the document (top-level + in simple-modals),
 // with their shadow root children summarized.
@@ -372,7 +267,7 @@ async function main() {
     console.log("editorUrl:", editorUrl);
     try {
       await page.goto(editorUrl, { waitUntil: "networkidle2", timeout: 30000 });
-    } catch (e) {
+    } catch {
       console.log("networkidle2 timed out, retrying domcontentloaded");
       await page.goto(editorUrl, {
         waitUntil: "domcontentloaded",
@@ -839,28 +734,28 @@ async function main() {
         document.body.innerHTML.substring(0, 1500),
       );
       console.error("PAGE BODY SNIPPET:", dump);
-    } catch (e) {
+    } catch {
       // ignore
     }
   } finally {
     try {
       if (reqWatch) reqWatch.detach();
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       if (collector) collector.detach();
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       if (browser) await browser.close();
-    } catch (e) {
+    } catch {
       // ignore
     }
     try {
       await teardownE2ERuntime(runtime);
-    } catch (e) {
+    } catch {
       // ignore
     }
     console.log("\nTeardown complete.");
