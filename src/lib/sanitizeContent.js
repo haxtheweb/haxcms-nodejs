@@ -360,6 +360,26 @@ function isURLLikeAttribute(attributeName) {
   return false;
 }
 
+// jsdom's window.close() walks child frames by index, but window.length also
+// counts <iframe> elements parsed into foreign (SVG/MathML) content, which have
+// no frame window, so close() throws on undefined. Empty the document first so
+// no frames remain, and never let teardown failure escape the sanitizer.
+function closeScratchDom(dom) {
+  try {
+    const document = dom.window.document;
+    if (document && document.documentElement) {
+      document.documentElement.innerHTML = "";
+    }
+  } catch {
+    // fall through to close attempt
+  }
+  try {
+    dom.window.close();
+  } catch {
+    // teardown only; the sanitized string has already been captured
+  }
+}
+
 function escapeTemplateText(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -391,7 +411,7 @@ function preprocessTextTemplateHosts(html) {
   }
 
   const clean = document.body.innerHTML;
-  dom.window.close();
+  closeScratchDom(dom);
   return clean;
 }
 
@@ -583,7 +603,7 @@ function sanitizeHTMLForStorage(html, options = {}) {
   document.body.innerHTML = clean;
   sanitizeElementTree(document.body);
   clean = document.body.innerHTML;
-  dom.window.close();
+  closeScratchDom(dom);
   return clean;
 }
 
