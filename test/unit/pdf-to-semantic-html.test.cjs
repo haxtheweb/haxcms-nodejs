@@ -383,3 +383,72 @@ test("large embedded images are downscaled to the max edge on import", async () 
   assert.equal(meta.height, 1600);
   assert.equal(meta.width, 1200);
 });
+
+// Single-page PDF with a raw DeviceRGB image whose left half is transparent
+// via an /SMask (colour under it is black, as Chrome writes it).
+function buildPdfWithSoftMask(width, height) {
+  const half = Math.floor(width / 2);
+  const rgb = Buffer.alloc(width * height * 3);
+  const alpha = Buffer.alloc(width * height);
+  for (let i = 0; i < width * height; i++) {
+    const right = i % width >= half;
+    if (right) {
+      rgb.set([30, 160, 60], i * 3);
+      alpha[i] = 255;
+    }
+  }
+  const content =
+    "BT\n/F1 12 Tf\n72 700 Td\n(Mask page) Tj\nET\n" +
+    `q\n${width * 5} 0 0 ${height * 5} 72 400 cm\n/Im1 Do\nQ\n`;
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] " +
+      "/Resources << /Font << /F1 4 0 R >> /XObject << /Im1 5 0 R >> >> /Contents 7 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} ` +
+      `/ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R /Length ${rgb.length} >>\nstream\n${rgb.toString("latin1")}endstream`,
+    `<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} ` +
+      `/ColorSpace /DeviceGray /BitsPerComponent 8 /Length ${alpha.length} >>\nstream\n${alpha.toString("latin1")}endstream`,
+    `<< /Length ${content.length} >>\nstream\n${content}endstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [];
+  objects.forEach((obj, i) => {
+    offsets.push(pdf.length);
+    pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  let xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.forEach((offset) => {
+    xref += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += xref;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(pdf, "latin1");
+}
+
+test("transparent image areas (SMask) flatten onto white, not black", async () => {
+  const sharp = require("sharp");
+  const html = await convertPdfBufferToHtml(buildPdfWithSoftMask(40, 30));
+  const match = /base64,([^"]+)"/.exec(html);
+  assert.ok(match, "image imported");
+  const { data, info } = await sharp(Buffer.from(match[1], "base64"))
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const px = (x, y) => {
+    const at = (y * info.width + x) * info.channels;
+    return [data[at], data[at + 1], data[at + 2]];
+  };
+  const transparent = px(5, 15);
+  const opaque = px(35, 15);
+  transparent.forEach((v) =>
+    assert.ok(v >= 250, `transparent -> white, got ${transparent}`),
+  );
+  assert.ok(
+    Math.abs(opaque[0] - 30) < 12 &&
+      Math.abs(opaque[1] - 160) < 12 &&
+      Math.abs(opaque[2] - 60) < 12,
+    `opaque colour kept, got ${opaque}`,
+  );
+});
