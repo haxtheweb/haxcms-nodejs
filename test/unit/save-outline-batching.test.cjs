@@ -224,7 +224,8 @@ test("saveOutline saves and rebuilds once per request, not once per item", async
     results[4],
     "cost does not grow with item count",
   );
-  // rebuildManagedFiles() refreshes llms.txt (1) + the final full rebuild (1)
-  assert.equal(results[12].alternateFormats, 2);
-  assert.ok(results[12].manifestSave <= 3, "fixed number of site.json saves");
+  // the checkpoint after the structure pass (1), rebuildManagedFiles()
+  // refreshing llms.txt (1) and the final full rebuild (1)
+  assert.equal(results[12].alternateFormats, 3);
+  assert.ok(results[12].manifestSave <= 4, "fixed number of site.json saves");
 });

@@ -95,121 +95,83 @@ async function saveOutline(req, res) {
     var page, bytes, cleanTitle;
     // Security (SEC-SANITIZE): incoming theme metadata is validated against this
     const themes = HAXCMS.getThemes();
-    // items from the POST
-    for (var key in items) {
-      let item = items[key];
-      page = site.loadNode(item.id);
-      // get a fake item of the existing
-      if (!page) {
-        page = HAXCMS.outlineSchema.newItem();
-        // we don't trust the front end UUID if it wasn't existing already
-        itemMap[item.id] = page.id;
-      }
-      // set a title if we have one
-      if (item.title != "" && item.title) {
-        // Security (SEC-SANITIZE): titles are plain text, same as saveNode
-        const plainTitle = toPlainText(item.title);
-        if (plainTitle !== "") {
-          page.title = plainTitle;
+    // a failure part-way through must not lose what per-item saving would
+    // already have written: persist what is in memory, then fail as before
+    try {
+      // items from the POST
+      for (var key in items) {
+        let item = items[key];
+        page = site.loadNode(item.id);
+        // get a fake item of the existing
+        if (!page) {
+          page = HAXCMS.outlineSchema.newItem();
+          // we don't trust the front end UUID if it wasn't existing already
+          itemMap[item.id] = page.id;
         }
-      }
-      // description belongs to the JSON Outline Schema item; same handling
-      // as the setDescription node operation
-      if (typeof item.description === "string") {
-        page.description =
-          item.description === "" ? "" : strip_tags(item.description);
-      }
-      cleanTitle = HAXCMS.cleanTitle(page.title);
-      if (item.parent == null) {
-        page.parent = null;
-        page.indent = 0;
-      } else {
-        // check the item map as backend dictates unique ID
-        if (typeof itemMap[item.parent] !== "undefined") {
-          page.parent = itemMap[item.parent];
-        } else {
-          // set to the parent id
-          page.parent = item.parent;
-        }
-        // move it one indentation below the parent; this can be changed later if desired
-        page.indent = item.indent;
-      }
-      if (typeof item.order !== "undefined") {
-        page.order = parseInt(item.order);
-      } else {
-        page.order = parseInt(key);
-      }
-      // location is backend-controlled to prevent arbitrary writes
-      if (originalLocationMap[page.id]) {
-        page.location = originalLocationMap[page.id];
-      } else {
-        // generate a logical page slug
-        page.location = "pages/" + page.id + "/index.html";
-      }
-      // Check for per-page overridePathauto flag
-      let overridePathauto = false;
-      if (item.metadata && item.metadata.overridePathauto === true) {
-        overridePathauto = true;
-      }
-      let pathautoEnabled = isPathautoEnabled(site);
-      // Determine slug based on pathauto and overridePathauto
-      if (pathautoEnabled && !overridePathauto) {
-        // Pathauto is on and user has not overridden: auto-generate from title
-        page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
-      } else {
-        // Pathauto is off, or user has overridden: use client-provided slug or generate from title
-        if (typeof item.slug !== "undefined" && item.slug != "") {
-          page.slug = normalizeOutlineSlug(site, item.slug, page, false);
-        } else {
-          page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
-        }
-      }
-      // verify this exists, front end could have set what they wanted
-      // or it could have just been renamed
-      // if it doesn't exist currently make sure the name is unique
-      let tmpLoad = site.loadNode(page.id);
-      if (!tmpLoad) {
-        await HAXCMS.recurseCopy(
-          HAXCMS.boilerplatePath + "page/default",
-          site.siteDirectory + "/" + page.location.replace("/index.html", ""),
-          [],
-          // Security (N1/N5 parity): confine the copy to the site dir
-          site.siteDirectory,
-        );
-        pageAlternateContentMap[page.id] = "";
-      }
-      // this would imply existing item, lets see if it moved or needs moved
-      else {
-        let moved = false;
-        for (var moveKey in original) {
-          let tmpItem = original[moveKey];
-          // see if this is something moving as opposed to brand new
-          if (tmpItem.id == page.id && tmpItem.slug != "") {
-            // core support for automatically managing paths to make them nice
-            if (pathautoEnabled && !overridePathauto) {
-              moved = true;
-              page.slug = normalizeOutlineSlug(
-                site,
-                HAXCMS.cleanTitle(page.title),
-                page,
-                true,
-              );
-            } else if (tmpItem.slug != page.slug) {
-              moved = true;
-              page.slug = normalizeOutlineSlug(site, page.slug, page, false);
-            }
+        // set a title if we have one
+        if (item.title != "" && item.title) {
+          // Security (SEC-SANITIZE): titles are plain text, same as saveNode
+          const plainTitle = toPlainText(item.title);
+          if (plainTitle !== "") {
+            page.title = plainTitle;
           }
         }
-        // it wasn't moved and it doesn't exist... let's fix that
-        // this is beyond an edge case
-        if (
-          !moved &&
-          !fs.existsSync(site.siteDirectory + "/" + page.location)
-        ) {
-          let pAuto = pathautoEnabled && !overridePathauto;
-          let tmpTitle = normalizeOutlineSlug(site, cleanTitle, page, pAuto);
+        // description belongs to the JSON Outline Schema item; same handling
+        // as the setDescription node operation
+        if (typeof item.description === "string") {
+          page.description =
+            item.description === "" ? "" : strip_tags(item.description);
+        }
+        cleanTitle = HAXCMS.cleanTitle(page.title);
+        if (item.parent == null) {
+          page.parent = null;
+          page.indent = 0;
+        } else {
+          // check the item map as backend dictates unique ID
+          if (typeof itemMap[item.parent] !== "undefined") {
+            page.parent = itemMap[item.parent];
+          } else {
+            // set to the parent id
+            page.parent = item.parent;
+          }
+          // move it one indentation below the parent; this can be changed later if desired
+          page.indent = item.indent;
+        }
+        if (typeof item.order !== "undefined") {
+          page.order = parseInt(item.order);
+        } else {
+          page.order = parseInt(key);
+        }
+        // location is backend-controlled to prevent arbitrary writes
+        if (originalLocationMap[page.id]) {
+          page.location = originalLocationMap[page.id];
+        } else {
+          // generate a logical page slug
           page.location = "pages/" + page.id + "/index.html";
-          page.slug = tmpTitle;
+        }
+        // Check for per-page overridePathauto flag
+        let overridePathauto = false;
+        if (item.metadata && item.metadata.overridePathauto === true) {
+          overridePathauto = true;
+        }
+        let pathautoEnabled = isPathautoEnabled(site);
+        // Determine slug based on pathauto and overridePathauto
+        if (pathautoEnabled && !overridePathauto) {
+          // Pathauto is on and user has not overridden: auto-generate from title
+          page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
+        } else {
+          // Pathauto is off, or user has overridden: use client-provided slug or generate from title
+          if (typeof item.slug !== "undefined" && item.slug != "") {
+            page.slug = normalizeOutlineSlug(site, item.slug, page, false);
+          } else {
+            page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
+          }
+        }
+        // verify this exists, front end could have set what they wanted
+        // or it could have just been renamed
+        // if it doesn't exist currently make sure the name is unique
+        let tmpLoad = site.loadNode(page.id);
+        if (!tmpLoad) {
           await HAXCMS.recurseCopy(
             HAXCMS.boilerplatePath + "page/default",
             site.siteDirectory + "/" + page.location.replace("/index.html", ""),
@@ -219,148 +181,234 @@ async function saveOutline(req, res) {
           );
           pageAlternateContentMap[page.id] = "";
         }
-      }
-      if (typeof page.slug !== "string" || page.slug == "") {
-        page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
-      }
-      safeLocationMap[page.id] = page.location;
-      // check for any metadata keys that did come over
-      // Security (SEC-SANITIZE): per-field sanitisation (same rules as
-      // saveNode) instead of copying every client-supplied key verbatim
-      applyPageMetadata(page, item.metadata, { themes: themes });
-      // safety check for new things
-      if (typeof page.metadata.created === "undefined") {
-        page.metadata.created = Math.floor(Date.now() / 1000);
-        page.metadata.images = [];
-        page.metadata.videos = [];
-      }
-      // always update at this time
-      page.metadata.updated = Math.floor(Date.now() / 1000);
-      let tmp = site.loadNode(page.id);
-      if (tmp) {
-        await site.updateNode(page, false);
-        alternateFormatsDirty = true;
-      } else {
-        site.manifest.addItem(page);
-      }
-      manifestDirty = true;
-    }
-    // process any duplicate / contents requests we had now that structure is sane
-    // including potentially duplication of material from something
-    // we are about to act on and now that we have the map
-    items = [...req.body["items"]];
-    for (let dupKey in items) {
-      let item = items[dupKey];
-      // load the item, or the item as built out of the itemMap
-      // since we reset the UUID on creation
-      page = site.loadNode(item.id);
-      if (!page) {
-        page = site.loadNode(itemMap[item.id]);
-      }
-      if (!page) {
-        await flushPending();
-        return saveOutlineError(res, 400, "invalid page reference");
-      }
-      let expectedLocation = safeLocationMap[page.id];
-      if (!expectedLocation) {
-        expectedLocation = normalizeOutlineLocation(page.location);
-      }
-      if (!expectedLocation) {
-        await flushPending();
-        return saveOutlineError(res, 400, "invalid page location");
-      }
-      // location is backend-controlled based on page id, ignore client input
-      if (!getValidatedWritePath(site.siteDirectory, expectedLocation)) {
-        await flushPending();
-        return saveOutlineError(res, 400, "invalid write target");
-      }
-      page.location = expectedLocation;
-      let alternateContent = "";
-      let shouldWriteAlternate = false;
-      if (typeof pageAlternateContentMap[page.id] !== "undefined") {
-        shouldWriteAlternate = true;
-      }
-      if (typeof item.duplicate !== "undefined") {
-        let nodeToDuplicate = site.loadNode(item.duplicate);
-        // load the node we are duplicating with support for the same map needed for page loading
-        if (!nodeToDuplicate) {
-          nodeToDuplicate = site.loadNode(itemMap[item.duplicate]);
+        // this would imply existing item, lets see if it moved or needs moved
+        else {
+          let moved = false;
+          for (var moveKey in original) {
+            let tmpItem = original[moveKey];
+            // see if this is something moving as opposed to brand new
+            if (tmpItem.id == page.id && tmpItem.slug != "") {
+              // core support for automatically managing paths to make them nice
+              if (pathautoEnabled && !overridePathauto) {
+                moved = true;
+                page.slug = normalizeOutlineSlug(
+                  site,
+                  HAXCMS.cleanTitle(page.title),
+                  page,
+                  true,
+                );
+              } else if (tmpItem.slug != page.slug) {
+                moved = true;
+                page.slug = normalizeOutlineSlug(site, page.slug, page, false);
+              }
+            }
+          }
+          // it wasn't moved and it doesn't exist... let's fix that
+          // this is beyond an edge case
+          if (
+            !moved &&
+            !fs.existsSync(site.siteDirectory + "/" + page.location)
+          ) {
+            let pAuto = pathautoEnabled && !overridePathauto;
+            let tmpTitle = normalizeOutlineSlug(site, cleanTitle, page, pAuto);
+            page.location = "pages/" + page.id + "/index.html";
+            page.slug = tmpTitle;
+            await HAXCMS.recurseCopy(
+              HAXCMS.boilerplatePath + "page/default",
+              site.siteDirectory +
+                "/" +
+                page.location.replace("/index.html", ""),
+              [],
+              // Security (N1/N5 parity): confine the copy to the site dir
+              site.siteDirectory,
+            );
+            pageAlternateContentMap[page.id] = "";
+          }
         }
-        if (!nodeToDuplicate) {
-          await flushPending();
-          return saveOutlineError(res, 400, "invalid duplicate source");
+        if (typeof page.slug !== "string" || page.slug == "") {
+          page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
         }
-        let content = await site.getPageContent(nodeToDuplicate);
-        if (!isLikelyHtmlContent(content)) {
-          await flushPending();
-          return saveOutlineError(res, 400, "invalid duplicate content");
+        safeLocationMap[page.id] = page.location;
+        // check for any metadata keys that did come over
+        // Security (SEC-SANITIZE): per-field sanitisation (same rules as
+        // saveNode) instead of copying every client-supplied key verbatim
+        applyPageMetadata(page, item.metadata, { themes: themes });
+        // safety check for new things
+        if (typeof page.metadata.created === "undefined") {
+          page.metadata.created = Math.floor(Date.now() / 1000);
+          page.metadata.images = [];
+          page.metadata.videos = [];
         }
-        // write it to the file system
-        alternateContent = sanitizeHTMLForStorage(content);
-        bytes = await page.writeLocation(alternateContent, site.siteDirectory);
-        if (bytes === false) {
-          await flushPending();
-          return saveOutlineError(res, 500, "failed to write");
+        // always update at this time
+        page.metadata.updated = Math.floor(Date.now() / 1000);
+        let tmp = site.loadNode(page.id);
+        if (tmp) {
+          await site.updateNode(page, false);
+          alternateFormatsDirty = true;
+        } else {
+          site.manifest.addItem(page);
         }
-        shouldWriteAlternate = true;
+        manifestDirty = true;
       }
-      // contents that were shipped across, and not null, take priority over a dup request
-      if (
-        typeof item.contents !== "undefined" &&
-        item.contents &&
-        item.contents != ""
-      ) {
-        if (!isLikelyHtmlContent(item.contents)) {
-          await flushPending();
-          return saveOutlineError(res, 400, "invalid page contents");
+      // siblings that share an order are told apart by their position in
+      // the manifest; keep the order the request sent them in (the order the
+      // outline showed), so a tie never depends on how the save ran
+      const requested = new Map();
+      req.body["items"].forEach((sent, position) => {
+        const id =
+          typeof itemMap[sent.id] !== "undefined" ? itemMap[sent.id] : sent.id;
+        if (!requested.has(id)) {
+          requested.set(id, position);
         }
-        // write it to the file system
-        alternateContent = sanitizeHTMLForStorage(item.contents);
-        bytes = await page.writeLocation(alternateContent, site.siteDirectory);
-        if (bytes === false) {
-          await flushPending();
-          return saveOutlineError(res, 500, "failed to write");
+      });
+      const before = new Map(
+        site.manifest.items.map((manifestItem, position) => [
+          manifestItem.id,
+          position,
+        ]),
+      );
+      site.manifest.items.sort((a, b) => {
+        const ra = requested.has(a.id) ? requested.get(a.id) : Infinity;
+        const rb = requested.has(b.id) ? requested.get(b.id) : Infinity;
+        if (ra !== rb) {
+          return ra - rb;
         }
-        shouldWriteAlternate = true;
-      }
-      if (shouldWriteAlternate) {
-        site.writePageAlternateFormats(page, alternateContent);
-      }
-      // #3043: rebuild page.metadata.files from a content path-scan so
-      // the uuid set stays in sync. If content was just written, scan that;
-      // otherwise read the current on-disk content so moved pages keep
-      // their uuid refs and legacy object-shape entries self-heal.
-      let scanContent = shouldWriteAlternate ? alternateContent : "";
-      if (
-        scanContent === "" &&
-        site &&
-        typeof site.getPageContent === "function"
-      ) {
-        try {
-          scanContent = String((await site.getPageContent(page)) || "");
-        } catch {
-          scanContent = "";
-        }
-      }
-      await FileContentScanner.rebuildPageFilesUuids(site, page, scanContent);
-    }
-    items = [...req.body["items"]];
-    // now, we can finally delete as content operations have finished
-    for (let delKey in items) {
-      let item = items[delKey];
-      // verify if we were told to delete this item via flag not in the real spec
-      if (typeof item.delete !== "undefined" && item.delete === true) {
+        return before.get(a.id) - before.get(b.id);
+      });
+      // checkpoint: write the structure once here. Saving per item had
+      // written all of it by this point, so a failure in the content or
+      // delete phase below leaves the same site.json behind as before
+      await flushPending();
+      // process any duplicate / contents requests we had now that structure is sane
+      // including potentially duplication of material from something
+      // we are about to act on and now that we have the map
+      items = [...req.body["items"]];
+      for (let dupKey in items) {
+        let item = items[dupKey];
         // load the item, or the item as built out of the itemMap
         // since we reset the UUID on creation
         page = site.loadNode(item.id);
         if (!page) {
           page = site.loadNode(itemMap[item.id]);
         }
-        await site.deleteNode(page);
-        await site.gitCommit(
-          "Page deleted: " + page.title + " (" + page.id + ")",
-        );
+        if (!page) {
+          await flushPending();
+          return saveOutlineError(res, 400, "invalid page reference");
+        }
+        let expectedLocation = safeLocationMap[page.id];
+        if (!expectedLocation) {
+          expectedLocation = normalizeOutlineLocation(page.location);
+        }
+        if (!expectedLocation) {
+          await flushPending();
+          return saveOutlineError(res, 400, "invalid page location");
+        }
+        // location is backend-controlled based on page id, ignore client input
+        if (!getValidatedWritePath(site.siteDirectory, expectedLocation)) {
+          await flushPending();
+          return saveOutlineError(res, 400, "invalid write target");
+        }
+        page.location = expectedLocation;
+        let alternateContent = "";
+        let shouldWriteAlternate = false;
+        if (typeof pageAlternateContentMap[page.id] !== "undefined") {
+          shouldWriteAlternate = true;
+        }
+        if (typeof item.duplicate !== "undefined") {
+          let nodeToDuplicate = site.loadNode(item.duplicate);
+          // load the node we are duplicating with support for the same map needed for page loading
+          if (!nodeToDuplicate) {
+            nodeToDuplicate = site.loadNode(itemMap[item.duplicate]);
+          }
+          if (!nodeToDuplicate) {
+            await flushPending();
+            return saveOutlineError(res, 400, "invalid duplicate source");
+          }
+          let content = await site.getPageContent(nodeToDuplicate);
+          if (!isLikelyHtmlContent(content)) {
+            await flushPending();
+            return saveOutlineError(res, 400, "invalid duplicate content");
+          }
+          // write it to the file system
+          alternateContent = sanitizeHTMLForStorage(content);
+          bytes = await page.writeLocation(
+            alternateContent,
+            site.siteDirectory,
+          );
+          if (bytes === false) {
+            await flushPending();
+            return saveOutlineError(res, 500, "failed to write");
+          }
+          shouldWriteAlternate = true;
+        }
+        // contents that were shipped across, and not null, take priority over a dup request
+        if (
+          typeof item.contents !== "undefined" &&
+          item.contents &&
+          item.contents != ""
+        ) {
+          if (!isLikelyHtmlContent(item.contents)) {
+            await flushPending();
+            return saveOutlineError(res, 400, "invalid page contents");
+          }
+          // write it to the file system
+          alternateContent = sanitizeHTMLForStorage(item.contents);
+          bytes = await page.writeLocation(
+            alternateContent,
+            site.siteDirectory,
+          );
+          if (bytes === false) {
+            await flushPending();
+            return saveOutlineError(res, 500, "failed to write");
+          }
+          shouldWriteAlternate = true;
+        }
+        if (shouldWriteAlternate) {
+          site.writePageAlternateFormats(page, alternateContent);
+        }
+        // #3043: rebuild page.metadata.files from a content path-scan so
+        // the uuid set stays in sync. If content was just written, scan that;
+        // otherwise read the current on-disk content so moved pages keep
+        // their uuid refs and legacy object-shape entries self-heal.
+        let scanContent = shouldWriteAlternate ? alternateContent : "";
+        if (
+          scanContent === "" &&
+          site &&
+          typeof site.getPageContent === "function"
+        ) {
+          try {
+            scanContent = String((await site.getPageContent(page)) || "");
+          } catch {
+            scanContent = "";
+          }
+        }
+        await FileContentScanner.rebuildPageFilesUuids(site, page, scanContent);
       }
+      items = [...req.body["items"]];
+      // now, we can finally delete as content operations have finished
+      for (let delKey in items) {
+        let item = items[delKey];
+        // verify if we were told to delete this item via flag not in the real spec
+        if (typeof item.delete !== "undefined" && item.delete === true) {
+          // load the item, or the item as built out of the itemMap
+          // since we reset the UUID on creation
+          page = site.loadNode(item.id);
+          if (!page) {
+            page = site.loadNode(itemMap[item.id]);
+          }
+          await site.deleteNode(page);
+          await site.gitCommit(
+            "Page deleted: " + page.title + " (" + page.id + ")",
+          );
+        }
+      }
+    } catch (e) {
+      try {
+        await flushPending();
+      } catch {
+        // the original failure is the one to report
+      }
+      throw e;
     }
     await site.manifest.save();
     // now, we need to look for orphans if we deleted anything
