@@ -685,7 +685,7 @@ test("writePageAlternateFormats writes md, json, yaml, and xml sidecars", async 
   assert.ok(md.indexOf("alternate body") !== -1);
   // no-location / no-site variants answer false
   assert.equal(await site.writePageAlternateFormats({ location: "" }), false);
-    assert.equal(await site.writePageAlternateFormats(null, ""), false);
+  assert.equal(await site.writePageAlternateFormats(null, ""), false);
 });
 
 test("writePageAlternateFormats reads the page content when html is not supplied", async () => {
@@ -995,7 +995,9 @@ test("lunrSearchIndex and cleanSearchData build the search corpus", async () => 
   );
   assert.ok(cleaned.indexOf("<") === -1);
   // every newline is replaced, not only the first
-  assert.ok(!site.cleanSearchData("alpha\nbravo\ncharlie\ndelta").includes("\n"));
+  assert.ok(
+    !site.cleanSearchData("alpha\nbravo\ncharlie\ndelta").includes("\n"),
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1582,6 +1584,47 @@ test("itemFromParams slugs from the title when no location was supplied", async 
   });
   assert.equal(item.parent, null);
   assert.ok(item.slug.indexOf("title-only-page") === 0);
+});
+
+test("itemFromParams merges request metadata through the page sanitiser", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  const requestMetadata = {
+    published: false,
+    hideInMenu: true,
+    tags: "alpha,beta",
+  };
+  const item = site.itemFromParams({
+    node: { title: "With Metadata", id: "with-metadata" },
+    metadata: requestMetadata,
+  });
+  assert.equal(item.metadata.published, false);
+  assert.equal(item.metadata.hideInMenu, true);
+  assert.equal(item.metadata.tags, "alpha,beta");
+  assert.equal(typeof item.metadata.created, "number");
+  assert.equal(typeof item.metadata.updated, "number");
+  // the request object is copied, not adopted: stamps never leak back into it
+  assert.notEqual(item.metadata, requestMetadata);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(requestMetadata, "created"),
+    false,
+  );
+});
+
+test("itemFromParams drops forbidden metadata keys like addPage does", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  const metadata = JSON.parse(
+    '{"__proto__": {"polluted": true}, "published": true}',
+  );
+  const item = site.itemFromParams({
+    node: { title: "Sanitised Metadata", id: "sanitised-metadata" },
+    metadata: metadata,
+  });
+  assert.equal(item.metadata.published, true);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(item.metadata, "__proto__"),
+    false,
+  );
+  assert.equal({}.polluted, undefined);
 });
 
 test("save persists the manifest with and without reordering", async () => {
