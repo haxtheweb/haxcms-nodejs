@@ -183,3 +183,14 @@ test("sanitizeUntrustedHtml never throws and strips active content", () => {
     RUNS,
   );
 });
+
+// fast-check counterexample: an iframe inside foreign SVG content made
+// jsdom's window.close() throw during scratch-DOM teardown
+test("sanitizeUntrustedHtml handles iframes nested in svg content", () => {
+  const html =
+    "<svg onload=alert(1)><iframe src=//evil.example></iframe><p><iframe src=//evil.example></iframe>";
+  const out = sanitizeUntrustedHtml(html);
+  assert.strictEqual(typeof out, "string");
+  assert.ok(!/<\s*iframe/i.test(out), `iframe survived: ${out}`);
+  assert.ok(!/<[^>]*\son[a-z]+\s*=/i.test(out), `handler survived: ${out}`);
+});
