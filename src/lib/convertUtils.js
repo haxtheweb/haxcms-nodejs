@@ -603,6 +603,46 @@ function findChromeExecutable() {
  * Convert HTML string to a PDF Buffer using puppeteer-core.
  * Requires Chrome/Chromium to be installed on the host.
  */
+// Print stylesheet for PDF exports. The export HTML is sanitized (no <style>,
+// no theme web components, JS disabled), so without this Chrome falls back to
+// ~8pt Times and prints images at their natural size. A tall photo then
+// overflows the page and Chrome repeats the same image object on two pages,
+// which a later PDF import extracts as two images. Injected after sanitizing
+// because it is ours, not user content.
+const PDF_EXPORT_PRINT_CSS = [
+  "@page { size: A4; margin: 18mm 16mm; }",
+  "html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }",
+  "body { margin: 0; color: #1f2328; font-family: 'Helvetica Neue', Helvetica, Arial, 'Liberation Sans', 'Nimbus Sans', 'DejaVu Sans', sans-serif; font-size: 11.5pt; line-height: 1.55; }",
+  "h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.2em 0 0.45em; break-after: avoid; page-break-after: avoid; }",
+  "h1 { font-size: 22pt; } h2 { font-size: 17pt; } h3 { font-size: 14pt; } h4 { font-size: 12.5pt; } h5, h6 { font-size: 11.5pt; }",
+  "body > :first-child, h1:first-child { margin-top: 0; }",
+  "p, ul, ol, dl, blockquote, pre, table, figure { margin: 0 0 0.8em; }",
+  "p, li { orphans: 3; widows: 3; }",
+  "ul, ol { padding-left: 1.4em; } li { margin: 0.2em 0; }",
+  "a { color: #0b5cad; text-decoration: underline; }",
+  // keep every image on one page: never wider than the column, never taller
+  // than half an A4 content area, scaled proportionally and centred
+  "img, svg, video, canvas { display: block; max-width: 100%; max-height: 130mm; width: auto; height: auto; object-fit: contain; margin: 0.6em auto; break-inside: avoid; page-break-inside: avoid; }",
+  "figure { break-inside: avoid; page-break-inside: avoid; text-align: center; } figcaption { font-size: 9.5pt; color: #57606a; margin-top: 0.3em; }",
+  "blockquote { margin-left: 0; padding: 0.2em 0 0.2em 1em; border-left: 3px solid #d0d7de; color: #424a53; }",
+  "pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 9.5pt; }",
+  "pre { white-space: pre-wrap; padding: 0.6em 0.8em; background: #f6f8fa; border-radius: 4px; break-inside: avoid; }",
+  "table { border-collapse: collapse; width: 100%; font-size: 10pt; } th, td { border: 1px solid #d0d7de; padding: 4px 8px; text-align: left; vertical-align: top; } thead { display: table-header-group; } tr { break-inside: avoid; }",
+  "hr { border: 0; border-top: 1px solid #d0d7de; margin: 1.2em 0; }",
+].join("\n");
+
+/**
+ * Put the export print stylesheet in the document head (creating one when
+ * the sanitized markup has none).
+ */
+function withPdfExportStyles(html) {
+  const styleTag = `<style>${PDF_EXPORT_PRINT_CSS}</style>`;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (m) => `${m}${styleTag}`);
+  }
+  return `<head>${styleTag}</head>${html}`;
+}
+
 async function htmlToPdfBuffer(html, base = "/", imageOptions) {
   const puppeteer = require("puppeteer-core");
   const executablePath = findChromeExecutable();
@@ -673,6 +713,7 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
         sanitized = `<head>${baseTag}</head>${sanitized}`;
       }
     }
+    sanitized = withPdfExportStyles(sanitized);
     // Wait for network to be idle (inlined images decoded) before printing.
     await page.setContent(sanitized, {
       waitUntil: "networkidle0",
@@ -681,7 +722,8 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
-      margin: { top: "40px", right: "40px", bottom: "40px", left: "40px" },
+      // margins come from the @page rule in PDF_EXPORT_PRINT_CSS
+      preferCSSPageSize: true,
     });
     return Buffer.from(pdfBuffer);
   } finally {
@@ -710,6 +752,8 @@ function sanitizeUntrustedHtml(html) {
 }
 
 module.exports = {
+  PDF_EXPORT_PRINT_CSS,
+  withPdfExportStyles,
   stripMSWord,
   stripDelimitedSpans,
   lazySequenceReplace,
