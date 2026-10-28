@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const JWT = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
 const GitPlus = require("./GitPlus.js");
+const { formatCommitMessage, getCommitContext } = require("./commitContext.js");
 const JSONOutlineSchema = require("./JSONOutlineSchema.js");
 const {
   getLicenseMap,
@@ -720,13 +721,19 @@ class HAXCMSSite {
       try {
         // Security (PR8-3): the site title is user input; run it through the
         // same sanitizer gitCommit() uses before it reaches git-interface.
+        // haxtheweb/issues#3191: op-code prefix; a request that creates the
+        // site (createSite, an importer) keeps its own op, otherwise siteCreate
+        const createContext = getCommitContext();
         await git.commit(
-          sanitizeGitCommitMessage(
-            "A new journey begins: " +
-              this.manifest.title +
-              " (" +
-              this.manifest.id +
-              ")",
+          formatCommitMessage(
+            sanitizeGitCommitMessage(
+              "A new journey begins: " +
+                this.manifest.title +
+                " (" +
+                this.manifest.id +
+                ")",
+            ),
+            createContext && createContext.op ? "" : "siteCreate",
           ),
         );
       } finally {
@@ -932,7 +939,10 @@ class HAXCMSSite {
         return;
       }
       await this.rebuildManagedFiles();
-      await this.gitCommit("Managed files upgraded: legacy bootstrap");
+      await this.gitCommit(
+        "Managed files upgraded: legacy bootstrap",
+        "upgradeManagedFiles",
+      );
     } catch {
       // intentionally ignored
     }
@@ -1349,9 +1359,14 @@ class HAXCMSSite {
     }
   }
   /**
-   * Basic wrapper to commit current changes to version control of the site
+   * Basic wrapper to commit current changes to version control of the site.
+   *
+   * haxtheweb/issues#3191: the message is prefixed with the actor and the
+   * OpenAPI operationId of the request that made it, e.g.
+   * "[H/outline updateSiteOutline k3f9] Outline updated in bulk".
+   * Pass op to override the operation for this one commit.
    */
-  async gitCommit(msg = "Committed changes") {
+  async gitCommit(msg = "Committed changes", op = "") {
     try {
       // Security (HAX-SEC-006): sanitize the commit message to a conservative
       // allowlist before it reaches git-interface, which string-splits the
@@ -1360,7 +1375,7 @@ class HAXCMSSite {
       // quoted token and inject git arguments. This is defense-in-depth;
       // callers should also avoid passing user input (files.js uses the
       // server-generated sanitized filename, not upload.originalname).
-      var safeMsg = sanitizeGitCommitMessage(msg);
+      var safeMsg = formatCommitMessage(sanitizeGitCommitMessage(msg), op);
       const scope = siteGitScope(this.siteDirectory);
       // a site inside a larger repo leaves versioning to that repo; running
       // git here would commit the parent repo's whole work tree
@@ -1437,7 +1452,7 @@ class HAXCMSSite {
         await git.init();
       }
       await git.add();
-      await git.commit("commit forced");
+      await git.commit(formatCommitMessage("commit forced"));
       await git.push();
     } catch {
       // intentionally ignored

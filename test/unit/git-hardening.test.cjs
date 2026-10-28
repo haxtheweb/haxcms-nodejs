@@ -143,7 +143,8 @@ describe('HAXCMSSite.newSite initial commit', () => {
     await site.newSite(sitesDir, '/', evil)
     assert.ok(messages.length >= 1, 'initial commit attempted')
     const initial = messages[0]
-    assert.ok(initial.indexOf('A new journey begins: ') === 0, initial)
+    // haxtheweb/issues#3191: op-code prefix first, then the sanitized text
+    assert.ok(/^\[S:siteCreate\] A new journey begins: /.test(initial), initial)
     assert.equal(/['"\\\x00-\x1f\x7f]/.test(initial), false, 'no quotes/backslashes/control chars: ' + JSON.stringify(initial))
   })
 })

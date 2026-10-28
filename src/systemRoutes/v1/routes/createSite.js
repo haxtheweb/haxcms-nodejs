@@ -1,5 +1,6 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { HAXCMS, sanitizeGitCommitMessage } = require('../../../lib/HAXCMS.js');
 const GitPlus = require('../../../lib/GitPlus.js');
+const { formatCommitMessage } = require('../../../lib/commitContext.js');
 const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
 const HAXCMSFile = require('../../../lib/HAXCMSFile.js');
 const fs = require('fs-extra');
@@ -918,7 +919,16 @@ async function createSite(req, res) {
       git.setDir(site.siteDirectory);
       await git.init();
       await git.add();
-      await git.commit('A new journey begins: ' + site.manifest.title + ' (' + site.manifest.id + ')');
+      // haxtheweb/issues#3191: sanitize the user-supplied title like every
+      // other commit, and prefix with the request's op (createSite or the
+      // importer that called it)
+      await git.commit(
+        formatCommitMessage(
+          sanitizeGitCommitMessage(
+            'A new journey begins: ' + site.manifest.title + ' (' + site.manifest.id + ')',
+          ),
+        ),
+      );
       // make a branch but dont use it
       if (configuredStaticBranch) {
         await git.createBranch(configuredStaticBranch);
