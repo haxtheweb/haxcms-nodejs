@@ -48,6 +48,10 @@ const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskil
   ForceType text/plain
 </FilesMatch>
 `;
+// Full HAX agent skill catalog (agentskills.io index) maintained in PRAW.
+// Linked from every site's llms.txt for skills the site does not ship.
+const HAX_SKILL_CATALOG_URL =
+  "https://raw.githubusercontent.com/haxtheweb/praw/main/skills/index.json";
 // Minimal HTML entity decoding for llms.txt summaries (mirrors PHP
 // html_entity_decode for the entities authored content commonly contains).
 function decodeLLMSEntities(text = "") {
@@ -1719,6 +1723,14 @@ class HAXCMSSite {
       "- [Agent skills](" +
         this.getLLMSResourceURL(domain, ".well-known/agent-skills/index.json") +
         "): Agent Skills discovery index (agentskills.io v0.2.0) listing skills that teach an agent how to read, author, audit, and remix this site.",
+    );
+    // the site ships only skills for using the site; the full, living catalog
+    // (course design, learning-science audits, importers, theming...) is PRAW.
+    // Mirrors PHP HAXCMSSite::getLLMSTxt.
+    lines.push(
+      "- [HAX skill catalog](" +
+        HAX_SKILL_CATALOG_URL +
+        "): Every HAX agent skill, maintained in PRAW; fetch skills this site does not ship from here.",
     );
     return lines.join("\n") + "\n";
   }
