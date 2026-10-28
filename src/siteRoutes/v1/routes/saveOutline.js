@@ -9,6 +9,9 @@ const {
 } = require("../siteRouteUtils.js");
 const FileContentScanner = require("../../../lib/FileContentScanner.js");
 const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
+// the same usort orderTree() uses, so the emulated in-place sort is identical
+const usortImport = require("locutus/php/array/usort");
+const usort = usortImport.usort || usortImport;
 const {
   toPlainText,
   applyPageMetadata,
@@ -78,15 +81,57 @@ async function saveOutline(req, res) {
     // generated files match what per-item saving used to leave behind.
     let manifestDirty = false;
     let alternateFormatsDirty = false;
+    // Per-item saving also left the item ORDER in a particular state:
+    // updateNode() wrote site.json, then rebuilt the alternate formats, and
+    // building llms.txt calls orderTree(), whose usort stable-sorts the
+    // manifest items by order in place. So after an existing page was saved
+    // site.json held the items before that sort, the feeds were built from
+    // that same array, and the in-memory items were sorted before the next
+    // page was handled. Ties in order (across parents too) are broken by
+    // that array order, so it decides the order site.json, llms.txt, the
+    // sitemap and the search index list pages in. Mirror it exactly:
+    // sortPending holds the sort until the next page is handled, savedItems
+    // is the array per-item saving last wrote to site.json and feedItems the
+    // array its last rebuild read.
+    let sortPending = false;
+    let savedItems = null;
+    let feedItems = null;
+    const applyPendingSort = () => {
+      if (sortPending) {
+        sortPending = false;
+        usort(site.manifest.items, (a, b) => a.order - b.order);
+      }
+    };
+    // each write is attempted once, like per-item saving: a write that fails
+    // is not retried by the error handler
+    const withItems = async (items, fn) => {
+      const live = site.manifest.items;
+      if (items) {
+        site.manifest.items = items;
+      }
+      try {
+        await fn();
+      } finally {
+        site.manifest.items = live;
+      }
+    };
     const flushPending = async () => {
       if (manifestDirty) {
-        await site.manifest.save(false);
         manifestDirty = false;
+        try {
+          await withItems(savedItems, () => site.manifest.save(false));
+        } catch (e) {
+          // per-item saving never rebuilt after a failed site.json write,
+          // so the feeds keep describing the site.json that is on disk
+          alternateFormatsDirty = false;
+          throw e;
+        }
       }
       if (alternateFormatsDirty) {
-        await site.updateAlternateFormats();
         alternateFormatsDirty = false;
+        await withItems(feedItems, () => site.updateAlternateFormats());
       }
+      applyPendingSort();
     };
     let items = [...req.body["items"]];
     // client id -> server id; no prototype, so any client id is a plain key
@@ -101,6 +146,9 @@ async function saveOutline(req, res) {
       // items from the POST
       for (var key in items) {
         let item = items[key];
+        // the previous page's rebuild sorted the items before this one was
+        // handled (slug de-duplication below depends on that order)
+        applyPendingSort();
         page = site.loadNode(item.id);
         // get a fake item of the existing
         if (!page) {
@@ -245,14 +293,24 @@ async function saveOutline(req, res) {
         if (tmp) {
           await site.updateNode(page, false);
           alternateFormatsDirty = true;
+          sortPending = true;
         } else {
           site.manifest.addItem(page);
         }
         manifestDirty = true;
+        // what per-item saving had just written to site.json (and, for an
+        // existing page, what its rebuild then read)
+        savedItems = site.manifest.items.slice();
+        if (tmp) {
+          feedItems = savedItems;
+        }
       }
       // siblings that share an order are told apart by their position in
       // the manifest; keep the order the request sent them in (the order the
-      // outline showed), so a tie never depends on how the save ran
+      // outline showed), so a tie never depends on how the save ran. Only
+      // tied siblings move, and only between the slots they already hold:
+      // every other page keeps the position per-item saving left it in, so
+      // saves without ties write exactly what they always did
       const requested = new Map();
       req.body["items"].forEach((sent, position) => {
         const id =
@@ -261,19 +319,35 @@ async function saveOutline(req, res) {
           requested.set(id, position);
         }
       });
-      const before = new Map(
-        site.manifest.items.map((manifestItem, position) => [
-          manifestItem.id,
-          position,
-        ]),
-      );
-      site.manifest.items.sort((a, b) => {
-        const ra = requested.has(a.id) ? requested.get(a.id) : Infinity;
-        const rb = requested.has(b.id) ? requested.get(b.id) : Infinity;
-        if (ra !== rb) {
-          return ra - rb;
+      const tied = new Map();
+      site.manifest.items.forEach((manifestItem, position) => {
+        const key =
+          String(manifestItem.parent == null ? "" : manifestItem.parent) +
+          "\u0000" +
+          String(manifestItem.order);
+        if (!tied.has(key)) {
+          tied.set(key, []);
         }
-        return before.get(a.id) - before.get(b.id);
+        tied.get(key).push(position);
+      });
+      const reordered = site.manifest.items.slice();
+      tied.forEach((slots) => {
+        // pages the request did not send keep their slot
+        const sentSlots = slots.filter((slot) =>
+          requested.has(site.manifest.items[slot].id),
+        );
+        if (sentSlots.length < 2) {
+          return;
+        }
+        const group = sentSlots.map((slot) => site.manifest.items[slot]);
+        group.sort((a, b) => requested.get(a.id) - requested.get(b.id));
+        sentSlots.forEach((slot, k) => {
+          reordered[slot] = group[k];
+        });
+      });
+      // in place: anything holding the manifest's items array keeps seeing it
+      reordered.forEach((manifestItem, position) => {
+        site.manifest.items[position] = manifestItem;
       });
       // checkpoint: write the structure once here. Saving per item had
       // written all of it by this point, so a failure in the content or
@@ -413,6 +487,8 @@ async function saveOutline(req, res) {
     await site.manifest.save();
     // now, we need to look for orphans if we deleted anything
     let orphanCheck = [...site.manifest.items];
+    // per-item saving rebuilt (and so sorted) after every rescued orphan
+    let orphanFeedItems = null;
     for (let orKey in orphanCheck) {
       let item = orphanCheck[orKey];
       // just to be safe..
@@ -426,8 +502,15 @@ async function saveOutline(req, res) {
           page.order = parseInt(page.order) + site.manifest.items.length - 1;
           // in memory only: the save and rebuild below cover every orphan
           await site.updateNode(page, false);
+          orphanFeedItems = site.manifest.items.slice();
+          usort(site.manifest.items, (a, b) => a.order - b.order);
         }
       }
+    }
+    // the feeds as the last orphan's rebuild left them, so a failure in the
+    // managed files rebuild below leaves the same feeds per-item saving did
+    if (orphanFeedItems) {
+      await withItems(orphanFeedItems, () => site.updateAlternateFormats());
     }
     site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
     await site.manifest.save();

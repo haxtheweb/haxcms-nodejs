@@ -336,3 +336,111 @@ test("siblings that share an order keep the order they were sent in", async (t) 
     "B<root",
   ]);
 });
+
+// the remaining early returns in the content phase: each one stops the
+// request with an error and, like per-item saving, leaves the whole new
+// structure saved (the duplicate request is the last item, so every
+// earlier page and its contents are already in place)
+function withDuplicate(site, duplicate) {
+  const items = editRequest(site);
+  items.push({
+    id: "client-copy",
+    title: "Copy",
+    parent: null,
+    indent: 0,
+    order: 4,
+    metadata: {},
+    duplicate: duplicate,
+    new: true,
+  });
+  return items;
+}
+
+const EDITED_WITH_COPY = EDITED.concat(["Copy<root"]);
+
+test("a duplicate of a page that does not exist is a 400 that keeps the new structure", async (t) => {
+  const site = await buildSite(t, "fail-dup-source");
+  const { res, thrown } = await run(t, site, withDuplicate(site, "missing"));
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.data.message, "invalid duplicate source");
+  assert.deepEqual(savedTree("fail-dup-source"), EDITED_WITH_COPY);
+});
+
+test("a duplicate of a page without HTML contents is a 400 that keeps the new structure", async (t) => {
+  const site = await buildSite(t, "fail-dup-content");
+  const source = byTitle(site, "B");
+  fs.writeFileSync(
+    path.join(site.siteDirectory, source.location),
+    "plain text, no markup",
+  );
+  const { res, thrown } = await run(t, site, withDuplicate(site, source.id));
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.data.message, "invalid duplicate content");
+  assert.deepEqual(savedTree("fail-dup-content"), EDITED_WITH_COPY);
+});
+
+test("contents that cannot be written are a 500 that keeps the new structure", async (t) => {
+  const site = await buildSite(t, "fail-write-contents");
+  // A2's new contents are the first write
+  t.mock.method(
+    JSONOutlineSchemaItem.prototype,
+    "writeLocation",
+    async () => false,
+  );
+  const { res, thrown } = await run(t, site, editRequest(site));
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.data.message, "failed to write");
+  assert.deepEqual(savedTree("fail-write-contents"), EDITED);
+});
+
+test("a duplicate that cannot be written is a 500 that keeps the new structure", async (t) => {
+  const site = await buildSite(t, "fail-write-dup");
+  // writes in request order: A2, D and E contents, then the duplicate
+  let writes = 0;
+  const write = JSONOutlineSchemaItem.prototype.writeLocation;
+  t.mock.method(
+    JSONOutlineSchemaItem.prototype,
+    "writeLocation",
+    async function (...args) {
+      writes++;
+      if (writes === 4) {
+        return false;
+      }
+      return write.apply(this, args);
+    },
+  );
+  const { res, thrown } = await run(
+    t,
+    site,
+    withDuplicate(site, byTitle(site, "B").id),
+  );
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 500);
+  assert.equal(res.body.data.message, "failed to write");
+  assert.equal(writes, 4);
+  assert.deepEqual(savedTree("fail-write-dup"), EDITED_WITH_COPY);
+});
+
+test("a site.json write that fails is not retried and leaves the feeds alone", async (t) => {
+  const site = await buildSite(t, "fail-manifest-write");
+  const dir = path.join(testRoot, "_sites", "fail-manifest-write");
+  const siteJsonBefore = fs.readFileSync(path.join(dir, "site.json"), "utf8");
+  const rssBefore = fs.readFileSync(path.join(dir, "rss.xml"), "utf8");
+  let saves = 0;
+  t.mock.method(site.manifest, "save", async () => {
+    saves++;
+    throw new Error("disk failure");
+  });
+  const { thrown } = await run(t, site, editRequest(site));
+  assert.ok(thrown, "the failure is reported");
+  // per-item saving failed on its first write and wrote nothing else
+  assert.equal(saves, 1, "the failed write is not retried");
+  assert.equal(
+    fs.readFileSync(path.join(dir, "site.json"), "utf8"),
+    siteJsonBefore,
+  );
+  assert.equal(fs.readFileSync(path.join(dir, "rss.xml"), "utf8"), rssBefore);
+});

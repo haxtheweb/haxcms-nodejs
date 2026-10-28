@@ -229,3 +229,24 @@ test("saveOutline saves and rebuilds once per request, not once per item", async
   assert.equal(results[12].alternateFormats, 3);
   assert.ok(results[12].manifestSave <= 4, "fixed number of site.json saves");
 });
+
+test("deleting a parent costs a fixed number of rebuilds too", async (t) => {
+  useTempConfigDirectory(t);
+  const results = {};
+  for (const size of [4, 12]) {
+    mockAuth(t);
+    const name = "batch-count-delete-" + size;
+    await buildSite(t, name, size);
+    // Page 0 is deleted and its child is rescued as an orphan
+    results[size] = (await runCounted(t, name, false, true)).counts;
+  }
+  assert.deepEqual(
+    results[12],
+    results[4],
+    "cost does not grow with item count",
+  );
+  // as above, plus the deleted page's own rebuild in deleteNode (1) and one
+  // rebuild for all rescued orphans (1), so a failure after the orphan pass
+  // leaves the feeds per-item saving left
+  assert.equal(results[12].alternateFormats, 5);
+});

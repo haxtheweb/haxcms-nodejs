@@ -3703,6 +3703,10 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
   /**
    * Update page in the manifest list of items. useful if updating some
    * data about an existing entry.
+   * @param page JSONOutlineSchemaItem to swap into the manifest
+   * @param persist when false only the in-memory manifest is updated; the
+   * caller saves site.json and rebuilds alternate formats once after a batch
+   * of changes (saveOutline, haxtheweb/issues#3114)
    * @return JSONOutlineSchemaItem or false
    */
   async updateNode(page, persist = true) {
