@@ -1578,6 +1578,18 @@ class HAXCMSSite {
         // keep parity with PHP behavior: never hard fail a save on llms serialization
       }
     }
+    // DRAFT plugin platform: rebuild.before / rebuild.after so plugins write their managed files
+    // (https://github.com/haxtheweb/haxcms-plugin-examples/pull/1). A plugin failure never fails the save.
+    if (process.env.HAXCMS_PLUGINS !== "off" && !this.__pluginRebuilding) {
+      this.__pluginRebuilding = true;
+      try {
+        await require("./plugins/pluginSystem.js").rebuild(this, format || "save");
+      } catch {
+        // logged by the plugin engine; core keeps going
+      } finally {
+        this.__pluginRebuilding = false;
+      }
+    }
   }
   /**
    * Generate llms.txt content based on site structure and generated markdown pages.

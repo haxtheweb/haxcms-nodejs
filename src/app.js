@@ -1884,6 +1884,34 @@ systemStructureContext().then((site) => {
     }
   }
   assertSiteApiMutationRoutesAreSecured(siteRouteRegistry);
+  // DRAFT plugin platform (https://github.com/haxtheweb/haxcms-plugin-examples/pull/1): plugin operations under
+  // x/api/v1/plugins/<id>/ and system/api/v1/plugins/<id>/. The engine enforces each operation's declared security
+  // from the credentials resolved here.
+  if (process.env.HAXCMS_PLUGINS !== "off") {
+    const { mountPluginRoutes } = require("./lib/plugins/pluginRoutes.js");
+    const { resolveSiteForRequest: resolvePluginSite } = require("./siteRoutes/v1/siteRouteUtils.js");
+    app.use(`${HAXCMS.basePath || "/"}x/api/v1/plugins/`, jsonRequestParser);
+    app.use(`${HAXCMS.basePath || "/"}${HAXCMS.sitesDirectory}/`, (req, res, next) => (req.path.indexOf("/x/api/v1/plugins/") !== -1 ? jsonRequestParser(req, res, next) : next()));
+    app.use(`${HAXCMS.basePath || "/"}system/api/v1/plugins`, jsonRequestParser);
+    mountPluginRoutes(app, {
+      basePath: HAXCMS.basePath || "/",
+      sitesDirectory: HAXCMS.sitesDirectory,
+      resolveSite: (req) => resolvePluginSite(req),
+      resolveAuth: (req, site) => {
+        const cli = HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS;
+        const jwt = getBearerJwtFromRequest(req);
+        const userName = cli ? "admin" : jwt && HAXCMS.validateJWT(req, null) ? getAuthenticatedUserNameFromBearerJwt(jwt) : "";
+        const userToken = getRequestHeaderValue(req, "x-haxcms-user-token");
+        const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+        return {
+          userName,
+          jwt: cli || userName !== "",
+          userToken: cli || (userToken !== "" && userName !== "" && HAXCMS.validateRequestToken(userToken, userName)),
+          siteToken: cli || (siteToken !== "" && userName !== "" && !!site && HAXCMS.validateRequestToken(siteToken, `${userName}:${site.manifest.metadata.site.name}`)),
+        };
+      },
+    });
+  }
   // D60: 405+Allow dispatch for system and site API routes. After all routes
   // are registered, add a catch-all that checks if the request path matches a
   // registered route for a different method and returns 405 + Allow header.

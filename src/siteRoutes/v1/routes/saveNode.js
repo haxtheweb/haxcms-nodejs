@@ -14,6 +14,9 @@ const {
 } = require("../siteRouteUtils.js");
 const { isPathautoEnabled } = require("../../../lib/nodeDetailOperations.js");
 const FileContentScanner = require("../../../lib/FileContentScanner.js");
+// DRAFT plugin platform: page.before.save / page.after.save around the write
+const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
+const pluginsOn = () => process.env.HAXCMS_PLUGINS !== "off";
 /**
  * @OA\Post(
  *    path="/saveNode",
@@ -188,6 +191,21 @@ async function saveNode(req, res) {
           // now this should exist if it didn't a minute ago
           page = site.loadNode(data["attributes"]["item-id"]);
           let sanitizedContent = sanitizeHTMLForStorage(data["content"]);
+          // DRAFT plugin platform: page.before.save (entity.before.update on page) may change the content or the
+          // plugin's own metadata.plugins.<id> fields, or veto the save before anything is written
+          let pluginPrevious = null;
+          let pluginRecord = null;
+          if (pluginsOn()) {
+            pluginPrevious = { ...JSON.parse(JSON.stringify(page)), content: (typeof site.getPageContent === "function" ? await site.getPageContent(page) : "") || "" };
+            const proposed = { ...JSON.parse(JSON.stringify(page)), title: data["attributes"]["title"] ? toPlainText(data["attributes"]["title"]) : page.title, content: sanitizedContent };
+            const pre = await pluginSystem.before(site, "page", proposed, pluginPrevious, { user: activeUserName ? { id: activeUserName, name: activeUserName, displayName: activeUserName, roles: ["admin"], avatar: null } : null });
+            if (pre.veto) {
+              return res.status(pre.veto.status || 409).json({ status: pre.veto.status || 409, data: { message: pre.veto.message, plugin: pre.veto.plugin } });
+            }
+            pluginRecord = pre.record;
+            // core sanitizes whatever plugins hand back, as it does for authors
+            sanitizedContent = sanitizeHTMLForStorage(String(pluginRecord.content ?? sanitizedContent));
+          }
           // @todo make sure that we stripped off page-break
           // and now save WITHOUT the top level page-break
           // to avoid duplication issues
@@ -501,6 +519,10 @@ async function saveNode(req, res) {
               page,
               sanitizedContent,
             );
+            // DRAFT plugin platform: keep the plugin-owned fields the before hooks set (core drops undeclared ones)
+            if (pluginRecord && pluginRecord.metadata && pluginRecord.metadata.plugins) {
+              page.metadata.plugins = pluginRecord.metadata.plugins;
+            }
             await site.updateNode(page);
             await site.writePageAlternateFormats(page, sanitizedContent);
             site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
@@ -508,6 +530,9 @@ async function saveNode(req, res) {
             await site.gitCommit(
               "Page details updated: " + page.title + " (" + page.id + ")",
             );
+            if (pluginsOn()) {
+              await pluginSystem.after(site, "page", { ...JSON.parse(JSON.stringify(page)), content: sanitizedContent }, pluginPrevious);
+            }
           }
         }
         return res.send({
