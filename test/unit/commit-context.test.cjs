@@ -240,6 +240,16 @@ describe("format and parse", () => {
       formatCommitMessage("  Page   added:\tIntro  ", "", ctx),
       "[A:updateItem:x9r1] Page added: Intro",
     );
+    // through the sanitizer first, as gitCommit does: tabs and newlines
+    // become spaces so words are never glued together
+    assert.equal(
+      formatCommitMessage(
+        sanitizeGitCommitMessage('Page added:\tBob\'s "page"\nline2'),
+        "",
+        ctx,
+      ),
+      "[A:updateItem:x9r1] Page added: Bobs page line2",
+    );
   });
 
   test("the prefix is never cut and the whole line stays within the cap", () => {

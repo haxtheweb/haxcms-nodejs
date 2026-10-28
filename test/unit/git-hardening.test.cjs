@@ -44,7 +44,8 @@ describe('sanitizeGitCommitMessage', () => {
   test('strips quotes, backslashes and control characters and caps length', () => {
     assert.equal(
       sanitizeGitCommitMessage("A new journey begins: x' --author='evil <e@e>\"\n\\r (id)"),
-      'A new journey begins: x --author=evil <e@e>r (id)',
+      // haxtheweb/issues#3191: the newline becomes a space instead of vanishing
+      'A new journey begins: x --author=evil <e@e> r (id)',
     )
     assert.equal(sanitizeGitCommitMessage('a'.repeat(500)).length, 200)
     assert.equal(sanitizeGitCommitMessage(''), 'Committed changes')

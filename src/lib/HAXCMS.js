@@ -229,8 +229,12 @@ Twig.extendFunction("constant", function constantLookup(name) {
  * initial newSite() commit so site titles cannot inject git arguments.
  */
 function sanitizeGitCommitMessage(msg) {
+  // haxtheweb/issues#3191: whitespace (tabs, newlines) becomes one space
+  // first so words are not glued together when control chars are dropped
   var safeMsg = String(msg || "Committed changes")
+    .replace(/\s+/g, " ")
     .replace(/[\x00-\x1f\x7f'"\\]/g, "")
+    .trim()
     .substring(0, 200);
   if (safeMsg === "") {
     safeMsg = "Committed changes";
