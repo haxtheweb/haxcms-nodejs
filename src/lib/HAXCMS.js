@@ -2638,7 +2638,14 @@ class HAXCMSSite {
       params["metadata"] != "" &&
       params["metadata"] != null
     ) {
-      item.metadata = params["metadata"];
+      // Security (SEC-SANITIZE, PHP parity with haxcms-php#704): metadata comes
+      // straight from the createNode/saveNode request body. Merge it through
+      // the same per-field rules addPage() and saveOutline use instead of
+      // assigning the request object verbatim (which also aliased the caller's
+      // object, so the created/updated stamps below wrote into the request).
+      applyPageMetadata(item, params["metadata"], {
+        themes: HAXCMS.getThemes(),
+      });
     }
     if (
       typeof params["node"]["location"] !== "undefined" &&
