@@ -180,6 +180,11 @@ async function extractPageImages(pdf, pageIndex, seenImages, imageTops) {
             fit: "inside",
             withoutEnlargement: true,
           })
+          // pdf.js applies an /SMask as an alpha channel; JPEG has none, and
+          // simply dropping it shows whatever the encoder stored under the
+          // transparent pixels (black for Chrome), hiding dark line art.
+          // Flatten onto white instead (haxcms-php parity).
+          .flatten({ background: "#ffffff" })
           .jpeg({ quality: IMAGE_QUALITY })
           .toBuffer({ resolveWithObject: true });
         extracted.push({
