@@ -539,8 +539,8 @@ async function createSite(req, res) {
     // support for build info. the details used to actually create this site originally
     if (req.body['build']) {
       build = {};
-      // version of the platform used when originally created
-      build.version = await HAXCMS.getHAXCMSVersion();
+      // the platform version is intentionally not recorded: site.json is
+      // public and the running version must not be shown to visitors
       // course, website, portfolio, etc
       build.structure = req.body['build']['structure'];
       // TYPE of structure we are creating
@@ -686,7 +686,7 @@ async function createSite(req, res) {
         allowedBlocks: []
       };
     }
-    // store build provenance (version/structure/type) in case we need it
+    // store build provenance (structure/type) in case we need it
     // down the road. NOTE: build.items is intentionally NOT retained here.
     // Its only purpose was to create the pages/files on disk (via
     // HAXCMS.newSite()/addPage() above); once the site exists, the

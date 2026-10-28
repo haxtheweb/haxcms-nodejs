@@ -131,4 +131,10 @@ describe('site OpenAPI agent profile', () => {
     assert.equal(spec.components.parameters.RequiredSearchQuery.example, 'photosynthesis')
     assert.equal(spec.components.parameters.IdOrSlug.example, 'getting-started')
   })
+
+  test('info.version is the API contract version, never the running HAXcms version', async (t) => {
+    const spec = await fetchSpec(t)
+    assert.notEqual(spec.info.version, '0.0.0-test')
+    assert.equal(spec.info.version, '1.0.0')
+  })
 })
