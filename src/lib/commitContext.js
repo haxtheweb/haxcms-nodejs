@@ -101,10 +101,10 @@ function normalizeSummary(value) {
 }
 
 function createTxn() {
-  const bytes = crypto.randomBytes(TXN_LENGTH);
+  // crypto.randomInt is uniform (no modulo bias)
   let txn = "";
-  for (let i = 0; i < bytes.length; i++) {
-    txn += TXN_ALPHABET.charAt(bytes[i] % TXN_ALPHABET.length);
+  for (let i = 0; i < TXN_LENGTH; i++) {
+    txn += TXN_ALPHABET.charAt(crypto.randomInt(TXN_ALPHABET.length));
   }
   return txn;
 }
