@@ -9,6 +9,9 @@ const {
 } = require("../siteRouteUtils.js");
 const FileContentScanner = require("../../../lib/FileContentScanner.js");
 const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
+// the same usort orderTree() uses, so the emulated in-place sort is identical
+const usortImport = require("locutus/php/array/usort");
+const usort = usortImport.usort || usortImport;
 const {
   toPlainText,
   applyPageMetadata,
@@ -71,6 +74,65 @@ async function saveOutline(req, res) {
       );
     }
     let safeLocationMap = {};
+    // #3114: the manifest is updated in memory per item and written, along
+    // with the RSS / Atom / sitemap / llms.txt / search index rebuild, once
+    // per request instead of once per item. These flags track what an
+    // early error return must still flush so the persisted site.json and
+    // generated files match what per-item saving used to leave behind.
+    let manifestDirty = false;
+    let alternateFormatsDirty = false;
+    // Per-item saving also left the item ORDER in a particular state:
+    // updateNode() wrote site.json, then rebuilt the alternate formats, and
+    // building llms.txt calls orderTree(), whose usort stable-sorts the
+    // manifest items by order in place. So after an existing page was saved
+    // site.json held the items before that sort, the feeds were built from
+    // that same array, and the in-memory items were sorted before the next
+    // page was handled. Ties in order (across parents too) are broken by
+    // that array order, so it decides the order site.json, llms.txt, the
+    // sitemap and the search index list pages in. Mirror it exactly:
+    // sortPending holds the sort until the next page is handled, savedItems
+    // is the array per-item saving last wrote to site.json and feedItems the
+    // array its last rebuild read.
+    let sortPending = false;
+    let savedItems = null;
+    let feedItems = null;
+    const applyPendingSort = () => {
+      if (sortPending) {
+        sortPending = false;
+        usort(site.manifest.items, (a, b) => a.order - b.order);
+      }
+    };
+    // each write is attempted once, like per-item saving: a write that fails
+    // is not retried by the error handler
+    const withItems = async (items, fn) => {
+      const live = site.manifest.items;
+      if (items) {
+        site.manifest.items = items;
+      }
+      try {
+        await fn();
+      } finally {
+        site.manifest.items = live;
+      }
+    };
+    const flushPending = async () => {
+      if (manifestDirty) {
+        manifestDirty = false;
+        try {
+          await withItems(savedItems, () => site.manifest.save(false));
+        } catch (e) {
+          // per-item saving never rebuilt after a failed site.json write,
+          // so the feeds keep describing the site.json that is on disk
+          alternateFormatsDirty = false;
+          throw e;
+        }
+      }
+      if (alternateFormatsDirty) {
+        alternateFormatsDirty = false;
+        await withItems(feedItems, () => site.updateAlternateFormats());
+      }
+      applyPendingSort();
+    };
     let items = [...req.body["items"]];
     // client id -> server id; no prototype, so any client id is a plain key
     let itemMap = Object.create(null);
@@ -78,121 +140,86 @@ async function saveOutline(req, res) {
     var page, bytes, cleanTitle;
     // Security (SEC-SANITIZE): incoming theme metadata is validated against this
     const themes = HAXCMS.getThemes();
-    // items from the POST
-    for (var key in items) {
-      let item = items[key];
-      page = site.loadNode(item.id);
-      // get a fake item of the existing
-      if (!page) {
-        page = HAXCMS.outlineSchema.newItem();
-        // we don't trust the front end UUID if it wasn't existing already
-        itemMap[item.id] = page.id;
-      }
-      // set a title if we have one
-      if (item.title != "" && item.title) {
-        // Security (SEC-SANITIZE): titles are plain text, same as saveNode
-        const plainTitle = toPlainText(item.title);
-        if (plainTitle !== "") {
-          page.title = plainTitle;
+    // a failure part-way through must not lose what per-item saving would
+    // already have written: persist what is in memory, then fail as before
+    try {
+      // items from the POST
+      for (var key in items) {
+        let item = items[key];
+        // the previous page's rebuild sorted the items before this one was
+        // handled (slug de-duplication below depends on that order)
+        applyPendingSort();
+        page = site.loadNode(item.id);
+        // get a fake item of the existing
+        if (!page) {
+          page = HAXCMS.outlineSchema.newItem();
+          // we don't trust the front end UUID if it wasn't existing already
+          itemMap[item.id] = page.id;
         }
-      }
-      // description belongs to the JSON Outline Schema item; same handling
-      // as the setDescription node operation
-      if (typeof item.description === "string") {
-        page.description =
-          item.description === "" ? "" : strip_tags(item.description);
-      }
-      cleanTitle = HAXCMS.cleanTitle(page.title);
-      if (item.parent == null) {
-        page.parent = null;
-        page.indent = 0;
-      } else {
-        // check the item map as backend dictates unique ID
-        if (typeof itemMap[item.parent] !== "undefined") {
-          page.parent = itemMap[item.parent];
-        } else {
-          // set to the parent id
-          page.parent = item.parent;
-        }
-        // move it one indentation below the parent; this can be changed later if desired
-        page.indent = item.indent;
-      }
-      if (typeof item.order !== "undefined") {
-        page.order = parseInt(item.order);
-      } else {
-        page.order = parseInt(key);
-      }
-      // location is backend-controlled to prevent arbitrary writes
-      if (originalLocationMap[page.id]) {
-        page.location = originalLocationMap[page.id];
-      } else {
-        // generate a logical page slug
-        page.location = "pages/" + page.id + "/index.html";
-      }
-      // Check for per-page overridePathauto flag
-      let overridePathauto = false;
-      if (item.metadata && item.metadata.overridePathauto === true) {
-        overridePathauto = true;
-      }
-      let pathautoEnabled = isPathautoEnabled(site);
-      // Determine slug based on pathauto and overridePathauto
-      if (pathautoEnabled && !overridePathauto) {
-        // Pathauto is on and user has not overridden: auto-generate from title
-        page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
-      } else {
-        // Pathauto is off, or user has overridden: use client-provided slug or generate from title
-        if (typeof item.slug !== "undefined" && item.slug != "") {
-          page.slug = normalizeOutlineSlug(site, item.slug, page, false);
-        } else {
-          page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
-        }
-      }
-      // verify this exists, front end could have set what they wanted
-      // or it could have just been renamed
-      // if it doesn't exist currently make sure the name is unique
-      let tmpLoad = site.loadNode(page.id);
-      if (!tmpLoad) {
-        await HAXCMS.recurseCopy(
-          HAXCMS.boilerplatePath + "page/default",
-          site.siteDirectory + "/" + page.location.replace("/index.html", ""),
-          [],
-          // Security (N1/N5 parity): confine the copy to the site dir
-          site.siteDirectory,
-        );
-        pageAlternateContentMap[page.id] = "";
-      }
-      // this would imply existing item, lets see if it moved or needs moved
-      else {
-        let moved = false;
-        for (var moveKey in original) {
-          let tmpItem = original[moveKey];
-          // see if this is something moving as opposed to brand new
-          if (tmpItem.id == page.id && tmpItem.slug != "") {
-            // core support for automatically managing paths to make them nice
-            if (pathautoEnabled && !overridePathauto) {
-              moved = true;
-              page.slug = normalizeOutlineSlug(
-                site,
-                HAXCMS.cleanTitle(page.title),
-                page,
-                true,
-              );
-            } else if (tmpItem.slug != page.slug) {
-              moved = true;
-              page.slug = normalizeOutlineSlug(site, page.slug, page, false);
-            }
+        // set a title if we have one
+        if (item.title != "" && item.title) {
+          // Security (SEC-SANITIZE): titles are plain text, same as saveNode
+          const plainTitle = toPlainText(item.title);
+          if (plainTitle !== "") {
+            page.title = plainTitle;
           }
         }
-        // it wasn't moved and it doesn't exist... let's fix that
-        // this is beyond an edge case
-        if (
-          !moved &&
-          !fs.existsSync(site.siteDirectory + "/" + page.location)
-        ) {
-          let pAuto = pathautoEnabled && !overridePathauto;
-          let tmpTitle = normalizeOutlineSlug(site, cleanTitle, page, pAuto);
+        // description belongs to the JSON Outline Schema item; same handling
+        // as the setDescription node operation
+        if (typeof item.description === "string") {
+          page.description =
+            item.description === "" ? "" : strip_tags(item.description);
+        }
+        cleanTitle = HAXCMS.cleanTitle(page.title);
+        if (item.parent == null) {
+          page.parent = null;
+          page.indent = 0;
+        } else {
+          // check the item map as backend dictates unique ID
+          if (typeof itemMap[item.parent] !== "undefined") {
+            page.parent = itemMap[item.parent];
+          } else {
+            // set to the parent id
+            page.parent = item.parent;
+          }
+          // move it one indentation below the parent; this can be changed later if desired
+          page.indent = item.indent;
+        }
+        if (typeof item.order !== "undefined") {
+          page.order = parseInt(item.order);
+        } else {
+          page.order = parseInt(key);
+        }
+        // location is backend-controlled to prevent arbitrary writes
+        if (originalLocationMap[page.id]) {
+          page.location = originalLocationMap[page.id];
+        } else {
+          // generate a logical page slug
           page.location = "pages/" + page.id + "/index.html";
-          page.slug = tmpTitle;
+        }
+        // Check for per-page overridePathauto flag
+        let overridePathauto = false;
+        if (item.metadata && item.metadata.overridePathauto === true) {
+          overridePathauto = true;
+        }
+        let pathautoEnabled = isPathautoEnabled(site);
+        // Determine slug based on pathauto and overridePathauto
+        if (pathautoEnabled && !overridePathauto) {
+          // Pathauto is on and user has not overridden: auto-generate from title
+          page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
+        } else {
+          // Pathauto is off, or user has overridden: use client-provided slug or generate from title
+          if (typeof item.slug !== "undefined" && item.slug != "") {
+            page.slug = normalizeOutlineSlug(site, item.slug, page, false);
+          } else {
+            page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
+          }
+        }
+        // verify this exists, front end could have set what they wanted
+        // or it could have just been renamed
+        // if it doesn't exist currently make sure the name is unique
+        let tmpLoad = site.loadNode(page.id);
+        if (!tmpLoad) {
           await HAXCMS.recurseCopy(
             HAXCMS.boilerplatePath + "page/default",
             site.siteDirectory + "/" + page.location.replace("/index.html", ""),
@@ -202,143 +229,266 @@ async function saveOutline(req, res) {
           );
           pageAlternateContentMap[page.id] = "";
         }
-      }
-      if (typeof page.slug !== "string" || page.slug == "") {
-        page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
-      }
-      safeLocationMap[page.id] = page.location;
-      // check for any metadata keys that did come over
-      // Security (SEC-SANITIZE): per-field sanitisation (same rules as
-      // saveNode) instead of copying every client-supplied key verbatim
-      applyPageMetadata(page, item.metadata, { themes: themes });
-      // safety check for new things
-      if (typeof page.metadata.created === "undefined") {
-        page.metadata.created = Math.floor(Date.now() / 1000);
-        page.metadata.images = [];
-        page.metadata.videos = [];
-      }
-      // always update at this time
-      page.metadata.updated = Math.floor(Date.now() / 1000);
-      let tmp = site.loadNode(page.id);
-      if (tmp) {
-        await site.updateNode(page);
-      } else {
-        site.manifest.addItem(page);
-        await site.manifest.save(false);
-      }
-    }
-    // process any duplicate / contents requests we had now that structure is sane
-    // including potentially duplication of material from something
-    // we are about to act on and now that we have the map
-    items = [...req.body["items"]];
-    for (let dupKey in items) {
-      let item = items[dupKey];
-      // load the item, or the item as built out of the itemMap
-      // since we reset the UUID on creation
-      page = site.loadNode(item.id);
-      if (!page) {
-        page = site.loadNode(itemMap[item.id]);
-      }
-      if (!page) {
-        return saveOutlineError(res, 400, "invalid page reference");
-      }
-      let expectedLocation = safeLocationMap[page.id];
-      if (!expectedLocation) {
-        expectedLocation = normalizeOutlineLocation(page.location);
-      }
-      if (!expectedLocation) {
-        return saveOutlineError(res, 400, "invalid page location");
-      }
-      // location is backend-controlled based on page id, ignore client input
-      if (!getValidatedWritePath(site.siteDirectory, expectedLocation)) {
-        return saveOutlineError(res, 400, "invalid write target");
-      }
-      page.location = expectedLocation;
-      let alternateContent = "";
-      let shouldWriteAlternate = false;
-      if (typeof pageAlternateContentMap[page.id] !== "undefined") {
-        shouldWriteAlternate = true;
-      }
-      if (typeof item.duplicate !== "undefined") {
-        let nodeToDuplicate = site.loadNode(item.duplicate);
-        // load the node we are duplicating with support for the same map needed for page loading
-        if (!nodeToDuplicate) {
-          nodeToDuplicate = site.loadNode(itemMap[item.duplicate]);
+        // this would imply existing item, lets see if it moved or needs moved
+        else {
+          let moved = false;
+          for (var moveKey in original) {
+            let tmpItem = original[moveKey];
+            // see if this is something moving as opposed to brand new
+            if (tmpItem.id == page.id && tmpItem.slug != "") {
+              // core support for automatically managing paths to make them nice
+              if (pathautoEnabled && !overridePathauto) {
+                moved = true;
+                page.slug = normalizeOutlineSlug(
+                  site,
+                  HAXCMS.cleanTitle(page.title),
+                  page,
+                  true,
+                );
+              } else if (tmpItem.slug != page.slug) {
+                moved = true;
+                page.slug = normalizeOutlineSlug(site, page.slug, page, false);
+              }
+            }
+          }
+          // it wasn't moved and it doesn't exist... let's fix that
+          // this is beyond an edge case
+          if (
+            !moved &&
+            !fs.existsSync(site.siteDirectory + "/" + page.location)
+          ) {
+            let pAuto = pathautoEnabled && !overridePathauto;
+            let tmpTitle = normalizeOutlineSlug(site, cleanTitle, page, pAuto);
+            page.location = "pages/" + page.id + "/index.html";
+            page.slug = tmpTitle;
+            await HAXCMS.recurseCopy(
+              HAXCMS.boilerplatePath + "page/default",
+              site.siteDirectory +
+                "/" +
+                page.location.replace("/index.html", ""),
+              [],
+              // Security (N1/N5 parity): confine the copy to the site dir
+              site.siteDirectory,
+            );
+            pageAlternateContentMap[page.id] = "";
+          }
         }
-        if (!nodeToDuplicate) {
-          return saveOutlineError(res, 400, "invalid duplicate source");
+        if (typeof page.slug !== "string" || page.slug == "") {
+          page.slug = normalizeOutlineSlug(site, cleanTitle, page, true);
         }
-        let content = await site.getPageContent(nodeToDuplicate);
-        if (!isLikelyHtmlContent(content)) {
-          return saveOutlineError(res, 400, "invalid duplicate content");
+        safeLocationMap[page.id] = page.location;
+        // check for any metadata keys that did come over
+        // Security (SEC-SANITIZE): per-field sanitisation (same rules as
+        // saveNode) instead of copying every client-supplied key verbatim
+        applyPageMetadata(page, item.metadata, { themes: themes });
+        // safety check for new things
+        if (typeof page.metadata.created === "undefined") {
+          page.metadata.created = Math.floor(Date.now() / 1000);
+          page.metadata.images = [];
+          page.metadata.videos = [];
         }
-        // write it to the file system
-        alternateContent = sanitizeHTMLForStorage(content);
-        bytes = await page.writeLocation(alternateContent, site.siteDirectory);
-        if (bytes === false) {
-          return saveOutlineError(res, 500, "failed to write");
+        // always update at this time
+        page.metadata.updated = Math.floor(Date.now() / 1000);
+        let tmp = site.loadNode(page.id);
+        if (tmp) {
+          await site.updateNode(page, false);
+          alternateFormatsDirty = true;
+          sortPending = true;
+        } else {
+          site.manifest.addItem(page);
         }
-        shouldWriteAlternate = true;
-      }
-      // contents that were shipped across, and not null, take priority over a dup request
-      if (
-        typeof item.contents !== "undefined" &&
-        item.contents &&
-        item.contents != ""
-      ) {
-        if (!isLikelyHtmlContent(item.contents)) {
-          return saveOutlineError(res, 400, "invalid page contents");
-        }
-        // write it to the file system
-        alternateContent = sanitizeHTMLForStorage(item.contents);
-        bytes = await page.writeLocation(alternateContent, site.siteDirectory);
-        if (bytes === false) {
-          return saveOutlineError(res, 500, "failed to write");
-        }
-        shouldWriteAlternate = true;
-      }
-      if (shouldWriteAlternate) {
-        site.writePageAlternateFormats(page, alternateContent);
-      }
-      // #3043: rebuild page.metadata.files from a content path-scan so
-      // the uuid set stays in sync. If content was just written, scan that;
-      // otherwise read the current on-disk content so moved pages keep
-      // their uuid refs and legacy object-shape entries self-heal.
-      let scanContent = shouldWriteAlternate ? alternateContent : "";
-      if (
-        scanContent === "" &&
-        site &&
-        typeof site.getPageContent === "function"
-      ) {
-        try {
-          scanContent = String((await site.getPageContent(page)) || "");
-        } catch {
-          scanContent = "";
+        manifestDirty = true;
+        // what per-item saving had just written to site.json (and, for an
+        // existing page, what its rebuild then read)
+        savedItems = site.manifest.items.slice();
+        if (tmp) {
+          feedItems = savedItems;
         }
       }
-      await FileContentScanner.rebuildPageFilesUuids(site, page, scanContent);
-    }
-    items = [...req.body["items"]];
-    // now, we can finally delete as content operations have finished
-    for (let delKey in items) {
-      let item = items[delKey];
-      // verify if we were told to delete this item via flag not in the real spec
-      if (typeof item.delete !== "undefined" && item.delete === true) {
+      // siblings that share an order are told apart by their position in
+      // the manifest; keep the order the request sent them in (the order the
+      // outline showed), so a tie never depends on how the save ran. Only
+      // tied siblings move, and only between the slots they already hold:
+      // every other page keeps the position per-item saving left it in, so
+      // saves without ties write exactly what they always did
+      const requested = new Map();
+      req.body["items"].forEach((sent, position) => {
+        const id =
+          typeof itemMap[sent.id] !== "undefined" ? itemMap[sent.id] : sent.id;
+        if (!requested.has(id)) {
+          requested.set(id, position);
+        }
+      });
+      const tied = new Map();
+      site.manifest.items.forEach((manifestItem, position) => {
+        const key =
+          String(manifestItem.parent == null ? "" : manifestItem.parent) +
+          "\u0000" +
+          String(manifestItem.order);
+        if (!tied.has(key)) {
+          tied.set(key, []);
+        }
+        tied.get(key).push(position);
+      });
+      const reordered = site.manifest.items.slice();
+      tied.forEach((slots) => {
+        // pages the request did not send keep their slot
+        const sentSlots = slots.filter((slot) =>
+          requested.has(site.manifest.items[slot].id),
+        );
+        if (sentSlots.length < 2) {
+          return;
+        }
+        const group = sentSlots.map((slot) => site.manifest.items[slot]);
+        group.sort((a, b) => requested.get(a.id) - requested.get(b.id));
+        sentSlots.forEach((slot, k) => {
+          reordered[slot] = group[k];
+        });
+      });
+      // in place: anything holding the manifest's items array keeps seeing it
+      reordered.forEach((manifestItem, position) => {
+        site.manifest.items[position] = manifestItem;
+      });
+      // checkpoint: write the structure once here. Saving per item had
+      // written all of it by this point, so a failure in the content or
+      // delete phase below leaves the same site.json behind as before
+      await flushPending();
+      // process any duplicate / contents requests we had now that structure is sane
+      // including potentially duplication of material from something
+      // we are about to act on and now that we have the map
+      items = [...req.body["items"]];
+      for (let dupKey in items) {
+        let item = items[dupKey];
         // load the item, or the item as built out of the itemMap
         // since we reset the UUID on creation
         page = site.loadNode(item.id);
         if (!page) {
           page = site.loadNode(itemMap[item.id]);
         }
-        await site.deleteNode(page);
-        await site.gitCommit(
-          "Page deleted: " + page.title + " (" + page.id + ")",
-        );
+        if (!page) {
+          await flushPending();
+          return saveOutlineError(res, 400, "invalid page reference");
+        }
+        let expectedLocation = safeLocationMap[page.id];
+        if (!expectedLocation) {
+          expectedLocation = normalizeOutlineLocation(page.location);
+        }
+        if (!expectedLocation) {
+          await flushPending();
+          return saveOutlineError(res, 400, "invalid page location");
+        }
+        // location is backend-controlled based on page id, ignore client input
+        if (!getValidatedWritePath(site.siteDirectory, expectedLocation)) {
+          await flushPending();
+          return saveOutlineError(res, 400, "invalid write target");
+        }
+        page.location = expectedLocation;
+        let alternateContent = "";
+        let shouldWriteAlternate = false;
+        if (typeof pageAlternateContentMap[page.id] !== "undefined") {
+          shouldWriteAlternate = true;
+        }
+        if (typeof item.duplicate !== "undefined") {
+          let nodeToDuplicate = site.loadNode(item.duplicate);
+          // load the node we are duplicating with support for the same map needed for page loading
+          if (!nodeToDuplicate) {
+            nodeToDuplicate = site.loadNode(itemMap[item.duplicate]);
+          }
+          if (!nodeToDuplicate) {
+            await flushPending();
+            return saveOutlineError(res, 400, "invalid duplicate source");
+          }
+          let content = await site.getPageContent(nodeToDuplicate);
+          if (!isLikelyHtmlContent(content)) {
+            await flushPending();
+            return saveOutlineError(res, 400, "invalid duplicate content");
+          }
+          // write it to the file system
+          alternateContent = sanitizeHTMLForStorage(content);
+          bytes = await page.writeLocation(
+            alternateContent,
+            site.siteDirectory,
+          );
+          if (bytes === false) {
+            await flushPending();
+            return saveOutlineError(res, 500, "failed to write");
+          }
+          shouldWriteAlternate = true;
+        }
+        // contents that were shipped across, and not null, take priority over a dup request
+        if (
+          typeof item.contents !== "undefined" &&
+          item.contents &&
+          item.contents != ""
+        ) {
+          if (!isLikelyHtmlContent(item.contents)) {
+            await flushPending();
+            return saveOutlineError(res, 400, "invalid page contents");
+          }
+          // write it to the file system
+          alternateContent = sanitizeHTMLForStorage(item.contents);
+          bytes = await page.writeLocation(
+            alternateContent,
+            site.siteDirectory,
+          );
+          if (bytes === false) {
+            await flushPending();
+            return saveOutlineError(res, 500, "failed to write");
+          }
+          shouldWriteAlternate = true;
+        }
+        if (shouldWriteAlternate) {
+          site.writePageAlternateFormats(page, alternateContent);
+        }
+        // #3043: rebuild page.metadata.files from a content path-scan so
+        // the uuid set stays in sync. If content was just written, scan that;
+        // otherwise read the current on-disk content so moved pages keep
+        // their uuid refs and legacy object-shape entries self-heal.
+        let scanContent = shouldWriteAlternate ? alternateContent : "";
+        if (
+          scanContent === "" &&
+          site &&
+          typeof site.getPageContent === "function"
+        ) {
+          try {
+            scanContent = String((await site.getPageContent(page)) || "");
+          } catch {
+            scanContent = "";
+          }
+        }
+        await FileContentScanner.rebuildPageFilesUuids(site, page, scanContent);
       }
+      items = [...req.body["items"]];
+      // now, we can finally delete as content operations have finished
+      for (let delKey in items) {
+        let item = items[delKey];
+        // verify if we were told to delete this item via flag not in the real spec
+        if (typeof item.delete !== "undefined" && item.delete === true) {
+          // load the item, or the item as built out of the itemMap
+          // since we reset the UUID on creation
+          page = site.loadNode(item.id);
+          if (!page) {
+            page = site.loadNode(itemMap[item.id]);
+          }
+          await site.deleteNode(page);
+          await site.gitCommit(
+            "Page deleted: " + page.title + " (" + page.id + ")",
+          );
+        }
+      }
+    } catch (e) {
+      try {
+        await flushPending();
+      } catch {
+        // the original failure is the one to report
+      }
+      throw e;
     }
     await site.manifest.save();
     // now, we need to look for orphans if we deleted anything
     let orphanCheck = [...site.manifest.items];
+    // per-item saving rebuilt (and so sorted) after every rescued orphan
+    let orphanFeedItems = null;
     for (let orKey in orphanCheck) {
       let item = orphanCheck[orKey];
       // just to be safe..
@@ -350,9 +500,17 @@ async function saveOutline(req, res) {
           page.parent = null;
           // force to bottom of things while still being in old order if lots of things got axed
           page.order = parseInt(page.order) + site.manifest.items.length - 1;
-          await site.updateNode(page);
+          // in memory only: the save and rebuild below cover every orphan
+          await site.updateNode(page, false);
+          orphanFeedItems = site.manifest.items.slice();
+          usort(site.manifest.items, (a, b) => a.order - b.order);
         }
       }
+    }
+    // the feeds as the last orphan's rebuild left them, so a failure in the
+    // managed files rebuild below leaves the same feeds per-item saving did
+    if (orphanFeedItems) {
+      await withItems(orphanFeedItems, () => site.updateAlternateFormats());
     }
     site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
     await site.manifest.save();
