@@ -51,7 +51,7 @@ const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskil
 // Full HAX agent skill catalog (agentskills.io index) maintained in PRAW.
 // Linked from every site's llms.txt for skills the site does not ship.
 const HAX_SKILL_CATALOG_URL =
-  "https://raw.githubusercontent.com/haxtheweb/praw/main/skills/index.json";
+  "https://raw.githubusercontent.com/haxtheweb/praw/stable/skills/index.json";
 // Minimal HTML entity decoding for llms.txt summaries (mirrors PHP
 // html_entity_decode for the entities authored content commonly contains).
 function decodeLLMSEntities(text = "") {

@@ -900,7 +900,7 @@ test("llms.txt links the PRAW skill catalog for skills the site does not ship", 
   const llms = site.getLLMSTxt("https://unit.example");
   assert.ok(
     llms.indexOf(
-      "[HAX skill catalog](https://raw.githubusercontent.com/haxtheweb/praw/main/skills/index.json)",
+      "[HAX skill catalog](https://raw.githubusercontent.com/haxtheweb/praw/stable/skills/index.json)",
     ) !== -1,
   );
   // listed after the site's own skills index
