@@ -7,7 +7,7 @@
 //
 // PART A — Import From File:
 //   Open the outline editor dialog (#outlinebutton) -> click "Import From File"
-//   (.hax-modal-btn.import) which dispatches haxcms-outline-import-request ->
+//   (the file-upload button in the outline designer's toolbar) which dispatches haxcms-outline-import-request ->
 //   the site-editor-ui's _selectFileForHierarchyImport handler opens a file
 //   picker. Since puppeteer cannot interact with the native file picker
 //   (showOpenFilePicker), we simulate the post-file-pick result by dispatching
@@ -223,7 +223,12 @@ async function clickImportFromFile(page, t) {
     for (var i = 0; i < modals.length; i++) {
       var d = modals[i].querySelector("haxcms-outline-editor-dialog");
       if (d && d.shadowRoot) {
-        var importBtn = d.shadowRoot.querySelector(".hax-modal-btn.import");
+        // "Import from file" is a toolbar button the dialog slots into the
+        // outline designer (haxtheweb/webcomponents#1007); older builds had
+        // it as a .hax-modal-btn.import beside Save Outline
+        var importBtn = d.shadowRoot.querySelector(
+          'outline-designer > [slot="controls"][icon="file-upload"], .hax-modal-btn.import',
+        );
         if (importBtn) {
           importBtn.click();
           return { clicked: true };
@@ -478,7 +483,7 @@ test(
     // 4. Open the outline editor dialog.
     await openOutlineDialog(page, t);
 
-    // 5. Click "Import From File" (.hax-modal-btn.import).
+    // 5. Click "Import from file" (toolbar button in the outline designer).
     //    This dispatches haxcms-outline-import-request which triggers
     //    _selectFileForHierarchyImport on the site-editor-ui. That handler
     //    dispatches haxcms-create-node with docximport:"branch" which opens a

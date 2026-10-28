@@ -415,7 +415,8 @@ const selectors = {
   // in the editor chrome (haxcms-site-editor-ui shadowRoot). It opens a
   // simple-modal containing haxcms-outline-editor-dialog as a light-DOM
   // (slotted) child. The dialog shadowRoot contains outline-designer#outline
-  // and two .hax-modal-btn buttons ("Save Outline" and "Import From File").
+  // a .hax-modal-btn "Save Outline" button, and an "Import from file" toolbar
+  // button slotted into the outline designer.
   // The outline-designer has its own shadowRoot with an "Add page"
   // simple-toolbar-button.
   //
@@ -436,9 +437,11 @@ const selectors = {
     // The "Save Outline" button inside the dialog shadowRoot.
     // VERIFIED: button.hax-modal-btn text="Save Outline"
     saveOutlineButton: ".hax-modal-btn",
-    // The "Import From File" button inside the dialog shadowRoot.
-    // VERIFIED: button.hax-modal-btn.import text="Import From File"
-    importButton: ".hax-modal-btn.import",
+    // The "Import from file" button: a toolbar button the dialog slots into
+    // the outline designer (haxtheweb/webcomponents#1007). Older builds had a
+    // button.hax-modal-btn.import text="Import From File" beside Save.
+    importButton:
+      'outline-designer > [slot="controls"][icon="file-upload"], .hax-modal-btn.import',
     // The "Add page" button inside outline-designer shadowRoot.
     // VERIFIED: simple-toolbar-button label="Add page" found via recursive
     // shadow search inside outline-designer. No fixed id — select by label text.
