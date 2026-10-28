@@ -895,6 +895,21 @@ test("llms.txt summaries keep full sentences and rebuild cut-off descriptions", 
   assert.ok(trimmed.endsWith("word…"));
 });
 
+test("llms.txt links the PRAW skill catalog for skills the site does not ship", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const llms = site.getLLMSTxt("https://unit.example");
+  assert.ok(
+    llms.indexOf(
+      "[HAX skill catalog](https://raw.githubusercontent.com/haxtheweb/praw/main/skills/index.json)",
+    ) !== -1,
+  );
+  // listed after the site's own skills index
+  assert.ok(
+    llms.indexOf("[HAX skill catalog]") >
+      llms.indexOf(".well-known/agent-skills/index.json"),
+  );
+});
+
 // haxtheweb/issues#3116
 test("llms.txt links AGENTS.md only when the site has one", async () => {
   const site = await HAXCMS.loadSite("unit-import");
