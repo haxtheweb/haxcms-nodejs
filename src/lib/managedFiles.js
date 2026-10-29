@@ -92,6 +92,22 @@ function isKnownLegacyAgentsMd(text) {
 }
 
 /**
+ * Index of the first occurrence of marker at the start of a line, at or
+ * after from; -1 when absent. Markers only count on their own line so that
+ * owner text quoting a marker mid-line is never mistaken for one.
+ */
+function indexOfLineMarker(text, marker, from) {
+  let index = text.indexOf(marker, from);
+  while (index !== -1) {
+    if (index === 0 || text.charAt(index - 1) === "\n") {
+      return index;
+    }
+    index = text.indexOf(marker, index + 1);
+  }
+  return -1;
+}
+
+/**
  * Locate the first complete managed block. Returns { start, end } where end
  * is the index just past the end marker, or null when there is no block.
  */
@@ -100,15 +116,31 @@ function findManagedBlock(text, markersKey) {
   if (!markers || typeof text !== "string") {
     return null;
   }
-  const start = text.indexOf(markers.start);
+  const start = indexOfLineMarker(text, markers.start, 0);
   if (start === -1) {
     return null;
   }
-  const endMarker = text.indexOf(markers.end, start + markers.start.length);
+  const endMarker = indexOfLineMarker(
+    text,
+    markers.end,
+    start + markers.start.length,
+  );
   if (endMarker === -1) {
     return null;
   }
   return { start: start, end: endMarker + markers.end.length };
+}
+
+/**
+ * Whether either marker of the pair appears anywhere in the text.
+ */
+function hasAnyMarker(text, markersKey) {
+  const markers = MANAGED_BLOCK_MARKERS[markersKey];
+  return (
+    !!markers &&
+    typeof text === "string" &&
+    (text.indexOf(markers.start) !== -1 || text.indexOf(markers.end) !== -1)
+  );
 }
 
 /**
@@ -133,7 +165,10 @@ function mergeManagedBlock(existing, rendered, markersKey, legacy) {
       existing.slice(existingBlock.end)
     );
   }
-  if (legacy === "whole") {
+  // an always-managed file is replaced only when it carries no marker at
+  // all; a damaged block (e.g. a deleted END line) means an owner has been
+  // editing it, so keep everything below a fresh block instead
+  if (legacy === "whole" && !hasAnyMarker(existing, markersKey)) {
     return rendered;
   }
   if (legacy === "hashes" && isKnownLegacyAgentsMd(existing)) {
@@ -221,12 +256,18 @@ function applyManagedPolicy(key, existing, rendered) {
 function getSecurityTxtExpires(existingText, now) {
   const nowMs = now instanceof Date ? now.getTime() : Date.now();
   if (typeof existingText === "string") {
-    const match = existingText.match(/^Expires:\s*(\S+)\s*$/m);
+    // only a full UTC timestamp is reused (date-only values parse
+    // differently across runtimes), and only within the normal lifetime
+    // window (RFC 9116 advises staying under a year)
+    const match = existingText.match(
+      /^Expires:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s*$/m,
+    );
     if (match) {
-      const existingMs = Date.parse(match[1]);
+      const remaining = Date.parse(match[1]) - nowMs;
       if (
-        !isNaN(existingMs) &&
-        existingMs - nowMs > SECURITY_TXT_REFRESH_DAYS * DAY_MS
+        !isNaN(remaining) &&
+        remaining > SECURITY_TXT_REFRESH_DAYS * DAY_MS &&
+        remaining <= (SECURITY_TXT_LIFETIME_DAYS + 1) * DAY_MS
       ) {
         return match[1];
       }
@@ -249,6 +290,7 @@ module.exports = {
   getManagedFilePolicy,
   isKnownLegacyAgentsMd,
   findManagedBlock,
+  hasAnyMarker,
   mergeManagedBlock,
   mergeManagedJson,
   applyManagedPolicy,

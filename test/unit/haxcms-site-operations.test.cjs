@@ -1404,6 +1404,31 @@ test("rebuildManagedFiles migrates unmarked legacy files to managed blocks", asy
   );
 });
 
+test("rebuildManagedFiles tolerates page locations that are object prototype keys", async () => {
+  const site = await HAXCMS.createSite("unit-managed-proto");
+  ["constructor", "toString", "__proto__"].forEach((location, i) => {
+    site.manifest.items.push({
+      id: "proto-" + i,
+      title: location,
+      location: location,
+      metadata: {},
+    });
+  });
+  await assert.doesNotReject(site.rebuildManagedFiles());
+});
+
+test("rebuildManagedFiles never writes through a symlinked managed file", async () => {
+  const site = await HAXCMS.createSite("unit-managed-symlink");
+  const outside = path.join(tempRoot, "outside-robots.txt");
+  fs.writeFileSync(outside, "outside the site\n");
+  const robots = path.join(site.siteDirectory, "robots.txt");
+  fs.removeSync(robots);
+  fs.symlinkSync(outside, robots);
+  await site.rebuildManagedFiles();
+  assert.equal(fs.readFileSync(outside, "utf8"), "outside the site\n");
+  assert.ok(fs.lstatSync(robots).isSymbolicLink());
+});
+
 test("rebuildManagedFiles keeps owner keys in package.json", async () => {
   const site = await HAXCMS.createSite("unit-managed-pkg");
   const pkgPath = path.join(site.siteDirectory, "package.json");

@@ -195,3 +195,33 @@ test("security.txt Expires refreshes near expiry at day precision", () => {
     "2027-04-26T00:00:00.000Z",
   );
 });
+
+// shared with haxcms-php (tests/Unit/fixtures/managed-files-golden.json):
+// both backends must produce exactly these outputs
+const GOLDEN = require("../fixtures/managed-files/golden.json");
+
+test("golden: block merges match the cross-backend fixture", () => {
+  GOLDEN.block.forEach((c) => {
+    assert.equal(
+      mergeManagedBlock(c.existing, c.rendered, c.markers, c.legacy),
+      c.expected,
+      c.name,
+    );
+  });
+});
+
+test("golden: package.json merges match the cross-backend fixture", () => {
+  GOLDEN.json.forEach((c) => {
+    assert.equal(mergeManagedJson(c.existing, c.rendered), c.expected, c.name);
+  });
+});
+
+test("golden: security.txt Expires matches the cross-backend fixture", () => {
+  GOLDEN.securityTxt.forEach((c) => {
+    assert.equal(
+      getSecurityTxtExpires(c.existing, new Date(c.now)),
+      c.expected,
+      c.name,
+    );
+  });
+});

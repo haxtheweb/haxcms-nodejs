@@ -921,7 +921,9 @@ class HAXCMSSite {
     // haxtheweb/issues#3186: files are no longer copied over the site's copy
     // up front. Each one is rendered in memory below, merged with the site's
     // copy per its policy (see managedFiles.js) and written only if changed.
-    const managedSourcePaths = {};
+    // null prototype: page locations from site.json are looked up here, and
+    // a location such as "constructor" must never resolve to a prototype value
+    const managedSourcePaths = Object.create(null);
     for (let key in templates) {
       const sourcePath = HAXCMS.boilerplatePath + "/site/" + templates[key];
       if (fs.pathExistsSync(sourcePath)) {
@@ -1051,7 +1053,9 @@ class HAXCMSSite {
       const managedSource =
         item.location === "" || item.location === templateVars["basePath"]
           ? managedSourcePaths["index.html"]
-          : managedSourcePaths[item.location];
+          : typeof item.location === "string"
+            ? managedSourcePaths[item.location]
+            : undefined;
       if (managedSource) {
         filesize = fs.statSync(managedSource).size;
       } else if (
@@ -1112,7 +1116,26 @@ class HAXCMSSite {
             managedTemplateVarsFor(templates[key], templateVars),
           );
         }
+        // never write through a symlink (it could point outside the site)
+        if (
+          fs.pathExistsSync(destinationPath) &&
+          fs.lstatSync(destinationPath).isSymbolicLink()
+        ) {
+          continue;
+        }
         const existing = this.readManagedFileIfExists(templates[key]);
+        // owner content that is not valid UTF-8 cannot be merged without
+        // altering it, so leave such a file alone unless it is fully managed
+        if (
+          existing !== null &&
+          policy.policy !== "replace" &&
+          existing.indexOf("\uFFFD") !== -1 &&
+          !Buffer.from(existing, "utf8").equals(
+            fs.readFileSync(destinationPath),
+          )
+        ) {
+          continue;
+        }
         const next = applyManagedPolicy(key, existing, output);
         if (next !== existing) {
           fs.mkdirpSync(path.dirname(destinationPath));
