@@ -697,7 +697,8 @@ describe('systemRoutes/discovery/api', () => {
     assert.equal(res.statusCode, null)
     assert.equal(res.body.status, 200)
     assert.equal(res.body.data.name, 'HAXcms System API')
-    assert.equal(res.body.data.version, 'v-test')
+    // the public discovery document never exposes the HAXcms version
+    assert.equal('version' in res.body.data, false)
     assert.equal(res.body.data.mode, 'admin')
     assert.equal(res.body.data.links.self, '/system/api/v1')
     assert.equal(res.body.data.links.sites, '/system/api/v1/sites')

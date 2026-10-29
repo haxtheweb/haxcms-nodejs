@@ -347,3 +347,37 @@ test('save writes canonical types to disk', async () => {
     fs.removeSync(dir)
   }
 })
+
+test('save never persists the HAXcms version into site.json', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jos-version-'))
+  const file = path.join(dir, 'site.json')
+  try {
+    const schema = new JSONOutlineSchema()
+    // older saves stored the running version here; it must be dropped
+    schema.metadata = {
+      site: { name: 'demo', version: '26.8.0' },
+      build: { structure: 'course', type: 'docx import', version: '26.8.0' },
+    }
+    schema.addItem({ id: 'p1', title: 'P1', parent: '', order: 0, indent: 0, slug: 'p1', location: 'pages/p1/index.html', description: '', metadata: {} })
+    schema.file = file
+    await schema.save()
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+    assert.ok(!('version' in raw.metadata.site), 'metadata.site.version removed')
+    assert.ok(!('version' in raw.metadata.build), 'metadata.build.version removed')
+    // everything else survives
+    assert.strictEqual(raw.metadata.site.name, 'demo')
+    assert.strictEqual(raw.metadata.build.structure, 'course')
+    assert.strictEqual(raw.items.length, 1)
+  } finally {
+    fs.removeSync(dir)
+  }
+})
+
+test('normalizeSiteMetadata tolerates missing site and build blocks', () => {
+  assert.strictEqual(JSONOutlineSchema.normalizeSiteMetadata(null), null)
+  assert.deepStrictEqual(JSONOutlineSchema.normalizeSiteMetadata({}), {})
+  assert.deepStrictEqual(
+    JSONOutlineSchema.normalizeSiteMetadata({ build: null, site: { name: 'x' } }),
+    { build: null, site: { name: 'x' } },
+  )
+})

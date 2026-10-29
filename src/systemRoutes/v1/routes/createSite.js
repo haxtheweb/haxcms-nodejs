@@ -539,8 +539,6 @@ async function createSite(req, res) {
     // support for build info. the details used to actually create this site originally
     if (req.body['build']) {
       build = {};
-      // version of the platform used when originally created
-      build.version = await HAXCMS.getHAXCMSVersion();
       // course, website, portfolio, etc
       build.structure = req.body['build']['structure'];
       // TYPE of structure we are creating

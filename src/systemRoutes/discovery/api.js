@@ -81,7 +81,6 @@ async function systemDiscoveryApi(req, res) {
     status: 200,
     data: {
       name: 'HAXcms System API',
-      version: await HAXCMS.getHAXCMSVersion(),
       mode: 'admin',
       links,
       absoluteLinks,

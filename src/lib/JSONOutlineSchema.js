@@ -299,6 +299,24 @@ class JSONOutlineSchema {
    * metadata.site.created / updated as integers.
    */
   static normalizeSiteMetadata(metadata) {
+    // never persist the running HAXcms version into the public site.json;
+    // older saves wrote it to metadata.site.version / metadata.build.version
+    if (
+      metadata &&
+      typeof metadata === "object" &&
+      metadata.build &&
+      typeof metadata.build === "object"
+    ) {
+      delete metadata.build.version;
+    }
+    if (
+      metadata &&
+      typeof metadata === "object" &&
+      metadata.site &&
+      typeof metadata.site === "object"
+    ) {
+      delete metadata.site.version;
+    }
     if (
       !metadata ||
       typeof metadata !== "object" ||

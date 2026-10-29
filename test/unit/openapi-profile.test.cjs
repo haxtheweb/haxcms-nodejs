@@ -111,6 +111,14 @@ describe('site OpenAPI agent profile', () => {
     assert.ok(anon.length > publicOnly.length)
   })
 
+  test('info.version is the spec contract version, never the HAXcms version', async (t) => {
+    const spec = await fetchSpec(t)
+    assert.notEqual(spec.info.version, '0.0.0-test')
+    assert.equal(spec.info.version, '1.0.0')
+    const pub = await fetchSpec(t, { query: { profile: 'public' } })
+    assert.notEqual(pub.info.version, '0.0.0-test')
+  })
+
   test('the server URL is the base of the requesting site', async (t) => {
     const originalProtocol = HAXCMS.protocol
     const originalDomain = HAXCMS.domain

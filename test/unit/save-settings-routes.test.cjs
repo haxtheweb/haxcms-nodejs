@@ -272,7 +272,8 @@ describe("saveManifest", () => {
     assert.equal(site.manifest.metadata.site.settings.sw, true);
     // invalid homePageId (item-999 is not in the outline) is removed
     assert.equal("homePageId" in site.manifest.metadata.site, false);
-    assert.equal(site.manifest.metadata.site.version, "v1.2.3");
+    // the running HAXcms version is never written into site.json
+    assert.equal("version" in site.manifest.metadata.site, false);
     assert.deepEqual(site.manifest.saveCalls, [false]);
     assert.equal(site.calls.gitCommits.length, 2);
     assert.equal(site.calls.rebuildManagedFiles, 1);
@@ -350,7 +351,7 @@ describe("saveManifest", () => {
     assert.equal(manifest.metadata.site.logo, "files/logo.png");
     assert.equal(manifest.metadata.site.tags, "tag1,tag2");
     assert.equal(manifest.metadata.site.homePageId, "item-1");
-    assert.equal(manifest.metadata.site.version, "v1.2.3");
+    assert.equal("version" in manifest.metadata.site, false);
     // CNAME written because the domain changed
     assert.equal(
       fs.readFileSync(path.join(site.siteDirectory, "CNAME"), "utf8"),

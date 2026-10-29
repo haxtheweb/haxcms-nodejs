@@ -55,7 +55,6 @@ async function siteApiDiscovery(req, res) {
     status: 200,
     data: {
       name: 'HAXcms Site API',
-      version: await HAXCMS.getHAXCMSVersion(),
       mode: 'read-only',
       links,
       absoluteLinks,

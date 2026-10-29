@@ -108,8 +108,6 @@ async function saveManifest(req, res) {
         site.manifest.description = req.body["manifest"]["site"][
           "manifest-description"
         ].replace(/<\/?[^>]+(>|$)/g, "");
-        // store some version data here just so we can find it later
-        site.manifest.metadata.site.version = await HAXCMS.getHAXCMSVersion();
         site.manifest.metadata.site.domain = filter_var(
           req.body["manifest"]["site"]["manifest-metadata-site-domain"],
           "FILTER_SANITIZE_STRING",
@@ -621,7 +619,5 @@ async function saveScopedDetailsPayload(site, body) {
       "FILTER_VALIDATE_BOOLEAN",
     );
   }
-
-  site.manifest.metadata.site.version = await HAXCMS.getHAXCMSVersion();
 }
 module.exports = saveManifest;
