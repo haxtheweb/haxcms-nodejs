@@ -135,11 +135,14 @@ async function clickDashboardButton(dashboardHandle, buttonText) {
     if (!el || !el.shadowRoot) {
       return { error: "no shadowRoot" };
     }
-    // launcher cards in haxcms-site-admin (the one admin dialog); match the
-    // card's name, not its one-line description
-    var btns = el.shadowRoot.querySelectorAll("button.pcard, button.acard");
+    // launcher cards in haxcms-site-admin (the one admin dialog), or the
+    // section rail when the dialog reopens on a section; match the name, not
+    // the card's one-line description
+    var btns = el.shadowRoot.querySelectorAll(
+      "button.pcard, button.acard, button.rail-item",
+    );
     for (var i = 0; i < btns.length; i++) {
-      var nameEl = btns[i].querySelector(".name");
+      var nameEl = btns[i].querySelector(".name, .label");
       var t =
         nameEl && nameEl.textContent
           ? nameEl.textContent.trim()

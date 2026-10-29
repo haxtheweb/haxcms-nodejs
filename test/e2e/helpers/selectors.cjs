@@ -894,6 +894,9 @@ const selectors = {
     dashboard: "haxcms-site-admin",
     // Launcher cards (in haxcms-site-admin shadowRoot), labelled by .name.
     dashboardActionButton: "button.pcard, button.acard",
+    // Section rail (in haxcms-site-admin shadowRoot) once a section is open;
+    // labelled by .label, the current section has aria-current="page".
+    railButton: "button.rail-item",
     // Save in the shell's action bar, for sections that live in the shell.
     shellSaveButton: ".ftr button.save",
     // Dashboard button text labels (used to click by text content).

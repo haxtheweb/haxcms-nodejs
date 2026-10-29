@@ -179,11 +179,14 @@ async function clickDashboardButton(dashboardHandle, buttonText) {
     if (!el || !el.shadowRoot) {
       return { error: "no shadowRoot" };
     }
-    // launcher cards in haxcms-site-admin (the one admin dialog); match the
-    // card's name, not its one-line description
-    var btns = el.shadowRoot.querySelectorAll("button.pcard, button.acard");
+    // launcher cards in haxcms-site-admin (the one admin dialog), or the
+    // section rail when the dialog reopens on a section; match the name, not
+    // the card's one-line description
+    var btns = el.shadowRoot.querySelectorAll(
+      "button.pcard, button.acard, button.rail-item",
+    );
     for (var i = 0; i < btns.length; i++) {
-      var nameEl = btns[i].querySelector(".name");
+      var nameEl = btns[i].querySelector(".name, .label");
       var t =
         nameEl && nameEl.textContent
           ? nameEl.textContent.trim()
@@ -358,9 +361,30 @@ async function readDialogCheckbox(dialogHandle, checkboxId) {
 }
 
 async function clickDialogSave(dialogHandle) {
-  return dialogHandle.evaluate((el) => {
+  return dialogHandle.evaluate(async (el) => {
     if (!el || !el.shadowRoot) {
       return { error: "no shadowRoot" };
+    }
+    // inside the one admin dialog (haxcms-site-admin), Save lives in the
+    // shell's action bar and enables once there is a change
+    var shell = el.parentNode;
+    if (
+      shell &&
+      shell.tagName &&
+      shell.tagName.toLowerCase() === "haxcms-site-admin" &&
+      shell.shadowRoot
+    ) {
+      for (var w = 0; w < 30; w++) {
+        var shellSave = shell.shadowRoot.querySelector(".ftr button.save");
+        if (shellSave && !shellSave.disabled) {
+          shellSave.click();
+          return { clicked: true, shell: true };
+        }
+        await new Promise(function (r) {
+          setTimeout(r, 100);
+        });
+      }
+      return { error: "shell Save stayed disabled" };
     }
     var btns = el.shadowRoot.querySelectorAll("button.action");
     for (var i = 0; i < btns.length; i++) {
@@ -590,7 +614,7 @@ test(
     await new Promise((r) => setTimeout(r, 3000));
 
     dashboard = await getSettingsDashboard(page);
-    assert.ok(dashboard, "haxcms-site-admin launcher rendered (phase 2)");
+    assert.ok(dashboard, "haxcms-site-admin rendered (phase 2)");
     const clickBlocks = await clickDashboardButton(
       dashboard,
       selectors.siteSettings.dashboardButtons.blocks,
@@ -610,9 +634,21 @@ test(
       await dashboard.dispose();
     }
 
-    // Read the current state of the 'img' block checkbox + toggle it.
-    // The checkbox id is 'allowed-block-img' (a basic HTML tag we know exists).
-    const imgCheckboxId = selectors.siteSettings.blocksCheckboxPrefix + "img";
+    // Toggle a block people can actually turn off. Required primitives (img,
+    // p, h1...) are always on and their checkboxes are disabled, so toggling
+    // one changes nothing and Save rightly stays off. Prefer video-player,
+    // else the first enabled block checkbox.
+    const imgCheckboxId = await blocksDialog.evaluate((el, prefix) => {
+      var root = el && el.shadowRoot;
+      if (!root) return prefix + "video-player";
+      var preferred = root.querySelector("#" + prefix + "video-player");
+      if (preferred && !preferred.disabled) return preferred.id;
+      var any = root.querySelector(
+        'input[type="checkbox"][id^="' + prefix + '"]:not([disabled])',
+      );
+      return any ? any.id : prefix + "video-player";
+    }, selectors.siteSettings.blocksCheckboxPrefix);
+    t.diagnostic("[e2e] toggling block checkbox: " + imgCheckboxId);
     const imgBefore = await readDialogCheckbox(blocksDialog, imgCheckboxId);
     t.diagnostic("[e2e] allowed-block-img before toggle: " + imgBefore);
     const toggleResult = await toggleDialogCheckbox(
