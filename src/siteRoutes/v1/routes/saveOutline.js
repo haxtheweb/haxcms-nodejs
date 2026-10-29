@@ -9,9 +9,6 @@ const {
 } = require("../siteRouteUtils.js");
 const FileContentScanner = require("../../../lib/FileContentScanner.js");
 const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
-// the same usort orderTree() uses, so the emulated in-place sort is identical
-const usortImport = require("locutus/php/array/usort");
-const usort = usortImport.usort || usortImport;
 const {
   toPlainText,
   applyPageMetadata,
@@ -81,27 +78,12 @@ async function saveOutline(req, res) {
     // generated files match what per-item saving used to leave behind.
     let manifestDirty = false;
     let alternateFormatsDirty = false;
-    // Per-item saving also left the item ORDER in a particular state:
-    // updateNode() wrote site.json, then rebuilt the alternate formats, and
-    // building llms.txt calls orderTree(), whose usort stable-sorts the
-    // manifest items by order in place. So after an existing page was saved
-    // site.json held the items before that sort, the feeds were built from
-    // that same array, and the in-memory items were sorted before the next
-    // page was handled. Ties in order (across parents too) are broken by
-    // that array order, so it decides the order site.json, llms.txt, the
-    // sitemap and the search index list pages in. Mirror it exactly:
-    // sortPending holds the sort until the next page is handled, savedItems
-    // is the array per-item saving last wrote to site.json and feedItems the
-    // array its last rebuild read.
-    let sortPending = false;
+    // savedItems is the array per-item saving last wrote to site.json and
+    // feedItems the array its last rebuild read. (orderTree() no longer
+    // re-sorts the manifest in place, so nothing reorders the items between
+    // pages, the same as the PHP backend.)
     let savedItems = null;
     let feedItems = null;
-    const applyPendingSort = () => {
-      if (sortPending) {
-        sortPending = false;
-        usort(site.manifest.items, (a, b) => a.order - b.order);
-      }
-    };
     // each write is attempted once, like per-item saving: a write that fails
     // is not retried by the error handler
     const withItems = async (items, fn) => {
@@ -131,7 +113,6 @@ async function saveOutline(req, res) {
         alternateFormatsDirty = false;
         await withItems(feedItems, () => site.updateAlternateFormats());
       }
-      applyPendingSort();
     };
     let items = [...req.body["items"]];
     // client id -> server id; no prototype, so any client id is a plain key
@@ -146,9 +127,6 @@ async function saveOutline(req, res) {
       // items from the POST
       for (var key in items) {
         let item = items[key];
-        // the previous page's rebuild sorted the items before this one was
-        // handled (slug de-duplication below depends on that order)
-        applyPendingSort();
         page = site.loadNode(item.id);
         // get a fake item of the existing
         if (!page) {
@@ -293,7 +271,6 @@ async function saveOutline(req, res) {
         if (tmp) {
           await site.updateNode(page, false);
           alternateFormatsDirty = true;
-          sortPending = true;
         } else {
           site.manifest.addItem(page);
         }
@@ -503,7 +480,6 @@ async function saveOutline(req, res) {
           // in memory only: the save and rebuild below cover every orphan
           await site.updateNode(page, false);
           orphanFeedItems = site.manifest.items.slice();
-          usort(site.manifest.items, (a, b) => a.order - b.order);
         }
       }
     }
