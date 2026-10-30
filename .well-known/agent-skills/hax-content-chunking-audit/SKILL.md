@@ -33,6 +33,10 @@ standards, then pair every violation with a real, HAX-capable web component that
 
 **When NOT to use:**
 
+- Whether the page's media helps or distracts (decorative images, long video, text far from its
+  diagram) — use the `hax-multimedia-principles-audit` skill
+- Whether a lesson has objectives, practice, feedback and transfer — use the
+  `hax-instructional-events-audit` skill
 - Writing learning objectives or assessing cognitive-level balance — use the `grad-blooms` skill
 - Creating a brand-new site or restructuring `site.json` — use the `hax-site-building` skill
 - Auditing CSS for DDD design-system compliance — use the `hax-design-system` skill

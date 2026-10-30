@@ -385,36 +385,36 @@ be focusable, use `tabindex="0"` (in DOM order) not a positive value.
 Every tag below has a confirmed directory or source file under
 `https://github.com/haxtheweb/webcomponents/tree/master/elements/`.
 
-| Tag                       | Location                                       | Key a11y property                                                              |
-| ------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
-| `simple-fields`           | `simple-fields/`                               | bakes in label/field association                                               |
-| `a11y-collapse`           | `a11y-collapse/`                               | `heading-button` (line 201/204)                                                |
-| `a11y-tabs`               | `a11y-tabs/`                                   | ARIA tab/tabpanel + keyboard arrows                                            |
-| `editable-table`          | `editable-table/`                              | authoring surface                                                              |
-| `editable-table-display`  | `editable-table/lib/editable-table-display.js` | accessible table display                                                       |
-| `media-playlist`          | `media-playlist/`                              | player + sidebar layout                                                        |
-| `audio-player`            | `audio-player/`                                | extends `video-player` (line 12); `track`, `tracks`                            |
-| `video-player`            | `video-player/`                                | `track` (line 571), `tracks` (line 579), `audio-description-source` (line 630) |
-| `a11y-media-player`       | `a11y-media-player/`                           | transcript panel + caption support                                             |
-| `a11y-figure`             | `a11y-figure/`                                 | `source`, `alt`, `caption` (lines 154-156)                                     |
-| `media-image`             | `media-image/`                                 | `source` (298), `alt` (323), `caption` (317)                                   |
-| `simple-icon-lite`        | `simple-icon/lib/simple-icon-lite.js`          | native `aria-hidden`; SVG `focusable="false"` (line 74)                        |
-| `simple-icon-button-lite` | `simple-icon/lib/simple-icon-button-lite.js`   | requires `aria-label` when icon-only                                           |
-| `stop-note`               | `stop-note/`                                   | accessible labeled callout                                                     |
-| `oer-schema`              | `oer-schema/`                                  | `oer-property`, `typeof`, `related-resource`                                   |
-| `lrn-math`                | `lrn-math/`                                    | accessible math notation                                                       |
+| Tag                       | Location                                       | Key a11y property                                                                  |
+| ------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `simple-fields`           | `simple-fields/`                               | bakes in label/field association                                                   |
+| `a11y-collapse`           | `a11y-collapse/`                               | `heading-button` (line 201/204)                                                    |
+| `a11y-tabs`               | `a11y-tabs/`                                   | ARIA tab/tabpanel + keyboard arrows                                                |
+| `editable-table`          | `editable-table/`                              | authoring surface                                                                  |
+| `editable-table-display`  | `editable-table/lib/editable-table-display.js` | accessible table display                                                           |
+| `media-playlist`          | `media-playlist/`                              | player + sidebar layout                                                            |
+| `audio-player`            | `audio-player/`                                | extends `video-player` (line 12); `track`, `tracks`                                |
+| `video-player`            | `video-player/`                                | `track` (line 571), `tracks` (line 579), `audio-description-source` (line 630)     |
+| `a11y-media-player`       | `a11y-media-player/`                           | transcript panel + caption support                                                 |
+| `a11y-figure`             | `a11y-figure/`                                 | `source`, `alt`, `caption` (lines 154-156)                                         |
+| `media-image`             | `media-image/`                                 | `source` (298), `alt` (323), `caption` (317)                                       |
+| `simple-icon-lite`        | `simple-icon/lib/simple-icon-lite.js`          | native `aria-hidden`; SVG `focusable="false"` (line 74)                            |
+| `simple-icon-button-lite` | `simple-icon/lib/simple-icon-button-lite.js`   | requires `aria-label` when icon-only                                               |
+| `stop-note`               | `stop-note/`                                   | accessible labeled callout                                                         |
+| `oer-schema`              | `oer-schema/`                                  | `oer-property`, `typeof`, `related-resource`                                       |
+| `lrn-math`                | `lrn-math/`                                    | accessible math notation                                                           |
+| `lrndesign-sidenote`      | `lrndesign-sidenote/`                          | `label` names the note (exposed as a `note` region); icon is decorative and hidden |
 
 ## Excluded legacy / third-party tags (NEVER recommend)
 
 These tags appear in older HAX courses but are NOT in the current monorepo. Use the
 alternatives documented above instead.
 
-| Excluded tag         | Use instead                                              |
-| -------------------- | -------------------------------------------------------- |
-| `instruction-card`   | `stop-note` / `accent-card` (for callout content)        |
-| `lrndesign-sidenote` | `a11y-collapse` (with `heading-button`) / `stop-note`    |
-| `link-preview`       | plain `<a>` with descriptive link text                   |
-| `model-viewer`       | `media-image` / `a11y-figure` (for 3D model screenshots) |
+| Excluded tag       | Use instead                                              |
+| ------------------ | -------------------------------------------------------- |
+| `instruction-card` | `stop-note` / `accent-card` (for callout content)        |
+| `link-preview`     | plain `<a>` with descriptive link text                   |
+| `model-viewer`     | `media-image` / `a11y-figure` (for 3D model screenshots) |
 
 ## Overlap note for `hax-media-a11y` (symmetric partner)
 
