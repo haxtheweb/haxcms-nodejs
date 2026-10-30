@@ -1270,7 +1270,8 @@ paths:
       tags:
         - settings
       operationId: saveEnabledSkeletonsPatch
-      summary: Update enabled skeleton configuration using the skeletons collection
+      summary:
+        Update enabled skeleton configuration using the skeletons collection
         endpoint
       description: >
         Write operation — updates enabled skeleton configuration. Single-user
@@ -3143,7 +3144,7 @@ components:
               description: English text of the message.
             code:
               type: string
-              pattern: '^[A-Z][A-Z0-9_]*$'
+              pattern: "^[A-Z][A-Z0-9_]*$"
               description: >
                 Stable message code from the shared HAXcms API code list
                 (@haxtheweb/haxcms-elements/lib/haxcms-api-codes.json). Clients
