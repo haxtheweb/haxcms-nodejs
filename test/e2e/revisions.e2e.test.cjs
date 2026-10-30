@@ -404,21 +404,24 @@ test(
         if (!dialog || !dialog.shadowRoot) {
           return null
         }
-        const rows = dialog.shadowRoot.querySelectorAll('tbody tr')
-        const restoreBtns = dialog.shadowRoot.querySelectorAll(
-          'simple-icon-button-lite[data-action="restore"]',
+        // Page history (inside the site admin dialog): one row per saved
+        // version, and one Restore button for the version on screen
+        const rows = dialog.shadowRoot.querySelectorAll('button.rev')
+        const restoreBtn = dialog.shadowRoot.querySelector(
+          'button[data-action="restore"]',
         )
         return {
           nodeId: dialog.nodeId,
+          inShell: !!dialog.closest('haxcms-site-admin'),
           revisionsCount: Array.isArray(dialog.revisions)
             ? dialog.revisions.length
             : -1,
           rowCount: rows.length,
-          restoreButtonCount: restoreBtns.length,
-          firstRowRestoreDisabled:
-            restoreBtns.length > 0
-              ? restoreBtns[0].hasAttribute('disabled')
-              : null,
+          firstRowSelected:
+            rows.length > 0
+              ? rows[0].getAttribute('aria-current') === 'true'
+              : false,
+          currentRestoreDisabled: restoreBtn ? restoreBtn.disabled : null,
         }
       })
       assert.ok(info, 'revisions dialog DOM dumped')
@@ -427,6 +430,7 @@ test(
         item.id,
         'dialog nodeId matches the active item id',
       )
+      assert.ok(info.inShell, 'Page history renders inside the admin dialog')
       assert.ok(
         info.revisionsCount >= 2,
         'dialog has at least 2 revisions loaded',
@@ -434,24 +438,45 @@ test(
       assert.strictEqual(
         info.rowCount,
         info.revisionsCount,
-        'table row count matches revisions count',
+        'timeline row count matches revisions count',
       )
+      assert.ok(info.firstRowSelected, 'the current version opens first')
+      // The current version cannot be restored.
       assert.ok(
-        info.restoreButtonCount >= 2,
-        'at least 2 restore buttons rendered',
+        info.currentRestoreDisabled === true,
+        'restore is disabled on the current version',
       )
-      // The first row (current revision) restore button must be disabled.
-      assert.ok(
-        info.firstRowRestoreDisabled === true,
-        'first row restore button is disabled (current revision)',
+      // Choose the older version: its change shows and Restore is offered.
+      const older = await page.evaluate(() => {
+        const dialog = document.querySelector('haxcms-page-revisions-dialog')
+        const rows = dialog.shadowRoot.querySelectorAll('button.rev')
+        rows[1].click()
+        return rows[1].getAttribute('data-hash')
+      })
+      const olderReady = await waitFor(
+        async () =>
+          page.evaluate(() => {
+            const dialog = document.querySelector('haxcms-page-revisions-dialog')
+            const btn = dialog.shadowRoot.querySelector(
+              'button[data-action="restore"]',
+            )
+            return !!(
+              btn &&
+              !btn.disabled &&
+              (dialog.shadowRoot.querySelector('.diff') ||
+                dialog.shadowRoot.querySelector('.stats'))
+            )
+          }),
+        15000,
       )
+      assert.ok(olderReady, 'older version shows its change with Restore on')
       t.diagnostic(
         '[e2e] dialog: revisions=' +
           info.revisionsCount +
           ' rows=' +
           info.rowCount +
-          ' restoreBtns=' +
-          info.restoreButtonCount,
+          ' older=' +
+          String(older).substring(0, 8),
       )
     })
 

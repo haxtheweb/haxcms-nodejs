@@ -706,3 +706,153 @@ describe("siteSearch route handler — replace operation", () => {
     );
   });
 });
+
+describe("siteSearch route handler — replace limited by nodeIds", () => {
+  function replaceBody(extra) {
+    return Object.assign(
+      {
+        site: { name: "demo" },
+        operation: "replace",
+        search: "needle",
+        replace: "gem",
+        replaceConfirm: true,
+      },
+      extra || {},
+    );
+  }
+
+  function makeTwoMatchSite(t) {
+    const site = makeFakeSite(t);
+    site.contents["item-2"] = "<p>second page needle text</p>";
+    return site;
+  }
+
+  async function runReplace(t, extra) {
+    const site = makeTwoMatchSite(t);
+    mockSite(t, site);
+    const res = stubRes();
+    await siteSearch(makeReq(replaceBody(extra)), res);
+    return { site: site, res: res };
+  }
+
+  function snapshot(run) {
+    return {
+      statusCode: run.res.statusCode,
+      sent: run.res.sent,
+      body: run.res.body,
+      writes: run.site.pages.map((page) => page.writes),
+      commits: run.site.calls.gitCommits,
+      saves: run.site.calls.saveCalls,
+      altFormats: run.site.calls.writePageAlternateFormats,
+    };
+  }
+
+  test("a nodeIds list limits the replace to the listed pages", async (t) => {
+    const run = await runReplace(t, { nodeIds: ["item-2", "not-a-page"] });
+    assert.equal(run.res.statusCode, null);
+    assert.equal(run.res.sent.status, 200);
+    assert.equal(run.res.sent.data.total, 1);
+    assert.equal(run.res.sent.data.updatedItems, 1);
+    assert.equal(run.res.sent.data.totalReplacements, 1);
+    assert.deepEqual(
+      run.res.sent.data.items.map((item) => item.id),
+      ["item-2"],
+    );
+    assert.equal(run.site.pages[0].writes.length, 0, "unlisted page untouched");
+    assert.equal(run.site.pages[1].writes.length, 1);
+    assert.ok(
+      run.site.pages[1].writes[0].content.indexOf("second page gem text") !==
+        -1,
+    );
+    assert.deepEqual(run.site.calls.gitCommits, [
+      'Bulk replace "needle" -> "gem" across 1 page',
+    ]);
+  });
+
+  test("omitted nodeIds replaces across every matching page as before", async (t) => {
+    const run = await runReplace(t);
+    assert.equal(run.res.sent.status, 200);
+    assert.deepEqual(run.res.sent.data, {
+      operation: "replace",
+      query: "needle",
+      replace: "gem",
+      caseSensitive: false,
+      total: 2,
+      updatedItems: 2,
+      totalReplacements: 2,
+      items: [
+        {
+          id: "item-1",
+          title: "First Page",
+          slug: "first-page",
+          replacements: 1,
+        },
+        {
+          id: "item-2",
+          title: "Second Page",
+          slug: "second-page",
+          replacements: 1,
+        },
+      ],
+    });
+    assert.equal(run.site.pages[0].writes.length, 1);
+    assert.equal(run.site.pages[1].writes.length, 1);
+    assert.deepEqual(run.site.calls.gitCommits, [
+      'Bulk replace "needle" -> "gem" across 2 pages',
+    ]);
+  });
+
+  test("an empty or non-array nodeIds behaves exactly like an omitted one", async (t) => {
+    const omitted = snapshot(await runReplace(t));
+    const empty = snapshot(await runReplace(t, { nodeIds: [] }));
+    const blanks = snapshot(await runReplace(t, { nodeIds: ["", "  ", 7] }));
+    const notArray = snapshot(await runReplace(t, { nodeIds: "item-2" }));
+    assert.deepEqual(empty, omitted);
+    assert.deepEqual(blanks, omitted);
+    assert.deepEqual(notArray, omitted);
+  });
+
+  test("a nodeIds list with no matching pages answers not found", async (t) => {
+    const run = await runReplace(t, { nodeIds: ["not-a-page"] });
+    assert.equal(run.res.statusCode, 400);
+    assert.equal(
+      run.res.body.data.message,
+      "Search term not found in site content",
+    );
+    assert.equal(run.site.pages[0].writes.length, 0);
+    assert.equal(run.site.pages[1].writes.length, 0);
+    assert.deepEqual(run.site.calls.gitCommits, []);
+  });
+
+  test("nodeIds never changes search results", async (t) => {
+    const site = makeTwoMatchSite(t);
+    mockSite(t, site);
+    const plain = stubRes();
+    await siteSearch(
+      makeReq({ site: { name: "demo" }, search: "needle" }),
+      plain,
+    );
+    const scoped = stubRes();
+    await siteSearch(
+      makeReq({
+        site: { name: "demo" },
+        search: "needle",
+        nodeIds: ["item-2"],
+      }),
+      scoped,
+    );
+    assert.equal(plain.sent.data.total, 2);
+    assert.deepEqual(scoped.sent, plain.sent);
+  });
+
+  test("normalizeNodeIdsValue keeps unique non-blank string ids", () => {
+    assert.equal(siteSearch.normalizeNodeIdsValue(undefined), null);
+    assert.equal(siteSearch.normalizeNodeIdsValue([]), null);
+    assert.equal(siteSearch.normalizeNodeIdsValue("item-1"), null);
+    assert.equal(siteSearch.normalizeNodeIdsValue(["", " ", 3, null]), null);
+    assert.deepEqual(
+      siteSearch.normalizeNodeIdsValue([" item-1 ", "item-2", "item-1"]),
+      ["item-1", "item-2"],
+    );
+  });
+});
