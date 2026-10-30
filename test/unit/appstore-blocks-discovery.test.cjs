@@ -824,6 +824,81 @@ describe("systemRoutes/discovery/api", () => {
     assert.equal(res.body.data.links.self, "/system/api/v1");
   });
 
+  test("publishes the MCP policy from config", async (t) => {
+    mockDiscoveryExtras(t, "https", "cms.example.com");
+    t.mock.method(HAXCMS, "isMcpEnabled", () => true);
+    t.mock.method(HAXCMS, "isMcpReadOnly", () => false);
+    const res = stubRes();
+    await systemDiscoveryApi(
+      { headers: {}, originalUrl: "/system/api/v1" },
+      res,
+    );
+    assert.deepEqual(res.body.data.mcp, { enabled: true, readOnly: false });
+  });
+
+  test("MCP policy is disabled and read-only when MCP is off (haxiam default)", async (t) => {
+    mockDiscoveryExtras(t, "https", "cms.example.com");
+    t.mock.method(HAXCMS, "isMcpEnabled", () => false);
+    t.mock.method(HAXCMS, "isMcpReadOnly", () => true);
+    const res = stubRes();
+    await systemDiscoveryApi(
+      { headers: {}, originalUrl: "/system/api/v1" },
+      res,
+    );
+    assert.deepEqual(res.body.data.mcp, { enabled: false, readOnly: true });
+  });
+
+  test("MCP policy reports only the two booleans", async (t) => {
+    mockDiscoveryExtras(t, "https", "cms.example.com");
+    const res = stubRes();
+    await systemDiscoveryApi(
+      { headers: {}, originalUrl: "/system/api/v1" },
+      res,
+    );
+    assert.deepEqual(Object.keys(res.body.data.mcp).sort(), [
+      "enabled",
+      "readOnly",
+    ]);
+    assert.equal(typeof res.body.data.mcp.enabled, "boolean");
+    assert.equal(typeof res.body.data.mcp.readOnly, "boolean");
+  });
+
+  test("the real helpers: missing config means disabled + read-only", async (t) => {
+    mockDiscoveryExtras(t, "https", "cms.example.com");
+    const originalMcp = HAXCMS.config.mcp;
+    t.after(() => {
+      HAXCMS.config.mcp = originalMcp;
+    });
+    const cases = [
+      [undefined, { enabled: false, readOnly: true }],
+      [{}, { enabled: false, readOnly: true }],
+      [{ enabled: true }, { enabled: true, readOnly: true }],
+      [
+        { enabled: true, readOnly: false },
+        { enabled: true, readOnly: false },
+      ],
+      // read-only is forced while MCP is disabled
+      [
+        { enabled: false, readOnly: false },
+        { enabled: false, readOnly: true },
+      ],
+      // only a real boolean true enables it
+      [
+        { enabled: "true", readOnly: false },
+        { enabled: false, readOnly: true },
+      ],
+    ];
+    for (const [mcp, expected] of cases) {
+      HAXCMS.config.mcp = mcp;
+      const res = stubRes();
+      await systemDiscoveryApi(
+        { headers: {}, originalUrl: "/system/api/v1" },
+        res,
+      );
+      assert.deepEqual(res.body.data.mcp, expected, JSON.stringify(mcp));
+    }
+  });
+
   test("an empty trusted host keeps absolute links relative", async (t) => {
     mockDiscoveryExtras(t, "https", "");
     const res = stubRes();

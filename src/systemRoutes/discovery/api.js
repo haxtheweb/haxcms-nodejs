@@ -74,6 +74,22 @@ function buildLinkMap(apiBasePath = "") {
   };
 }
 
+// The instance's MCP policy (config.mcp, defaulted in HAXCMS.js: disabled on
+// haxiam-managed deployments, read-only unless readOnly is set false). Published on
+// this open route so MCP clients (haxcms-mcp) can refuse to operate, or stay
+// read-only, before they authenticate. Exposes only the two booleans.
+function getMcpPolicy() {
+  const enabled =
+    typeof HAXCMS.isMcpEnabled === "function"
+      ? HAXCMS.isMcpEnabled() === true
+      : false;
+  const readOnly =
+    typeof HAXCMS.isMcpReadOnly === "function"
+      ? HAXCMS.isMcpReadOnly() !== false
+      : true;
+  return { enabled, readOnly };
+}
+
 async function systemDiscoveryApi(req, res) {
   const requestPath = getRequestPath(req);
   const apiBasePath = getApiBasePath(requestPath);
@@ -95,6 +111,7 @@ async function systemDiscoveryApi(req, res) {
         source: "systemRoutes/openapi/system-spec.yaml",
         routeDriven: true,
       },
+      mcp: getMcpPolicy(),
     },
   });
 }
