@@ -322,13 +322,18 @@ class JSONOutlineSchema {
    */
   orderTree(items) {
     let sorted = [];
-    // do an initial by order
-    usort(items, function (a, b) {
+    // do an initial by order, on a copy: PHP's usort sorts its own copy of
+    // the array, but locutus' usort sorts the array it is given in place, so
+    // orderTree(this.manifest.items) (llms.txt does this) used to re-sort the
+    // live manifest and change which pages later feeds and saves listed
+    // first among pages that share an order
+    const byOrder = Array.isArray(items) ? items.slice() : Object.values(items);
+    usort(byOrder, function (a, b) {
       // usort expects a signed numeric comparator (<0, 0, >0); a boolean
       // return is treated as a no-op so children never sort by order.
       return a.order - b.order;
     });
-    this.orderRecurse(items, sorted);
+    this.orderRecurse(byOrder, sorted);
     // sanity check, should always be equal
     if (sorted.length == items.length) {
       return sorted;
