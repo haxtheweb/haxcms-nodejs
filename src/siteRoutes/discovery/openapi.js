@@ -199,7 +199,8 @@ async function siteOpenapi(req, res) {
   if (!openapi.info || typeof openapi.info !== 'object') {
     openapi.info = {};
   }
-  openapi.info.version = await HAXCMS.getHAXCMSVersion();
+  // info.version stays the API contract version from site-spec.yaml; the
+  // running HAXcms version is not exposed on this unauthenticated route
   openapi.servers = [
     {
       url: getServerBaseUrl(req),

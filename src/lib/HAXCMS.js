@@ -1013,7 +1013,6 @@ class HAXCMSSite {
     }
     let templateVars = {
       hexCode: HAXCMS.HAXCMS_FALLBACK_HEX,
-      version: await HAXCMS.getHAXCMSVersion(),
       basePath: this.getPWAScopePath(),
       domain: domain,
       // Security (PR8-6): see sanitizeManagedTemplateText

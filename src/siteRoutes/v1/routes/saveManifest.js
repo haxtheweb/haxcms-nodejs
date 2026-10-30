@@ -108,8 +108,10 @@ async function saveManifest(req, res) {
         site.manifest.description = req.body["manifest"]["site"][
           "manifest-description"
         ].replace(/<\/?[^>]+(>|$)/g, "");
-        // store some version data here just so we can find it later
-        site.manifest.metadata.site.version = await HAXCMS.getHAXCMSVersion();
+        // the running HAXcms version is never written to site.json: the file is
+        // public and the version must not be shown to unauthenticated users.
+        // Scrub values older saves left behind.
+        stripPublicVersion(site.manifest);
         site.manifest.metadata.site.domain = filter_var(
           req.body["manifest"]["site"]["manifest-metadata-site-domain"],
           "FILTER_SANITIZE_STRING",
@@ -622,6 +624,23 @@ async function saveScopedDetailsPayload(site, body) {
     );
   }
 
-  site.manifest.metadata.site.version = await HAXCMS.getHAXCMSVersion();
+  stripPublicVersion(site.manifest);
+}
+/**
+ * Remove the running HAXcms version from a manifest. site.json is served
+ * publicly and the version must never reach unauthenticated users; older
+ * releases wrote it to metadata.site.version and metadata.build.version.
+ */
+function stripPublicVersion(manifest) {
+  if (!manifest || !manifest.metadata) {
+    return;
+  }
+  if (manifest.metadata.site && "version" in manifest.metadata.site) {
+    delete manifest.metadata.site.version;
+  }
+  if (manifest.metadata.build && "version" in manifest.metadata.build) {
+    delete manifest.metadata.build.version;
+  }
 }
 module.exports = saveManifest;
+module.exports.stripPublicVersion = stripPublicVersion;

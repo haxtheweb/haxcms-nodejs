@@ -697,7 +697,8 @@ describe('systemRoutes/discovery/api', () => {
     assert.equal(res.statusCode, null)
     assert.equal(res.body.status, 200)
     assert.equal(res.body.data.name, 'HAXcms System API')
-    assert.equal(res.body.data.version, 'v-test')
+    // unauthenticated discovery never reports the running HAXcms version
+    assert.equal('version' in res.body.data, false)
     assert.equal(res.body.data.mode, 'admin')
     assert.equal(res.body.data.links.self, '/system/api/v1')
     assert.equal(res.body.data.links.sites, '/system/api/v1/sites')
@@ -741,4 +742,20 @@ describe('systemRoutes/discovery/api', () => {
     await systemDiscoveryApi({ headers: {}, originalUrl: '/system/api/v1' }, res)
     assert.equal(res.body.data.absoluteLinks.self, '/system/api/v1')
   })
+})
+
+// The running HAXcms version is never shown to unauthenticated callers.
+test('site API discovery does not report the running HAXcms version', async (t) => {
+  const siteApiDiscovery = require('../../src/siteRoutes/discovery/api.js')
+  t.mock.method(HAXCMS, 'resolveTrustedProtocol', () => 'https')
+  t.mock.method(HAXCMS, 'resolveTrustedHost', () => 'site.example.com')
+  t.mock.method(HAXCMS, 'getHAXCMSVersion', async () => 'v-test')
+  const res = stubRes()
+  await siteApiDiscovery(
+    { headers: { host: 'site.example.com' }, originalUrl: '/x/api', url: '/x/api' },
+    res,
+  )
+  assert.equal(res.body.status, 200)
+  assert.equal('version' in res.body.data, false)
+  assert.equal(JSON.stringify(res.body).indexOf('v-test'), -1)
 })
