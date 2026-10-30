@@ -202,6 +202,32 @@ function normalizeOperationValue(value) {
   }
   return normalized;
 }
+/**
+ * Normalize the optional replace-scope list of page ids. Only a non-empty
+ * array yields a filter; anything else (absent, empty, not an array) means
+ * "every matching page" so the default replace behaves exactly as before.
+ * Non-string and blank entries are dropped; unknown ids simply never match.
+ */
+function normalizeNodeIdsValue(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const ids = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+    const id = entry.trim();
+    if (id && !ids.includes(id)) {
+      ids.push(id);
+    }
+  }
+  if (ids.length === 0) {
+    return null;
+  }
+  return ids;
+}
+
 function buildTextMatcher(searchTerm, caseSensitive = false) {
   const normalizedTerm = caseSensitive
     ? searchTerm
@@ -485,6 +511,11 @@ async function siteSearch(req, res) {
         ? "selector"
         : "text";
   let replacement = "";
+  // optional page scope for replace; null means every matching page
+  const nodeIds =
+    operation === SITE_SEARCH_OPERATION_REPLACE
+      ? normalizeNodeIdsValue(requestBody.nodeIds)
+      : null;
   if (operation === SITE_SEARCH_OPERATION_REPLACE) {
     replacement =
       typeof requestBody.replace === "string" ? requestBody.replace.trim() : "";
@@ -553,6 +584,9 @@ async function siteSearch(req, res) {
     const changedItems = [];
     for (const item of orderedItems) {
       if (!item || !item.id) {
+        continue;
+      }
+      if (nodeIds && !nodeIds.includes(item.id)) {
         continue;
       }
       const page = site.loadNode(item.id);
@@ -724,6 +758,7 @@ siteSearch.normalizeSearchFields = normalizeSearchFields;
 siteSearch.normalizeTagsValue = normalizeTagsValue;
 siteSearch.normalizeFieldValue = normalizeFieldValue;
 siteSearch.normalizeOperationValue = normalizeOperationValue;
+siteSearch.normalizeNodeIdsValue = normalizeNodeIdsValue;
 siteSearch.buildTextMatcher = buildTextMatcher;
 siteSearch.parseSimpleSelectorPart = parseSimpleSelectorPart;
 siteSearch.parseSimpleSelector = parseSimpleSelector;
