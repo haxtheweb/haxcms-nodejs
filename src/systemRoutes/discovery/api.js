@@ -1,39 +1,42 @@
-const { HAXCMS } = require('../../lib/HAXCMS.js');
+const { HAXCMS } = require("../../lib/HAXCMS.js");
 
 function getRequestPath(req) {
-  if (req && typeof req.originalUrl === 'string' && req.originalUrl !== '') {
-    return req.originalUrl.split('?')[0];
+  if (req && typeof req.originalUrl === "string" && req.originalUrl !== "") {
+    return req.originalUrl.split("?")[0];
   }
-  if (req && typeof req.url === 'string' && req.url !== '') {
-    return req.url.split('?')[0];
+  if (req && typeof req.url === "string" && req.url !== "") {
+    return req.url.split("?")[0];
   }
-  return '';
+  return "";
 }
 
-function normalizePath(pathValue = '') {
-  let normalized = String(pathValue || '');
-  if (normalized === '') {
-    return '/';
+function normalizePath(pathValue = "") {
+  let normalized = String(pathValue || "");
+  if (normalized === "") {
+    return "/";
   }
-  normalized = normalized.replace(/\/+/g, '/');
-  if (normalized.charAt(0) !== '/') {
-    normalized = '/' + normalized;
+  normalized = normalized.replace(/\/+/g, "/");
+  if (normalized.charAt(0) !== "/") {
+    normalized = "/" + normalized;
   }
-  if (normalized.length > 1 && normalized.charAt(normalized.length - 1) === '/') {
+  if (
+    normalized.length > 1 &&
+    normalized.charAt(normalized.length - 1) === "/"
+  ) {
     normalized = normalized.substring(0, normalized.length - 1);
   }
   return normalized;
 }
 
 function getDefaultSystemApiBasePath() {
-  const basePath = String(HAXCMS.basePath || '/');
-  const systemBase = String(HAXCMS.systemRequestBase || 'system/api/');
+  const basePath = String(HAXCMS.basePath || "/");
+  const systemBase = String(HAXCMS.systemRequestBase || "system/api/");
   const merged = `${basePath}/${systemBase}v1`;
   return normalizePath(merged);
 }
 
-function getApiBasePath(requestPath = '') {
-  const cleanPath = String(requestPath || '');
+function getApiBasePath(requestPath = "") {
+  const cleanPath = String(requestPath || "");
   const matched = cleanPath.match(/^(.*\/system\/api\/v1)(?:\/.*)?$/);
   if (matched && matched[1]) {
     return normalizePath(matched[1]);
@@ -49,13 +52,13 @@ function getAbsoluteApiBase(req, apiBasePath) {
   // host is validated against config.security.allowedHosts when set.
   const protocol = HAXCMS.resolveTrustedProtocol(req);
   const host = HAXCMS.resolveTrustedHost(req);
-  if (host === '') {
+  if (host === "") {
     return apiBasePath;
   }
   return `${protocol}://${host}${apiBasePath}`;
 }
 
-function buildLinkMap(apiBasePath = '') {
+function buildLinkMap(apiBasePath = "") {
   return {
     self: apiBasePath,
     openapi: `${apiBasePath}/openapi`,
@@ -71,6 +74,22 @@ function buildLinkMap(apiBasePath = '') {
   };
 }
 
+// The instance's MCP policy (config.mcp, defaulted in HAXCMS.js: disabled on
+// haxiam-managed deployments, read-only unless readOnly is set false). Published on
+// this open route so MCP clients (haxcms-mcp) can refuse to operate, or stay
+// read-only, before they authenticate. Exposes only the two booleans.
+function getMcpPolicy() {
+  const enabled =
+    typeof HAXCMS.isMcpEnabled === "function"
+      ? HAXCMS.isMcpEnabled() === true
+      : false;
+  const readOnly =
+    typeof HAXCMS.isMcpReadOnly === "function"
+      ? HAXCMS.isMcpReadOnly() !== false
+      : true;
+  return { enabled, readOnly };
+}
+
 async function systemDiscoveryApi(req, res) {
   const requestPath = getRequestPath(req);
   const apiBasePath = getApiBasePath(requestPath);
@@ -80,21 +99,19 @@ async function systemDiscoveryApi(req, res) {
   return res.json({
     status: 200,
     data: {
-      name: 'HAXcms System API',
+      name: "HAXcms System API",
       version: await HAXCMS.getHAXCMSVersion(),
-      mode: 'admin',
+      mode: "admin",
       links,
       absoluteLinks,
       supports: {
-        formats: [
-          'application/json',
-          'application/yaml',
-        ],
+        formats: ["application/json", "application/yaml"],
       },
       openapi: {
-        source: 'systemRoutes/openapi/system-spec.yaml',
+        source: "systemRoutes/openapi/system-spec.yaml",
         routeDriven: true,
       },
+      mcp: getMcpPolicy(),
     },
   });
 }
