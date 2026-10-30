@@ -4,6 +4,12 @@ process.env.haxcms_middleware = "node-cli";
 // HAXcms core settings
 const { HAXCMS } = require("./lib/HAXCMS.js");
 const { allRoutes } = require("./lib/allRoutes.js");
+const {
+  normalizeActor,
+  createRequestCommitContext,
+  runWithCommitContext,
+  getOperationId,
+} = require("./lib/commitContext.js");
 // Shared CLI theme so the API-bridge CLI speaks with the same Merlin voice as
 // the server launcher (issue haxtheweb/issues#2973). Only human-facing error
 // lines are styled; structured route data is still printed verbatim.
@@ -121,6 +127,7 @@ export async function cliBridge(op, body = {}, method = "post", file = null) {
   const rMethod = method.toLowerCase();
 
   let handler = null;
+  let routeKey = "";
   let routePath = "";
   let routeParams = {};
   let isSiteRoute = false;
@@ -128,11 +135,13 @@ export async function cliBridge(op, body = {}, method = "post", file = null) {
   // Try system routes first
   if (systemRouteRegistry[rMethod] && systemRouteRegistry[rMethod][op]) {
     handler = systemRouteRegistry[rMethod][op];
+    routeKey = op;
     routePath = `${systemApiBasePath}${op}`;
   }
   // Try site routes with exact match
   else if (siteRouteRegistry[rMethod] && siteRouteRegistry[rMethod][op]) {
     handler = siteRouteRegistry[rMethod][op];
+    routeKey = op;
     routePath = `${siteApiBasePath}${op === "" ? "" : "/" + op}`;
     isSiteRoute = true;
   }
@@ -144,6 +153,7 @@ export async function cliBridge(op, body = {}, method = "post", file = null) {
       const match = op.match(regex);
       if (match) {
         handler = siteRouteRegistry[rMethod][pattern];
+        routeKey = pattern;
         routePath = `${siteApiBasePath}${pattern === "" ? "" : "/" + pattern}`;
         isSiteRoute = true;
         const paramNames = [];
@@ -209,7 +219,23 @@ export async function cliBridge(op, body = {}, method = "post", file = null) {
 
   let res = new Res();
   if (HAXCMS.validateJWT(req, res)) {
-    await handler(req, res);
+    // haxtheweb/issues#3191: the CLI calls handlers in-process, so the web
+    // server's commit wrapper never sees them. Give their commits the same
+    // "[actor:operationId:txn]" prefix: actor from HAX_ACTOR (the create
+    // CLI's --agent sets it to "agent"), otherwise a person ran the CLI.
+    req.headers["x-hax-actor"] =
+      normalizeActor(process.env.HAX_ACTOR || "") === "A" ? "agent" : "human";
+    if (rMethod === "get") {
+      await handler(req, res);
+    } else {
+      await runWithCommitContext(
+        createRequestCommitContext(
+          req,
+          getOperationId(isSiteRoute ? "site" : "system", rMethod, routeKey),
+        ),
+        () => handler(req, res),
+      );
+    }
     return { req: req, res: res };
   } else {
     console.error(cliTheme.merlinError("route connection issue"));

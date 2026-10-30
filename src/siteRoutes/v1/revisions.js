@@ -18,6 +18,16 @@ const {
   findItemByIdOrSlug,
   sendFormattedResponse,
 } = require("./siteRouteUtils.js");
+const { parseCommitMessage } = require("../../lib/commitContext.js");
+
+/**
+ * haxtheweb/issues#3191: split a commit subject into its op-code parts.
+ * Subjects without a valid prefix (manual commits, history from before op
+ * codes) come back as actor "X" with the subject as the summary.
+ */
+function getCommitOpFields(message = "") {
+  return parseCommitMessage(message);
+}
 
 function sanitizePageLocation(siteDirectory, location) {
   const normalizedLocation = String(location || "")
@@ -89,6 +99,7 @@ function parseRevisionRows(logRaw = "", offset = 0) {
       timestamp: Number.isNaN(timestamp) ? 0 : timestamp,
       date: parts[5],
       message: parts[6],
+      ...getCommitOpFields(parts[6]),
     });
   }
   return revisions;
@@ -269,6 +280,7 @@ function parseRevisionMetadata(revisionMetadataRaw = "", revisionHash = "") {
     timestamp: parseInt(metadataParts[4], 10) || 0,
     date: metadataParts[5] || "",
     message: metadataParts[6] || "",
+    ...getCommitOpFields(metadataParts[6] || ""),
   };
 }
 
@@ -739,4 +751,5 @@ module.exports = {
   listItemRevisions,
   itemRevisionDetail,
   restoreItemRevision,
+  getCommitOpFields,
 };

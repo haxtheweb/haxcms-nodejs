@@ -17,6 +17,8 @@ const CORS_ALLOWED_HEADERS = [
   "Authorization",
   "X-HAXCMS-User-Token",
   "X-HAXCMS-Site-Token",
+  // haxtheweb/issues#3191: self-reported actor for commit op codes
+  "X-HAX-Actor",
 ].join(", ");
 const compression = require("compression");
 const helmet = require("helmet");
@@ -57,6 +59,11 @@ const PAGE_VARIANT_CONTENT_TYPES = {
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require("./lib/HAXCMS.js");
 const { resolveContainedPath } = require("./lib/pathConfinement.js");
+const {
+  createRequestCommitContext,
+  runWithCommitContext,
+  getOperationId,
+} = require("./lib/commitContext.js");
 const loginRateLimiter = require("./lib/loginRateLimiter.js");
 const { createRequestRateLimiter } = require("./lib/requestRateLimiter.js");
 const { haxcmsErrorHandler } = require("./lib/requestErrorHandler.js");
@@ -1727,7 +1734,17 @@ systemStructureContext().then((site) => {
           ) {
             return;
           }
-          return systemRouteRegistry[rMethod][op](req, res, next);
+          // haxtheweb/issues#3191: commits made by this request carry its
+          // actor + operationId + txn
+          return runCommitScopedHandler(
+            req,
+            "system",
+            rMethod,
+            op,
+            systemRouteRegistry[rMethod][op],
+            res,
+            next,
+          );
         }
         return sendSystemV1AuthFailure(res, auth);
       };
@@ -1770,7 +1787,17 @@ systemStructureContext().then((site) => {
           ) {
             return;
           }
-          return systemRouteRegistry[rMethod][op](req, res, next);
+          // haxtheweb/issues#3191: commits made by this request carry its
+          // actor + operationId + txn
+          return runCommitScopedHandler(
+            req,
+            "system",
+            rMethod,
+            op,
+            systemRouteRegistry[rMethod][op],
+            res,
+            next,
+          );
         }
         return sendSystemV1AuthFailure(res, auth);
       };
@@ -1840,7 +1867,17 @@ systemStructureContext().then((site) => {
               data: { message: access.message },
             });
           }
-          siteRouteRegistry[siteMethod][siteRoute](req, res, next);
+          // haxtheweb/issues#3191: commits made by this request carry its
+          // actor + operationId + txn
+          runCommitScopedHandler(
+            req,
+            "site",
+            siteMethod,
+            siteRoute,
+            siteRouteRegistry[siteMethod][siteRoute],
+            res,
+            next,
+          );
         } catch {
           return res.status(500).json({
             status: 500,
@@ -3187,6 +3224,30 @@ function getNormalizedBasePath() {
     basePath += "/";
   }
   return basePath;
+}
+/**
+ * haxtheweb/issues#3191: run an API route handler inside a commit context so
+ * every gitCommit() it makes is prefixed with the caller's actor, the route's
+ * OpenAPI operationId and a per-request txn. Read-only (GET) routes make no
+ * commits and run as before.
+ */
+function runCommitScopedHandler(
+  req,
+  scope,
+  method,
+  routeKey,
+  handler,
+  res,
+  next,
+) {
+  if (String(method || "").toLowerCase() === "get") {
+    return handler(req, res, next);
+  }
+  const context = createRequestCommitContext(
+    req,
+    getOperationId(scope, method, routeKey),
+  );
+  return runWithCommitContext(context, () => handler(req, res, next));
 }
 function getSiteApiBasePath() {
   return getNormalizedBasePath() + "x/api";
