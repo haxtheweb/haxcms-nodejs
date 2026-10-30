@@ -68,11 +68,14 @@ function isUnsafeRelativePath(value) {
   if (typeof value !== "string") {
     return true;
   }
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
-    return false;
-  }
+  // traversal first: a `..` segment or NUL is unsafe even in a value that
+  // looks like a URL ("x://../.." would otherwise skip the check and, used
+  // as a path, climb out of the target directory)
   if (hasTraversal(value)) {
     return true;
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    return false;
   }
   return /^([\\/]|[a-z]:)/i.test(value);
 }

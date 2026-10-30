@@ -105,6 +105,12 @@ test("isUnsafeRelativePath: rejects traversal / absolute, allows normal values",
   assert.equal(isUnsafeRelativePath("decks/my-deck"), false);
   assert.equal(isUnsafeRelativePath("files/..foo/logo.png"), false);
   assert.equal(isUnsafeRelativePath("https://example.com/logo.png"), false);
+  // a URL-shaped value is still unsafe when it carries traversal segments
+  // (the fuzz test found "A://..")
+  assert.equal(isUnsafeRelativePath("A://.."), true);
+  assert.equal(isUnsafeRelativePath("x://../../etc"), true);
+  assert.equal(isUnsafeRelativePath("https://example.com/../logo.png"), true);
+  assert.equal(isUnsafeRelativePath("https://example.com/a\0b"), true);
 });
 
 // --- getLogoSize -----------------------------------------------------------
