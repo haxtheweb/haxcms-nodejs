@@ -1359,6 +1359,105 @@ test("rebuildManagedFiles keeps manifest.json / package.json / imsmanifest.xml w
   assert.ok(ims.indexOf("Evil &quot;title&quot;") !== -1);
 });
 
+// haxtheweb/issues#3186: existing sites migrate to managed blocks
+test("rebuildManagedFiles migrates unmarked legacy files to managed blocks", async () => {
+  const site = await HAXCMS.createSite("unit-managed-legacy");
+  const dir = site.siteDirectory;
+  const boilerplateAgents = fs.readFileSync(
+    path.join(REPO_ROOT, "src", "boilerplate", "site", "AGENTS.md"),
+    "utf8",
+  );
+  const legacyAgents = fs.readFileSync(
+    path.join(
+      REPO_ROOT,
+      "test",
+      "fixtures",
+      "managed-files",
+      "agents-md-legacy.txt",
+    ),
+    "utf8",
+  );
+  // a released, untouched AGENTS.md and an always-managed .htaccess
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), legacyAgents);
+  fs.writeFileSync(path.join(dir, ".htaccess"), "# old unmarked copy\n");
+  await site.rebuildManagedFiles();
+  assert.equal(
+    fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8"),
+    boilerplateAgents,
+    "untouched legacy AGENTS.md becomes the baseline",
+  );
+  const htaccess = fs.readFileSync(path.join(dir, ".htaccess"), "utf8");
+  assert.ok(htaccess.indexOf("# BEGIN HAXcms managed") === 0);
+  assert.ok(htaccess.indexOf("old unmarked copy") === -1);
+  // an edited, unmarked AGENTS.md keeps every owner line below the block
+  const edited = legacyAgents + "\nOwner rule: ask before publishing.\n";
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), edited);
+  await site.rebuildManagedFiles();
+  const agents = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  assert.ok(agents.indexOf("<!-- haxcms:managed:start -->") === 0);
+  assert.ok(agents.endsWith(edited));
+  await site.rebuildManagedFiles();
+  assert.equal(
+    fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8"),
+    agents,
+    "a second rebuild changes nothing",
+  );
+});
+
+test("rebuildManagedFiles tolerates page locations that are object prototype keys", async () => {
+  const site = await HAXCMS.createSite("unit-managed-proto");
+  ["constructor", "toString", "__proto__"].forEach((location, i) => {
+    site.manifest.items.push({
+      id: "proto-" + i,
+      title: location,
+      location: location,
+      metadata: {},
+    });
+  });
+  await assert.doesNotReject(site.rebuildManagedFiles());
+});
+
+test("rebuildManagedFiles never writes through a symlinked managed file", async () => {
+  const site = await HAXCMS.createSite("unit-managed-symlink");
+  const outside = path.join(tempRoot, "outside-robots.txt");
+  fs.writeFileSync(outside, "outside the site\n");
+  const robots = path.join(site.siteDirectory, "robots.txt");
+  fs.removeSync(robots);
+  fs.symlinkSync(outside, robots);
+  await site.rebuildManagedFiles();
+  assert.equal(fs.readFileSync(outside, "utf8"), "outside the site\n");
+  assert.ok(fs.lstatSync(robots).isSymbolicLink());
+});
+
+test("rebuildManagedFiles keeps owner keys in package.json", async () => {
+  const site = await HAXCMS.createSite("unit-managed-pkg");
+  const pkgPath = path.join(site.siteDirectory, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+  pkg.scripts = Object.assign({}, pkg.scripts, { "owner:lint": "eslint ." });
+  pkg.ownerField = true;
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+  await site.rebuildManagedFiles();
+  const after = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+  assert.equal(after.scripts["owner:lint"], "eslint .");
+  assert.equal(after.ownerField, true);
+  assert.equal(after.description, site.manifest.description);
+});
+
+test("rebuildManagedFiles does not copy llms.txt from the boilerplate", async () => {
+  const site = await HAXCMS.createSite("unit-managed-llms");
+  assert.equal(
+    Object.values(site.getManagedTemplateFiles()).indexOf("llms.txt"),
+    -1,
+  );
+  await site.rebuildManagedFiles();
+  // still generated from the outline by updateAlternateFormats("llms")
+  const llms = fs.readFileSync(
+    path.join(site.siteDirectory, "llms.txt"),
+    "utf8",
+  );
+  assert.ok(llms.indexOf("## Pages") !== -1);
+});
+
 test("managed JSON / text keep ordinary punctuation literal (no html entities)", async () => {
   const site = await HAXCMS.createSite("unit-twig-punct");
   site.manifest.title = 'Tom\'s R&D "x"';

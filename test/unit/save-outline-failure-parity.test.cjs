@@ -444,3 +444,95 @@ test("a site.json write that fails is not retried and leaves the feeds alone", a
   );
   assert.equal(fs.readFileSync(path.join(dir, "rss.xml"), "utf8"), rssBefore);
 });
+
+// haxtheweb/issues#3186: managed files are written only when they change,
+// keep owner content outside their managed blocks, and can never fail an
+// outline save.
+const MANAGED_FILES = [
+  ".htaccess",
+  "build.js",
+  "build-haxcms.js",
+  "assets/upgrade-browser.html",
+  "index.html",
+  "ghpages.html",
+  "404.html",
+  "push-manifest.json",
+  "robots.txt",
+  ".well-known/security.txt",
+  ".well-known/api-catalog",
+  "browserconfig.xml",
+  "manifest.json",
+  "offline.html",
+  "web-dev-server.haxcms.config.cjs",
+  "package.json",
+  "imsmanifest.xml",
+  "files/.htaccess",
+  "AGENTS.md",
+  "index.php",
+];
+
+test("an outline save rewrites only content-driven managed files", async (t) => {
+  const site = await buildSite(t, "managed-unchanged");
+  const dir = path.join(testRoot, "_sites", "managed-unchanged");
+  const written = [];
+  const seen = [];
+  const writeFileSync = fs.writeFileSync;
+  t.mock.method(fs, "writeFileSync", function (file, ...rest) {
+    const relative = path.relative(dir, String(file)).split(path.sep).join("/");
+    seen.push(relative);
+    if (MANAGED_FILES.indexOf(relative) !== -1) {
+      written.push(relative);
+    }
+    return writeFileSync.call(this, file, ...rest);
+  });
+  const { res, thrown } = await run(t, site, editRequest(site));
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  assert.deepEqual(savedTree("managed-unchanged"), EDITED);
+  // settings did not change, so no settings-driven or static file is
+  // rewritten (service-worker.js tracks content and is not listed here)
+  assert.deepEqual(written, []);
+  // the spy is live: the outline itself was written through it
+  assert.ok(seen.indexOf("site.json") !== -1, "site.json write observed");
+});
+
+test("an outline save keeps owner content outside managed blocks", async (t) => {
+  const site = await buildSite(t, "managed-owner");
+  const dir = path.join(testRoot, "_sites", "managed-owner");
+  const ownerRule = "\n# owner: custom redirect\nRedirect 301 /old /new\n";
+  const ownerNote = "\nNever edit pages under legal/.\n";
+  fs.appendFileSync(path.join(dir, ".htaccess"), ownerRule);
+  fs.appendFileSync(path.join(dir, "AGENTS.md"), ownerNote);
+  const { res, thrown } = await run(t, site, editRequest(site));
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  const htaccess = fs.readFileSync(path.join(dir, ".htaccess"), "utf8");
+  const agents = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  assert.ok(htaccess.endsWith(ownerRule), "owner .htaccess rules kept");
+  assert.ok(agents.endsWith(ownerNote), "owner AGENTS.md notes kept");
+  assert.equal(htaccess.split("# BEGIN HAXcms managed").length - 1, 1);
+  assert.equal(agents.split("<!-- haxcms:managed:start -->").length - 1, 1);
+});
+
+test("a managed file that fails to render never fails the outline save", async (t) => {
+  const site = await buildSite(t, "managed-render-fail");
+  const dir = path.join(testRoot, "_sites", "managed-render-fail");
+  const robotsBefore = fs.readFileSync(path.join(dir, "robots.txt"), "utf8");
+  const readFileSync = fs.readFileSync;
+  t.mock.method(fs, "readFileSync", function (file, ...rest) {
+    const name = String(file);
+    if (name.indexOf("boilerplate") !== -1 && name.endsWith("robots.txt")) {
+      throw new Error("template read failure");
+    }
+    return readFileSync.call(this, file, ...rest);
+  });
+  const { res, thrown } = await run(t, site, editRequest(site));
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  assert.deepEqual(savedTree("managed-render-fail"), EDITED);
+  assert.equal(
+    readFileSync.call(fs, path.join(dir, "robots.txt"), "utf8"),
+    robotsBefore,
+    "the site's copy is left alone",
+  );
+});
