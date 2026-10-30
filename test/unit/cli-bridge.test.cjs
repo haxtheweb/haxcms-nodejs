@@ -47,6 +47,7 @@ require('@babel/register')({ only: [/[/\\]src[/\\]cli\.js$/] })
 
 const { SystemRoutesMap, SiteRoutesMap } = require('../../src/lib/allRoutes.js')
 const { HAXCMS } = require('../../src/lib/HAXCMS.js')
+const { getCommitContext } = require('../../src/lib/commitContext.js')
 
 // stub handlers placed into the shared route maps before cli.js binds them
 const systemCalls = []
@@ -69,14 +70,17 @@ SystemRoutesMap.get['status'] = async (req, res) => {
 const siteCalls = []
 SiteRoutesMap.get['v1/files'] = async (req, res) => {
   siteCalls.push({ params: req.params, auth: req.haxcmsSiteApiAuth })
+  commitContexts.push(getCommitContext())
   res.status(200).json({ status: 200, data: { stub: 'site-exact' } })
 }
 SiteRoutesMap.get['v1/files/:fileUuid'] = async (req, res) => {
   siteCalls.push({ params: req.params, auth: req.haxcmsSiteApiAuth })
   res.status(200).json({ status: 200, data: { stub: 'site-pattern' } })
 }
+const commitContexts = []
 SiteRoutesMap.post['v1/items'] = async (req, res) => {
   siteCalls.push({ body: req.body })
+  commitContexts.push(getCommitContext())
   res.status(200).json({ status: 200, data: { stub: 'site-post' } })
 }
 
@@ -140,6 +144,33 @@ describe('cli.js bridge (loaded through @babel/register)', () => {
     assert.equal(result.res.data.data.stub, 'site-post')
     assert.deepEqual(result.req.body, { node: { id: 'node-1' } })
     assert.equal(result.req.method, 'post')
+  })
+
+  test('writes carry the commit context (haxtheweb/issues#3191); reads do not', async () => {
+    const saved = process.env.HAX_ACTOR
+    try {
+      commitContexts.length = 0
+      delete process.env.HAX_ACTOR
+      await cliBridge('v1/items', { node: { id: 'n' } }, 'post')
+      process.env.HAX_ACTOR = 'agent'
+      await cliBridge('v1/items', { node: { id: 'n' } }, 'post')
+      await cliBridge('v1/files', { site: 'demo' }, 'get')
+      const human = commitContexts[0]
+      const agent = commitContexts[1]
+      assert.equal(human.actor, 'H')
+      assert.equal(human.op, 'createItem')
+      assert.match(human.txn, /^[a-z0-9]{4}$/)
+      assert.equal(agent.actor, 'A')
+      assert.equal(agent.op, 'createItem')
+      assert.notEqual(agent.txn, human.txn)
+      assert.equal(commitContexts[2], null)
+    } finally {
+      if (saved === undefined) {
+        delete process.env.HAX_ACTOR
+      } else {
+        process.env.HAX_ACTOR = saved
+      }
+    }
   })
 
   test('an unknown route prints the merlin error and answers undefined', async (t) => {
