@@ -256,6 +256,35 @@ function isSafeGitRemoteUrl(url) {
   return true;
 }
 /**
+ * haxtheweb/issues#3201: where a site's version control lives, from its folder.
+ *   "own"    the site folder is a git work tree root (a .git folder, or a
+ *            .git file for worktrees and submodules)
+ *   "parent" no .git of its own, but an enclosing folder has one. That repo
+ *            owns versioning (a HAXsite kept inside a larger repo), so HAXcms
+ *            must not commit, revert, push or set remotes there.
+ *   "none"   not inside any repo. gitCommit() makes the site its own repo
+ *            first, as haxcms-php's Git::open($dir, true) does.
+ * Mirrors HAXCMSSite::gitScope() in haxcms-php.
+ */
+function siteGitScope(dir) {
+  if (typeof dir !== "string" || dir === "") {
+    return "none";
+  }
+  var current = path.resolve(dir);
+  if (fs.existsSync(path.join(current, ".git"))) {
+    return "own";
+  }
+  var parent = path.dirname(current);
+  while (parent !== current) {
+    if (fs.existsSync(path.join(parent, ".git"))) {
+      return "parent";
+    }
+    current = parent;
+    parent = path.dirname(current);
+  }
+  return "none";
+}
+/**
  * Security (PR8-6): managed templates that embed the site title/description,
  * and the per-format escaping applied to those two values (same in PHP PR2).
  * Twig autoescape stays off for all of them; the values are pre-escaped for
@@ -1265,11 +1294,20 @@ class HAXCMSSite {
       // callers should also avoid passing user input (files.js uses the
       // server-generated sanitized filename, not upload.originalname).
       var safeMsg = sanitizeGitCommitMessage(msg);
-      // commit, true flag will attempt to make this a git repo if it currently isn't
+      const scope = siteGitScope(this.siteDirectory);
+      // a site inside a larger repo leaves versioning to that repo; running
+      // git here would commit the parent repo's whole work tree
+      if (scope === "parent") {
+        return true;
+      }
       const git = new GitPlus({
         dir: this.siteDirectory,
         cliVersion: await this.gitTest(),
       });
+      // make this a git repo if it currently isn't (haxcms-php does the same)
+      if (scope === "none") {
+        await git.init();
+      }
       await git.add();
       await git.commit(safeMsg);
       // commit should execute the automatic push flag if it's on
@@ -1298,6 +1336,12 @@ class HAXCMSSite {
    * Basic wrapper to revert top commit of the site
    */
   async gitRevert(count = 1) {
+    // only ever reset the site's own repo: in a "parent" scope this ran
+    // `git reset --hard` on the enclosing repo, and in "none" there is
+    // nothing to revert
+    if (siteGitScope(this.siteDirectory) !== "own") {
+      return true;
+    }
     try {
       const git = new GitPlus({
         dir: this.siteDirectory,
@@ -1313,11 +1357,18 @@ class HAXCMSSite {
    * Basic wrapper to commit current changes to version control of the site
    */
   async gitPush() {
+    const scope = siteGitScope(this.siteDirectory);
+    if (scope === "parent") {
+      return true;
+    }
     try {
       const git = new GitPlus({
         dir: this.siteDirectory,
         cliVersion: await this.gitTest(),
       });
+      if (scope === "none") {
+        await git.init();
+      }
       await git.add();
       await git.commit("commit forced");
       await git.push();
@@ -1348,11 +1399,19 @@ class HAXCMSSite {
       );
       return false;
     }
+    const scope = siteGitScope(this.siteDirectory);
+    // never repoint the remote of a repo the site merely lives inside
+    if (scope === "parent") {
+      return false;
+    }
     try {
       const git = new GitPlus({
         dir: this.siteDirectory,
         cliVersion: await this.gitTest(),
       });
+      if (scope === "none") {
+        await git.init();
+      }
       try {
         await git.addRemote("origin", url);
       } catch {
@@ -7269,6 +7328,7 @@ module.exports = {
   sanitizeGitCommitMessage,
   isSafeGitRemoteUrl,
   GIT_BRANCH_PATTERN,
+  siteGitScope,
   sanitizeManagedTemplateText,
   escapeManagedTemplateText,
   managedTemplateVarsFor,
