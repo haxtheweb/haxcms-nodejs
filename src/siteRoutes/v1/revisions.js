@@ -19,6 +19,11 @@ const {
   sendFormattedResponse,
 } = require("./siteRouteUtils.js");
 const { parseCommitMessage } = require("../../lib/commitContext.js");
+const {
+  SITE_FILE,
+  STRUCTURE_SCAN_LIMIT,
+  findStructureChanges,
+} = require("../../lib/structureHistory.js");
 
 /**
  * haxtheweb/issues#3191: split a commit subject into its op-code parts.
@@ -358,38 +363,85 @@ async function listItemRevisions(req, res) {
   );
   const logFormat = "%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%ad%x1f%s";
   try {
-    const logRaw = await gitOutput(
+    // haxtheweb/issues#3191: a page's history is the commits that touched
+    // its file ("content") plus the commits where its outline entry in
+    // site.json changed: moves, renames, publish toggles ("structure").
+    // Newest first, in git's own order.
+    const unionRaw = await gitOutput(
       site.siteDirectory,
       [
         "log",
         "--date=iso-strict",
         "--pretty=format:" + logFormat,
-        "--max-count=" + limit,
-        "--skip=" + offset,
         "--",
         fileData.location,
+        SITE_FILE,
       ],
       false,
     );
-    const revisions = parseRevisionRows(logRaw, offset);
-    let total = revisions.length;
+    const pageHashes = new Set(
+      String(
+        await gitOutput(
+          site.siteDirectory,
+          ["log", "--pretty=format:%H", "--", fileData.location],
+          false,
+        ),
+      )
+        .split("\n")
+        .map((row) => row.trim())
+        .filter((row) => row !== ""),
+    );
+    let structureChanges = {};
     try {
-      const totalRaw = await gitOutput(
+      // one more than the limit: the oldest is the baseline it is compared to
+      const siteHashes = String(
+        await gitOutput(
+          site.siteDirectory,
+          [
+            "log",
+            "--pretty=format:%H",
+            "--max-count=" + (STRUCTURE_SCAN_LIMIT + 1),
+            "--",
+            SITE_FILE,
+          ],
+          false,
+        ),
+      )
+        .split("\n")
+        .map((row) => row.trim())
+        .filter((row) => row !== "");
+      structureChanges = await findStructureChanges(
         site.siteDirectory,
-        ["log", "--pretty=format:%H", "--", fileData.location],
-        false,
+        item.id,
+        siteHashes,
       );
-      if (totalRaw) {
-        total = totalRaw
-          .split("\n")
-          .map((row) => row.trim())
-          .filter((row) => row !== "").length;
-      } else {
-        total = 0;
-      }
     } catch {
-      // intentionally ignored
+      // structure history is best effort; content history still lists
+      structureChanges = {};
     }
+    const history = parseRevisionRows(unionRaw, 0)
+      .filter(
+        (row) =>
+          pageHashes.has(row.hash) ||
+          Object.prototype.hasOwnProperty.call(structureChanges, row.hash),
+      )
+      .map((row) => {
+        row.kind = pageHashes.has(row.hash) ? "content" : "structure";
+        row.changes = Object.prototype.hasOwnProperty.call(
+          structureChanges,
+          row.hash,
+        )
+          ? structureChanges[row.hash]
+          : [];
+        return row;
+      });
+    const total = history.length;
+    const revisions = history
+      .slice(offset, offset + limit)
+      .map((row, index) => {
+        row.revisionNumber = offset + index + 1;
+        return row;
+      });
     const lookupValue = item.slug ? String(item.slug) : String(item.id);
     const apiBasePath = getApiBasePath(req);
     const jsonVariantLocation =
@@ -412,6 +464,7 @@ async function listItemRevisions(req, res) {
           total,
         },
         revisions,
+        structureScanLimit: STRUCTURE_SCAN_LIMIT,
         links: {
           self: `${apiBasePath}/v1/items/${encodeURIComponent(lookupValue)}/revisions`,
           item: `${apiBasePath}/v1/items/${encodeURIComponent(lookupValue)}`,
