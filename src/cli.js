@@ -198,6 +198,11 @@ export async function cliBridge(op, body = {}, method = "post", file = null) {
         siteName: siteName,
         authenticated: true,
         securityLevel: "authenticated-site",
+        // site write routes (createNode, saveNode, saveOutline, deleteNode,
+        // settings...) validate the site token against this per-request
+        // identity; without it every CLI write answered 403 "Authentication
+        // required". Same user the fake token above is minted for.
+        userName: HAXCMS.getActiveUserName() || "",
       };
     }
   }

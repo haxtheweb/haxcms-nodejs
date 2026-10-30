@@ -46,6 +46,7 @@ process.env.haxcms_middleware = 'node-cli'
 require('@babel/register')({ only: [/[/\\]src[/\\]cli\.js$/] })
 
 const { SystemRoutesMap, SiteRoutesMap } = require('../../src/lib/allRoutes.js')
+const { HAXCMS } = require('../../src/lib/HAXCMS.js')
 
 // stub handlers placed into the shared route maps before cli.js binds them
 const systemCalls = []
@@ -112,7 +113,10 @@ describe('cli.js bridge (loaded through @babel/register)', () => {
       siteName: 'demo',
       authenticated: true,
       securityLevel: 'authenticated-site',
+      // site write routes validate the token against this user
+      userName: HAXCMS.getActiveUserName() || '',
     })
+    assert.ok(byString.req.haxcmsSiteApiAuth.userName.length > 0, 'CLI user name is set')
     // body.site as an object with a name
     const byObject = await cliBridge('v1/files', { site: { name: 'demo-object' } }, 'get')
     assert.equal(byObject.res.data.data.stub, 'site-exact')
