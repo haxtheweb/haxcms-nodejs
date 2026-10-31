@@ -252,6 +252,12 @@ addRouteHandler(
 );
 addRouteHandler(
   SiteRoutesMap,
+  'get',
+  'v1/items/:idOrSlug/revisions/:revisionId/compare/:compareRevisionId',
+  v1RevisionRoutes.compareItemRevisions,
+);
+addRouteHandler(
+  SiteRoutesMap,
   'post',
   'v1/items/:idOrSlug/revisions/:revisionId/restore',
   v1RevisionRoutes.restoreItemRevision,

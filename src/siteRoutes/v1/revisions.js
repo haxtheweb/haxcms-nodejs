@@ -302,6 +302,121 @@ function resolveLookupValue(item) {
   return "";
 }
 
+/** longest restore note kept; the commit line is capped at 200 anyway */
+const RESTORE_NOTE_MAX_LENGTH = 120;
+
+/**
+ * An optional note for a restore commit: one line, no control characters,
+ * whitespace collapsed, at most RESTORE_NOTE_MAX_LENGTH characters.
+ * sanitizeGitCommitMessage() still runs on the whole commit line.
+ */
+function normalizeRestoreNote(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .trim()
+    .substring(0, RESTORE_NOTE_MAX_LENGTH)
+    .trim();
+}
+
+/** page detail fields compared between two revisions' item metadata */
+const COMPARE_FIELDS = [
+  [
+    "title",
+    (m) => (m.title === undefined || m.title === null ? "" : String(m.title)),
+  ],
+  [
+    "description",
+    (m) =>
+      m.description === undefined || m.description === null
+        ? ""
+        : String(m.description),
+  ],
+  [
+    "slug",
+    (m) => (m.slug === undefined || m.slug === null ? "" : String(m.slug)),
+  ],
+  // published unless it says otherwise; hidden and locked are off unless set
+  ["published", (m) => String(!(m.metadata && m.metadata.published === false))],
+  ["hideInMenu", (m) => String(!!(m.metadata && m.metadata.hideInMenu))],
+  ["locked", (m) => String(!!(m.metadata && m.metadata.locked))],
+];
+
+/**
+ * Page detail fields that differ between two item metadata payloads, as
+ * RevisionFieldChange rows. Empty when either side has no metadata.
+ */
+function diffRevisionItemMetadata(fromMetadata, toMetadata) {
+  if (!fromMetadata || !toMetadata) {
+    return [];
+  }
+  const changes = [];
+  COMPARE_FIELDS.forEach(([field, read]) => {
+    const from = read(fromMetadata);
+    const to = read(toMetadata);
+    if (from !== to) {
+      changes.push({ field: field, from: from, to: to });
+    }
+  });
+  return changes;
+}
+
+/**
+ * One side of a compare: the commit's metadata, the page file at that
+ * commit, and its item metadata (.json variant) when present.
+ */
+async function loadRevisionSide(
+  siteDirectory,
+  location,
+  jsonVariantLocation,
+  revisionHash,
+) {
+  const revisionMetadataRaw = await gitOutput(
+    siteDirectory,
+    [
+      "show",
+      "--quiet",
+      "--date=iso-strict",
+      "--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%at%x1f%ad%x1f%s",
+      revisionHash,
+    ],
+    false,
+  );
+  if (!revisionMetadataRaw) {
+    return null;
+  }
+  const revision = parseRevisionMetadata(revisionMetadataRaw, revisionHash);
+  const content = await gitOutput(
+    siteDirectory,
+    ["show", revisionHash + ":" + location],
+    false,
+  );
+  let itemMetadata = null;
+  if (jsonVariantLocation) {
+    try {
+      const itemMetadataRaw = await gitOutput(
+        siteDirectory,
+        ["show", revisionHash + ":" + jsonVariantLocation],
+        false,
+      );
+      itemMetadata = getItemMetadataFromPayload(
+        parseRevisionJSONPayload(itemMetadataRaw),
+      );
+    } catch {
+      // intentionally ignored: older revisions have no .json variant
+    }
+  }
+  return {
+    revision: revision,
+    content: content,
+    hasItemMetadata: !!itemMetadata,
+    itemMetadata: itemMetadata,
+  };
+}
+
 async function listItemRevisions(req, res) {
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
@@ -629,6 +744,148 @@ async function itemRevisionDetail(req, res) {
   }
 }
 
+/**
+ * Compare two revisions of one page: both contents and the page detail
+ * fields that differ (from = revisionId, to = compareRevisionId).
+ */
+async function compareItemRevisions(req, res) {
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest || !site.siteDirectory) {
+    return res.status(404).json({
+      status: 404,
+      data: {
+        message:
+          "Unable to resolve site context for /x/api/v1/items/:idOrSlug/revisions/:revisionId/compare/:compareRevisionId",
+      },
+    });
+  }
+  const idOrSlug =
+    req && req.params && req.params.idOrSlug ? String(req.params.idOrSlug) : "";
+  const item = findItemByIdOrSlug(site, idOrSlug);
+  if (!item) {
+    return res.status(404).json({
+      status: 404,
+      data: { message: `Item not found for idOrSlug "${idOrSlug}"` },
+    });
+  }
+  if (!item.id || typeof site.loadNode !== "function") {
+    return res.status(404).json({
+      status: 404,
+      data: { message: "Unable to resolve item page context for compare" },
+    });
+  }
+  const page = site.loadNode(item.id);
+  if (!page || !page.location) {
+    return res.status(404).json({
+      status: 404,
+      data: { message: "Unable to resolve page location for compare" },
+    });
+  }
+  const fileData = sanitizePageLocation(site.siteDirectory, page.location);
+  if (!fileData) {
+    return res.status(400).json({
+      status: 400,
+      data: { message: "Invalid node file location" },
+    });
+  }
+  if (!fs.existsSync(fileData.absolutePath)) {
+    return res.status(404).json({
+      status: 404,
+      data: { message: "Node file not found" },
+    });
+  }
+  const fromHash =
+    req && req.params && req.params.revisionId
+      ? sanitizeRevisionId(req.params.revisionId)
+      : "";
+  const toHash =
+    req && req.params && req.params.compareRevisionId
+      ? sanitizeRevisionId(req.params.compareRevisionId)
+      : "";
+  if (fromHash === "" || toHash === "") {
+    return res.status(400).json({
+      status: 400,
+      data: { message: "Invalid revision hash" },
+    });
+  }
+  try {
+    const jsonVariantLocation =
+      typeof site.getPageAlternateLocation === "function"
+        ? site.getPageAlternateLocation(page.location, "json")
+        : "";
+    const from = await loadRevisionSide(
+      site.siteDirectory,
+      fileData.location,
+      jsonVariantLocation,
+      fromHash,
+    );
+    const to = await loadRevisionSide(
+      site.siteDirectory,
+      fileData.location,
+      jsonVariantLocation,
+      toHash,
+    );
+    if (!from || !to) {
+      return res.status(404).json({
+        status: 404,
+        data: { message: "Revision not found" },
+      });
+    }
+    const lookupValue = resolveLookupValue(item);
+    const apiBasePath = getApiBasePath(req);
+    const itemBase = `${apiBasePath}/v1/items/${encodeURIComponent(lookupValue)}`;
+    return sendFormattedResponse(
+      req,
+      res,
+      {
+        nodeId: item.id,
+        nodeSlug: item.slug || "",
+        nodeTitle: item.title || "",
+        jsonVariantLocation: jsonVariantLocation || "",
+        from: from,
+        to: to,
+        contentChanged: from.content !== to.content,
+        itemMetadataChanges: diffRevisionItemMetadata(
+          from.itemMetadata,
+          to.itemMetadata,
+        ),
+        links: {
+          self: `${itemBase}/revisions/${encodeURIComponent(fromHash)}/compare/${encodeURIComponent(toHash)}`,
+          from: `${itemBase}/revisions/${encodeURIComponent(fromHash)}`,
+          to: `${itemBase}/revisions/${encodeURIComponent(toHash)}`,
+          revisions: `${itemBase}/revisions`,
+          item: itemBase,
+        },
+      },
+      {
+        allowedFormats: ["json"],
+        defaultFormat: "json",
+      },
+    );
+  } catch (e) {
+    const message = clientSafeErrorDetail(e, "");
+    // git's reason is in stderr; the client-safe message keeps only the
+    // first line ("Command failed: ...")
+    const reason =
+      message + " " + (e && typeof e.stderr === "string" ? e.stderr : "");
+    if (
+      reason.indexOf("does not exist") !== -1 ||
+      reason.indexOf("exists on disk, but not in") !== -1 ||
+      reason.indexOf("bad object") !== -1 ||
+      reason.indexOf("unknown revision") !== -1
+    ) {
+      return res.status(404).json({
+        status: 404,
+        data: { message: "Revision content for this page was not found" },
+      });
+    }
+    return res.status(500).json({
+      status: 500,
+      data: { message: message || "Unable to compare item revisions" },
+    });
+  }
+}
+
 async function restoreItemRevision(req, res) {
   const site = await resolveSiteForRequest(req);
   if (!site || !site.manifest || !site.siteDirectory) {
@@ -750,14 +1007,20 @@ async function restoreItemRevision(req, res) {
     if (site.manifest && typeof site.manifest.save === "function") {
       await site.manifest.save();
     }
+    const note = normalizeRestoreNote(
+      req && req.body && typeof req.body === "object" ? req.body.note : "",
+    );
     if (typeof site.gitCommit === "function") {
+      // the note goes last: when the line is too long for the 200 character
+      // commit limit, the formatter cuts the note, never the restore itself
       await site.gitCommit(
         "Page revision restored: " +
           (page.title || "Untitled") +
           " (" +
           page.id +
           ") from " +
-          revisionHash.substring(0, 12),
+          revisionHash.substring(0, 12) +
+          (note ? ": " + note : ""),
       );
     }
     const lookupValue = resolveLookupValue(item);
@@ -770,6 +1033,7 @@ async function restoreItemRevision(req, res) {
         nodeSlug: item.slug || "",
         nodeTitle: page.title || item.title || "",
         restoredFromHash: revisionHash,
+        note: note,
         jsonVariantLocation: jsonVariantLocation || "",
         hasItemMetadata: !!itemMetadata,
         itemMetadataRestored: itemMetadataRestored,
@@ -803,6 +1067,9 @@ async function restoreItemRevision(req, res) {
 module.exports = {
   listItemRevisions,
   itemRevisionDetail,
+  compareItemRevisions,
   restoreItemRevision,
   getCommitOpFields,
+  normalizeRestoreNote,
+  diffRevisionItemMetadata,
 };
