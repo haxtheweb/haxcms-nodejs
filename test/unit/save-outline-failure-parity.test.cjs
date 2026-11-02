@@ -536,3 +536,81 @@ test("a managed file that fails to render never fails the outline save", async (
     "the site's copy is left alone",
   );
 });
+
+// a page file that is not a plain file inside the site: both backends give
+// the same answer for the same site on disk (haxcms-php
+// OperationsSaveOutlineFailureTest mirrors these). A page file may not be
+// a symlink, and its real path must be inside the site
+function pageFile(site, title) {
+  return path.join(site.siteDirectory, byTitle(site, title).location);
+}
+
+test("a page file that is a symlink is a 400 invalid write target, and what it points at is untouched", async (t) => {
+  const site = await buildSite(t, "fail-link-file");
+  const a2 = pageFile(site, "A2");
+  const b = pageFile(site, "B");
+  const before = fs.readFileSync(b, "utf8");
+  fs.removeSync(a2);
+  fs.symlinkSync(b, a2);
+  const { res, thrown } = await run(t, site, editRequest(site));
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.data.message, "invalid write target");
+  assert.equal(fs.readFileSync(b, "utf8"), before);
+  assert.deepEqual(savedTree("fail-link-file"), EDITED);
+});
+
+test("a page folder linked out of the site is a 400 invalid write target, and the outside file is untouched", async (t) => {
+  const site = await buildSite(t, "fail-link-out");
+  const a2 = pageFile(site, "A2");
+  const outside = fs.mkdtempSync(
+    path.join(os.tmpdir(), "saveoutline-outside-"),
+  );
+  t.after(() => fs.removeSync(outside));
+  fs.writeFileSync(path.join(outside, path.basename(a2)), "<p>outside</p>");
+  fs.removeSync(path.dirname(a2));
+  fs.symlinkSync(outside, path.dirname(a2));
+  const { res, thrown } = await run(t, site, editRequest(site));
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.data.message, "invalid write target");
+  assert.equal(
+    fs.readFileSync(path.join(outside, path.basename(a2)), "utf8"),
+    "<p>outside</p>",
+  );
+  assert.deepEqual(savedTree("fail-link-out"), EDITED);
+});
+
+test("a page folder linked to another page's folder inside the site still saves", async (t) => {
+  const site = await buildSite(t, "link-in");
+  const a2 = pageFile(site, "A2");
+  fs.removeSync(path.dirname(a2));
+  fs.symlinkSync(path.dirname(pageFile(site, "B")), path.dirname(a2));
+  const { res, thrown } = await run(t, site, editRequest(site));
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  assert.deepEqual(savedTree("link-in"), EDITED);
+});
+
+test("a duplicate of a page whose file is a folder is a 400 invalid duplicate content", async (t) => {
+  const site = await buildSite(t, "fail-dup-folder");
+  const b = pageFile(site, "B");
+  const items = withDuplicate(site, byTitle(site, "B").id);
+  // the copy goes first, so the duplicate is read before B is checked
+  items.unshift(items.pop());
+  fs.removeSync(b);
+  fs.mkdirSync(b);
+  const { res, thrown } = await run(t, site, items);
+  assert.equal(thrown, null);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.data.message, "invalid duplicate content");
+  assert.deepEqual(savedTree("fail-dup-folder"), EDITED_WITH_COPY);
+});
+
+test("getPageContent reads a page file that is a folder as no content", async (t) => {
+  const site = await buildSite(t, "content-folder");
+  const b = pageFile(site, "B");
+  fs.removeSync(b);
+  fs.mkdirSync(b);
+  assert.equal(await site.getPageContent(byTitle(site, "B")), "");
+});

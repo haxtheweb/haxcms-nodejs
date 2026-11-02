@@ -8,6 +8,7 @@ const {
   assertSiteFeature,
 } = require("../siteRouteUtils.js");
 const FileContentScanner = require("../../../lib/FileContentScanner.js");
+const { resolveContainedPath } = require("../../../lib/pathConfinement.js");
 const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
 const {
   toPlainText,
@@ -544,19 +545,18 @@ function normalizeOutlineSlug(site, slug, page = null, pathAuto = false) {
   }
   return site.getUniqueSlugName(normalizedSlug, page, pathAuto);
 }
+// a page file saveOutline may write: an existing regular file (not a
+// symlink) whose real path is inside the site's real directory. The same
+// rule as the PHP backend's getValidatedOutlineWriteTarget(), so both
+// answer "invalid write target" for the same site on disk (a page folder
+// that is a symlink out of the site used to pass here and fail later as
+// "failed to write", a 500 where PHP gives a 400)
 function getValidatedWritePath(siteDirectory, location) {
   let normalizedLocation = normalizeOutlineLocation(location);
   if (!normalizedLocation) {
     return false;
   }
-  let siteRoot = path.resolve(siteDirectory);
   let targetPath = path.resolve(siteDirectory, normalizedLocation);
-  if (targetPath != siteRoot && targetPath.indexOf(siteRoot + path.sep) !== 0) {
-    return false;
-  }
-  if (!fs.existsSync(targetPath)) {
-    return false;
-  }
   try {
     if (!fs.lstatSync(targetPath).isFile()) {
       return false;
@@ -564,7 +564,7 @@ function getValidatedWritePath(siteDirectory, location) {
   } catch {
     return false;
   }
-  return targetPath;
+  return resolveContainedPath(siteDirectory, normalizedLocation);
 }
 function isLikelyHtmlContent(content) {
   if (typeof content !== "string") {
