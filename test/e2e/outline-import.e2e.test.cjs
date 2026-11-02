@@ -276,8 +276,24 @@ async function waitForImportDialog(page, t) {
   var ready = await waitFor(
     async () =>
       page.evaluate(function () {
-        // The import hierarchy dialog is a simple-modal containing an
-        // outline-designer that is NOT inside haxcms-outline-editor-dialog.
+        // Current builds: the import step is a screen of the site admin
+        // dialog (haxcms-outline-import-dialog, in the shell's light DOM)
+        // with its outline-designer in its shadow root.
+        var step = document.querySelector("haxcms-outline-import-dialog");
+        if (step && step.shadowRoot) {
+          var sod = step.shadowRoot.querySelector("outline-designer");
+          if (
+            sod &&
+            sod.shadowRoot &&
+            Array.isArray(sod.items) &&
+            sod.items.length > 0
+          ) {
+            return true;
+          }
+        }
+        // Older builds: the import hierarchy dialog is a simple-modal
+        // containing an outline-designer that is NOT inside
+        // haxcms-outline-editor-dialog.
         var modals = document.querySelectorAll("simple-modal");
         for (var i = 0; i < modals.length; i++) {
           var m = modals[i];
@@ -320,6 +336,17 @@ async function clickImportDialogSave(page, t) {
     }
   });
   var result = await page.evaluate(function () {
+    // Current builds: the site admin dialog's Save, in its action bar,
+    // while the import step is on screen.
+    var step = document.querySelector("haxcms-outline-import-dialog");
+    var shell = document.querySelector("haxcms-site-admin");
+    if (step && shell && shell.shadowRoot) {
+      var shellSave = shell.shadowRoot.querySelector(".ftr button.save");
+      if (shellSave && !shellSave.disabled) {
+        shellSave.click();
+        return { clicked: true, source: "site-admin", text: "save" };
+      }
+    }
     // The import hierarchy dialog has a Save button. It may be a .hax-modal-btn
     // or a simple-toolbar-button. Search all open simple-modals (excluding the
     // main outline editor dialog) for a Save button.
