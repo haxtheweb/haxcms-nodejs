@@ -2482,9 +2482,17 @@ class HAXCMSSite {
       if (resolved === false) {
         return "";
       }
-      return filter_var(
-        await fs.readFileSync(resolved, { encoding: "utf8", flag: "r" }),
-      );
+      // a location that is not a readable file (a folder in its place, no
+      // permission) reads as no content, as it does in the PHP backend,
+      // rather than throwing: saveOutline duplicating such a page answers
+      // "invalid duplicate content" on both backends
+      let raw;
+      try {
+        raw = fs.readFileSync(resolved, { encoding: "utf8", flag: "r" });
+      } catch {
+        return "";
+      }
+      return filter_var(raw);
     }
   }
   /**
