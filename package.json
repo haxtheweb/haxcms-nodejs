@@ -89,11 +89,11 @@
     "markdown-it-footnote": "^4.0.0",
     "mime": "3.0.0",
     "minimist": "1.2.8",
-    "multer": "^2.4.0",
+    "multer": "^2.5.0",
     "node-html-parser": "7.1.0",
     "open": "8.4.2",
     "pretty": "^2.0.0",
-    "puppeteer-core": "^25.7.0",
+    "puppeteer-core": "^25.16.0",
     "sharp": "^0.35.5",
     "text-readability": "1.1.1",
     "turndown": "7.1.1",
@@ -133,12 +133,12 @@
   "resolutions": {
     "image-size": "^2.0.4",
     "argparse": "^2.0.1",
-    "follow-redirects": "^1.16.1"
+    "follow-redirects": "^1.16.2"
   },
   "overrides": {
     "image-size": "^2.0.4",
     "argparse": "^2.0.1",
-    "follow-redirects": "^1.16.1"
+    "follow-redirects": "^1.16.2"
   },
   "lint-staged": {
     "*.{js,cjs}": [
