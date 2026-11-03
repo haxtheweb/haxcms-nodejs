@@ -378,9 +378,19 @@ class HAXCMSSite {
     tmpname = HAXCMS.cleanTitle(tmpname, false);
     this.basePath = siteBasePath;
     this.directory = directory;
+    // Security (code-scanning js/path-injection): the site name comes from
+    // the request; prove the site folder resolves strictly inside the sites
+    // directory before any file system access (cleanTitle already strips
+    // "..", this makes the containment explicit and verifiable)
+    const sitesRoot = path.resolve(directory);
+    // join (not resolve) first so a leading "/" stays relative, as before
+    const siteRoot = path.resolve(path.join(sitesRoot, tmpname));
+    if (!siteRoot.startsWith(sitesRoot + path.sep)) {
+      throw new Error("Site name resolves outside the sites directory");
+    }
     this.manifest = new JSONOutlineSchema();
-    await this.manifest.load(this.directory + "/" + tmpname + "/site.json");
-    this.siteDirectory = path.join(this.directory, tmpname);
+    await this.manifest.load(path.join(siteRoot, "site.json"));
+    this.siteDirectory = siteRoot;
   }
   /**
    * Load a single site from a directory directly. Assumes single-site mode
@@ -428,8 +438,16 @@ class HAXCMSSite {
       }
     }
     tmpname = newName;
+    // Security (code-scanning js/path-injection): the new site folder must
+    // resolve strictly inside the sites directory (see load())
+    const sitesRoot = path.resolve(directory);
+    // join (not resolve) first so a leading "/" stays relative, as before
+    const siteRoot = path.resolve(path.join(sitesRoot, tmpname));
+    if (!siteRoot.startsWith(sitesRoot + path.sep)) {
+      return false;
+    }
     // siteDirectory set so we can discover this and work with it while it's being built
-    this.siteDirectory = path.join(this.directory, tmpname);
+    this.siteDirectory = siteRoot;
     // attempt to shift it on the file system
     // Security (N1/N5 parity): recurseCopy refuses traversal / escaping
     // destinations; treat a refusal as a failed site creation (createSite
@@ -5056,11 +5074,19 @@ class HAXCMSClass {
       !create
     ) {
       let site = new HAXCMSSite();
-      await site.load(
-        this.HAXCMS_ROOT + this.sitesDirectory,
-        this.basePath + this.sitesDirectory + "/",
-        tmpname,
-      );
+      try {
+        await site.load(
+          this.HAXCMS_ROOT + this.sitesDirectory,
+          this.basePath + this.sitesDirectory + "/",
+          tmpname,
+        );
+      } catch (e) {
+        // a name that escapes the sites directory is not a site
+        if (/outside the sites directory/.test(String(e && e.message))) {
+          return false;
+        }
+        throw e;
+      }
       await site.maybeUpgradeLegacyBootstrap();
       return site;
     } else if (create) {

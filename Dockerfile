@@ -4,10 +4,9 @@
 # as the non-root `node` user (uid 1000, shipped with node:22-slim). Runtime
 # HAX sites are persisted under /app/_sites — HAXCMS.js sets sitesDirectory to
 # '_sites' relative to cwd / HAXCMS_ROOT.
-# TODO(scorecard Pinned-Dependencies): pin by digest, i.e.
-# `FROM node:22-slim@sha256:<digest>` (resolve with `docker buildx imagetools
-# inspect node:22-slim`); Renovate's docker manager can then keep it current.
-FROM node:22-slim
+# Pinned by digest (scorecard Pinned-Dependencies); Renovate's docker manager
+# keeps the tag + digest current.
+FROM node:22-slim@sha256:9f0dde62d10e7ff7a310ecaebd66225f6b46c17e6cb778449a77b05d3541bea2
 
 WORKDIR /app
 
