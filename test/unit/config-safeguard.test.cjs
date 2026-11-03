@@ -30,6 +30,8 @@ function assertValidFallbackShape(config) {
   assert.equal(typeof config.security, 'object')
   assert.equal(typeof config.site, 'object')
   assert.equal(typeof config.mcp, 'object')
+  assert.equal(config.mcp.enabled, false)
+  assert.equal(config.mcp.readOnly, true)
   assert.equal(typeof config.deploymentProfile, 'string')
 }
 
@@ -145,5 +147,15 @@ describe('loadConfigJson — valid config.json passes through', () => {
     } finally {
       fs.removeSync(tmpDir)
     }
+  })
+})
+
+describe('boilerplate config.json', () => {
+  test('ships with MCP disabled (opt-in) and read-only', () => {
+    const boilerplate = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '../../src/boilerplate/systemsetup/config.json'), 'utf8'),
+    )
+    assert.equal(boilerplate.mcp.enabled, false)
+    assert.equal(boilerplate.mcp.readOnly, true)
   })
 })

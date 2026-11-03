@@ -149,7 +149,7 @@ function loadConfigJson(configDirectory) {
       themes: {},
       security: {},
       site: { settings: {}, git: {}, static: {}, publishers: {} },
-      mcp: { enabled: true, readOnly: true },
+      mcp: { enabled: false, readOnly: true },
       deploymentProfile: "single-site",
     };
   }
@@ -4829,9 +4829,10 @@ class HAXCMSClass {
     if (!this.config.mcp) {
       this.config.mcp = {};
     }
+    // MCP is opt-in on every deployment profile: an operator turns it on in
+    // config.json (and, later, through a plugin that says what it enables)
     if (typeof this.config.mcp.enabled === "undefined") {
-      this.config.mcp.enabled =
-        this.getDeploymentProfile() !== "haxiam-managed";
+      this.config.mcp.enabled = false;
     }
     if (typeof this.config.mcp.readOnly === "undefined") {
       this.config.mcp.readOnly = true;
