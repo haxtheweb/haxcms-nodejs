@@ -133,8 +133,8 @@ Temporary known skip in the suite:
   - `mcp.enabled`: global MCP toggle
   - `mcp.readOnly`: write-protection toggle for future MCP write tools
 - Default behavior:
-  - `haxiam-managed` defaults MCP to disabled unless explicitly enabled.
-  - Other profiles default to MCP enabled with read-only mode on.
+  - MCP is disabled on every profile unless `mcp.enabled` is explicitly `true`.
+  - Once enabled, MCP stays read-only unless `mcp.readOnly` is explicitly `false`.
 
 # Get Help / Issues / Support
 - Discord Channel - https://discord.gg/aCGxmRHEJP
