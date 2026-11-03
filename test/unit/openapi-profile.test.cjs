@@ -88,7 +88,11 @@ describe('site OpenAPI agent profile', () => {
       Object.keys(pathItem).forEach((key) => {
         const op = pathItem[key]
         if (op && op.operationId) {
-          assert.ok(!op.security || op.security.length === 0, `${op.operationId} should be public`)
+          const usableAnonymously =
+            !op.security ||
+            op.security.length === 0 ||
+            op.security.some((req) => req && Object.keys(req).length === 0)
+          assert.ok(usableAnonymously, `${op.operationId} should be public`)
         }
       })
     })
@@ -122,6 +126,16 @@ describe('site OpenAPI agent profile', () => {
     })
     const spec = await fetchSpec(t)
     assert.equal(spec.servers[0].url, 'https://example.org/_sites/biology/')
+  })
+
+  // haxtheweb/issues#3211: login is optional for search; the editor's
+  // registry tries the bearer requirement first and falls back to {}.
+  test('search declares optional bearer auth and stays in the public profile', async (t) => {
+    const spec = await fetchSpec(t)
+    assert.deepEqual(spec.paths['/x/api/v1/search'].get.security, [{ bearerAuth: [] }, {}])
+    const publicSpec = await fetchSpec(t, { query: { profile: 'public' } })
+    assert.ok(publicSpec.paths['/x/api/v1/search'])
+    assert.ok(!publicSpec.paths['/x/api/v1/files'])
   })
 
   test('the spec carries examples for agents', async (t) => {
