@@ -76,6 +76,11 @@ const EXAMPLES = [
   ['No _quarto.yml file found in example-org/widgets-book', 'IMPORT_SOURCE_INVALID', {}],
   ['The Quarto project has no pages to import', 'IMPORT_EMPTY', {}],
   ['Unable to import the Quarto project', 'IMPORT_FAILED', {}],
+  [
+    'The source states all rights reserved, so it was not imported. Ask the owner for permission, or for a license that allows reuse.',
+    'IMPORT_RIGHTS_RESERVED',
+    {},
+  ],
 ]
 
 test('known messages get the expected code and params', () => {
@@ -212,4 +217,66 @@ test('message literals in routes all have a code', () => {
     })
   }
   assert.deepEqual(missing, [], 'messages without a code:\n' + missing.join('\n'))
+})
+
+test('401/403/405 messages passed to status helpers all have a code', () => {
+  // The literal scan above only sees { message } / { error } objects. A
+  // 401/403/405 thrown through a helper (importError(403, MESSAGE),
+  // createStatusError(...), fail(res, 403, ...)) is sent the same way, and
+  // without a code the front end treats it as a possibly expired sign-in
+  // (refresh -> retry -> logout) instead of a final answer.
+  const babel = require('@babel/core')
+  const root = path.join(__dirname, '../../src')
+  const files = [path.join(root, 'app.js')]
+  const collect = (dir) => {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name)
+      if (name === 'vendor' || name === 'public' || name === 'boilerplate') continue
+      if (fs.statSync(full).isDirectory()) collect(full)
+      else if (name.endsWith('.js')) files.push(full)
+    }
+  }
+  collect(path.join(root, 'siteRoutes'))
+  collect(path.join(root, 'systemRoutes'))
+  collect(path.join(root, 'lib'))
+  const AUTH_STATUSES = [401, 403, 405]
+  const missing = []
+  for (const file of files) {
+    const ast = babel.parseSync(fs.readFileSync(file, 'utf8'), {
+      configFile: false,
+      babelrc: false,
+      sourceType: 'unambiguous',
+      parserOpts: { allowReturnOutsideFunction: true },
+    })
+    // string constants declared in the file, e.g. const RESERVED_MESSAGE = '...'
+    const constants = {}
+    babel.traverse(ast, {
+      VariableDeclarator(nodePath) {
+        const node = nodePath.node
+        if (node.id.type === 'Identifier' && node.init && node.init.type === 'StringLiteral') {
+          constants[node.id.name] = node.init.value
+        }
+      },
+    })
+    const text = (node) => {
+      if (!node) return null
+      if (node.type === 'StringLiteral') return node.value
+      if (node.type === 'TemplateLiteral') return node.quasis.map((q) => q.value.cooked || '').join('1')
+      if (node.type === 'Identifier' && constants[node.name] !== undefined) return constants[node.name]
+      return null
+    }
+    babel.traverse(ast, {
+      CallExpression(nodePath) {
+        const args = nodePath.node.arguments
+        const status = args.find((arg) => arg.type === 'NumericLiteral')
+        if (!status || AUTH_STATUSES.indexOf(status.value) === -1) return
+        const message = args.map(text).find((value) => value !== null && /[a-z]{3}/i.test(value))
+        if (message === undefined) return
+        if (!matchApiMessage(message)) {
+          missing.push(path.relative(root, file) + ':' + nodePath.node.loc.start.line + ' ' + status.value + ' ' + JSON.stringify(message).slice(0, 90))
+        }
+      },
+    })
+  }
+  assert.deepEqual(missing, [], 'auth-status messages without a code:\n' + missing.join('\n'))
 })
