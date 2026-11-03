@@ -1524,11 +1524,13 @@ systemStructureContext().then((site) => {
           const queryIndex = req.url.indexOf("?");
           const querySuffix =
             queryIndex !== -1 ? req.url.substring(queryIndex) : "";
-          // fixed mount prefix (not req.baseUrl) so the redirect target can only
-          // ever be a path on this host: "/<sites>/<one segment>/"
+          // Security (code-scanning js/server-side-unvalidated-url-redirection):
+          // a "./" relative target can only resolve against the current
+          // "/<sites>/<segment>" URL, so it always stays on this host and
+          // lands on "/<sites>/<segment>/" (same as the old absolute form)
           res.redirect(
             301,
-            `/${HAXCMS.sitesDirectory}${multisiteRequestPath}/${querySuffix}`,
+            `./${multisiteRequestPath.substring(1)}/${querySuffix}`,
           );
           return;
         }

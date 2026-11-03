@@ -365,7 +365,26 @@ test('a bare site name redirects to the trailing slash with a 301', async () => 
     maxRedirects: 0,
   })
   assert.equal(result.status, 301)
-  assert.equal(result.headers.location, '/_sites/' + SITE_NAME + '/')
+  // relative "./<name>/" target (code-scanning js/server-side-unvalidated-url-redirection);
+  // resolve it the way a browser does against the request URL
+  const requestUrl = runtime.baseUrl + '/_sites/' + SITE_NAME + '?x=1'
+  const resolved = new URL(result.headers.location, requestUrl)
+  assert.equal(resolved.origin, new URL(runtime.baseUrl).origin)
+  assert.equal(resolved.pathname, '/_sites/' + SITE_NAME + '/')
+})
+
+test('a hostile single-segment site redirect cannot leave this host', async () => {
+  const segments = ['%5C%5Cevil.example', 'evil.example:443', 'javascript:alert(1)', '%2F%2Fevil.example']
+  for (let i = 0; i < segments.length; i++) {
+    const requestUrl = runtime.baseUrl + '/_sites/' + segments[i]
+    const result = await request('GET', requestUrl, { maxRedirects: 0 })
+    if (result.status !== 301) {
+      continue
+    }
+    const resolved = new URL(result.headers.location, requestUrl)
+    assert.equal(resolved.origin, new URL(runtime.baseUrl).origin, segments[i])
+    assert.equal(resolved.pathname.indexOf('/_sites/'), 0, segments[i])
+  }
 })
 
 test('site static files serve with content types', async () => {
