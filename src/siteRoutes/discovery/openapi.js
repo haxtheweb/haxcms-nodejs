@@ -7,8 +7,22 @@ const { getApiBasePath } = require('../v1/siteRouteUtils.js');
 const OPENAPI_METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'];
 
 // haxtheweb/issues#3104: reduce the spec to the operations an anonymous
-// caller can use (effective security is an empty list). Paths left with no
-// operations are dropped. Mirrors PHP SiteRouteUtils::filterOpenApiToPublicOperations.
+// caller can use (effective security is an empty list, or lists an empty
+// requirement, which makes login optional, e.g. searchContent per
+// haxtheweb/issues#3211). Paths left with no operations are dropped.
+// Mirrors PHP SiteRouteUtils::filterOpenApiToPublicOperations.
+function isSecurityUsableAnonymously(security) {
+  if (!Array.isArray(security) || security.length === 0) {
+    return true;
+  }
+  for (let i = 0; i < security.length; i++) {
+    const requirement = security[i];
+    if (requirement && typeof requirement === 'object' && Object.keys(requirement).length === 0) {
+      return true;
+    }
+  }
+  return false;
+}
 function filterOpenApiToPublicOperations(openapi) {
   if (!openapi || typeof openapi !== 'object' || !openapi.paths || typeof openapi.paths !== 'object') {
     return openapi;
@@ -26,7 +40,7 @@ function filterOpenApiToPublicOperations(openapi) {
       const value = pathItem[key];
       if (OPENAPI_METHODS.indexOf(String(key).toLowerCase()) !== -1) {
         const security = value && Array.isArray(value.security) ? value.security : globalSecurity;
-        if (security.length === 0) {
+        if (isSecurityUsableAnonymously(security)) {
           kept[key] = value;
           hasOperation = true;
         }

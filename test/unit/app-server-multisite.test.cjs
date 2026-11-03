@@ -587,6 +587,49 @@ test('site API files route enforces the full auth matrix', async () => {
   assert.equal(allowed.status, 200, allowed.bodyText)
 })
 
+// haxtheweb/issues#3211: search declares optional auth. Anonymous callers
+// (and invalid bearers, which stay public rather than 403) only search
+// published, visible pages; a logged-in editor's bearer also searches
+// unpublished pages so the Content admin can find them.
+test('site API search includes unpublished pages only for a logged-in caller', async () => {
+  const site = await HAXCMS.loadSite(SITE_NAME)
+  const item = site.manifest.items[0]
+  const title = String(item.title)
+  item.metadata = Object.assign({}, item.metadata || {}, { published: false })
+  await site.manifest.save(false)
+  try {
+    const url =
+      runtime.baseUrl +
+      '/_sites/' +
+      SITE_NAME +
+      '/x/api/v1/search?q=' +
+      encodeURIComponent(title)
+    const ids = function (result) {
+      return JSON.parse(result.bodyText).data.results.map(function (r) {
+        return r.id
+      })
+    }
+    const anon = await request('GET', url, {})
+    assert.equal(anon.status, 200, anon.bodyText)
+    assert.equal(ids(anon).indexOf(item.id), -1)
+    const badBearer = await request('GET', url, {
+      headers: { authorization: 'Bearer not-a-real-jwt' },
+    })
+    assert.equal(badBearer.status, 200, badBearer.bodyText)
+    assert.equal(ids(badBearer).indexOf(item.id), -1)
+    const editor = await request('GET', url, {
+      headers: { authorization: 'Bearer ' + runtime.jwt },
+    })
+    assert.equal(editor.status, 200, editor.bodyText)
+    assert.ok(ids(editor).indexOf(item.id) !== -1, editor.bodyText)
+  } finally {
+    const restored = await HAXCMS.loadSite(SITE_NAME)
+    const restoredItem = restored.manifest.items[0]
+    restoredItem.metadata = Object.assign({}, restoredItem.metadata || {}, { published: true })
+    await restored.manifest.save(false)
+  }
+})
+
 // ---------------------------------------------------------------------------
 // system route auth matrix (systemRouteHandler)
 // ---------------------------------------------------------------------------
