@@ -6,8 +6,10 @@
 // HAXSITEAUTOMATEDTESTING -> navigate into the site editor ->
 //
 // PART A — Import From File:
-//   Open the outline editor dialog (#outlinebutton) -> click "Import from file"
-//   (.hax-modal-btn.import) which dispatches haxcms-outline-import-request ->
+//   Open the outline editor dialog (#outlinebutton) -> request an import from
+//   file. Structure no longer has an Import button (documents come in through
+//   Content's add area), so the test does what that button did: close the
+//   dialog and dispatch haxcms-outline-import-request (Merlin's path) ->
 //   the site-editor-ui's _selectFileForHierarchyImport handler opens a file
 //   picker. Since puppeteer cannot interact with the native file picker
 //   (showOpenFilePicker), we simulate the post-file-pick result by dispatching
@@ -244,7 +246,27 @@ async function clickImportFromFile(page, t) {
         }
       }
     }
-    return { error: "no Import From File button" };
+    // Structure no longer has an Import button (documents come in through
+    // Content's add area; Merlin's outline import uses the same event). Do
+    // what the button did: close the outline dialog, then ask the site
+    // editor for a file import via haxcms-outline-import-request.
+    globalThis.dispatchEvent(
+      new CustomEvent("simple-modal-hide", {
+        bubbles: true,
+        composed: true,
+        cancelable: false,
+        detail: false,
+      }),
+    );
+    globalThis.dispatchEvent(
+      new CustomEvent("haxcms-outline-import-request", {
+        bubbles: true,
+        composed: true,
+        cancelable: false,
+        detail: {},
+      }),
+    );
+    return { clicked: true, via: "event" };
   });
   if (t)
     t.diagnostic("[outline] Import From File click: " + JSON.stringify(result));
@@ -529,7 +551,10 @@ test(
     //    the post-file-pick result that the site-editor would dispatch after a
     //    successful import API call).
     var importClick = await clickImportFromFile(page, t);
-    assert.ok(importClick.clicked, "Import From File button clicked");
+    assert.ok(
+      importClick.clicked,
+      "Import From File requested: " + JSON.stringify(importClick),
+    );
     await new Promise((r) => setTimeout(r, 1000));
 
     // 6. Dispatch haxcms-docx-import-items with test items (simulate file-pick).

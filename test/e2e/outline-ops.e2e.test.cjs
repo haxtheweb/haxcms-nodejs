@@ -294,11 +294,25 @@ async function clickSaveOutline(page, t) {
   page.on('dialog', async function (dialog) {
     try { await dialog.accept() } catch { /* ignore */ }
   })
-  var result = await page.evaluate(function () {
+  var result = await page.evaluate(async function () {
     var modals = document.querySelectorAll('simple-modal')
     for (var i = 0; i < modals.length; i++) {
       var d = modals[i].querySelector('haxcms-outline-editor-dialog')
       if (d && d.shadowRoot) {
+        // inside the admin shell (haxcms-site-admin) Save lives in the
+        // shell's footer and enables once the outline has a change
+        var shell = d.parentNode
+        if (shell && shell.tagName && shell.tagName.toLowerCase() === 'haxcms-site-admin' && shell.shadowRoot) {
+          for (var w = 0; w < 30; w++) {
+            var shellSave = shell.shadowRoot.querySelector('.ftr button.save')
+            if (shellSave && !shellSave.disabled) {
+              shellSave.click()
+              return { clicked: true, shell: true }
+            }
+            await new Promise(function (r) { setTimeout(r, 100) })
+          }
+          return { error: 'shell Save stayed disabled' }
+        }
         var saveBtn = d.shadowRoot.querySelector('.hax-modal-btn:not(.import)')
         if (saveBtn) {
           saveBtn.click()
@@ -418,6 +432,16 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
     for (var i = 0; i < modals.length; i++) {
       var d = modals[i].querySelector('haxcms-outline-editor-dialog')
       if (d && d.shadowRoot) {
+        // inside the admin shell, Add page is in the shell's action bar
+        // (it runs the same outline-designer _addTop as the old toolbar)
+        var shell = d.parentNode
+        if (shell && shell.tagName && shell.tagName.toLowerCase() === 'haxcms-site-admin' && shell.shadowRoot) {
+          var shellAdd = shell.shadowRoot.querySelector('button[data-action="add-page"]')
+          if (shellAdd && !shellAdd.disabled) {
+            shellAdd.click()
+            return { clicked: true, shell: true }
+          }
+        }
         var outline = d.shadowRoot.querySelector('#outline')
         if (outline && outline.shadowRoot) {
           var addBtn = outline.shadowRoot.querySelector('simple-toolbar-button[icon="add"]')
@@ -437,7 +461,7 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
 
   var itemsAfterAdd = await getOutlineItems(page)
   t.diagnostic('[outline] items after add: ' + JSON.stringify(itemsAfterAdd))
-  assert.ok(itemsAfterAdd && itemsAfterAdd.length >= 2, 'outline has at least 2 items after add')
+  assert.ok(itemsAfterAdd && itemsAfterAdd.length >= 2, 'outline has at least 2 items after add: ' + JSON.stringify(addResult))
 
   // Save the outline to persist the added page.
   var saveResult = await clickSaveOutline(page, t)

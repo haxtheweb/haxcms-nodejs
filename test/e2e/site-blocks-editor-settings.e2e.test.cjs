@@ -304,7 +304,7 @@ async function readDialogSelect(dialogHandle, selector) {
 // Toggle a checkbox by id inside a dialog shadowRoot. Returns the new checked state.
 // Uses recursive shadow walk to find the checkbox even if nested.
 async function toggleDialogCheckbox(dialogHandle, checkboxId) {
-  return dialogHandle.evaluate((el, cbId) => {
+  return dialogHandle.evaluate(async (el, cbId) => {
     if (!el || !el.shadowRoot) {
       return { error: "no shadowRoot" };
     }
@@ -324,6 +324,15 @@ async function toggleDialogCheckbox(dialogHandle, checkboxId) {
     var cb = findInShadowRoot(el.shadowRoot, "#" + cbId);
     if (!cb) {
       return { error: "checkbox not found: " + cbId };
+    }
+    // the Blocks list renders each block as a switch button
+    // (role="switch", aria-checked) that toggles on click
+    if (cb.getAttribute("role") === "switch") {
+      cb.click();
+      if (el.updateComplete) {
+        await el.updateComplete;
+      }
+      return { ok: true, checked: cb.getAttribute("aria-checked") === "true" };
     }
     cb.checked = !cb.checked;
     cb.dispatchEvent(new Event("input", { bubbles: true }));
@@ -355,6 +364,9 @@ async function readDialogCheckbox(dialogHandle, checkboxId) {
     var cb = findInShadowRoot(el.shadowRoot, "#" + cbId);
     if (!cb) {
       return null;
+    }
+    if (cb.getAttribute("role") === "switch") {
+      return cb.getAttribute("aria-checked") === "true";
     }
     return cb.checked;
   }, checkboxId);
@@ -644,7 +656,11 @@ test(
       var preferred = root.querySelector("#" + prefix + "video-player");
       if (preferred && !preferred.disabled) return preferred.id;
       var any = root.querySelector(
-        'input[type="checkbox"][id^="' + prefix + '"]:not([disabled])',
+        'input[type="checkbox"][id^="' +
+          prefix +
+          '"]:not([disabled]), [role="switch"][id^="' +
+          prefix +
+          '"]:not([disabled])',
       );
       return any ? any.id : prefix + "video-player";
     }, selectors.siteSettings.blocksCheckboxPrefix);
@@ -689,7 +705,7 @@ test(
     const blocksSaveResult = await clickDialogSave(blocksDialog);
     assert.ok(
       blocksSaveResult && blocksSaveResult.clicked,
-      "Blocks Save clicked",
+      "Blocks Save clicked: " + JSON.stringify(blocksSaveResult),
     );
 
     // Confirm the PATCH request was fired by the UI (request watcher).
