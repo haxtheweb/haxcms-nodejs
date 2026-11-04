@@ -55,11 +55,21 @@ async function launchBrowser(opts) {
   return browser;
 }
 
+// Pin the color scheme: without this, screenshots follow the machine's OS
+// theme, so baselines captured on a dark-mode desktop never match CI. Call it
+// on any page not made by newPage() (e.g. ctx.newPage() in an isolated context).
+async function pinColorScheme(page, colorScheme) {
+  await page.emulateMediaFeatures([
+    { name: "prefers-color-scheme", value: colorScheme || "light" },
+  ]);
+}
+
 // Create a page with the fixed E2E viewport.
 async function newPage(browser, opts) {
   opts = opts || {};
   const page = await browser.newPage();
   await page.setViewport(opts.viewport || DEFAULT_VIEWPORT);
+  await pinColorScheme(page, opts.colorScheme);
   // Capture console + pageerrors so test failures surface useful context.
   page.on("console", (msg) => {
     if (msg.type() === "error") {
@@ -95,15 +105,20 @@ function createResponseCollector(page, opts) {
       return;
     }
     let bodyText = "";
+    // true when the browser discarded the body before we could read it, which
+    // happens when the response triggers a navigation/reload (e.g. logout)
+    let bodyUnavailable = false;
     try {
       bodyText = await response.text();
     } catch {
       bodyText = "";
+      bodyUnavailable = true;
     }
     const record = {
       url,
       status: response.status(),
       bodyText,
+      bodyUnavailable,
       timestamp: Date.now(),
     };
     responses.push(record);
@@ -169,5 +184,6 @@ module.exports = {
   launchBrowser,
   newPage,
   createResponseCollector,
+  pinColorScheme,
   DEFAULT_VIEWPORT,
 };

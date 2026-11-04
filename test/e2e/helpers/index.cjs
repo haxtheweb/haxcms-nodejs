@@ -20,6 +20,7 @@ module.exports = {
   launchBrowser: browser.launchBrowser,
   newPage: browser.newPage,
   createResponseCollector: browser.createResponseCollector,
+  pinColorScheme: browser.pinColorScheme,
   DEFAULT_VIEWPORT: browser.DEFAULT_VIEWPORT,
   // axe
   runA11y: axe.runA11y,

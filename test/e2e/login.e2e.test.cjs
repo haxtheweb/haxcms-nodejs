@@ -40,6 +40,7 @@ const {
   E2E_USER_NAME,
   E2E_USER_PASSWORD,
   DEFAULT_VIEWPORT,
+  pinColorScheme,
   // flows helpers (single source of truth in helpers/flows.cjs)
   waitForLoginModal,
   getLoginElement,
@@ -295,6 +296,7 @@ test("login e2e: dashboard auth flow", async (t) => {
       try {
         negPage = await ctx.newPage();
         await negPage.setViewport(DEFAULT_VIEWPORT);
+        await pinColorScheme(negPage);
         negCollector = createResponseCollector(negPage);
         await negPage.goto(runtime.baseUrl, {
           waitUntil: "networkidle2",

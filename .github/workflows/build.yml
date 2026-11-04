@@ -123,3 +123,15 @@ jobs:
         # the harness auto-detects (src/lib/convertUtils.js findChromeExecutable).
         # Override with PUPPETEER_EXECUTABLE_PATH if the default is unavailable.
         run: npm run test:e2e
+      - name: Upload e2e screenshots
+        # The .current.png/.diff.png files this run rendered, so a visual
+        # regression can be inspected (and CI-rendered baselines refreshed).
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-screenshots-node-${{ matrix.node-version }}
+          path: |
+            test/e2e/__screenshots__/*.current.png
+            test/e2e/__screenshots__/*.diff.png
+          if-no-files-found: ignore
+          retention-days: 14
