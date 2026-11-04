@@ -1923,6 +1923,71 @@ systemStructureContext().then((site) => {
     }
   }
   assertSiteApiMutationRoutesAreSecured(siteRouteRegistry);
+  // DRAFT plugin platform (https://github.com/haxtheweb/haxcms-plugin-examples/pull/1): plugin operations under
+  // x/api/v1/plugins/<id>/ and system/api/v1/plugins/<id>/. The engine enforces each operation's declared security
+  // from the credentials resolved here.
+  if (process.env.HAXCMS_PLUGINS !== "off") {
+    const { mountPluginRoutes } = require("./lib/plugins/pluginRoutes.js");
+    const {
+      resolveSiteForRequest: resolvePluginSite,
+    } = require("./siteRoutes/v1/siteRouteUtils.js");
+    // plugin operations may declare form-encoded bodies (OAuth token and revocation endpoints, RFC 6749)
+    app.use(`${HAXCMS.basePath || "/"}x/api/v1/plugins/`, formBodyParser);
+    app.use(
+      `${HAXCMS.basePath || "/"}${HAXCMS.sitesDirectory}/`,
+      (req, res, next) =>
+        req.path.indexOf("/x/api/v1/plugins/") !== -1
+          ? formBodyParser(req, res, next)
+          : next(),
+    );
+    app.use(`${HAXCMS.basePath || "/"}system/api/v1/plugins`, formBodyParser);
+    mountPluginRoutes(app, {
+      basePath: HAXCMS.basePath || "/",
+      sitesDirectory: HAXCMS.sitesDirectory,
+      resolveSite: (req) => resolvePluginSite(req),
+      // TODO(draft): system-scope plugins (oauth's well-known metadata) run on a site's engine because the draft
+      // keeps one engine per site; a system-level engine is an open item (spec/13 section 9).
+      anySite: async () => {
+        const dir = path.join(HAXCMS.HAXCMS_ROOT, HAXCMS.sitesDirectory);
+        const names = fs.existsSync(dir)
+          ? fs
+              .readdirSync(dir)
+              .filter((n) => fs.existsSync(path.join(dir, n, "site.json")))
+              .sort()
+          : [];
+        return names.length ? HAXCMS.loadSite(names[0]) : null;
+      },
+      resolveAuth: (req, site) => {
+        const cli = HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS;
+        const jwt = getBearerJwtFromRequest(req);
+        const userName = cli
+          ? "admin"
+          : jwt && HAXCMS.validateJWT(req, null)
+            ? getAuthenticatedUserNameFromBearerJwt(jwt)
+            : "";
+        const userToken = getRequestHeaderValue(req, "x-haxcms-user-token");
+        const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+        return {
+          userName,
+          jwt: cli || userName !== "",
+          userToken:
+            cli ||
+            (userToken !== "" &&
+              userName !== "" &&
+              HAXCMS.validateRequestToken(userToken, userName)),
+          siteToken:
+            cli ||
+            (siteToken !== "" &&
+              userName !== "" &&
+              !!site &&
+              HAXCMS.validateRequestToken(
+                siteToken,
+                `${userName}:${site.manifest.metadata.site.name}`,
+              )),
+        };
+      },
+    });
+  }
   // D60: 405+Allow dispatch for system and site API routes. After all routes
   // are registered, add a catch-all that checks if the request path matches a
   // registered route for a different method and returns 405 + Allow header.
