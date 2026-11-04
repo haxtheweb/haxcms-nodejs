@@ -34,6 +34,7 @@ const {
   teardownE2ERuntime,
   launchBrowser,
   newPage,
+  pinColorScheme,
   createResponseCollector,
   captureScreenshot,
   FIXED_SITE_NAME,
@@ -221,6 +222,7 @@ test('access-control e2e: anonymous vs authenticated site access', { timeout: 24
         anonPage = await browser.newPage()
       }
       await anonPage.setViewport({ width: 1280, height: 800 })
+      await pinColorScheme(anonPage)
       anonWatcher = createStatusWatcher(anonPage)
 
       // Navigate to the site editor URL with NO login.
