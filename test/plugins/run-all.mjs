@@ -13,21 +13,44 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
-const spec = dirname(require.resolve("@haxtheweb/haxcms-plugin-spec/package.json"));
+const spec = dirname(
+  require.resolve("@haxtheweb/haxcms-plugin-spec/package.json"),
+);
 const adapter = join(here, "haxcms-adapter.mjs");
 const only = process.argv[2];
-const env = { ...process.env, HAXCMS_ROOT: process.env.HAXCMS_ROOT || mkdtempSync(join(tmpdir(), "haxcms-plugin-cases-")) + "/" };
-const run = (args) => spawnSync(process.execPath, args, { stdio: "inherit", env }).status === 0;
+const env = {
+  ...process.env,
+  HAXCMS_ROOT:
+    process.env.HAXCMS_ROOT ||
+    mkdtempSync(join(tmpdir(), "haxcms-plugin-cases-")) + "/",
+};
+const run = (args) =>
+  spawnSync(process.execPath, args, { stdio: "inherit", env }).status === 0;
 
 let failed = [];
-if (!only && !run([join(spec, "conformance", "run.mjs"), "--backend", adapter])) failed.push("conformance");
+if (!only && !run([join(spec, "conformance", "run.mjs"), "--backend", adapter]))
+  failed.push("conformance");
 for (const tier of ["core-plugins", "contrib-plugins"]) {
   for (const name of readdirSync(join(spec, tier)).sort()) {
     const dir = join(spec, tier, name);
     if (only && name !== only) continue;
     if (!existsSync(join(dir, "tests"))) continue;
-    if (!run([join(spec, "harness", "run-cases.mjs"), dir, "--runtime", "nodejs", "--backend", adapter])) failed.push(name);
+    if (
+      !run([
+        join(spec, "harness", "run-cases.mjs"),
+        dir,
+        "--runtime",
+        "nodejs",
+        "--backend",
+        adapter,
+      ])
+    )
+      failed.push(name);
   }
 }
-console.log(failed.length ? `\nfailed: ${failed.join(", ")}` : "\nall plugin cases pass against HAXcms storage");
+console.log(
+  failed.length
+    ? `\nfailed: ${failed.join(", ")}`
+    : "\nall plugin cases pass against HAXcms storage",
+);
 process.exit(failed.length ? 1 : 0);

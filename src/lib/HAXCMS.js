@@ -1745,7 +1745,10 @@ class HAXCMSSite {
     if (process.env.HAXCMS_PLUGINS !== "off" && !this.__pluginRebuilding) {
       this.__pluginRebuilding = true;
       try {
-        await require("./plugins/pluginSystem.js").rebuild(this, format || "save");
+        await require("./plugins/pluginSystem.js").rebuild(
+          this,
+          format || "save",
+        );
       } catch {
         // logged by the plugin engine; core keeps going
       } finally {

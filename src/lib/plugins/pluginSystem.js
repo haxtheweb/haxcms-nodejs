@@ -40,7 +40,9 @@ function listPluginDirs(dir) {
 
 function specRoot() {
   try {
-    return path.dirname(require.resolve("@haxtheweb/haxcms-plugin-spec/package.json"));
+    return path.dirname(
+      require.resolve("@haxtheweb/haxcms-plugin-spec/package.json"),
+    );
   } catch {
     return null;
   }
@@ -81,7 +83,9 @@ function pluginDirsFor(site, root) {
   for (const d of listPluginDirs(path.join(root, "_config", "plugins"))) {
     out.push({ path: d, tier: "system" });
   }
-  for (const d of String(process.env.HAXCMS_PLUGIN_DIRS || "").split(path.delimiter).filter(Boolean)) {
+  for (const d of String(process.env.HAXCMS_PLUGIN_DIRS || "")
+    .split(path.delimiter)
+    .filter(Boolean)) {
     if (fs.existsSync(path.join(d, "plugin.yaml"))) {
       out.push({ path: d, tier: "system" });
     } else {
@@ -91,7 +95,9 @@ function pluginDirsFor(site, root) {
     }
   }
   if (site && site.siteDirectory) {
-    for (const d of listPluginDirs(path.join(site.siteDirectory, "_config", "plugins"))) {
+    for (const d of listPluginDirs(
+      path.join(site.siteDirectory, "_config", "plugins"),
+    )) {
       out.push({ path: d, tier: "site" });
     }
   }
@@ -107,9 +113,53 @@ async function engine() {
 
 function haxcmsVersion() {
   if (!state.version) {
-    state.version = readJson(path.join(__dirname, "..", "..", "..", "package.json"), {}).version || "0.0.0";
+    state.version =
+      readJson(path.join(__dirname, "..", "..", "..", "package.json"), {})
+        .version || "0.0.0";
   }
   return state.version;
+}
+
+/**
+ * Saved plugin settings (spec/13): schema defaults (the engine adds those), then
+ * <HAXCMS_ROOT>/_config/plugins/config/<id>.json, then <site>/_config/plugins/config/<id>.json (site wins).
+ * TODO(draft): secret settings (_config/plugins/secrets/<id>.json) are not read yet.
+ */
+function pluginSettings(dirs, site, root) {
+  const out = {};
+  for (const d of dirs) {
+    let manifest = "";
+    try {
+      manifest = fs.readFileSync(path.join(d.path, "plugin.yaml"), "utf8");
+    } catch {
+      continue;
+    }
+    const id = (/^id:\s*(\S+)/m.exec(manifest) || [])[1];
+    if (!id) {
+      continue;
+    }
+    const system = readJson(
+      path.join(root, "_config", "plugins", "config", `${id}.json`),
+      {},
+    );
+    const local =
+      site && site.siteDirectory
+        ? readJson(
+            path.join(
+              site.siteDirectory,
+              "_config",
+              "plugins",
+              "config",
+              `${id}.json`,
+            ),
+            {},
+          )
+        : {};
+    if (Object.keys(system).length || Object.keys(local).length) {
+      out[id] = { ...system, ...local };
+    }
+  }
+  return out;
 }
 
 /**
@@ -124,9 +174,19 @@ async function host(site, { root, user = null } = {}) {
   if (!h) {
     const { HaxcmsPluginHost } = await engine();
     const haxRoot = root || process.env.HAXCMS_ROOT || process.cwd();
-    h = new HaxcmsPluginHost({ site, root: haxRoot, version: haxcmsVersion(), user, liveNetwork: true });
+    h = new HaxcmsPluginHost({
+      site,
+      root: haxRoot,
+      version: haxcmsVersion(),
+      user,
+      liveNetwork: true,
+    });
     const { dirs, cfg } = pluginDirsFor(site, haxRoot);
-    await h.load(dirs, { disabled: cfg.disabled, blocked: cfg.blocked });
+    await h.load(dirs, {
+      disabled: cfg.disabled,
+      blocked: cfg.blocked,
+      settings: pluginSettings(dirs, site, haxRoot),
+    });
     state.hosts.set(key, h);
   }
   // core reloads the site per request; keep the engine's view of site.json and pages current
@@ -151,10 +211,20 @@ async function before(site, type, record, previous, opts = {}) {
     return { record, veto: null, warnings: [] };
   }
   const op = opts.delete ? "delete" : previous ? "update" : "create";
-  const r = await h.fire(`entity.before.${op}`, record, { entity: type, previous });
+  const r = await h.fire(`entity.before.${op}`, record, {
+    entity: type,
+    previous,
+  });
   // fields under metadata.plugins.<id> must be declared by that plugin (spec/04); others are dropped with a warning
-  const warnings = [...(r.warnings || []), ...(!r.veto && !opts.delete ? h.checkPluginMetadata(type, r.subject) : [])];
-  return { record: opts.delete ? record : r.subject, veto: r.veto || null, warnings };
+  const warnings = [
+    ...(r.warnings || []),
+    ...(!r.veto && !opts.delete ? h.checkPluginMetadata(type, r.subject) : []),
+  ];
+  return {
+    record: opts.delete ? record : r.subject,
+    veto: r.veto || null,
+    warnings,
+  };
 }
 
 /** Fire the after hooks once core has written (or deleted) the record. */
@@ -164,7 +234,10 @@ async function after(site, type, record, previous, opts = {}) {
     return { warnings: [] };
   }
   const op = opts.delete ? "delete" : previous ? "update" : "create";
-  const r = await h.fire(`entity.after.${op}`, record, { entity: type, previous });
+  const r = await h.fire(`entity.after.${op}`, record, {
+    entity: type,
+    previous,
+  });
   return { warnings: r.warnings || [] };
 }
 
@@ -174,4 +247,12 @@ async function rebuild(site, reason = "save", opts = {}) {
   return h ? h.rebuild(reason) : null;
 }
 
-module.exports = { host, reset, before, after, rebuild, pluginDirsFor, deploymentConfig };
+module.exports = {
+  host,
+  reset,
+  before,
+  after,
+  rebuild,
+  pluginDirsFor,
+  deploymentConfig,
+};

@@ -11,19 +11,28 @@ import { HaxcmsPluginHost } from "../../src/lib/plugins/HaxcmsPluginHost.mjs";
 
 const require = createRequire(import.meta.url);
 // HAXcms reads HAXCMS_ROOT when HAXCMS.js loads; default to a fresh temp folder
-if (!process.env.HAXCMS_ROOT) process.env.HAXCMS_ROOT = mkdtempSync(join(tmpdir(), "haxcms-plugin-cases-")) + "/";
+if (!process.env.HAXCMS_ROOT)
+  process.env.HAXCMS_ROOT =
+    mkdtempSync(join(tmpdir(), "haxcms-plugin-cases-")) + "/";
 const { HAXCMS } = require("../../src/lib/HAXCMS.js");
 let n = 0;
 
 export async function createBackend(opts = {}) {
   const site = await HAXCMS.loadSite(`conformance-${process.pid}-${++n}`, true);
-  if (!site || !site.manifest) throw new Error("could not create a HAXcms site for the case");
+  if (!site || !site.manifest)
+    throw new Error("could not create a HAXcms site for the case");
   // start each case from an empty outline, as the reference does
   site.manifest.items = [];
   await site.manifest.save(false);
   // system and siteData stores are shared across sites, so each case gets its own store root and starts empty
   const storeRoot = mkdtempSync(join(tmpdir(), "plugin-stores-"));
-  const host = new HaxcmsPluginHost({ site, root: storeRoot, version: opts.haxcmsVersion || "26.10.1", ...(opts.user !== undefined ? { user: opts.user } : {}), ...(opts.hookTimeout ? { hookTimeout: opts.hookTimeout } : {}) });
+  const host = new HaxcmsPluginHost({
+    site,
+    root: storeRoot,
+    version: opts.haxcmsVersion || "26.10.1",
+    ...(opts.user !== undefined ? { user: opts.user } : {}),
+    ...(opts.hookTimeout ? { hookTimeout: opts.hookTimeout } : {}),
+  });
   // the reference's frozen clock, so time-based cases mean the same thing (a case's run.now overrides it)
   host.now = Date.parse("2026-01-01T00:00:00Z");
   return host;

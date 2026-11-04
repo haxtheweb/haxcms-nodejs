@@ -500,11 +500,29 @@ async function saveManifest(req, res) {
       let pluginSitePrevious = null;
       if (process.env.HAXCMS_PLUGINS !== "off") {
         const stored = await HAXCMS.loadSite(req.body["site"]["name"]);
-        pluginSitePrevious = { id: stored.manifest.id, title: stored.manifest.title, description: stored.manifest.description, metadata: JSON.parse(JSON.stringify(stored.manifest.metadata || {})) };
-        const proposed = { id: site.manifest.id, title: site.manifest.title, description: site.manifest.description, metadata: JSON.parse(JSON.stringify(site.manifest.metadata || {})) };
-        const pre = await pluginSystem.before(site, "site", proposed, pluginSitePrevious);
+        pluginSitePrevious = {
+          id: stored.manifest.id,
+          title: stored.manifest.title,
+          description: stored.manifest.description,
+          metadata: JSON.parse(JSON.stringify(stored.manifest.metadata || {})),
+        };
+        const proposed = {
+          id: site.manifest.id,
+          title: site.manifest.title,
+          description: site.manifest.description,
+          metadata: JSON.parse(JSON.stringify(site.manifest.metadata || {})),
+        };
+        const pre = await pluginSystem.before(
+          site,
+          "site",
+          proposed,
+          pluginSitePrevious,
+        );
         if (pre.veto) {
-          return res.status(pre.veto.status || 409).json({ status: pre.veto.status || 409, data: { message: pre.veto.message, plugin: pre.veto.plugin } });
+          return res.status(pre.veto.status || 409).json({
+            status: pre.veto.status || 409,
+            data: { message: pre.veto.message, plugin: pre.veto.plugin },
+          });
         }
         pluginSiteRecord = pre.record;
         if (pluginSiteRecord.metadata && pluginSiteRecord.metadata.plugins) {
@@ -515,7 +533,12 @@ async function saveManifest(req, res) {
       await site.manifest.save(false);
       await site.gitCommit("Manifest updated");
       if (pluginSiteRecord) {
-        await pluginSystem.after(site, "site", pluginSiteRecord, pluginSitePrevious);
+        await pluginSystem.after(
+          site,
+          "site",
+          pluginSiteRecord,
+          pluginSitePrevious,
+        );
       }
       // rebuild the files that twig processes
       await site.rebuildManagedFiles();

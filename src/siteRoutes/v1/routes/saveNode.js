@@ -196,15 +196,48 @@ async function saveNode(req, res) {
           let pluginPrevious = null;
           let pluginRecord = null;
           if (pluginsOn()) {
-            pluginPrevious = { ...JSON.parse(JSON.stringify(page)), content: (typeof site.getPageContent === "function" ? await site.getPageContent(page) : "") || "" };
-            const proposed = { ...JSON.parse(JSON.stringify(page)), title: data["attributes"]["title"] ? toPlainText(data["attributes"]["title"]) : page.title, content: sanitizedContent };
-            const pre = await pluginSystem.before(site, "page", proposed, pluginPrevious, { user: activeUserName ? { id: activeUserName, name: activeUserName, displayName: activeUserName, roles: ["admin"], avatar: null } : null });
+            pluginPrevious = {
+              ...JSON.parse(JSON.stringify(page)),
+              content:
+                (typeof site.getPageContent === "function"
+                  ? await site.getPageContent(page)
+                  : "") || "",
+            };
+            const proposed = {
+              ...JSON.parse(JSON.stringify(page)),
+              title: data["attributes"]["title"]
+                ? toPlainText(data["attributes"]["title"])
+                : page.title,
+              content: sanitizedContent,
+            };
+            const pre = await pluginSystem.before(
+              site,
+              "page",
+              proposed,
+              pluginPrevious,
+              {
+                user: activeUserName
+                  ? {
+                      id: activeUserName,
+                      name: activeUserName,
+                      displayName: activeUserName,
+                      roles: ["admin"],
+                      avatar: null,
+                    }
+                  : null,
+              },
+            );
             if (pre.veto) {
-              return res.status(pre.veto.status || 409).json({ status: pre.veto.status || 409, data: { message: pre.veto.message, plugin: pre.veto.plugin } });
+              return res.status(pre.veto.status || 409).json({
+                status: pre.veto.status || 409,
+                data: { message: pre.veto.message, plugin: pre.veto.plugin },
+              });
             }
             pluginRecord = pre.record;
             // core sanitizes whatever plugins hand back, as it does for authors
-            sanitizedContent = sanitizeHTMLForStorage(String(pluginRecord.content ?? sanitizedContent));
+            sanitizedContent = sanitizeHTMLForStorage(
+              String(pluginRecord.content ?? sanitizedContent),
+            );
           }
           // @todo make sure that we stripped off page-break
           // and now save WITHOUT the top level page-break
@@ -520,7 +553,11 @@ async function saveNode(req, res) {
               sanitizedContent,
             );
             // DRAFT plugin platform: keep the plugin-owned fields the before hooks set (core drops undeclared ones)
-            if (pluginRecord && pluginRecord.metadata && pluginRecord.metadata.plugins) {
+            if (
+              pluginRecord &&
+              pluginRecord.metadata &&
+              pluginRecord.metadata.plugins
+            ) {
               page.metadata.plugins = pluginRecord.metadata.plugins;
             }
             await site.updateNode(page);
@@ -531,7 +568,15 @@ async function saveNode(req, res) {
               "Page details updated: " + page.title + " (" + page.id + ")",
             );
             if (pluginsOn()) {
-              await pluginSystem.after(site, "page", { ...JSON.parse(JSON.stringify(page)), content: sanitizedContent }, pluginPrevious);
+              await pluginSystem.after(
+                site,
+                "page",
+                {
+                  ...JSON.parse(JSON.stringify(page)),
+                  content: sanitizedContent,
+                },
+                pluginPrevious,
+              );
             }
           }
         }

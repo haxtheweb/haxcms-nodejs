@@ -61,9 +61,18 @@ async function deleteNode(req, res) {
     if ((page = site.loadNode(req.body["node"]["id"]))) {
       const pluginRecord = JSON.parse(JSON.stringify(page));
       if (process.env.HAXCMS_PLUGINS !== "off") {
-        const pre = await pluginSystem.before(site, "page", pluginRecord, null, { delete: true });
+        const pre = await pluginSystem.before(
+          site,
+          "page",
+          pluginRecord,
+          null,
+          { delete: true },
+        );
         if (pre.veto) {
-          return res.status(pre.veto.status || 409).json({ status: pre.veto.status || 409, data: { message: pre.veto.message, plugin: pre.veto.plugin } });
+          return res.status(pre.veto.status || 409).json({
+            status: pre.veto.status || 409,
+            data: { message: pre.veto.message, plugin: pre.veto.plugin },
+          });
         }
       }
       if ((await site.deleteNode(page)) === false) {
@@ -93,7 +102,9 @@ async function deleteNode(req, res) {
           "Page deleted: " + page.title + " (" + page.id + ")",
         );
         if (process.env.HAXCMS_PLUGINS !== "off") {
-          await pluginSystem.after(site, "page", pluginRecord, null, { delete: true });
+          await pluginSystem.after(site, "page", pluginRecord, null, {
+            delete: true,
+          });
         }
         res.send({
           status: 200,
