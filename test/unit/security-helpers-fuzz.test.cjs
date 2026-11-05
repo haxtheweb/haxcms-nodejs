@@ -17,7 +17,27 @@ const {
 const { urlHostMatches } = require("../../src/lib/urlHost.js");
 const { sanitizeUntrustedHtml } = require("../../src/lib/convertUtils.js");
 
-const RUNS = { numRuns: 300 };
+// Every property used to draw a fresh random seed on every run. That found
+// real bugs (see the pinned counterexamples below), but each one surfaced on
+// whichever unrelated PR happened to draw it, so it read as a flake.
+//
+//   npm test           fixed seed: the same inputs on every run, so a red
+//                      fuzz test means the change under test broke something
+//   npm run test:fuzz  random seed and 20x the runs, to hunt for new bugs;
+//                      a failure prints { seed, path } and the counterexample
+//   HAXCMS_FUZZ_SEED=<seed> HAXCMS_FUZZ_PATH=<path> npm run test:unit
+//                      replays exactly that failure
+//
+// When a hunt finds something, fix it and add the counterexample to the
+// `examples` of that property so the default run guards it from then on.
+const FUZZ_SEED = process.env.HAXCMS_FUZZ_SEED || "20261105";
+const RUNS = {
+  numRuns: Number(process.env.HAXCMS_FUZZ_RUNS) || 300,
+  ...(FUZZ_SEED === "random" ? {} : { seed: Number(FUZZ_SEED) }),
+  ...(process.env.HAXCMS_FUZZ_PATH
+    ? { path: process.env.HAXCMS_FUZZ_PATH }
+    : {}),
+};
 
 // path-ish strings biased toward traversal tricks
 const pathToken = fc.constantFrom(
@@ -51,7 +71,13 @@ test("hasTraversal / isUnsafeRelativePath flag every '..' segment and NUL", () =
         assert.strictEqual(isUnsafeRelativePath(value), true);
       },
     ),
-    RUNS,
+    {
+      ...RUNS,
+      // found by random-seed CI runs Oct 20-29 2026 (seeds -1030828196,
+      // -1780921825, 1091170651, -126730232, -2081455447, 1080532862):
+      // "A://.." (drive-like first segment, empty segment, then ..)
+      examples: [[["A:", ""], "/", []]],
+    },
   );
   fc.assert(
     fc.property(fc.string(), fc.string(), (a, b) => {
@@ -157,15 +183,20 @@ const htmlToken = fc.constantFrom(
   "\0",
 );
 
-test("sanitizeUntrustedHtml never throws and strips active content", () => {
-  fc.assert(
-    fc.property(
+test("sanitizeUntrustedHtml never throws and strips active content", async () => {
+  // async property: jsdom only frees a closed window once the event loop
+  // turns, so thousands of synchronous calls (npm run test:fuzz) piled up
+  // ~0.5 MB each until the process ran out of memory. The server never does
+  // this (every route awaits I/O between sanitize calls).
+  await fc.assert(
+    fc.asyncProperty(
       fc.oneof(
         fc.array(htmlToken, { maxLength: 8 }).map((t) => t.join("")),
         fc.string(),
         fc.string({ unit: "binary" }),
       ),
-      (html) => {
+      async (html) => {
+        await new Promise((resolve) => setImmediate(resolve));
         const out = sanitizeUntrustedHtml(html);
         assert.strictEqual(typeof out, "string");
         assert.ok(!/<\s*script/i.test(out), `script survived: ${out}`);
@@ -180,7 +211,18 @@ test("sanitizeUntrustedHtml never throws and strips active content", () => {
         );
       },
     ),
-    RUNS,
+    {
+      ...RUNS,
+      // found by random-seed CI runs (seeds -1671283223, -1543842044)
+      examples: [
+        [
+          "<scr<script>ipt>alert(1)</scr</script>ipt><iframe src=//evil.example></iframe><svg onload=alert(1)><iframe src=//evil.example></iframe>",
+        ],
+        [
+          "<svg onload=alert(1)><iframe src=//evil.example></iframe><p><iframe src=//evil.example></iframe>",
+        ],
+      ],
+    },
   );
 });
 

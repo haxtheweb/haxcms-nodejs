@@ -375,9 +375,12 @@ describe('files routes — latent behaviors', () => {
     const truncatedPath = path.join(filesDir, 'truncated.jpg')
     // a noise jpeg is large enough that cutting half the bytes keeps the
     // header (metadata() parses) but breaks the scan data (decode fails)
+    // deterministic noise (LCG) so this test sees the same bytes every run
     const noise = Buffer.alloc(120 * 120 * 3)
+    let state = 0x2f6b
     for (let i = 0; i < noise.length; i++) {
-      noise[i] = Math.floor(Math.random() * 256)
+      state = (Math.imul(state, 1103515245) + 12345) >>> 0
+      noise[i] = state >>> 24
     }
     await sharp(noise, { raw: { width: 120, height: 120, channels: 3 } })
       .jpeg()
