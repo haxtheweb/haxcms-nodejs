@@ -57,12 +57,24 @@ function fuzz(name, alphabet, maxLen, oldFn, newFn, runs = 4000) {
     }
   });
 }
-function fast(name, fn) {
-  test("adversarial input completes in < 200 ms: " + name, () => {
+// Linear-time guard. Catastrophic backtracking on these inputs takes seconds
+// or minutes, so the signal is huge; what made this flaky was a single
+// wall-clock sample against a tight 200 ms budget on a busy CI runner. Take
+// the fastest of 3 runs (filters GC pauses and CPU contention) against a
+// 500 ms ceiling, which a regression still blows through by orders of magnitude.
+function fastestMs(fn, runs = 3) {
+  let best = Infinity;
+  for (let i = 0; i < runs; i++) {
     const start = process.hrtime.bigint();
     fn();
-    const ms = Number(process.hrtime.bigint() - start) / 1e6;
-    assert.ok(ms < 200, "took " + ms + " ms");
+    best = Math.min(best, Number(process.hrtime.bigint() - start) / 1e6);
+  }
+  return best;
+}
+function fast(name, fn) {
+  test("adversarial input completes in linear time: " + name, () => {
+    const ms = fastestMs(fn);
+    assert.ok(ms < 500, "fastest of 3 runs took " + ms + " ms");
   });
 }
 

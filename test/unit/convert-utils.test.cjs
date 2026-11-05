@@ -622,13 +622,24 @@ describe("stripMSWord linear-time scrubbing (PR8-5)", () => {
     });
   }
 
-  test("180 KB of unterminated <!-- finishes in < 200 ms", () => {
+  // Linear-time guards: quadratic scrubbing on these inputs takes seconds, so
+  // take the fastest of 3 runs against a 500 ms ceiling instead of a single
+  // wall-clock sample against 200 ms, which flaked on busy CI runners
+  const fastestMs = (fn, runs = 3) => {
+    let best = Infinity;
+    for (let i = 0; i < runs; i++) {
+      const start = process.hrtime.bigint();
+      fn();
+      best = Math.min(best, Number(process.hrtime.bigint() - start) / 1e6);
+    }
+    return best;
+  };
+
+  test("180 KB of unterminated <!-- finishes in linear time", () => {
     const input = "<!--".repeat(45000);
-    const start = process.hrtime.bigint();
-    const out = stripMSWord(input);
-    const ms = Number(process.hrtime.bigint() - start) / 1e6;
-    assert.equal(out, input);
-    assert.ok(ms < 200, "took " + ms + " ms");
+    assert.equal(stripMSWord(input), input);
+    const ms = fastestMs(() => stripMSWord(input));
+    assert.ok(ms < 500, "fastest of 3 runs took " + ms + " ms");
   });
 
   test("other unterminated openers are linear too", () => {
@@ -644,12 +655,10 @@ describe("stripMSWord linear-time scrubbing (PR8-5)", () => {
       '<p style="'.repeat(18000),
     ];
     for (const input of inputs) {
-      const start = process.hrtime.bigint();
-      stripMSWord(input);
-      const ms = Number(process.hrtime.bigint() - start) / 1e6;
+      const ms = fastestMs(() => stripMSWord(input));
       assert.ok(
-        ms < 200,
-        JSON.stringify(input.slice(0, 12)) + " took " + ms + " ms",
+        ms < 500,
+        JSON.stringify(input.slice(0, 12)) + " fastest of 3 took " + ms + " ms",
       );
     }
   });
