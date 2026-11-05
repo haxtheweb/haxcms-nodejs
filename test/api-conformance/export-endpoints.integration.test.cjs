@@ -93,10 +93,18 @@ async function sendHttpRequest(requestConfig) {
     responseType: requestConfig.responseType || 'text',
     transformResponse: [(data) => data],
   })
+  let bodyText = ''
+  if (typeof response.data === 'string') {
+    bodyText = response.data
+  } else if (response.status >= 400 && response.data) {
+    // binary (arraybuffer) requests still get a JSON error body on failure;
+    // decode it so assertion messages say why an export failed, not just "502"
+    bodyText = Buffer.from(response.data).toString('utf8')
+  }
   return {
     status: response.status,
     headers: response.headers || {},
-    bodyText: typeof response.data === 'string' ? response.data : '',
+    bodyText,
     data: response.data,
   }
 }
