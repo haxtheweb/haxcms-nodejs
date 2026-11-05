@@ -115,12 +115,30 @@ async function awaitResponseStatus(collector, urlSubstring, status, timeoutMs) {
 // ---------------------------------------------------------------------------
 
 // Poll an async predicate until it returns a truthy value or timeout.
+// A page.evaluate that is in flight while the page navigates (app-hax reloads
+// after login/logout, the editor redirects) rejects with one of these. In a
+// poll that only means "not known yet", so waitFor retries instead of failing
+// the test; any other error still propagates.
+const NAVIGATION_ERROR =
+  /Execution context was destroyed|Cannot find context with specified id|Execution context is not available|detached Frame|frame got detached/i;
+
+function isNavigationError(err) {
+  return !!(err && NAVIGATION_ERROR.test(String(err.message || err)));
+}
+
 async function waitFor(fn, timeoutMs, intervalMs) {
   const interval = intervalMs || 250;
   const start = Date.now();
   let last = null;
   while (Date.now() - start < timeoutMs) {
-    last = await fn();
+    try {
+      last = await fn();
+    } catch (err) {
+      if (!isNavigationError(err)) {
+        throw err;
+      }
+      last = null;
+    }
     if (last) {
       return last;
     }
@@ -1102,6 +1120,53 @@ async function ensureOutlineOpen(page, t) {
   return !!ready;
 }
 
+// ---------------------------------------------------------------------------
+// HAX UI confirm / prompt (haxcms-admin-confirm)
+// ---------------------------------------------------------------------------
+// HAX UI no longer uses the browser's confirm()/prompt(): admin flows (Save
+// Outline with tracked changes, discarding unsaved outline edits, content
+// admin bulk ops) open a <haxcms-admin-confirm> appended to document.body and
+// wait for its OK button. page.on('dialog') never sees it, so a test that
+// only auto-accepted native dialogs waited forever for the request that the
+// click was supposed to send.
+//
+// Waits up to timeoutMs for an open haxcms-admin-confirm, clicks OK (or
+// Cancel when opts.cancel), and returns { title, message, action } — or null
+// when none appeared, so callers can treat "no confirmation needed" (no
+// tracked changes) as a normal outcome.
+async function answerAdminConfirm(page, timeoutMs, opts) {
+  const options = opts || {};
+  const found = await waitFor(
+    async () =>
+      page.evaluate((cancel) => {
+        const els = document.querySelectorAll("haxcms-admin-confirm");
+        for (let i = els.length - 1; i >= 0; i--) {
+          const el = els[i];
+          const root = el.shadowRoot;
+          if (!root) continue;
+          const dialog = root.querySelector("dialog");
+          if (dialog && !dialog.open) continue;
+          const btn = root.querySelector(
+            cancel ? "button.cancel" : "button.ok",
+          );
+          if (!btn || btn.disabled) continue;
+          const title = root.querySelector("#title");
+          const message = root.querySelector("#message");
+          btn.click();
+          return {
+            title: title ? title.textContent.trim() : "",
+            message: message ? message.textContent.trim() : "",
+            action: cancel ? "cancel" : "ok",
+          };
+        }
+        return null;
+      }, !!options.cancel),
+    timeoutMs || 5000,
+    100,
+  );
+  return found || null;
+}
+
 module.exports = {
   // small utils
   findCookie,
@@ -1120,6 +1185,8 @@ module.exports = {
   haxBodyEditModeActive,
   markerInHaxBody,
   clickEditorButtonById,
+  // HAX UI confirm / prompt
+  answerAdminConfirm,
   // login
   getLoginElement,
   waitForLoginModal,

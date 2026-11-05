@@ -83,7 +83,11 @@ async function openCopyConfirmation(page, cardHandle, t) {
         items[i].getAttribute('label') || items[i].label || '',
       ).toLowerCase()
       if (label === 'copy') {
-        items[i].click()
+        // click the inner <button>: simple-toolbar-button does not act on a
+        // host-only click, which forced the slow direct-method fallback
+        const inner = items[i].shadowRoot && items[i].shadowRoot.querySelector('button')
+        if (inner) inner.click()
+        else items[i].click()
         return true
       }
     }

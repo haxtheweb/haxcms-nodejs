@@ -49,6 +49,7 @@ const {
   ensureOutlineOpen,
   safeCompareBaseline,
   clickEditorButtonById,
+  answerAdminConfirm,
 } = require('./helpers')
 
 const SITE_NAME_LOWER = FIXED_SITE_NAME.toLowerCase()
@@ -323,6 +324,14 @@ async function clickSaveOutline(page, t) {
     return { error: 'no Save Outline button' }
   })
   if (t) t.diagnostic('[outline] Save Outline click: ' + JSON.stringify(result))
+  // Save with tracked changes asks for confirmation in the HAX UI confirm
+  // (haxcms-admin-confirm), not the browser's confirm(), so the 'dialog'
+  // handler above never fires; answer it, or the PATCH is never sent
+  if (result && result.clicked) {
+    var confirmed = await answerAdminConfirm(page, 5000)
+    if (t) t.diagnostic('[outline] save confirmation: ' + JSON.stringify(confirmed))
+    result.confirmed = confirmed
+  }
   return result
 }
 
