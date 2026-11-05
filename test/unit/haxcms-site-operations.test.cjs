@@ -1039,6 +1039,56 @@ test("getSiteMetadata renders head tags, structured data, and social metadata", 
   assert.ok(metadata.indexOf("robots") !== -1);
 });
 
+test("getSiteMetadata preloads the active page's HTML, site-relative", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const page = site.manifest.items[0];
+  const metadata = await site.getSiteMetadata(page, "https://unit.example");
+  const expected =
+    '<link rel="preload" href="./' +
+    page.location +
+    '" as="fetch" crossorigin="anonymous" fetchpriority="high" />';
+  assert.ok(metadata.indexOf(expected) !== -1, metadata);
+  // the CDN base is for build assets only; page data stays on the site
+  const viaCdn = await site.getSiteMetadata(
+    page,
+    "https://unit.example",
+    "https://cdn.example/",
+  );
+  assert.ok(viaCdn.indexOf(expected) !== -1);
+  // no page, no page preload
+  const none = await site.getSiteMetadata(null, "https://unit.example");
+  assert.equal(
+    none.indexOf(
+      'as="fetch" crossorigin="anonymous" fetchpriority="high" />\n  <link rel="preload" href="./build',
+    ),
+    -1,
+  );
+  assert.equal(/href="\.\/pages\//.test(none), false);
+});
+
+test("getPreloadablePageLocation only allows plain relative page paths", () => {
+  const { getPreloadablePageLocation } = require("../../src/lib/HAXCMS.js");
+  assert.equal(
+    getPreloadablePageLocation({ location: "pages/a/index.html" }),
+    "pages/a/index.html",
+  );
+  for (const bad of [
+    "",
+    "hax-internal-route.html",
+    "/pages/a/index.html",
+    "https://evil.example/x.html",
+    "pages/../../x.html",
+    "pages\\a\\index.html",
+    "pages/a/index.html?x=1",
+    "pages/a/index.html#x",
+    "pages/a/data.json",
+  ]) {
+    assert.equal(getPreloadablePageLocation({ location: bad }), "", bad);
+  }
+  assert.equal(getPreloadablePageLocation(null), "");
+  assert.equal(getPreloadablePageLocation({ location: 5 }), "");
+});
+
 test("getSiteMetadata renders prev/next links for a middle page", async () => {
   const site = await HAXCMS.loadSite("unit-blog");
   const middle = site.manifest.items[1];

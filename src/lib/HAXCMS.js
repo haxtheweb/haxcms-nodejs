@@ -54,6 +54,32 @@ const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskil
   ForceType text/plain
 </FilesMatch>
 `;
+/**
+ * The site-relative location of a page's HTML when it is safe to emit as a
+ * preload hint, else "". Only plain relative paths are allowed: no scheme,
+ * no leading slash or backslash, no parent-directory segments, no query.
+ * Mirrors HAXCMSSite::getPreloadablePageLocation in haxcms-php.
+ */
+function getPreloadablePageLocation(page) {
+  if (!page || typeof page.location !== "string") {
+    return "";
+  }
+  const location = page.location.trim();
+  if (
+    location === "" ||
+    location === "hax-internal-route.html" ||
+    location.indexOf("://") !== -1 ||
+    location.charAt(0) === "/" ||
+    location.indexOf("\\") !== -1 ||
+    location.indexOf("?") !== -1 ||
+    location.indexOf("#") !== -1 ||
+    hasTraversal(location) ||
+    !/\.html$/i.test(location)
+  ) {
+    return "";
+  }
+  return location;
+}
 // Full HAX agent skill catalog (agentskills.io index) maintained in PRAW.
 // Linked from every site's llms.txt for skills the site does not ship.
 const HAX_SKILL_CATALOG_URL =
@@ -3339,6 +3365,17 @@ class HAXCMSSite {
           '" as="script" crossorigin="anonymous" />';
       }
     }
+    // haxcms-site-builder fetches the active page's HTML right after
+    // site.json; preload it so that request is not queued behind the boot
+    // JavaScript. Site-relative (never the CDN base) to match the builder.
+    let pageDataPreload = "";
+    const pageLocation = getPreloadablePageLocation(page);
+    if (pageLocation !== "") {
+      pageDataPreload =
+        '\n  <link rel="preload" href="./' +
+        escapeHtml(pageLocation) +
+        '" as="fetch" crossorigin="anonymous" fetchpriority="high" />';
+    }
     let metadata = `<meta charset="utf-8" />
   ${preconnect}
   <link rel="preconnect" crossorigin href="https://fonts.googleapis.com">
@@ -3349,7 +3386,7 @@ class HAXCMSSite {
   <link rel="preload" href="${base}build-haxcms.js" as="script" />
   <link rel="preload" href="${base}wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
 ${shellModulepreload}
-${themePreload}${contentPreload}
+${themePreload}${contentPreload}${pageDataPreload}
   <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
   <link rel="llms" href="llms.txt" title="LLM Content Map" />
   <link rel="alternate" type="text/markdown" href="llms.txt" title="Markdown Summary" />
@@ -7453,4 +7490,5 @@ module.exports = {
   escapeManagedTemplateText,
   managedTemplateVarsFor,
   MANAGED_TEMPLATE_TEXT_FORMATS,
+  getPreloadablePageLocation,
 };
