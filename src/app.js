@@ -75,6 +75,7 @@ const {
 const loginRateLimiter = require("./lib/loginRateLimiter.js");
 const { createRequestRateLimiter } = require("./lib/requestRateLimiter.js");
 const { haxcmsErrorHandler } = require("./lib/requestErrorHandler.js");
+const { wrapAsyncRoute, registryMethod } = require("./lib/asyncRoute.js");
 const { apiMessageCodesMiddleware } = require("./lib/apiMessageCodes.js");
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
 // colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
@@ -1767,9 +1768,10 @@ systemStructureContext().then((site) => {
         systemMethod,
         systemRoute,
       );
-      const systemRouteHandler = async (req, res, next) => {
+      const systemRouteHandler = wrapAsyncRoute(async (req, res, next) => {
         const op = req.route.path.replace(systemApiV1BasePath, "");
-        const rMethod = req.method.toLowerCase();
+        // HEAD is served by the GET route; the registry only has "get"
+        const rMethod = registryMethod(req.method);
         // Security (SEC-UPLOAD): auth decision shared with the multipart
         // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
         // result when it already ran for this request so basic credentials
@@ -1816,60 +1818,63 @@ systemStructureContext().then((site) => {
           );
         }
         return sendSystemV1AuthFailure(res, auth);
-      };
-      const siteScopedSystemRouteHandler = async (req, res, next) => {
-        const op = req.route.path.replace(
-          `/${HAXCMS.sitesDirectory}/*${systemApiV1BasePath}`,
-          "",
-        );
-        const rMethod = req.method.toLowerCase();
-        // Security (SEC-UPLOAD): auth decision shared with the multipart
-        // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
-        // result when it already ran for this request so basic credentials
-        // are only checked once.
-        const auth =
-          getSystemV1PreAuthResult(req, op) ||
-          evaluateSystemV1RouteAuthentication(
-            req,
-            res,
-            op,
-            systemV1OpenRouteRegistry,
+      });
+      const siteScopedSystemRouteHandler = wrapAsyncRoute(
+        async (req, res, next) => {
+          const op = req.route.path.replace(
+            `/${HAXCMS.sitesDirectory}/*${systemApiV1BasePath}`,
+            "",
           );
-        if (auth.authenticated) {
-          const basicAuth = auth.basicAuth;
-          if (
-            !enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)
-          ) {
-            return;
-          }
-          // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
-          // system routes (e.g. provider-search) so the router returns a
-          // consistent 403 envelope instead of the handler doing the check.
-          if (
-            !(await enforceSystemApiSiteTokenPolicy(
+          // HEAD is served by the GET route; the registry only has "get"
+          const rMethod = registryMethod(req.method);
+          // Security (SEC-UPLOAD): auth decision shared with the multipart
+          // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
+          // result when it already ran for this request so basic credentials
+          // are only checked once.
+          const auth =
+            getSystemV1PreAuthResult(req, op) ||
+            evaluateSystemV1RouteAuthentication(
               req,
               res,
               op,
+              systemV1OpenRouteRegistry,
+            );
+          if (auth.authenticated) {
+            const basicAuth = auth.basicAuth;
+            if (
+              !enforceSystemApiUserTokenPolicy(req, res, op, rMethod, basicAuth)
+            ) {
+              return;
+            }
+            // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
+            // system routes (e.g. provider-search) so the router returns a
+            // consistent 403 envelope instead of the handler doing the check.
+            if (
+              !(await enforceSystemApiSiteTokenPolicy(
+                req,
+                res,
+                op,
+                rMethod,
+                basicAuth,
+              ))
+            ) {
+              return;
+            }
+            // haxtheweb/issues#3191: commits made by this request carry its
+            // actor + operationId + txn
+            return runCommitScopedHandler(
+              req,
+              "system",
               rMethod,
-              basicAuth,
-            ))
-          ) {
-            return;
+              op,
+              systemRouteRegistry[rMethod][op],
+              res,
+              next,
+            );
           }
-          // haxtheweb/issues#3191: commits made by this request carry its
-          // actor + operationId + txn
-          return runCommitScopedHandler(
-            req,
-            "system",
-            rMethod,
-            op,
-            systemRouteRegistry[rMethod][op],
-            res,
-            next,
-          );
-        }
-        return sendSystemV1AuthFailure(res, auth);
-      };
+          return sendSystemV1AuthFailure(res, auth);
+        },
+      );
       if (
         systemRouteParser &&
         isMultipartCapableSystemRouteParser(systemRouteParser)
