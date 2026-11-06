@@ -203,6 +203,8 @@ test("site .git is not reachable directly or through .well-known traversal", asy
     "/_sites/" + SITE_NAME + "/.well-known/%2e%2e/.git/config",
     "/_sites/" + SITE_NAME + "/.well-known/%2E%2E%2F.git/config",
     "/_sites/" + SITE_NAME + "/.well-known/.git/../../.git/config",
+    "/_sites/" + SITE_NAME + "/.well-known/%252e%252e/.git/config",
+    "/_sites/" + SITE_NAME + "/.well-known/%252e%252e%252f.git/config",
   ];
   for (let i = 0; i < attempts.length; i++) {
     const res = await rawRequest("GET", attempts[i]);
