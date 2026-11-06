@@ -189,7 +189,6 @@ const jsyaml = require("js-yaml");
 const arraySearchImport = require("locutus/php/array/array_search");
 const arrayUnshiftImport = require("locutus/php/array/array_unshift");
 const implodeImport = require("locutus/php/strings/implode");
-const arrayUniqueImport = require("locutus/php/array/array_unique");
 const jsonEncodeImport = require("locutus/php/json/json_encode");
 const strtrImport = require("locutus/php/strings/strtr");
 const usortImport = require("locutus/php/array/usort");
@@ -197,7 +196,6 @@ const explode = explodeImport.explode || explodeImport;
 const array_search = arraySearchImport.array_search || arraySearchImport;
 const array_unshift = arrayUnshiftImport.array_unshift || arrayUnshiftImport;
 const implode = implodeImport.implode || implodeImport;
-const array_unique = arrayUniqueImport.array_unique || arrayUniqueImport;
 const json_encode = jsonEncodeImport.json_encode || jsonEncodeImport;
 const strtr = strtrImport.strtr || strtrImport;
 const usort = usortImport.usort || usortImport;
@@ -290,6 +288,56 @@ function isSafeGitRemoteUrl(url) {
     return false;
   }
   return true;
+}
+/**
+ * Process-wide cache of parsed JSON build artifacts (wc-registry.json,
+ * wc-registry-graph.json) keyed by absolute path. An entry is reused only
+ * while the file's mtime and size are unchanged, so a rebuilt registry is
+ * picked up on the next request. Page views look the registry up once per
+ * custom tag, so this replaces a read + JSON.parse per lookup with one stat.
+ * Callers must treat the returned object as read-only (all current ones do).
+ * Parse errors are not cached; they throw so the caller's fallback applies.
+ */
+const parsedJsonFileCache = new Map();
+function readJsonFileCached(filePath) {
+  const stat = fs.statSync(filePath);
+  const cached = parsedJsonFileCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached.data;
+  }
+  const data = JSON.parse(
+    fs.readFileSync(filePath, { encoding: "utf8", flag: "r" }),
+  );
+  parsedJsonFileCache.set(filePath, {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    data: data,
+  });
+  return data;
+}
+/**
+ * index.html files already checked by maybeUpgradeLegacyBootstrap() and found
+ * to be modern, keyed by path, with the mtime and size seen at the check. A
+ * changed file is read again, so a legacy bootstrap copied in later is still
+ * upgraded. Only the "not legacy" answer is remembered.
+ */
+const modernBootstrapIndexCache = new Map();
+/**
+ * `git --version` output, looked up once per process instead of once per
+ * commit. Failures are not cached, so git installed later is still found.
+ */
+let cachedGitVersion = null;
+async function gitVersionCached() {
+  if (cachedGitVersion !== null) {
+    return cachedGitVersion;
+  }
+  try {
+    const { stdout } = await exec("git --version");
+    cachedGitVersion = stdout;
+    return stdout;
+  } catch {
+    return null;
+  }
 }
 /**
  * haxtheweb/issues#3201: where a site's version control lives, from its folder.
@@ -835,12 +883,7 @@ class HAXCMSSite {
     return false;
   }
   async gitTest() {
-    try {
-      const { stdout } = await exec("git --version");
-      return stdout;
-    } catch {
-      return null;
-    }
+    return await gitVersionCached();
   }
   /**
    * When no git identity is configured (config or env), supply a placeholder
@@ -982,8 +1025,21 @@ class HAXCMSSite {
       if (!fs.pathExistsSync(indexPath)) {
         return;
       }
+      const indexStat = fs.statSync(indexPath);
+      const seen = modernBootstrapIndexCache.get(indexPath);
+      if (
+        seen &&
+        seen.mtimeMs === indexStat.mtimeMs &&
+        seen.size === indexStat.size
+      ) {
+        return;
+      }
       const indexHtml = fs.readFileSync(indexPath, "utf8");
       if (!indexHtml || indexHtml.indexOf("@lrnwebcomponents") === -1) {
+        modernBootstrapIndexCache.set(indexPath, {
+          mtimeMs: indexStat.mtimeMs,
+          size: indexStat.size,
+        });
         return;
       }
       await this.rebuildManagedFiles();
@@ -2204,8 +2260,10 @@ class HAXCMSSite {
     text = text.replace("~\b[a-z]{1,4}\bs*~", "");
     // all excess white space
     text = text.replace("/s+/", " ");
-    // crush string to array and back to make an unique index
-    text = implode(" ", array_unique(explode(" ", text)));
+    // crush string to array and back to make an unique index. A Set keeps
+    // first occurrences in order, which is exactly what locutus
+    // array_unique + implode produced, but in O(n) instead of O(n^2).
+    text = Array.from(new Set(explode(" ", text))).join(" ");
     return text;
   }
   /**
@@ -4782,12 +4840,7 @@ class HAXCMSClass {
     }
   }
   async gitTest() {
-    try {
-      const { stdout } = await exec("git --version");
-      return stdout;
-    } catch {
-      return null;
-    }
+    return await gitVersionCached();
   }
   constructor() {
     this.developerMode = false;
@@ -6199,9 +6252,7 @@ class HAXCMSClass {
     // support private IP space which will block this ever going through
     if (!process.env.IAM_PRIVATE_ADDRESS_SPACE && wcPath) {
       try {
-        wcMap = JSON.parse(
-          fs.readFileSync(wcPath, { encoding: "utf8", flag: "r" }),
-        );
+        wcMap = readJsonFileCached(wcPath);
       } catch {
         wcMap = {};
       }
@@ -6245,9 +6296,7 @@ class HAXCMSClass {
     }
     if (!process.env.IAM_PRIVATE_ADDRESS_SPACE && gPath) {
       try {
-        graph = JSON.parse(
-          fs.readFileSync(gPath, { encoding: "utf8", flag: "r" }),
-        );
+        graph = readJsonFileCached(gPath);
       } catch {
         graph = {};
       }

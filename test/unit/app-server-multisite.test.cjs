@@ -420,6 +420,31 @@ test('build assets resolve from the public root', async () => {
   assert.equal(registry.status, 200)
 })
 
+test('build modules get a browser cache lifetime; registry and site data do not', async () => {
+  const modulePath = '/build/es6/node_modules/@haxtheweb/a11y-collapse/a11y-collapse.js'
+  // dashboard path: served by express.static from the public root
+  const dashboardModule = await request('GET', runtime.baseUrl + modulePath, {})
+  assert.equal(dashboardModule.status, 200)
+  assert.equal(dashboardModule.headers['cache-control'], 'public, max-age=3600')
+  assert.ok(dashboardModule.headers['etag'])
+  // site path: served by the build-asset fallback
+  const siteModule = await request('GET', runtime.baseUrl + '/_sites/' + SITE_NAME + modulePath, {})
+  assert.equal(siteModule.status, 200)
+  assert.equal(siteModule.headers['cache-control'], 'public, max-age=3600')
+  const registries = [
+    '/wc-registry.json',
+    '/wc-registry-graph.json',
+    '/_sites/' + SITE_NAME + '/wc-registry.json',
+    '/_sites/' + SITE_NAME + '/site.json',
+    '/_sites/' + SITE_NAME + '/build.js',
+  ]
+  for (let i = 0; i < registries.length; i++) {
+    const result = await request('GET', runtime.baseUrl + registries[i], {})
+    assert.equal(result.status, 200, registries[i])
+    assert.notEqual(result.headers['cache-control'], 'public, max-age=3600', registries[i])
+  }
+})
+
 test('the wc-registry-graph asset serves from the public root', async () => {
   const result = await request('GET', runtime.baseUrl + '/wc-registry-graph.json', {})
   assert.equal(result.status, 200)

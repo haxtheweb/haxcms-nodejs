@@ -1313,6 +1313,51 @@ test("getWCRegistryGraphJson resolves graph candidates and degrades safely", () 
   );
 });
 
+test("registry JSON loaders reuse a parse until the file changes", () => {
+  const cacheDir = path.join(tempRoot, "wc-cache");
+  fs.ensureDirSync(cacheDir);
+  const registryPath = path.join(cacheDir, "wc-registry.json");
+  const graphPath = path.join(cacheDir, "wc-registry-graph.json");
+  fs.writeFileSync(registryPath, JSON.stringify({ "first-el": "a/a.js" }));
+  fs.writeFileSync(graphPath, JSON.stringify({ paths: ["a"], adj: {} }));
+  const first = HAXCMS.getWCRegistryJson(null, cacheDir);
+  const firstGraph = HAXCMS.getWCRegistryGraphJson(null, cacheDir);
+  // unchanged file: same parsed object comes back, no re-read
+  assert.equal(HAXCMS.getWCRegistryJson(null, cacheDir), first);
+  assert.equal(HAXCMS.getWCRegistryGraphJson(null, cacheDir), firstGraph);
+  // rebuilt file (new content + new mtime): the new content is returned
+  fs.writeFileSync(
+    registryPath,
+    JSON.stringify({ "second-el": "b/b.js", "third-el": "c/c.js" }),
+  );
+  fs.writeFileSync(graphPath, JSON.stringify({ paths: ["a", "b"], adj: {} }));
+  const later = new Date(Date.now() + 5000);
+  fs.utimesSync(registryPath, later, later);
+  fs.utimesSync(graphPath, later, later);
+  const second = HAXCMS.getWCRegistryJson(null, cacheDir);
+  assert.equal(second["second-el"], "b/b.js");
+  assert.equal(second["first-el"], undefined);
+  assert.equal(HAXCMS.getWCRegistryGraphJson(null, cacheDir).paths.length, 2);
+  // a file that turns corrupt degrades to {} and is not cached as valid
+  fs.writeFileSync(registryPath, "{ broken");
+  const evenLater = new Date(Date.now() + 10000);
+  fs.utimesSync(registryPath, evenLater, evenLater);
+  assert.deepEqual(HAXCMS.getWCRegistryJson(null, cacheDir), {});
+  fs.writeFileSync(registryPath, JSON.stringify({ "fixed-el": "f/f.js" }));
+  const latest = new Date(Date.now() + 15000);
+  fs.utimesSync(registryPath, latest, latest);
+  assert.equal(HAXCMS.getWCRegistryJson(null, cacheDir)["fixed-el"], "f/f.js");
+});
+
+test("gitTest returns the same git version on repeat calls", async () => {
+  const first = await HAXCMS.gitTest();
+  const second = await HAXCMS.gitTest();
+  assert.equal(second, first);
+  if (first !== null) {
+    assert.ok(String(first).indexOf("git version") === 0);
+  }
+});
+
 test("buildShellModulepreloadPaths falls back to the fixed shell list without a graph artifact", () => {
   const paths = HAXCMS.buildShellModulepreloadPaths(
     null,
