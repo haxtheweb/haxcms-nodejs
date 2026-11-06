@@ -90,7 +90,12 @@ async function saveSiteAsTemplateViaUI(page, collector, cardHandle, t) {
         items[i].getAttribute('label') || items[i].label || '',
       ).toLowerCase()
       if (label === 'create template') {
-        items[i].click()
+        // simple-toolbar-button handles clicks on its inner <button>; a click
+        // on the host alone did not open the modal, so every run waited 8s
+        // and fell back to calling createTemplate() directly
+        const inner = items[i].shadowRoot && items[i].shadowRoot.querySelector('button')
+        if (inner) inner.click()
+        else items[i].click()
         return
       }
     }
