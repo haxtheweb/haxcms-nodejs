@@ -19,6 +19,7 @@
     "build": "rm -rf dist && babel src --out-dir dist --copy-files --include-dotfiles && chmod 774 dist/local.js && chmod 774 dist/app.js && chmod 774 dist/cli.js",
     "verify:sanitize-policy": "node scripts/verify-sanitize-policy.js",
     "test:unit": "node --test --test-reporter=dot test/unit/**/*.test.cjs",
+    "test:fuzz": "HAXCMS_FUZZ_SEED=random HAXCMS_FUZZ_RUNS=6000 node --test --test-reporter=dot test/unit/security-helpers-fuzz.test.cjs",
     "test:api-conformance": "node --test --test-reporter=dot test/api-conformance/**/*.test.cjs",
     "test": "node --test --test-reporter=dot test/unit/**/*.test.cjs test/api-conformance/**/*.test.cjs",
     "test:coverage": "c8 --all --include='src/lib/**' --include='src/siteRoutes/**' --include='src/systemRoutes/**' --include='src/*.js' --exclude='src/public/**' --exclude='src/lib/vendor/**' --exclude='src/boilerplate/**' --exclude='test/**' --exclude='dist/**' --reporter=text --reporter=lcov --report-dir=coverage node --test --test-reporter=dot test/unit/**/*.test.cjs test/api-conformance/**/*.test.cjs",
