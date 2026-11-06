@@ -48,6 +48,14 @@ const {
   requestUrlGuard,
   getBuildAssetRequestPath,
 } = require("./lib/requestUrlGuards.js");
+// Security (HAX-SEC-STATIC-DOTFILES / HAX-SEC-LOCAL-ORIGIN): decoded-path
+// dotfile/traversal decisions and the local-mode cross-site write guard.
+const {
+  hasParentDirectorySegment,
+  shouldAllowWellKnownDotfiles,
+  isEnabledFlagValue,
+  isCrossSiteLocalModeWrite,
+} = require("./lib/staticRequestGuards.js");
 const PAGE_VARIANT_CONTENT_TYPES = {
   html: "text/html; charset=utf-8",
   md: "text/markdown; charset=utf-8",
@@ -180,8 +188,10 @@ function formatCspDirectives(directives) {
 
 // flag in local development that disables security
 // this way you launch from local and don't need a U/P relationship
+// Security (HAX-SEC-LOCAL-ORIGIN): only "1"/"true" enable the bypass. Any
+// set value used to count, so HAXCMS_DISABLE_JWT_CHECKS=false turned login off.
 if (
-  process.env.HAXCMS_DISABLE_JWT_CHECKS ||
+  isEnabledFlagValue(process.env.HAXCMS_DISABLE_JWT_CHECKS) ||
   argv._.includes("HAXCMS_DISABLE_JWT_CHECKS")
 ) {
   if (HAXCMS.isProductionRuntime()) {
@@ -1043,6 +1053,32 @@ app.use((req, res, next) => {
     !isLoopbackHostHeader(req.headers.host)
   ) {
     res.status(403).send("Forbidden: invalid Host header");
+    return;
+  }
+  next();
+});
+// Security (HAX-SEC-LOCAL-ORIGIN): with the no-login bypass every request is
+// the superuser, and browsers send simple cross-site form POSTs without a CORS
+// preflight. Refuse non-safe methods whose Origin is not this server (or the
+// configured security.allowedOrigin) or that the browser marks cross-site.
+// Requests without those headers (CLI tools, curl) are unaffected.
+app.use((req, res, next) => {
+  if (
+    HAXCMS.HAXCMS_DISABLE_JWT_CHECKS &&
+    isCrossSiteLocalModeWrite(req, [HAXCMS.getCorsAllowedOrigin("")])
+  ) {
+    res.status(403).send("Forbidden: cross-site request");
+    return;
+  }
+  next();
+});
+// Security (HAX-SEC-STATIC-DOTFILES): clients normalize ".." before sending,
+// so a decoded ".." segment only comes from a crafted request trying to walk
+// out of an allowed directory (e.g. /.well-known/%2e%2e/.git/config). Refuse
+// it before any static or route handling sees the path.
+app.use((req, res, next) => {
+  if (hasParentDirectorySegment(req.url)) {
+    res.status(404).end();
     return;
   }
   next();
@@ -3296,10 +3332,8 @@ function setWellKnownContentType(res, requestPath = "") {
   }
   return false;
 }
-function shouldAllowWellKnownDotfiles(requestPath = "") {
-  const cleanRequestPath = getRequestPathWithoutQuery(requestPath);
-  return /\/\.well-known(?:\/|$)/.test(cleanRequestPath);
-}
+// shouldAllowWellKnownDotfiles lives in src/lib/staticRequestGuards.js and
+// decides on the decoded path segments (HAX-SEC-STATIC-DOTFILES).
 function getStaticSendFileOptions(rootPath = "", requestPath = "") {
   const options = {
     root: rootPath,
