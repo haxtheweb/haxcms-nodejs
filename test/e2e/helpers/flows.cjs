@@ -1102,6 +1102,35 @@ async function ensureOutlineOpen(page, t) {
   return !!ready;
 }
 
+// The admin shell (haxcms-site-admin and its sections, e.g. the outline
+// editor's Save) asks for confirmation with an in-page DDD dialog,
+// <haxcms-admin-confirm> appended to document.body, instead of the native
+// window.confirm(). page.on('dialog') never sees it, so tests that save
+// through the shell must click its confirm button. Resolves true once the
+// confirm button was clicked, false if no dialog appeared within timeoutMs
+// (e.g. a save with no change summary skips the prompt entirely).
+async function acceptAdminConfirm(page, timeoutMs) {
+  const timeout = timeoutMs || 5000;
+  return waitFor(
+    async () =>
+      page.evaluate(() => {
+        const dlgs = document.querySelectorAll("haxcms-admin-confirm");
+        for (let i = 0; i < dlgs.length; i++) {
+          const root = dlgs[i].shadowRoot;
+          if (!root) continue;
+          const dialog = root.querySelector("dialog");
+          const ok = root.querySelector("button.ok");
+          if (dialog && dialog.open && ok && !ok.disabled) {
+            ok.click();
+            return true;
+          }
+        }
+        return false;
+      }),
+    timeout,
+  ).then((r) => !!r);
+}
+
 module.exports = {
   // small utils
   findCookie,
@@ -1120,6 +1149,7 @@ module.exports = {
   haxBodyEditModeActive,
   markerInHaxBody,
   clickEditorButtonById,
+  acceptAdminConfirm,
   // login
   getLoginElement,
   waitForLoginModal,

@@ -49,6 +49,7 @@ const {
   ensureOutlineOpen,
   safeCompareBaseline,
   clickEditorButtonById,
+  acceptAdminConfirm,
 } = require('./helpers')
 
 const SITE_NAME_LOWER = FIXED_SITE_NAME.toLowerCase()
@@ -323,6 +324,13 @@ async function clickSaveOutline(page, t) {
     return { error: 'no Save Outline button' }
   })
   if (t) t.diagnostic('[outline] Save Outline click: ' + JSON.stringify(result))
+  // _saveTap asks to confirm the change summary in an in-page
+  // <haxcms-admin-confirm> dialog (not window.confirm), so accept it here;
+  // nothing is PATCHed until it is confirmed.
+  if (result && result.clicked) {
+    var confirmed = await acceptAdminConfirm(page, 5000)
+    if (t) t.diagnostic('[outline] save confirm dialog accepted: ' + confirmed)
+  }
   return result
 }
 

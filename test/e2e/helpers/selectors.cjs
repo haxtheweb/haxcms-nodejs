@@ -274,18 +274,16 @@ const selectors = {
     // UNVERIFIED — per source: app-hax-confirmation-modal appended to document.body.
     confirmationModal: "app-hax-confirmation-modal",
     // Confirm button inside confirmation modal shadowRoot.
-    // UNVERIFIED — per source (app-hax-confirmation-modal.js): button.button.button-confirm
-    confirmButton: ".button.button-confirm",
+    // VERIFIED — app-hax-confirmation-modal renders button.hax-ui-btn.button-confirm
+    // (the generic .button class was dropped in the DDD restyle; match the role class)
+    confirmButton: ".button-confirm",
     // Cancel button inside confirmation modal shadowRoot.
     // UNVERIFIED — per source: button.button.button-cancel (autofocus)
-    cancelButton: ".button.button-cancel",
+    cancelButton: ".button-cancel",
     // Full chain to confirm button (confirmation modal is appended to document.body).
-    // UNVERIFIED — document > app-hax-confirmation-modal (shadowRoot) > .button.button-confirm
-    confirmButtonChain: [
-      "app-hax-confirmation-modal",
-      ".button.button-confirm",
-    ],
-    cancelButtonChain: ["app-hax-confirmation-modal", ".button.button-cancel"],
+    // document > app-hax-confirmation-modal (shadowRoot) > .button-confirm
+    confirmButtonChain: ["app-hax-confirmation-modal", ".button-confirm"],
+    cancelButtonChain: ["app-hax-confirmation-modal", ".button-cancel"],
   },
 
   // --- SITE EDITOR (VERIFIED at runtime by .discovery-editor.cjs) ---------
@@ -398,13 +396,10 @@ const selectors = {
     // The confirmation modal (same component as archive).
     // UNVERIFIED for download — see note above. Same as archive confirmation modal.
     confirmationModal: "app-hax-confirmation-modal",
-    confirmButton: ".button.button-confirm",
-    cancelButton: ".button.button-cancel",
-    confirmButtonChain: [
-      "app-hax-confirmation-modal",
-      ".button.button-confirm",
-    ],
-    cancelButtonChain: ["app-hax-confirmation-modal", ".button.button-cancel"],
+    confirmButton: ".button-confirm",
+    cancelButton: ".button-cancel",
+    confirmButtonChain: ["app-hax-confirmation-modal", ".button-confirm"],
+    cancelButtonChain: ["app-hax-confirmation-modal", ".button-cancel"],
     // The card method to call directly if the menu click doesn't open the modal.
     // UNVERIFIED at runtime (fallback) — call via cardHandle.evaluate((el) => el.downloadSite())
     downloadSiteMethod: "downloadSite",
@@ -683,13 +678,10 @@ const selectors = {
     // VERIFIED: app-hax-confirmation-modal on document.body with
     // .button.button-confirm + .button.button-cancel in its shadowRoot.
     confirmationModal: "app-hax-confirmation-modal",
-    confirmButton: ".button.button-confirm",
-    cancelButton: ".button.button-cancel",
-    confirmButtonChain: [
-      "app-hax-confirmation-modal",
-      ".button.button-confirm",
-    ],
-    cancelButtonChain: ["app-hax-confirmation-modal", ".button.button-cancel"],
+    confirmButton: ".button-confirm",
+    cancelButton: ".button-cancel",
+    confirmButtonChain: ["app-hax-confirmation-modal", ".button-confirm"],
+    cancelButtonChain: ["app-hax-confirmation-modal", ".button-cancel"],
     // Save-template modal button text (VERIFIED):
     //   confirmText = "Save to templates" (.button.button-confirm)
     //   cancelText  = "Download skeleton" (.button.button-cancel)
