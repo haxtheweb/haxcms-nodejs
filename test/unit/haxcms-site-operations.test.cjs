@@ -1538,6 +1538,93 @@ test("maybeUpgradeLegacyBootstrap is a no-op without the legacy tell", async () 
   assert.ok(fs.statSync(path.join(site.siteDirectory, "index.html")).isFile());
 });
 
+test("maybeUpgradeLegacyBootstrap still upgrades an index.html replaced after a modern check", async () => {
+  const site = await HAXCMS.loadSite("unit-legacy");
+  const indexPath = path.join(site.siteDirectory, "index.html");
+  // first call sees the modern bootstrap and remembers that answer
+  await site.maybeUpgradeLegacyBootstrap();
+  await site.maybeUpgradeLegacyBootstrap();
+  // a legacy bootstrap copied in later (new mtime/size) is still detected
+  fs.writeFileSync(
+    indexPath,
+    "<html><head>@lrnwebcomponents copied back in</head><body></body></html>",
+  );
+  const later = new Date(Date.now() + 5000);
+  fs.utimesSync(indexPath, later, later);
+  const reloaded = await HAXCMS.loadSite("unit-legacy");
+  await reloaded.maybeUpgradeLegacyBootstrap();
+  assert.ok(
+    fs.readFileSync(indexPath, "utf8").indexOf("@lrnwebcomponents") === -1,
+  );
+});
+
+test("cleanSearchData dedupes words exactly like the previous array_unique + implode", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const utf8 = require("utf8");
+  const { stripAngleTags } = require("../../src/lib/linearText.js");
+  const arrayUniqueImport = require("locutus/php/array/array_unique");
+  const implodeImport = require("locutus/php/strings/implode");
+  const explodeImport = require("locutus/php/strings/explode");
+  const array_unique = arrayUniqueImport.array_unique || arrayUniqueImport;
+  const implode = implodeImport.implode || implodeImport;
+  const explode = explodeImport.explode || explodeImport;
+  // the pre-change implementation, verbatim apart from the helper imports
+  const previousCleanSearchData = (text) => {
+    if (text == "" || text == null || !text) {
+      return "";
+    }
+    text = utf8.encode(
+      stripAngleTags(text, "").replace(/\n/g, " ").toLowerCase().trim(),
+    );
+    text = text.replace("/[^a-z0-9']/", " ");
+    text = text.replace(/'/g, "");
+    text = text.replace("~\b[a-z]{1,4}\bs*~", "");
+    text = text.replace("/s+/", " ");
+    text = implode(" ", array_unique(explode(" ", text)));
+    return text;
+  };
+  const words = [
+    "alpha",
+    "Beta",
+    "gamma",
+    "delta",
+    "0",
+    "00",
+    "1",
+    "it's",
+    "naïve",
+    "",
+    "  ",
+    "<b>bold</b>",
+    "toString",
+    "constructor",
+    "__proto__",
+  ];
+  let seed = 7;
+  const next = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed;
+  };
+  for (let run = 0; run < 500; run++) {
+    const count = next() % 60;
+    const parts = [];
+    for (let i = 0; i < count; i++) {
+      parts.push(words[next() % words.length]);
+    }
+    const input = "<p>" + parts.join(next() % 2 ? " " : "\n") + "</p>";
+    assert.equal(
+      site.cleanSearchData(input),
+      previousCleanSearchData(input),
+      input,
+    );
+  }
+  // order is first-occurrence order and duplicates are dropped
+  assert.equal(
+    site.cleanSearchData("zulu alpha zulu bravo alpha"),
+    "zulu alpha bravo",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // node field schema cascade + settings forms
 // ---------------------------------------------------------------------------

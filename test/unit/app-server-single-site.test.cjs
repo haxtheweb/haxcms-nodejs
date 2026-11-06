@@ -447,6 +447,28 @@ test("single-site build assets fall back to the public root", async () => {
   assert.equal(registry.status, 200);
 });
 
+test("single-site build modules get a browser cache lifetime; registry and site data do not", async () => {
+  const baseUrl = await baseUrlPromise;
+  const module = await request(
+    "GET",
+    baseUrl +
+      "/build/es6/node_modules/@haxtheweb/a11y-collapse/a11y-collapse.js",
+    {},
+  );
+  assert.equal(module.status, 200);
+  assert.equal(module.headers["cache-control"], "public, max-age=3600");
+  const uncached = ["/wc-registry.json", "/build.js", "/site.json"];
+  for (let i = 0; i < uncached.length; i++) {
+    const result = await request("GET", baseUrl + uncached[i], {});
+    assert.equal(result.status, 200, uncached[i]);
+    assert.notEqual(
+      result.headers["cache-control"],
+      "public, max-age=3600",
+      uncached[i],
+    );
+  }
+});
+
 test("site API paths pass through to the site routes", async () => {
   const baseUrl = await baseUrlPromise;
   const result = await request("GET", baseUrl + "/x/api/v1/files", {});

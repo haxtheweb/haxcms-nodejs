@@ -500,6 +500,36 @@ function resolveLinkedDevAssetPath(cleanFilePath = "") {
   return null;
 }
 
+// Browser cache policy for front-end build modules (build/es6/...). They are
+// only replaced by a HAXcms upgrade, so an hour of reuse removes the
+// per-page-load revalidation of hundreds of modules while keeping an upgrade
+// visible quickly. ETag/Last-Modified still go out, so a stale entry costs a
+// 304, not a full download. Excluded: development mode, the registry files
+// that name what to load, a site's own custom/build output, and anything
+// under files/ (user uploads). The Apache .htaccess used by haxcms-php
+// already caches these files (ExpiresDefault A1209600).
+const BUILD_ASSET_CACHE_CONTROL = "public, max-age=3600";
+function isCacheableBuildAssetPath(filePath = "") {
+  if (process.env.NODE_ENV === "development") {
+    return false;
+  }
+  const normalized = String(filePath || "").replace(/\\/g, "/");
+  return (
+    /(^|\/)build\//.test(normalized) &&
+    normalized.indexOf("/files/") === -1 &&
+    normalized.indexOf("files/") !== 0 &&
+    normalized.indexOf("custom/build") === -1 &&
+    !/wc-registry(-graph)?\.json$/.test(normalized)
+  );
+}
+// Set the build-asset Cache-Control before send/express.static run; both keep
+// a Cache-Control header that is already present instead of their default.
+function setBuildAssetCacheHeader(res, filePath = "") {
+  if (isCacheableBuildAssetPath(filePath)) {
+    res.setHeader("Cache-Control", BUILD_ASSET_CACHE_CONTROL);
+  }
+}
+
 function serveBuildAssetFile(req, res, fallbackRoot = "") {
   const cleanFilePath = getBuildAssetRequestPath(req.url);
   const linkedAssetPath = resolveLinkedDevAssetPath(cleanFilePath);
@@ -507,6 +537,7 @@ function serveBuildAssetFile(req, res, fallbackRoot = "") {
     res.sendFile(linkedAssetPath);
     return;
   }
+  setBuildAssetCacheHeader(res, cleanFilePath);
   res.sendFile(cleanFilePath, { root: fallbackRoot });
 }
 
@@ -3386,6 +3417,11 @@ function setManagedFileCharsetHeader(res, filePath = "") {
 // Apache FilesMatch rule in the site files/.htaccess.
 function setManagedStaticHeaders(res, filePath = "") {
   setManagedFileCharsetHeader(res, filePath);
+  // filePath is the resolved disk path; match build/ relative to publicDir so
+  // a parent folder that happens to be named "build" never qualifies
+  if (publicDir && String(filePath).indexOf(publicDir) === 0) {
+    setBuildAssetCacheHeader(res, filePath.substring(publicDir.length));
+  }
   if (uploadSecurity.shouldForceDownloadResolvedFile(publicDir, filePath)) {
     res.setHeader("Content-Disposition", "attachment");
   }
