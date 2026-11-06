@@ -53,14 +53,14 @@ manual inspection and should not be committed.
 
 ## What the tests cover
 
-| Test file | Task | Key assertions |
-|---|---|---|
-| `login.e2e.test.cjs` | Login via two-step modal | POST `/session/login` → 200 + jwt + refresh cookie; dashboard renders; a11y scan of login form; visual baselines (logged-out + logged-in) |
-| `create-site.e2e.test.cjs` | Create `HAXSITEAUTOMATEDTESTING` | POST `/sites` → 200 + `data.metadata.site.name` match + `link`; site exists on disk + in list API; a11y scan of create modal; visual baselines (modal + post-create) |
-| `archive-site.e2e.test.cjs` | Archive `HAXSITEAUTOMATEDTESTING` | POST `/sites/:siteName/archive` → 200 + `data.name` + `detail === 'Site archived'`; site card removed from dashboard; site directory moved to `_archived/` on disk; a11y + visual baselines |
-| `edit-content.e2e.test.cjs` | Edit & save content in HAX editor | PATCH `/x/api/v1/content/:idOrSlug` (saveNode) → 200; typed content present in the page HTML file on disk; a11y scan of editor chrome; visual baseline (editor in edit mode) |
-| `export-site.e2e.test.cjs` | Export/download site as zip | POST `/sites/:siteName/download` → 200 + `data.link` ends `.zip` + `data.name`; zip file exists at `_published/haxsiteautomatedtesting.zip` with PK magic bytes; a11y + visual baselines |
-| `page-management.e2e.test.cjs` | Add + delete a page | POST `/x/api/v1/items` (createNode) → 200 + `data.id` + `data.title`; DELETE `/x/api/v1/items/:id` → 200; page removed from site.json manifest + items list (page directory is intentionally left on disk by the backend); a11y + visual baselines |
+| Test file                      | Task                              | Key assertions                                                                                                                                                                                                                                     |
+| ------------------------------ | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `login.e2e.test.cjs`           | Login via two-step modal          | POST `/session/login` → 200 + jwt + refresh cookie; dashboard renders; a11y scan of login form; visual baselines (logged-out + logged-in)                                                                                                          |
+| `create-site.e2e.test.cjs`     | Create `HAXSITEAUTOMATEDTESTING`  | POST `/sites` → 200 + `data.metadata.site.name` match + `link`; site exists on disk + in list API; a11y scan of create modal; visual baselines (modal + post-create)                                                                               |
+| `archive-site.e2e.test.cjs`    | Archive `HAXSITEAUTOMATEDTESTING` | POST `/sites/:siteName/archive` → 200 + `data.name` + `detail === 'Site archived'`; site card removed from dashboard; site directory moved to `_archived/` on disk; a11y + visual baselines                                                        |
+| `edit-content.e2e.test.cjs`    | Edit & save content in HAX editor | PATCH `/x/api/v1/content/:idOrSlug` (saveNode) → 200; typed content present in the page HTML file on disk; a11y scan of editor chrome; visual baseline (editor in edit mode)                                                                       |
+| `export-site.e2e.test.cjs`     | Export/download site as zip       | POST `/sites/:siteName/download` → 200 + `data.link` ends `.zip` + `data.name`; zip file exists at `_published/haxsiteautomatedtesting.zip` with PK magic bytes; a11y + visual baselines                                                           |
+| `page-management.e2e.test.cjs` | Add + delete a page               | POST `/x/api/v1/items` (createNode) → 200 + `data.id` + `data.title`; DELETE `/x/api/v1/items/:id` → 200; page removed from site.json manifest + items list (page directory is intentionally left on disk by the backend); a11y + visual baselines |
 
 All site operations target the fixed name `HAXSITEAUTOMATEDTESTING`. Each run
 boots an isolated temp runtime so the name never collides with real work.
@@ -81,6 +81,21 @@ boots an isolated temp runtime so the name never collides with real work.
    against committed baselines with `pixelmatch`/`sharp`. Diffs **warn but never
    fail**; a human reviews the notice because a diff may be intentional.
 
+## UI inventory (reuses these helpers, not a test)
+
+`npm run ui:inventory` boots the same isolated runtime, walks the real editor and
+admin states (dashboard, first visit, site view, edit mode, outline, add page, user
+menu, every site admin section) and writes screenshots at desktop and mobile, light
+and dark, plus every visible control's tag, label, text, icon, box and the DDD /
+HAX UI tokens its styles resolve to, and a `tokens.css` of resolved token values.
+It is the ground truth HAXcms prototypes are built and checked against
+([`haxcms-prototype`](https://github.com/haxtheweb/praw/tree/main/skills/haxcms-prototype),
+haxtheweb/issues#3234). It never fails on visual change and never writes to
+`__screenshots__/`; output goes to `ui-inventory/` (gitignored) or `--out <dir>`.
+Options: `--states site-view,site-admin`, `--variants desktop-light,mobile-dark`,
+`--sub` (admin sub-sections). For unreleased webcomponents work, run it with
+`NODE_ENV=development HAXCMS_WEBCOMPONENTS_ROOT=<webcomponents checkout>`.
+
 ## Debugging
 
 ### Headed mode (watch the browser)
@@ -88,7 +103,7 @@ boots an isolated temp runtime so the name never collides with real work.
 Set `headless: false` in the `launchBrowser()` call, or pass it from the test:
 
 ```js
-const browser = await launchBrowser({ headless: false })
+const browser = await launchBrowser({ headless: false });
 ```
 
 Add `await new Promise(r => setTimeout(r, 5000))` at key points to pause and
@@ -97,7 +112,9 @@ inspect the UI.
 ### SlowMo
 
 ```js
-const browser = await launchBrowser({ args: ['--no-sandbox', '--disable-setuid-sandbox', '--slow-mo=100'] })
+const browser = await launchBrowser({
+  args: ["--no-sandbox", "--disable-setuid-sandbox", "--slow-mo=100"],
+});
 ```
 
 ### Selector discovery

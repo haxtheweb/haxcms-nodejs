@@ -273,14 +273,15 @@ const selectors = {
     // The confirmation modal that appears after clicking Archive.
     // UNVERIFIED — per source: app-hax-confirmation-modal appended to document.body.
     confirmationModal: "app-hax-confirmation-modal",
-    // Confirm / cancel buttons inside the confirmation modal shadowRoot.
-    // Match the role class only: the HAX UI restyle (Nov 2026) changed the
-    // buttons from "button button-confirm" to "hax-ui-btn primary
-    // button-confirm", so ".button.button-confirm" stopped matching and the
-    // template / archive / download flows fell through to slower fallbacks.
+    // Confirm button inside confirmation modal shadowRoot.
+    // VERIFIED — app-hax-confirmation-modal renders button.hax-ui-btn.button-confirm
+    // (the generic .button class was dropped in the DDD restyle; match the role class)
     confirmButton: ".button-confirm",
+    // Cancel button inside confirmation modal shadowRoot.
+    // UNVERIFIED — per source: button.button.button-cancel (autofocus)
     cancelButton: ".button-cancel",
     // Full chain to confirm button (confirmation modal is appended to document.body).
+    // document > app-hax-confirmation-modal (shadowRoot) > .button-confirm
     confirmButtonChain: ["app-hax-confirmation-modal", ".button-confirm"],
     cancelButtonChain: ["app-hax-confirmation-modal", ".button-cancel"],
   },

@@ -1120,51 +1120,55 @@ async function ensureOutlineOpen(page, t) {
   return !!ready;
 }
 
-// ---------------------------------------------------------------------------
-// HAX UI confirm / prompt (haxcms-admin-confirm)
-// ---------------------------------------------------------------------------
-// HAX UI no longer uses the browser's confirm()/prompt(): admin flows (Save
-// Outline with tracked changes, discarding unsaved outline edits, content
-// admin bulk ops) open a <haxcms-admin-confirm> appended to document.body and
-// wait for its OK button. page.on('dialog') never sees it, so a test that
-// only auto-accepted native dialogs waited forever for the request that the
-// click was supposed to send.
+// The admin shell (haxcms-site-admin and its sections, e.g. the outline
+// editor's Save) asks for confirmation with an in-page DDD dialog,
+// <haxcms-admin-confirm> appended to document.body, instead of the native
+// window.confirm(). page.on('dialog') never sees it, so tests that save
+// through the shell must click its confirm button.
 //
-// Waits up to timeoutMs for an open haxcms-admin-confirm, clicks OK (or
-// Cancel when opts.cancel), and returns { title, message, action } — or null
-// when none appeared, so callers can treat "no confirmation needed" (no
-// tracked changes) as a normal outcome.
-async function answerAdminConfirm(page, timeoutMs, opts) {
-  const options = opts || {};
-  const found = await waitFor(
-    async () =>
-      page.evaluate((cancel) => {
-        const els = document.querySelectorAll("haxcms-admin-confirm");
-        for (let i = els.length - 1; i >= 0; i--) {
-          const el = els[i];
-          const root = el.shadowRoot;
-          if (!root) continue;
-          const dialog = root.querySelector("dialog");
-          if (dialog && !dialog.open) continue;
-          const btn = root.querySelector(
-            cancel ? "button.cancel" : "button.ok",
-          );
-          if (!btn || btn.disabled) continue;
-          const title = root.querySelector("#title");
-          const message = root.querySelector("#message");
-          btn.click();
-          return {
-            title: title ? title.textContent.trim() : "",
-            message: message ? message.textContent.trim() : "",
-            action: cancel ? "cancel" : "ok",
-          };
+// Only the dialog whose title contains `titleMatch` (case-insensitive) is
+// accepted, and danger dialogs (e.g. "Discard outline changes?") are never
+// auto-accepted unless opts.allowDanger is set: blindly accepting the first
+// open dialog can confirm a discard and silently drop the change under test.
+// Resolves { accepted, title, others } — `others` lists any other open admin
+// dialogs so a caller can fail loudly on an unexpected prompt.
+async function acceptAdminConfirm(page, titleMatch, timeoutMs, opts) {
+  const timeout = timeoutMs || 5000;
+  const allowDanger = !!(opts && opts.allowDanger);
+  const match = String(titleMatch || "").toLowerCase();
+  let last = { accepted: false, title: "", others: [] };
+  const found = await waitFor(async () => {
+    last = await page.evaluate(
+      (m, danger) => {
+        const out = { accepted: false, title: "", others: [] };
+        const dlgs = document.querySelectorAll("haxcms-admin-confirm");
+        let target = null;
+        for (let i = 0; i < dlgs.length; i++) {
+          const root = dlgs[i].shadowRoot;
+          const dialog = root ? root.querySelector("dialog") : null;
+          if (!dialog || !dialog.open) continue;
+          const title = String(dlgs[i].title || "");
+          const isMatch = !m || title.toLowerCase().indexOf(m) !== -1;
+          if (!target && isMatch && (danger || !dlgs[i].danger)) {
+            target = { el: dlgs[i], title };
+          } else {
+            out.others.push(title + (dlgs[i].danger ? " (danger)" : ""));
+          }
         }
-        return null;
-      }, !!options.cancel),
-    timeoutMs || 5000,
-    100,
-  );
-  return found || null;
+        if (!target) return out;
+        const ok = target.el.shadowRoot.querySelector("button.ok");
+        if (!ok || ok.disabled) return out;
+        ok.click();
+        out.accepted = true;
+        out.title = target.title;
+        return out;
+      },
+      match,
+      allowDanger,
+    );
+    return last.accepted ? last : null;
+  }, timeout);
+  return found || last;
 }
 
 module.exports = {
@@ -1185,8 +1189,7 @@ module.exports = {
   haxBodyEditModeActive,
   markerInHaxBody,
   clickEditorButtonById,
-  // HAX UI confirm / prompt
-  answerAdminConfirm,
+  acceptAdminConfirm,
   // login
   getLoginElement,
   waitForLoginModal,

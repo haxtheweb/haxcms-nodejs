@@ -512,3 +512,34 @@ test('safeFetch arrayBuffer() returns the raw binary body for byte-exact staging
   var buf = Buffer.from(await res.arrayBuffer())
   assert.deepEqual(buf, pngBytes)
 })
+
+test('safeFetch discardBody resolves on the status line and reads no body (link checks)', async (t) => {
+  useLookup(t, lookupRecords([{ address: '93.184.216.34', family: 4 }]))
+  // a body far over the cap would reject with SSRF_TOO_LARGE if it were read
+  useHttpSequence(t, [
+    { status: 404, headers: { 'content-length': '999999999' }, body: 'not read' },
+  ])
+  var res = await safeFetch('http://target.test/gone', { method: 'HEAD', discardBody: true, maxBytes: 10 })
+  assert.equal(res.status, 404)
+  assert.equal(await res.text(), '')
+})
+
+test('safeFetch reports the final url and whether a redirect led there', async (t) => {
+  useLookup(t, lookupRecords([{ address: '93.184.216.34', family: 4 }]))
+  useHttpSequence(t, [
+    { status: 301, headers: { location: 'http://target.test/new' } },
+    { status: 200, headers: {} },
+  ])
+  var moved = await safeFetch('http://target.test/old', { discardBody: true })
+  assert.equal(moved.status, 200)
+  assert.equal(moved.url, 'http://target.test/new')
+  assert.equal(moved.redirected, true)
+})
+
+test('safeFetch marks a direct answer as not redirected', async (t) => {
+  useLookup(t, lookupRecords([{ address: '93.184.216.34', family: 4 }]))
+  useHttpSequence(t, [{ status: 200, headers: {} }])
+  var direct = await safeFetch('http://target.test/here', {})
+  assert.equal(direct.url, 'http://target.test/here')
+  assert.equal(direct.redirected, false)
+})
