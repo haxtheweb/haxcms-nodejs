@@ -160,6 +160,26 @@ async function navigateToEditor(page, runtime, t) {
 // --- helper: open outline editor dialog ------------------------------------
 
 async function openOutlineDialog(page, t) {
+  // After a save in the admin shell the outline is still open; settle and
+  // keep using it instead of re-clicking #outlinebutton (see
+  // waitForOutlineSettled).
+  const settled = await waitForOutlineSettled(page, 15000)
+  t.diagnostic('[outline] settled before (re)open: ' + !!settled)
+  const alreadyOpen = await page.evaluate(function () {
+    var modals = document.querySelectorAll('simple-modal')
+    for (var i = 0; i < modals.length; i++) {
+      var d = modals[i].querySelector('haxcms-outline-editor-dialog')
+      if (d && d.parentNode && d.parentNode.tagName && d.parentNode.tagName.toLowerCase() === 'haxcms-site-admin' && modals[i].opened !== false) return true
+    }
+    return false
+  })
+  if (alreadyOpen) {
+    t.diagnostic('[outline] outline already open in admin shell; reusing it')
+    const readyInShell = await ensureOutlineOpen(page, t)
+    assert.ok(readyInShell, 'haxcms-outline-editor-dialog rendered')
+    await new Promise((r) => setTimeout(r, 500))
+    return
+  }
   const outlineOpen = await clickEditorButtonById(page, '#outlinebutton')
   t.diagnostic('[outline] #outlinebutton clicked: ' + JSON.stringify(outlineOpen))
   const ready = await ensureOutlineOpen(page, t)
@@ -328,19 +348,89 @@ async function clickSaveOutline(page, t) {
   // <haxcms-admin-confirm> dialog (not window.confirm), so accept it here;
   // nothing is PATCHed until it is confirmed.
   if (result && result.clicked) {
-    var confirmed = await acceptAdminConfirm(page, 5000)
-    if (t) t.diagnostic('[outline] save confirm dialog accepted: ' + confirmed)
+    var confirm = await acceptAdminConfirm(page, 'save outline', 5000)
+    if (t) t.diagnostic('[outline] save confirm: ' + JSON.stringify(confirm))
+    result.confirm = confirm
+    // Any other admin prompt open alongside the save prompt (e.g. a stray
+    // "Discard outline changes?") means the flow is in a state no user
+    // would be in; fail here rather than PATCH something unexpected.
+    assert.ok(
+      confirm && confirm.others && confirm.others.length === 0,
+      'no unexpected admin dialog open during Save: ' + JSON.stringify(confirm && confirm.others),
+    )
   }
   return result
 }
 
+// --- helper: no admin prompt may appear after a successful save ----------
+// A successful save must leave the admin shell quiet. haxcms-site-editor's
+// _handleOutlineResponse re-syncs the route (replaceState + popstate) when the
+// active page's slug changed, e.g. after renaming the page being viewed; that
+// re-applies the 'structure' route, the shell calls requestLeave() and the
+// outline's unsaved-changes check runs against a manifest whose refresh has
+// not landed, raising "Discard outline changes?" over a save that succeeded.
+// Assert here so that failure points at its cause instead of surfacing later
+// as a lost reorder/nest. Waits past the 300ms post-save handler.
+async function assertNoPromptAfterSave(page, t, label) {
+  await new Promise((r) => setTimeout(r, 1500))
+  var prompts = await page.evaluate(function () {
+    return Array.prototype.map.call(document.querySelectorAll('haxcms-admin-confirm'), function (d) {
+      return String(d.title || '') + (d.danger ? ' (danger)' : '')
+    })
+  })
+  if (t) t.diagnostic('[outline] prompts after ' + label + ' save: ' + JSON.stringify(prompts))
+  assert.strictEqual(
+    prompts.length,
+    0,
+    'no admin prompt after a successful ' + label + ' save (got ' + JSON.stringify(prompts) +
+      '); a post-save route re-sync raised the unsaved-changes check against a stale manifest',
+  )
+}
+
+// --- helper: wait for the shell-hosted outline to settle after a save -----
+// Inside haxcms-site-admin the outline modal stays open after Save (the
+// outline editor's _saveTap returns early when inShell). It is settled once
+// the shell has left 'saving' and the outline no longer reports unsaved
+// changes, i.e. the store manifest refresh from the save has landed. Until
+// then, re-clicking #outlinebutton swaps the modal and its unsaved-changes
+// check raises a "Discard outline changes?" prompt against the stale manifest.
+async function waitForOutlineSettled(page, timeoutMs) {
+  return waitFor(
+    async () =>
+      page.evaluate(function () {
+        var shell = document.querySelector('haxcms-site-admin')
+        var modals = document.querySelectorAll('simple-modal')
+        var d = null
+        for (var i = 0; i < modals.length; i++) {
+          d = modals[i].querySelector('haxcms-outline-editor-dialog')
+          if (d) break
+        }
+        if (!d) return true
+        if (shell && (shell._status === 'saving' || shell.__sending)) return false
+        if (document.querySelector('haxcms-admin-confirm')) return false
+        return d.hasUnsavedChanges === false
+      }),
+    timeoutMs || 15000,
+  )
+}
+
 // --- helper: wait for PATCH /x/api/v1/site/outline response ---------------
 
-async function awaitSaveOutlineResponse(collector, timeoutMs) {
+// The collector keeps every response for the whole run, so a save must only
+// accept a PATCH recorded after its own Save click: pass the count from
+// countSaveOutlineResponses() taken before clicking. Without the baseline,
+// saves #2..#5 resolve instantly on save #1's old 200 and the manifest
+// cross-check can read before the real PATCH has landed.
+function countSaveOutlineResponses(collector) {
+  return collector.getResponsesFor('/x/api/v1/site/outline').length
+}
+
+async function awaitSaveOutlineResponse(collector, timeoutMs, sinceCount) {
   var timeout = timeoutMs || 30000
+  var since = sinceCount || 0
   return waitFor(async () => {
     var all = collector.getResponsesFor('/x/api/v1/site/outline')
-    for (var i = 0; i < all.length; i++) {
+    for (var i = since; i < all.length; i++) {
       if (all[i].status === 200) return all[i]
     }
     return null
@@ -472,12 +562,14 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   assert.ok(itemsAfterAdd && itemsAfterAdd.length >= 2, 'outline has at least 2 items after add: ' + JSON.stringify(addResult))
 
   // Save the outline to persist the added page.
+  var saveBase1 = countSaveOutlineResponses(collector)
   var saveResult = await clickSaveOutline(page, t)
   assert.ok(saveResult.clicked, 'Save Outline clicked after adding page')
-  var saveResp1 = await awaitSaveOutlineResponse(collector, 30000)
+  var saveResp1 = await awaitSaveOutlineResponse(collector, 30000, saveBase1)
   assert.ok(saveResp1, 'PATCH /x/api/v1/site/outline response captured after add')
   assert.strictEqual(saveResp1.status, 200, 'saveOutline API returned status 200 after add')
   t.diagnostic('[outline] saveOutline #1 (add) 200')
+  await assertNoPromptAfterSave(page, t, 'add')
 
   // Re-open the outline dialog (Save Outline closes the modal).
   await new Promise((r) => setTimeout(r, 2000))
@@ -520,12 +612,14 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   assert.ok(renamedInMemory, 'title changed in-memory to "' + newTitle + '"')
 
   // Click Save Outline to persist.
+  var saveBase2 = countSaveOutlineResponses(collector)
   var saveResult2 = await clickSaveOutline(page, t)
   assert.ok(saveResult2.clicked, 'Save Outline clicked after rename')
-  var saveResp2 = await awaitSaveOutlineResponse(collector, 30000)
+  var saveResp2 = await awaitSaveOutlineResponse(collector, 30000, saveBase2)
   assert.ok(saveResp2, 'PATCH /x/api/v1/site/outline response captured after rename')
   assert.strictEqual(saveResp2.status, 200, 'saveOutline API returned status 200 after rename')
   t.diagnostic('[outline] saveOutline #2 (rename) 200')
+  await assertNoPromptAfterSave(page, t, 'rename')
 
   // Cross-check: GET /x/api/v1/items shows the new title.
   await new Promise((r) => setTimeout(r, 2000))
@@ -587,12 +681,14 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   t.diagnostic('[outline] reorder in-memory OK: orders swapped')
 
   // Click Save Outline to persist.
+  var saveBase3 = countSaveOutlineResponses(collector)
   var saveResult3 = await clickSaveOutline(page, t)
   assert.ok(saveResult3.clicked, 'Save Outline clicked after reorder')
-  var saveResp3 = await awaitSaveOutlineResponse(collector, 30000)
+  var saveResp3 = await awaitSaveOutlineResponse(collector, 30000, saveBase3)
   assert.ok(saveResp3, 'PATCH /x/api/v1/site/outline response captured after reorder')
   assert.strictEqual(saveResp3.status, 200, 'saveOutline API returned status 200 after reorder')
   t.diagnostic('[outline] saveOutline #3 (reorder) 200')
+  await assertNoPromptAfterSave(page, t, 'reorder')
 
   // Cross-check: GET /x/api/v1/items shows the new order.
   await new Promise((r) => setTimeout(r, 2000))
@@ -662,12 +758,14 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   t.diagnostic('[outline] nest in-memory OK: parent=' + nestedItem.parent + ' indent=' + nestedItem.indent)
 
   // Click Save Outline to persist.
+  var saveBase4 = countSaveOutlineResponses(collector)
   var saveResult4 = await clickSaveOutline(page, t)
   assert.ok(saveResult4.clicked, 'Save Outline clicked after nest')
-  var saveResp4 = await awaitSaveOutlineResponse(collector, 30000)
+  var saveResp4 = await awaitSaveOutlineResponse(collector, 30000, saveBase4)
   assert.ok(saveResp4, 'PATCH /x/api/v1/site/outline response captured after nest')
   assert.strictEqual(saveResp4.status, 200, 'saveOutline API returned status 200 after nest')
   t.diagnostic('[outline] saveOutline #4 (nest) 200')
+  await assertNoPromptAfterSave(page, t, 'nest')
 
   // Cross-check: GET /x/api/v1/items shows the new parent.
   await new Promise((r) => setTimeout(r, 2000))
@@ -742,12 +840,14 @@ test('outline ops e2e (rename, reorder, nest/unnest via outline-designer)', { ti
   t.diagnostic('[outline] outdent in-memory OK: parent=' + outdentedItem.parent + ' indent=' + outdentedItem.indent)
 
   // Click Save Outline to persist.
+  var saveBase5 = countSaveOutlineResponses(collector)
   var saveResult5 = await clickSaveOutline(page, t)
   assert.ok(saveResult5.clicked, 'Save Outline clicked after outdent')
-  var saveResp5 = await awaitSaveOutlineResponse(collector, 30000)
+  var saveResp5 = await awaitSaveOutlineResponse(collector, 30000, saveBase5)
   assert.ok(saveResp5, 'PATCH /x/api/v1/site/outline response captured after outdent')
   assert.strictEqual(saveResp5.status, 200, 'saveOutline API returned status 200 after outdent')
   t.diagnostic('[outline] saveOutline #5 (outdent) 200')
+  await assertNoPromptAfterSave(page, t, 'outdent')
 
   // Cross-check: GET /x/api/v1/items shows the parent changed back.
   await new Promise((r) => setTimeout(r, 2000))
