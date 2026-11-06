@@ -249,6 +249,20 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
     }
     req = lib.request(requestOptions, function (response) {
       activeResponse = response;
+      // discardBody: the caller only wants the status line and headers (a
+      // link check). Settle now and drop the socket so no body is read.
+      if (fetchOptions.discardBody === true) {
+        settled = true;
+        if (timer) { clearTimeout(timer); }
+        try { response.destroy(); } catch {
+          // intentionally ignored
+        }
+        try { req.destroy(); } catch {
+          // intentionally ignored
+        }
+        resolve(buildResponseLike(response.statusCode, response.statusMessage, response.headers, Buffer.alloc(0)));
+        return;
+      }
       var declaredLength = parseInt((response.headers && response.headers['content-length']) || '', 10);
       if (!isNaN(declaredLength) && declaredLength > byteCap) {
         fail(tooLargeError(byteCap));
@@ -355,6 +369,11 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
  *   timeoutMs    per-hop timeout when no signal is given (default 15000)
  *   maxRedirects redirect hops to follow (default and ceiling 5; 0 = never
  *                follow, any 3xx then rejects with SSRF_REDIRECTS)
+ *   discardBody  true = resolve on the status line and headers and never
+ *                read the body (link checks); .text() is then ""
+ *
+ * The final response also carries .url (the URL that answered) and
+ * .redirected (true when a redirect led there), like fetch().
  *
  * Signature matches global fetch: returns the final, non-3xx Response-like
  * object (with .ok/.status/.headers.get/.text/.json). Throws on SSRF rejection
@@ -387,6 +406,9 @@ async function safeFetchInternal(urlString, options, sinkPath) {
     // between the SSRF check and the actual TCP connection.
     var resolved = await resolveAndValidateUrl(currentUrl);
     var response = await pinnedFetchSingle(resolved.parsed, fetchOptions, resolved.pinnedIp, resolved.family, timeoutMs, maxBytes, sinkPath);
+    // like fetch(): the URL that answered and whether a redirect led there
+    response.url = currentUrl;
+    response.redirected = hop > 0;
     // not a redirect (or 304 Not Modified) -> final response
     if (response.status < 300 || response.status >= 400 || response.status === 304) {
       return response;
