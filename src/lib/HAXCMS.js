@@ -4422,6 +4422,37 @@ class HAXCMSClass {
       ),
     };
   }
+  // Budget of outside link checks (POST x/api/v1/site/check-links) per
+  // user and site: `max` network checks per `windowMs`; cached answers do not
+  // count. Defaults (1000 per 15 min) cover one full check of a large site
+  // while keeping the server from being used to hammer other sites.
+  // Config: config.security.linkCheckRateLimit { enabled, windowMs, max }.
+  // Parity: haxcms-php HAXCMS::getLinkCheckRateLimitSettings.
+  getLinkCheckRateLimitSettings() {
+    const defaults = { enabled: true, windowMs: 15 * 60 * 1000, max: 1000 };
+    let cfg = {};
+    if (
+      this.config &&
+      this.config.security &&
+      this.config.security.linkCheckRateLimit
+    ) {
+      cfg = this.config.security.linkCheckRateLimit;
+    }
+    let enabled = defaults.enabled;
+    if (typeof cfg.enabled !== "undefined") {
+      enabled = cfg.enabled === true;
+    }
+    return {
+      enabled: enabled,
+      windowMs: this.getIntConfigValue(
+        cfg.windowMs,
+        defaults.windowMs,
+        60 * 1000,
+        24 * 60 * 60 * 1000,
+      ),
+      max: this.getIntConfigValue(cfg.max, defaults.max, 1, 100000),
+    };
+  }
   // Per-IP request ceiling for the whole HTTP surface (static files, site
   // assets, catch-all handlers) that touches the filesystem. Defaults are
   // deliberately generous (10000 req/min) because HAXcms ships unbundled: a
