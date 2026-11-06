@@ -108,4 +108,25 @@ describe("site shell first-paint loading", () => {
       assert.ok(reveal[1].indexOf("dissolveLoading(loadingEl, true)") !== -1);
     });
   }
+
+  for (const file of SHELLS) {
+    const html = read(file);
+    test(file + " keeps server-rendered content from shifting", () => {
+      // every haxcms-site-builder rule is a block formatting context, so a
+      // child's margin can't collapse through it and move when content swaps
+      const rules = html.match(/haxcms-site-builder \{[^}]*\}/g) || [];
+      assert.ok(rules.length > 0, "haxcms-site-builder rule found");
+      for (const rule of rules) {
+        assert.ok(rule.indexOf("display: flow-root") !== -1, rule);
+        assert.equal(rule.indexOf("display: block"), -1, rule);
+      }
+      // images rendered before the builder loads keep their aspect ratio
+      const img = html.match(
+        /haxcms-site-builder:not\(:defined\) img \{([^}]*)\}/,
+      );
+      assert.ok(img, "pre-render image rule found");
+      assert.ok(img[1].indexOf("max-width: 100%") !== -1);
+      assert.ok(img[1].indexOf("height: auto") !== -1);
+    });
+  }
 });
