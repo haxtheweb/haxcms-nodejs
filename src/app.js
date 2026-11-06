@@ -79,6 +79,7 @@ const {
   sendRouteHandlerError,
   guardApiRouteHandler,
 } = require("./lib/routeHandlerError.js");
+const { registryMethod } = require("./lib/routeMethod.js");
 const { apiMessageCodesMiddleware } = require("./lib/apiMessageCodes.js");
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
 // colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
@@ -1880,7 +1881,8 @@ systemStructureContext().then((site) => {
       );
       const systemRouteHandler = async (req, res, next) => {
         const op = req.route.path.replace(systemApiV1BasePath, "");
-        const rMethod = req.method.toLowerCase();
+        // HEAD is served by the GET route; the registry only has "get"
+        const rMethod = registryMethod(req.method);
         // Security (SEC-UPLOAD): auth decision shared with the multipart
         // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
         // result when it already ran for this request so basic credentials
@@ -1933,7 +1935,8 @@ systemStructureContext().then((site) => {
           `/${HAXCMS.sitesDirectory}/*${systemApiV1BasePath}`,
           "",
         );
-        const rMethod = req.method.toLowerCase();
+        // HEAD is served by the GET route; the registry only has "get"
+        const rMethod = registryMethod(req.method);
         // Security (SEC-UPLOAD): auth decision shared with the multipart
         // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
         // result when it already ran for this request so basic credentials
