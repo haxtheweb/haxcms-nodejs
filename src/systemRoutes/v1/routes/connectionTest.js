@@ -1,4 +1,5 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { setUncachedResponseHeaders } = require('../../../lib/responseCache.js');
 
 function getRequestJWT(req) {
   if (
@@ -108,10 +109,14 @@ function validateIAMAuthorizationIfNeeded(req) {
  * )
  */
 async function connectionTest(req, res) {
-  // Auth-state probes must never be cached: a cached authenticated body could
-  // be served to a different user (token leak), and a cached anonymous body
-  // could mask a now-logged-in session. Applies to every response branch.
-  res.setHeader('Cache-Control', 'no-store');
+  // Auth-state probes must never be served from cache: a cached authenticated
+  // body could be served to a different user (token leak), and a cached
+  // anonymous body could mask a now-logged-in session. A probe sent with
+  // credentials is never stored; one sent without any is answered
+  // `private, no-cache` (always revalidated, still bfcache-friendly) because
+  // its answer cannot carry anything about a user (issues#3244). The
+  // authenticated answer below is no-store whatever the request carried.
+  setUncachedResponseHeaders(res, req);
   let refreshed = false;
   // Capture whether a Bearer credential was supplied so we can distinguish an
   // anonymous probe (no Authorization header, no valid refresh cookie) from a
@@ -190,6 +195,7 @@ async function connectionTest(req, res) {
   catch {
     sessionTokens = {};
   }
+  setUncachedResponseHeaders(res, req, { sensitive: true });
   return res.json(Object.assign({
     status: 200,
     authenticated: true,
