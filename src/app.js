@@ -2093,11 +2093,18 @@ var listenHost = null;
 var listenHostResolved = false;
 server.on("listening", onServerListening);
 server.on("error", handleServerError);
-// Security (SEC-UPLOAD): sweep stale multer temp files (>1h) and abandoned
-// tmp/imports staging entries (>24h) at startup and every 15 minutes. The
-// timer is unref'd and stopped when the server closes.
+// Security (SEC-UPLOAD): sweep stale multer temp files (>1h), abandoned
+// tmp/imports staging entries (>24h) and stale downloadSite archives in
+// _published/ (>15m) at startup and every 15 minutes. The timer is unref'd
+// and stopped when the server closes.
 const stopUploadTempSweeper = uploadSecurity.startUploadTempSweeper(
   UPLOAD_TEMP_DIRECTORY,
+  {
+    publishedDirectory: path.join(
+      HAXCMS.HAXCMS_ROOT,
+      HAXCMS.publishedDirectory,
+    ),
+  },
 );
 server.on("close", stopUploadTempSweeper);
 startServer(currentPort);
