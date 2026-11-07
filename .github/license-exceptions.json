@@ -1,0 +1,7 @@
+{
+  "@img/sharp-libvips-linux-x64": "LGPL-3.0-or-later. Prebuilt libvips shared library that sharp loads dynamically (optional, per-platform); LGPL permits this unmodified dynamic linking from Apache-2.0 code.",
+  "axe-core": "MPL-2.0. devDependency used only by the e2e accessibility tests; not shipped in the published package.",
+  "caniuse-lite": "CC-BY-4.0. Browser support data used at build time by @babel/preset-env (browserslist); not shipped.",
+  "pako": "(MIT AND Zlib). Zlib is a permissive license compatible with Apache-2.0; pulled in by epub-gen-memory via jszip.",
+  "spdx-exceptions": "CC-BY-3.0. SPDX exception-list data used by validate-npm-package-license; build tooling only."
+}
