@@ -108,6 +108,19 @@ function shouldEmbedBypassJwt(req, options) {
   if (!opts.jwtChecksDisabled || opts.isProduction) {
     return false;
   }
+  // Security (SEC-SESSION parity with shouldIncludeRequestTokens):
+  // connection-settings is served as JavaScript, so another site can pull it
+  // in with a <script> tag and read window.appSettings.jwt in its own page.
+  // Browsers mark those loads Sec-Fetch-Site cross-site / same-site; never
+  // hand them the superuser JWT. Absent header (older clients, curl), 'none'
+  // (typed URL / Electron) and 'same-origin' keep working.
+  const fetchSite =
+    req && req.headers && typeof req.headers["sec-fetch-site"] === "string"
+      ? req.headers["sec-fetch-site"].trim().toLowerCase()
+      : "";
+  if (fetchSite === "cross-site" || fetchSite === "same-site") {
+    return false;
+  }
   const explicitHost = selectListenHost({
     env: opts.env || process.env,
     jwtChecksDisabled: false,
