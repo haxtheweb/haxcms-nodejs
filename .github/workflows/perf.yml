@@ -1,0 +1,80 @@
+name: perf
+# Front-end memory + page-load regression check (haxtheweb/issues#3245).
+# Boots an isolated server, builds a seeded 500 page site, and fails when a
+# metric moves past test/perf/budgets.json. About 10 minutes, so it runs
+# nightly and on PRs labeled `perf`, not on every PR.
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "all | memory | lighthouse | outline | scale"
+        required: false
+        default: "all"
+      sizes:
+        description: "page counts for scale, e.g. 100,500,1000"
+        required: false
+        default: "100,500,1000"
+  pull_request:
+    types: [labeled, synchronize, opened, reopened]
+permissions:
+  contents: read
+jobs:
+  perf:
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PERF_COMMAND: ${{ github.event.inputs.command || 'all' }}
+      PERF_SIZES: ${{ github.event.inputs.sizes || '100,500,1000' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> "$GITHUB_OUTPUT"
+      - name: Cache Yarn
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-node-24-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-node-24-yarn-
+      - name: Install
+        run: yarn install --frozen-lockfile
+      - name: Install Lighthouse (outside the project)
+        # Kept out of package.json: it is large and only this job needs it.
+        run: npm install --prefix "$RUNNER_TEMP/lighthouse" --no-audit --no-fund lighthouse@13.6.0
+      - name: Run perf harness
+        # ubuntu-latest ships Google Chrome at /usr/bin/google-chrome, which
+        # the harness auto-detects (same as the e2e suite).
+        env:
+          HAXCMS_PERF_LIGHTHOUSE_DIR: ${{ runner.temp }}/lighthouse
+        run: |
+          if [ "$PERF_COMMAND" = "scale" ]; then
+            node test/perf/run.cjs scale --sizes "$PERF_SIZES"
+          else
+            node test/perf/run.cjs "$PERF_COMMAND" --check
+          fi
+      - name: Job summary
+        if: always()
+        run: |
+          for f in test/perf/results/*.md; do
+            [ -f "$f" ] && cat "$f" >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit 0
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-results
+          path: test/perf/results/
+          if-no-files-found: ignore
+          retention-days: 30
