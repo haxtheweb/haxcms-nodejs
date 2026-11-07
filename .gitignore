@@ -168,3 +168,4 @@ ui-inventory/
 
 # perf harness output (npm run perf)
 test/perf/results/
+test/fuzz/results/
