@@ -1468,6 +1468,9 @@ systemStructureContext().then((site) => {
           req.url.includes("build.js") ||
           req.url.includes("build-haxcms.js"))
       ) {
+        if (rejectStaticWriteMethod(req, res)) {
+          return;
+        }
         setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
         serveBuildAssetFile(req, res, path.join(__dirname, "/public"));
       } else if (
@@ -1492,6 +1495,9 @@ systemStructureContext().then((site) => {
           req.url.includes("/browserconfig.xml") ||
           req.url.includes("/push-manifest.json"))
       ) {
+        if (rejectStaticWriteMethod(req, res)) {
+          return;
+        }
         if (!setWellKnownContentType(res, req.url)) {
           setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
         }
@@ -1724,6 +1730,9 @@ systemStructureContext().then((site) => {
             req.url.includes("build.js") ||
             req.url.includes("build-haxcms.js"))
         ) {
+          if (rejectStaticWriteMethod(req, res)) {
+            return;
+          }
           setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
           serveBuildAssetFile(req, res, publicDir);
         } else if (
@@ -1748,6 +1757,9 @@ systemStructureContext().then((site) => {
             req.url.includes("/browserconfig.xml") ||
             req.url.includes("/push-manifest.json"))
         ) {
+          if (rejectStaticWriteMethod(req, res)) {
+            return;
+          }
           if (!setWellKnownContentType(res, req.url)) {
             setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
           }
@@ -3542,6 +3554,25 @@ function decodeStaticRequestPath(requestPath = "") {
 }
 function isSiteApiRequestPath(url = "") {
   return /\/x\/api(?:\/|$)/.test(getRequestPathWithoutQuery(url));
+}
+// Static files (site files, build assets, .well-known docs) are read-only.
+// These routes are mounted with app.use, so without this check a POST, PUT,
+// PATCH or DELETE got the file back with a 200, as if the write had worked
+// (found by the method x route matrix, haxtheweb/issues#3247). Apache, which
+// serves these files for haxcms-php, refuses such writes the same way.
+// GET, HEAD and OPTIONS behave as before.
+const STATIC_READ_METHODS = ["GET", "HEAD", "OPTIONS"];
+function rejectStaticWriteMethod(req, res) {
+  const method = String((req && req.method) || "GET").toUpperCase();
+  if (STATIC_READ_METHODS.indexOf(method) !== -1) {
+    return false;
+  }
+  res.setHeader("Allow", "GET, HEAD, OPTIONS");
+  res.status(405).json({
+    status: 405,
+    data: { message: "Method not allowed" },
+  });
+  return true;
 }
 function setWellKnownContentType(res, requestPath = "") {
   const cleanRequestPath = getRequestPathWithoutQuery(requestPath);
