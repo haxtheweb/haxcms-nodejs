@@ -1,7 +1,7 @@
-'use strict'
+"use strict";
 
-const { describe, test } = require('node:test')
-const assert = require('node:assert/strict')
+const { describe, test } = require("node:test");
+const assert = require("node:assert/strict");
 
 const {
   sanitizeHTMLForStorage,
@@ -9,201 +9,225 @@ const {
   sanitizeMetadataValue,
   escapeHTMLAttribute,
   escapeXMLValue,
-} = require('../../src/lib/sanitizeContent.js')
+} = require("../../src/lib/sanitizeContent.js");
 
 // The default sandbox DOMPurify+normalizeIframeAttributes applies to every
 // kept iframe that has no (or empty/invalid) sandbox attribute. Hand-picked
 // known literal, not derived from the module under test.
-const DEFAULT_SANDBOX =
-  'allow-scripts allow-same-origin allow-popups allow-forms'
+// Security: no allow-same-origin by default (with allow-scripts it would let
+// the frame strip its own sandbox); an explicit author sandbox keeps it.
+const DEFAULT_SANDBOX = "allow-scripts allow-popups allow-forms";
 
-describe('sanitizeHTMLForStorage — forbidden tags stripped', () => {
-  test('script tag and its contents are removed', () => {
+describe("sanitizeHTMLForStorage — forbidden tags stripped", () => {
+  test("script tag and its contents are removed", () => {
     assert.equal(
-      sanitizeHTMLForStorage('<script>alert(1)</script><p>hello</p>'),
-      '<p>hello</p>',
-    )
-  })
+      sanitizeHTMLForStorage("<script>alert(1)</script><p>hello</p>"),
+      "<p>hello</p>",
+    );
+  });
 
-  test('svg (and any onload handler inside) is removed', () => {
+  test("svg (and any onload handler inside) is removed", () => {
     assert.equal(
       sanitizeHTMLForStorage('<svg onload="alert(1)"><rect/></svg><p>hi</p>'),
-      '<p>hi</p>',
-    )
-  })
+      "<p>hi</p>",
+    );
+  });
 
-  test('meta is removed', () => {
+  test("meta is removed", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<meta http-equiv="refresh" content="0;url=javascript:alert(1)"><p>hi</p>',
       ),
-      '<p>hi</p>',
-    )
-  })
+      "<p>hi</p>",
+    );
+  });
 
-  test('link is removed', () => {
+  test("link is removed", () => {
     assert.equal(
-      sanitizeHTMLForStorage('<link rel="stylesheet" href="evil.css"><p>hi</p>'),
-      '<p>hi</p>',
-    )
-  })
+      sanitizeHTMLForStorage(
+        '<link rel="stylesheet" href="evil.css"><p>hi</p>',
+      ),
+      "<p>hi</p>",
+    );
+  });
 
-  test('style tag is removed', () => {
+  test("style tag is removed", () => {
     assert.equal(
-      sanitizeHTMLForStorage('<style>.x{color:red}</style><p>hi</p>'),
-      '<p>hi</p>',
-    )
-  })
+      sanitizeHTMLForStorage("<style>.x{color:red}</style><p>hi</p>"),
+      "<p>hi</p>",
+    );
+  });
 
-  test('base is removed', () => {
+  test("base is removed", () => {
     assert.equal(
       sanitizeHTMLForStorage('<base href="javascript:alert(1)"><p>hi</p>'),
-      '<p>hi</p>',
-    )
-  })
+      "<p>hi</p>",
+    );
+  });
 
-  test('frame and frameset are removed', () => {
+  test("frame and frameset are removed", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<frameset><frame src="a.html"></frame></frameset><p>hi</p>',
       ),
-      '<p>hi</p>',
-    )
-  })
+      "<p>hi</p>",
+    );
+  });
 
-  test('applet is removed', () => {
+  test("applet is removed", () => {
     assert.equal(
       sanitizeHTMLForStorage('<applet code="Evil.class"></applet><p>hi</p>'),
-      '<p>hi</p>',
-    )
-  })
-})
+      "<p>hi</p>",
+    );
+  });
+});
 
-describe('sanitizeHTMLForStorage — event-handler and dangerous attributes', () => {
-  test('on* event attributes are stripped from kept elements', () => {
+describe("sanitizeHTMLForStorage — event-handler and dangerous attributes", () => {
+  test("on* event attributes are stripped from kept elements", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<div onclick="alert(1)" onmouseover="x()" onload="y()">hi</div>',
       ),
-      '<div>hi</div>',
-    )
-  })
+      "<div>hi</div>",
+    );
+  });
 
-  test('srcdoc attribute is dropped from iframe (iframe kept, default attrs applied)', () => {
+  test("srcdoc attribute is dropped from iframe (iframe kept, default attrs applied)", () => {
     assert.equal(
-      sanitizeHTMLForStorage('<iframe srcdoc="<script>alert(1)</script>"></iframe>'),
+      sanitizeHTMLForStorage(
+        '<iframe srcdoc="<script>alert(1)</script>"></iframe>',
+      ),
       '<iframe loading="lazy" referrerpolicy="no-referrer" sandbox="' +
         DEFAULT_SANDBOX +
         '"></iframe>',
-    )
-  })
+    );
+  });
 
-  test('style attribute is dropped from kept elements', () => {
+  test("style attribute is dropped from kept elements", () => {
     assert.equal(
       sanitizeHTMLForStorage('<p style="color:red">hi</p>'),
-      '<p>hi</p>',
-    )
-  })
-})
+      "<p>hi</p>",
+    );
+  });
+});
 
-describe('sanitizeHTMLForStorage — URL attributes', () => {
-  test('javascript: URL is neutralized: href attribute dropped', () => {
+describe("sanitizeHTMLForStorage — URL attributes", () => {
+  test("javascript: URL is neutralized: href attribute dropped", () => {
     assert.equal(
       sanitizeHTMLForStorage('<a href="javascript:alert(1)">click</a>'),
-      '<a>click</a>',
-    )
-  })
+      "<a>click</a>",
+    );
+  });
 
-  test('data: URL is neutralized: href attribute dropped', () => {
+  test("data: URL is neutralized: href attribute dropped", () => {
     assert.equal(
       sanitizeHTMLForStorage('<a href="data:text/plain,hello">x</a>'),
-      '<a>x</a>',
-    )
-  })
+      "<a>x</a>",
+    );
+  });
 
-  test('http URL is preserved on a link', () => {
+  test("http URL is preserved on a link", () => {
     assert.equal(
       sanitizeHTMLForStorage('<a href="http://example.com">x</a>'),
       '<a href="http://example.com">x</a>',
-    )
-  })
+    );
+  });
 
-  test('https URL is preserved on a link', () => {
+  test("https URL is preserved on a link", () => {
     assert.equal(
       sanitizeHTMLForStorage('<a href="https://example.com">x</a>'),
       '<a href="https://example.com">x</a>',
-    )
-  })
+    );
+  });
 
-  test('mailto URL is preserved on a link', () => {
+  test("mailto URL is preserved on a link", () => {
     assert.equal(
       sanitizeHTMLForStorage('<a href="mailto:foo@bar.com">x</a>'),
       '<a href="mailto:foo@bar.com">x</a>',
-    )
-  })
+    );
+  });
 
-  test('tel URL is preserved on a link', () => {
+  test("tel URL is preserved on a link", () => {
     assert.equal(
       sanitizeHTMLForStorage('<a href="tel:+15551234">x</a>'),
       '<a href="tel:+15551234">x</a>',
-    )
-  })
+    );
+  });
 
-  test('fragment identifier is preserved', () => {
+  test("fragment identifier is preserved", () => {
     assert.equal(
       sanitizeHTMLForStorage('<a href="#section1">x</a>'),
       '<a href="#section1">x</a>',
-    )
-  })
-})
+    );
+  });
+});
 
-describe('sanitizeHTMLForStorage — iframe sandbox normalization', () => {
-  test('missing sandbox receives the default sandbox tokens', () => {
+describe("sanitizeHTMLForStorage — iframe sandbox normalization", () => {
+  test("missing sandbox receives the default sandbox tokens", () => {
     assert.equal(
       sanitizeHTMLForStorage('<iframe src="https://example.com"></iframe>'),
       '<iframe src="https://example.com" loading="lazy" referrerpolicy="no-referrer" sandbox="' +
         DEFAULT_SANDBOX +
         '"></iframe>',
-    )
-  })
+    );
+  });
 
-  test('empty sandbox receives the default sandbox tokens', () => {
+  test("empty sandbox receives the default sandbox tokens", () => {
     assert.equal(
       sanitizeHTMLForStorage('<iframe sandbox=""></iframe>'),
       '<iframe sandbox="' +
         DEFAULT_SANDBOX +
         '" loading="lazy" referrerpolicy="no-referrer"></iframe>',
-    )
-  })
+    );
+  });
 
-  test('allowed sandbox tokens are kept (deduped, lowercased)', () => {
+  test("an explicit author sandbox that includes allow-same-origin keeps it", () => {
     assert.equal(
-      sanitizeHTMLForStorage('<iframe sandbox="allow-scripts allow-forms"></iframe>'),
-      '<iframe sandbox="allow-scripts allow-forms" loading="lazy" referrerpolicy="no-referrer"></iframe>',
-    )
-  })
+      sanitizeHTMLForStorage(
+        '<iframe sandbox="allow-scripts allow-same-origin"></iframe>',
+      ),
+      '<iframe sandbox="allow-scripts allow-same-origin" loading="lazy" referrerpolicy="no-referrer"></iframe>',
+    );
+  });
 
-  test('disallowed sandbox tokens are dropped, allowed ones kept', () => {
+  test("the default sandbox never grants allow-same-origin", () => {
+    const output = sanitizeHTMLForStorage(
+      '<iframe src="https://example.com"></iframe>',
+    );
+    assert.equal(output.indexOf("allow-same-origin"), -1);
+    assert.ok(output.indexOf('sandbox="' + DEFAULT_SANDBOX + '"') !== -1);
+  });
+
+  test("allowed sandbox tokens are kept (deduped, lowercased)", () => {
+    assert.equal(
+      sanitizeHTMLForStorage(
+        '<iframe sandbox="allow-scripts allow-forms"></iframe>',
+      ),
+      '<iframe sandbox="allow-scripts allow-forms" loading="lazy" referrerpolicy="no-referrer"></iframe>',
+    );
+  });
+
+  test("disallowed sandbox tokens are dropped, allowed ones kept", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<iframe sandbox="allow-scripts evil-token"></iframe>',
       ),
       '<iframe sandbox="allow-scripts" loading="lazy" referrerpolicy="no-referrer"></iframe>',
-    )
-  })
+    );
+  });
 
-  test('duplicate sandbox tokens are collapsed to one', () => {
+  test("duplicate sandbox tokens are collapsed to one", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<iframe sandbox="allow-scripts allow-scripts"></iframe>',
       ),
       '<iframe sandbox="allow-scripts" loading="lazy" referrerpolicy="no-referrer"></iframe>',
-    )
-  })
-})
+    );
+  });
+});
 
-describe('sanitizeHTMLForStorage — referrerpolicy normalization', () => {
-  test('invalid referrerpolicy is normalized to no-referrer', () => {
+describe("sanitizeHTMLForStorage — referrerpolicy normalization", () => {
+  test("invalid referrerpolicy is normalized to no-referrer", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<iframe src="https://example.com" referrerpolicy="bogus"></iframe>',
@@ -211,17 +235,17 @@ describe('sanitizeHTMLForStorage — referrerpolicy normalization', () => {
       '<iframe src="https://example.com" referrerpolicy="no-referrer" loading="lazy" sandbox="' +
         DEFAULT_SANDBOX +
         '"></iframe>',
-    )
-  })
+    );
+  });
 
-  test('missing referrerpolicy defaults to no-referrer', () => {
+  test("missing referrerpolicy defaults to no-referrer", () => {
     assert.equal(
       sanitizeHTMLForStorage('<iframe sandbox="allow-scripts"></iframe>'),
       '<iframe sandbox="allow-scripts" loading="lazy" referrerpolicy="no-referrer"></iframe>',
-    )
-  })
+    );
+  });
 
-  test('valid referrerpolicy is preserved (lowercased)', () => {
+  test("valid referrerpolicy is preserved (lowercased)", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<iframe src="https://example.com" referrerpolicy="origin"></iframe>',
@@ -229,10 +253,10 @@ describe('sanitizeHTMLForStorage — referrerpolicy normalization', () => {
       '<iframe src="https://example.com" referrerpolicy="origin" loading="lazy" sandbox="' +
         DEFAULT_SANDBOX +
         '"></iframe>',
-    )
-  })
+    );
+  });
 
-  test('uppercase referrerpolicy is lowercased to the canonical value', () => {
+  test("uppercase referrerpolicy is lowercased to the canonical value", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<iframe src="https://example.com" referrerpolicy="ORIGIN"></iframe>',
@@ -240,16 +264,16 @@ describe('sanitizeHTMLForStorage — referrerpolicy normalization', () => {
       '<iframe src="https://example.com" referrerpolicy="origin" loading="lazy" sandbox="' +
         DEFAULT_SANDBOX +
         '"></iframe>',
-    )
-  })
-})
+    );
+  });
+});
 
-describe('sanitizeHTMLForStorage — credentialless iframe support', () => {
+describe("sanitizeHTMLForStorage — credentialless iframe support", () => {
   // issue #3112: embed elements emit `credentialless` +
   // `referrerpolicy="strict-origin-when-cross-origin"` so third-party
   // embeds load on cross-origin isolated (COEP) pages; the sanitizer must
   // not strip either attribute from stored iframe markup
-  test('bare credentialless attribute survives sanitization', () => {
+  test("bare credentialless attribute survives sanitization", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<iframe src="https://www.youtube.com/embed/x" credentialless></iframe>',
@@ -257,10 +281,10 @@ describe('sanitizeHTMLForStorage — credentialless iframe support', () => {
       '<iframe src="https://www.youtube.com/embed/x" credentialless="" loading="lazy" referrerpolicy="no-referrer" sandbox="' +
         DEFAULT_SANDBOX +
         '"></iframe>',
-    )
-  })
+    );
+  });
 
-  test('credentialless with an explicit empty value survives sanitization', () => {
+  test("credentialless with an explicit empty value survives sanitization", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<iframe src="https://www.youtube.com/embed/x" credentialless=""></iframe>',
@@ -268,10 +292,10 @@ describe('sanitizeHTMLForStorage — credentialless iframe support', () => {
       '<iframe src="https://www.youtube.com/embed/x" credentialless="" loading="lazy" referrerpolicy="no-referrer" sandbox="' +
         DEFAULT_SANDBOX +
         '"></iframe>',
-    )
-  })
+    );
+  });
 
-  test('credentialless is kept alongside an explicit referrerpolicy', () => {
+  test("credentialless is kept alongside an explicit referrerpolicy", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<iframe src="https://www.youtube.com/embed/x" credentialless referrerpolicy="strict-origin-when-cross-origin"></iframe>',
@@ -279,10 +303,10 @@ describe('sanitizeHTMLForStorage — credentialless iframe support', () => {
       '<iframe src="https://www.youtube.com/embed/x" credentialless="" referrerpolicy="strict-origin-when-cross-origin" loading="lazy" sandbox="' +
         DEFAULT_SANDBOX +
         '"></iframe>',
-    )
-  })
+    );
+  });
 
-  test('strict-origin-when-cross-origin referrerpolicy is preserved verbatim', () => {
+  test("strict-origin-when-cross-origin referrerpolicy is preserved verbatim", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<iframe src="https://www.youtube.com/embed/x" referrerpolicy="strict-origin-when-cross-origin"></iframe>',
@@ -290,206 +314,209 @@ describe('sanitizeHTMLForStorage — credentialless iframe support', () => {
       '<iframe src="https://www.youtube.com/embed/x" referrerpolicy="strict-origin-when-cross-origin" loading="lazy" sandbox="' +
         DEFAULT_SANDBOX +
         '"></iframe>',
-    )
-  })
-})
+    );
+  });
+});
 
-describe('sanitizeHTMLForStorage — template text inside host elements', () => {
-  test('template markup inside code-sample is escaped to inert text', () => {
+describe("sanitizeHTMLForStorage — template text inside host elements", () => {
+  test("template markup inside code-sample is escaped to inert text", () => {
     assert.equal(
       sanitizeHTMLForStorage(
-        '<code-sample><template><script>alert(1)</script></template></code-sample>',
+        "<code-sample><template><script>alert(1)</script></template></code-sample>",
       ),
-      '<code-sample><template>&lt;script&gt;alert(1)&lt;/script&gt;</template></code-sample>',
-    )
-  })
+      "<code-sample><template>&lt;script&gt;alert(1)&lt;/script&gt;</template></code-sample>",
+    );
+  });
 
-  test('template markup inside runkit-embed is escaped to inert text', () => {
+  test("template markup inside runkit-embed is escaped to inert text", () => {
     assert.equal(
       sanitizeHTMLForStorage(
-        '<runkit-embed><template><img src=x onerror=alert(1)></template></runkit-embed>',
+        "<runkit-embed><template><img src=x onerror=alert(1)></template></runkit-embed>",
       ),
       '<runkit-embed><template>&lt;img src="x" onerror="alert(1)"&gt;</template></runkit-embed>',
-    )
-  })
+    );
+  });
 
-  test('template markup inside web-container is escaped to inert text', () => {
+  test("template markup inside web-container is escaped to inert text", () => {
     assert.equal(
       sanitizeHTMLForStorage(
-        '<web-container><template><div>hi</div></template></web-container>',
+        "<web-container><template><div>hi</div></template></web-container>",
       ),
-      '<web-container><template>&lt;div&gt;hi&lt;/div&gt;</template></web-container>',
-    )
-  })
+      "<web-container><template>&lt;div&gt;hi&lt;/div&gt;</template></web-container>",
+    );
+  });
 
-  test('template NOT inside a host is sanitized (script removed), not escaped', () => {
+  test("template NOT inside a host is sanitized (script removed), not escaped", () => {
     assert.equal(
       sanitizeHTMLForStorage(
-        '<div><template><script>alert(1)</script></template></div>',
+        "<div><template><script>alert(1)</script></template></div>",
       ),
-      '<div><template></template></div>',
-    )
-  })
-})
+      "<div><template></template></div>",
+    );
+  });
+});
 
-describe('sanitizeHTMLForStorage — question element answer attributes', () => {
+describe("sanitizeHTMLForStorage — question element answer attributes", () => {
   // #3113: QuestionElement serializes the right answer onto light-DOM
   // <input> elements. Legacy content uses the bare `correct` attribute
   // (allowlisted via ADD_ATTR); new content uses `data-correct`, which
   // DOMPurify keeps by default.
-  test('legacy bare correct attribute on an input is preserved', () => {
+  test("legacy bare correct attribute on an input is preserved", () => {
     assert.equal(
       sanitizeHTMLForStorage('<input type="checkbox" value="North" correct>'),
       '<input type="checkbox" value="North" correct="">',
-    )
-  })
+    );
+  });
 
-  test('data-correct answer attribute on an input is preserved', () => {
+  test("data-correct answer attribute on an input is preserved", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<input type="checkbox" value="North" data-correct="true" data-selected="feedback">',
       ),
       '<input type="checkbox" value="North" data-correct="true" data-selected="feedback">',
-    )
-  })
+    );
+  });
 
-  test('answer attributes are preserved while event handlers are still stripped', () => {
+  test("answer attributes are preserved while event handlers are still stripped", () => {
     assert.equal(
       sanitizeHTMLForStorage(
         '<input type="checkbox" value="North" correct data-correct="true" data-selected="feedback" onclick="steal()">',
       ),
       '<input type="checkbox" value="North" correct="" data-correct="true" data-selected="feedback">',
-    )
-  })
-})
+    );
+  });
+});
 
-describe('sanitizeHTMLForStorage — input handling', () => {
-  test('non-string input returns empty string', () => {
-    assert.equal(sanitizeHTMLForStorage(null), '')
-    assert.equal(sanitizeHTMLForStorage(undefined), '')
-    assert.equal(sanitizeHTMLForStorage(123), '')
-    assert.equal(sanitizeHTMLForStorage({}), '')
-  })
-})
+describe("sanitizeHTMLForStorage — input handling", () => {
+  test("non-string input returns empty string", () => {
+    assert.equal(sanitizeHTMLForStorage(null), "");
+    assert.equal(sanitizeHTMLForStorage(undefined), "");
+    assert.equal(sanitizeHTMLForStorage(123), "");
+    assert.equal(sanitizeHTMLForStorage({}), "");
+  });
+});
 
-describe('sanitizeURLValue', () => {
-  test('null and undefined return the fallback (default empty)', () => {
-    assert.equal(sanitizeURLValue(null), '')
-    assert.equal(sanitizeURLValue(undefined), '')
-  })
+describe("sanitizeURLValue", () => {
+  test("null and undefined return the fallback (default empty)", () => {
+    assert.equal(sanitizeURLValue(null), "");
+    assert.equal(sanitizeURLValue(undefined), "");
+  });
 
-  test('empty or whitespace-only returns the fallback', () => {
-    assert.equal(sanitizeURLValue(''), '')
-    assert.equal(sanitizeURLValue('   '), '')
-  })
+  test("empty or whitespace-only returns the fallback", () => {
+    assert.equal(sanitizeURLValue(""), "");
+    assert.equal(sanitizeURLValue("   "), "");
+  });
 
-  test('a custom fallback is returned for rejected values', () => {
+  test("a custom fallback is returned for rejected values", () => {
     assert.equal(
-      sanitizeURLValue('javascript:alert(1)', 'about:blank'),
-      'about:blank',
-    )
-  })
+      sanitizeURLValue("javascript:alert(1)", "about:blank"),
+      "about:blank",
+    );
+  });
 
-  test('fragment identifier is preserved verbatim', () => {
-    assert.equal(sanitizeURLValue('#section1'), '#section1')
-  })
+  test("fragment identifier is preserved verbatim", () => {
+    assert.equal(sanitizeURLValue("#section1"), "#section1");
+  });
 
-  test('fragment identifier with surrounding whitespace is trimmed then preserved', () => {
-    assert.equal(sanitizeURLValue('  #section1  '), '#section1')
-  })
+  test("fragment identifier with surrounding whitespace is trimmed then preserved", () => {
+    assert.equal(sanitizeURLValue("  #section1  "), "#section1");
+  });
 
-  test('http URL is preserved', () => {
-    assert.equal(sanitizeURLValue('http://example.com'), 'http://example.com')
-  })
+  test("http URL is preserved", () => {
+    assert.equal(sanitizeURLValue("http://example.com"), "http://example.com");
+  });
 
-  test('https URL is preserved', () => {
-    assert.equal(sanitizeURLValue('https://example.com'), 'https://example.com')
-  })
-
-  test('mailto URL is preserved', () => {
-    assert.equal(sanitizeURLValue('mailto:foo@bar.com'), 'mailto:foo@bar.com')
-  })
-
-  test('tel URL is preserved', () => {
-    assert.equal(sanitizeURLValue('tel:+15551234'), 'tel:+15551234')
-  })
-
-  test('javascript: URL is neutralized to empty', () => {
-    assert.equal(sanitizeURLValue('javascript:alert(1)'), '')
-  })
-
-  test('javascript: URL disguised with a space is neutralized to empty', () => {
-    assert.equal(sanitizeURLValue('java script:alert(1)'), '')
-  })
-
-  test('javascript: URL disguised with a tab is neutralized to empty', () => {
-    assert.equal(sanitizeURLValue('java\tscript:alert(1)'), '')
-  })
-
-  test('data: URL is neutralized to empty', () => {
-    assert.equal(sanitizeURLValue('data:text/plain,hello'), '')
-  })
-
-  test('ftp URL is neutralized to empty (protocol not allow-listed)', () => {
-    assert.equal(sanitizeURLValue('ftp://foo'), '')
-  })
-
-  test('relative URL with no protocol is preserved', () => {
-    assert.equal(sanitizeURLValue('/path/to/page'), '/path/to/page')
-  })
-
-  test('bare hostname with no protocol is preserved', () => {
-    assert.equal(sanitizeURLValue('example.com'), 'example.com')
-  })
-})
-
-describe('sanitizeMetadataValue', () => {
-  test('null and undefined return empty string', () => {
-    assert.equal(sanitizeMetadataValue(null), '')
-    assert.equal(sanitizeMetadataValue(undefined), '')
-  })
-
-  test('HTML-attribute-escapes the value', () => {
+  test("https URL is preserved", () => {
     assert.equal(
-      sanitizeMetadataValue('a<b>"c\'d'),
-      'a&lt;b&gt;&quot;c&#039;d',
-    )
-  })
-})
+      sanitizeURLValue("https://example.com"),
+      "https://example.com",
+    );
+  });
 
-describe('escapeHTMLAttribute', () => {
-  test('escapes &, <, >, ", and \\\' (apostrophe as &#039;)', () => {
+  test("mailto URL is preserved", () => {
+    assert.equal(sanitizeURLValue("mailto:foo@bar.com"), "mailto:foo@bar.com");
+  });
+
+  test("tel URL is preserved", () => {
+    assert.equal(sanitizeURLValue("tel:+15551234"), "tel:+15551234");
+  });
+
+  test("javascript: URL is neutralized to empty", () => {
+    assert.equal(sanitizeURLValue("javascript:alert(1)"), "");
+  });
+
+  test("javascript: URL disguised with a space is neutralized to empty", () => {
+    assert.equal(sanitizeURLValue("java script:alert(1)"), "");
+  });
+
+  test("javascript: URL disguised with a tab is neutralized to empty", () => {
+    assert.equal(sanitizeURLValue("java\tscript:alert(1)"), "");
+  });
+
+  test("data: URL is neutralized to empty", () => {
+    assert.equal(sanitizeURLValue("data:text/plain,hello"), "");
+  });
+
+  test("ftp URL is neutralized to empty (protocol not allow-listed)", () => {
+    assert.equal(sanitizeURLValue("ftp://foo"), "");
+  });
+
+  test("relative URL with no protocol is preserved", () => {
+    assert.equal(sanitizeURLValue("/path/to/page"), "/path/to/page");
+  });
+
+  test("bare hostname with no protocol is preserved", () => {
+    assert.equal(sanitizeURLValue("example.com"), "example.com");
+  });
+});
+
+describe("sanitizeMetadataValue", () => {
+  test("null and undefined return empty string", () => {
+    assert.equal(sanitizeMetadataValue(null), "");
+    assert.equal(sanitizeMetadataValue(undefined), "");
+  });
+
+  test("HTML-attribute-escapes the value", () => {
     assert.equal(
-      escapeHTMLAttribute('a&b<c>d"e\'f'),
-      'a&amp;b&lt;c&gt;d&quot;e&#039;f',
-    )
-  })
+      sanitizeMetadataValue("a<b>\"c'd"),
+      "a&lt;b&gt;&quot;c&#039;d",
+    );
+  });
+});
 
-  test('ampersand is escaped first so it never double-escapes inserted entities', () => {
-    assert.equal(escapeHTMLAttribute('<&>'), '&lt;&amp;&gt;')
-  })
-
-  test('null and undefined return empty string', () => {
-    assert.equal(escapeHTMLAttribute(null), '')
-    assert.equal(escapeHTMLAttribute(undefined), '')
-  })
-})
-
-describe('escapeXMLValue', () => {
-  test('escapes &, <, >, ", and \\\' (apostrophe as &apos;)', () => {
+describe("escapeHTMLAttribute", () => {
+  test("escapes &, <, >, \", and \\' (apostrophe as &#039;)", () => {
     assert.equal(
-      escapeXMLValue('a&b<c>d"e\'f'),
-      'a&amp;b&lt;c&gt;d&quot;e&apos;f',
-    )
-  })
+      escapeHTMLAttribute("a&b<c>d\"e'f"),
+      "a&amp;b&lt;c&gt;d&quot;e&#039;f",
+    );
+  });
 
-  test('XML uses &apos; for apostrophe while HTML uses &#039;', () => {
-    assert.equal(escapeXMLValue("it's"), "it&apos;s")
-    assert.equal(escapeHTMLAttribute("it's"), "it&#039;s")
-  })
+  test("ampersand is escaped first so it never double-escapes inserted entities", () => {
+    assert.equal(escapeHTMLAttribute("<&>"), "&lt;&amp;&gt;");
+  });
 
-  test('null and undefined return empty string', () => {
-    assert.equal(escapeXMLValue(null), '')
-    assert.equal(escapeXMLValue(undefined), '')
-  })
-})
+  test("null and undefined return empty string", () => {
+    assert.equal(escapeHTMLAttribute(null), "");
+    assert.equal(escapeHTMLAttribute(undefined), "");
+  });
+});
+
+describe("escapeXMLValue", () => {
+  test("escapes &, <, >, \", and \\' (apostrophe as &apos;)", () => {
+    assert.equal(
+      escapeXMLValue("a&b<c>d\"e'f"),
+      "a&amp;b&lt;c&gt;d&quot;e&apos;f",
+    );
+  });
+
+  test("XML uses &apos; for apostrophe while HTML uses &#039;", () => {
+    assert.equal(escapeXMLValue("it's"), "it&apos;s");
+    assert.equal(escapeHTMLAttribute("it's"), "it&#039;s");
+  });
+
+  test("null and undefined return empty string", () => {
+    assert.equal(escapeXMLValue(null), "");
+    assert.equal(escapeXMLValue(undefined), "");
+  });
+});
