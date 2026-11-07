@@ -181,6 +181,7 @@ function createResponseCollector(page, opts) {
 }
 
 module.exports = {
+  findChromeExecutable,
   launchBrowser,
   newPage,
   createResponseCollector,

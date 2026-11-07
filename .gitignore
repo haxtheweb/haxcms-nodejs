@@ -165,3 +165,6 @@ dist
 
 # Generated UI inventory (npm run ui:inventory); regenerate, never commit
 ui-inventory/
+
+# perf harness output (npm run perf)
+test/perf/results/
