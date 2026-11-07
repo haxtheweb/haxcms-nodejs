@@ -419,14 +419,15 @@ describe('refreshAccessToken', () => {
 // connectionTest
 // ---------------------------------------------------------------------------
 describe('connectionTest', () => {
-  test('an anonymous probe answers 200 no_session with Cache-Control no-store', async () => {
+  test('an anonymous probe answers 200 no_session, revalidated but not no-store', async () => {
     const res = authRes()
     await connectionTest({ headers: {}, cookies: {} }, res)
     assert.equal(res.statusCode, 200)
     assert.equal(res.body.authenticated, false)
     assert.equal(res.body.reason, 'no_session')
     assert.equal(res.body.message, 'No active session')
-    assert.equal(res.headers['Cache-Control'], 'no-store')
+    // no credentials, nothing user-bound: bfcache-friendly (issues#3244)
+    assert.equal(res.headers['Cache-Control'], 'private, no-cache, must-revalidate')
     assertCookieCleared(res)
   })
 
@@ -436,7 +437,7 @@ describe('connectionTest', () => {
     assert.equal(res.statusCode, 401)
     assert.equal(res.body.authenticated, false)
     assert.equal(res.body.reason, 'invalid_session')
-    assert.equal(res.headers['Cache-Control'], 'no-store')
+    assert.equal(res.headers['Cache-Control'].indexOf('no-store'), 0)
     assertCookieCleared(res)
   })
 
@@ -450,6 +451,8 @@ describe('connectionTest', () => {
     assert.equal(res.body.refreshed, false)
     assert.equal(res.body.jwt, token)
     assert.equal(res.body.user, ACTIVE_USER)
+    // carries a JWT: never stored
+    assert.equal(res.headers['Cache-Control'].indexOf('no-store'), 0)
   })
 
   test('a malformed refresh cookie answers 200 no_session when no bearer was supplied', async () => {
