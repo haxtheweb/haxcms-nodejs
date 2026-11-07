@@ -608,7 +608,12 @@ describe("connection-settings", () => {
     assert.ok(settings.connectionTest);
     assert.ok(settings.token);
     assert.equal(settings.userTokenHeader, "X-HAXCMS-User-Token");
-    assert.equal(res.headers["Cache-Control"].indexOf("no-store"), 0);
+    // nothing user-bound in the answer and no credentials in the request:
+    // revalidate every time, but stay back/forward-cache friendly (#3244)
+    assert.equal(
+      res.headers["Cache-Control"],
+      "private, no-cache, must-revalidate",
+    );
   });
 
   test("a valid bearer JWT receives the tokens and the token headers", async (t) => {
@@ -632,6 +637,7 @@ describe("connection-settings", () => {
       settings.appStore.headers["X-HAXCMS-Site-Token"],
       settings.siteToken,
     );
+    assert.equal(res.headers["Cache-Control"].indexOf("no-store"), 0);
   });
 
   test("a valid refresh-cookie session receives the tokens", async (t) => {
@@ -643,6 +649,7 @@ describe("connection-settings", () => {
       res,
     );
     assert.equal(parse(res).userToken, HAXCMS.getRequestToken(ACTIVE_USER));
+    assert.equal(res.headers["Cache-Control"].indexOf("no-store"), 0);
   });
 
   test("a revoked refresh cookie or a bad bearer gets no tokens (flag on)", async (t) => {
@@ -664,6 +671,8 @@ describe("connection-settings", () => {
     const settings = parse(res);
     assert.equal(settings.userToken, undefined);
     assert.equal(settings.siteToken, undefined);
+    // credentials were sent (even rejected ones): never stored
+    assert.equal(res.headers["Cache-Control"].indexOf("no-store"), 0);
   });
 
   test("default (flag unset): anonymous callers get no tokens (session required)", async (t) => {
@@ -704,6 +713,8 @@ describe("connection-settings", () => {
     );
     const settings = parse(res);
     assert.equal(settings.userToken, HAXCMS.getRequestToken(ACTIVE_USER));
+    // tokens in the body: no-store even though the request had no credentials
+    assert.equal(res.headers["Cache-Control"].indexOf("no-store"), 0);
     assert.equal(
       settings.getUserDataHeaders["X-HAXCMS-User-Token"],
       settings.userToken,

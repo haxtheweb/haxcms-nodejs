@@ -80,6 +80,7 @@ const {
   guardApiRouteHandler,
 } = require("./lib/routeHandlerError.js");
 const { apiMessageCodesMiddleware } = require("./lib/apiMessageCodes.js");
+const { setUncachedResponseHeaders } = require("./lib/responseCache.js");
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
 // colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
 // the plain `open: <url>` line when color is disabled (CI / non-TTY / NO_COLOR).
@@ -980,10 +981,10 @@ function sendNonceIndex(res, req, absoluteFilePath) {
   try {
     var indexFile = fs.readFileSync(absoluteFilePath, "utf8");
     indexFile = injectNonce(indexFile, req && req.haxcmsCspNonce);
-    setNoStoreResponseHeaders(res);
+    setUncachedResponseHeaders(res, req);
     res.send(indexFile);
   } catch {
-    setNoStoreResponseHeaders(res);
+    setUncachedResponseHeaders(res, req);
     res.sendFile(path.basename(absoluteFilePath), {
       root: path.dirname(absoluteFilePath),
     });
@@ -1175,8 +1176,13 @@ app.use(compression());
 // translatable API messages: add a `code` next to response messages (issues#3157)
 app.use(apiMessageCodesMiddleware);
 app.use((req, res, next) => {
-  if (isSystemAdminApiRequest(req) || shouldDisableResponseCache(req)) {
+  if (isSystemAdminApiRequest(req) && !isPublicSystemApiDocRequest(req)) {
+    // system API answers (login JWTs, tokens, settings) are never stored
     setNoStoreResponseHeaders(res);
+  } else if (isSystemAdminApiRequest(req) || shouldDisableResponseCache(req)) {
+    // API description docs and cache-busted reads hold nothing user-bound
+    // unless the request is credentialed (issues#3244)
+    setUncachedResponseHeaders(res, req);
   }
   next();
 });
@@ -1549,7 +1555,7 @@ systemStructureContext().then((site) => {
           // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
           // (last so it covers all injected inline scripts too).
           indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
-          setNoStoreResponseHeaders(res);
+          setUncachedResponseHeaders(res, req);
           res.send(indexFile);
         } catch (e) {
           console.warn(
@@ -1649,7 +1655,7 @@ systemStructureContext().then((site) => {
             // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
             // (last so it covers all injected inline scripts too).
             indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
-            setNoStoreResponseHeaders(res);
+            setUncachedResponseHeaders(res, req);
             res.send(indexFile);
             return;
           } catch (e) {
@@ -1811,7 +1817,7 @@ systemStructureContext().then((site) => {
               // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
               // (last so it covers all injected inline scripts too).
               indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
-              setNoStoreResponseHeaders(res);
+              setUncachedResponseHeaders(res, req);
               res.send(indexFile);
               return;
             } catch (e) {
@@ -1831,7 +1837,7 @@ systemStructureContext().then((site) => {
             siteName,
           );
           if (fallbackIndexPath === false) {
-            setNoStoreResponseHeaders(res);
+            setUncachedResponseHeaders(res, req);
             res.status(404).send("Not found");
             return;
           }
@@ -2188,7 +2194,7 @@ systemStructureContext().then((site) => {
             // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
             // (last so it covers all injected inline scripts too).
             indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
-            setNoStoreResponseHeaders(res);
+            setUncachedResponseHeaders(res, req);
             res.send(indexFile);
             return;
           } catch (e) {
@@ -2428,6 +2434,34 @@ function isSystemAdminApiRequest(req) {
     return true;
   }
   return requestPath.indexOf(systemRequestBasePath + "/") !== -1;
+}
+// The API description docs (GET /system/api/v1, /openapi, .json, .yaml):
+// static, the same for every caller.
+const PUBLIC_SYSTEM_API_DOC_SUFFIXES = [
+  "v1",
+  "v1/openapi",
+  "v1/openapi.json",
+  "v1/openapi.yaml",
+];
+function isPublicSystemApiDocRequest(req) {
+  if (!req || (req.method !== "GET" && req.method !== "HEAD")) {
+    return false;
+  }
+  const requestPath = normalizePathForCacheMatching(
+    getRequestPathWithoutQuery(req.originalUrl || req.url),
+  );
+  const systemRequestBasePath = normalizePathForCacheMatching(
+    "/" + String(HAXCMS.systemRequestBase || "").replace(/^\/+/, ""),
+  );
+  for (let i = 0; i < PUBLIC_SYSTEM_API_DOC_SUFFIXES.length; i++) {
+    if (
+      requestPath ===
+      systemRequestBasePath + "/" + PUBLIC_SYSTEM_API_DOC_SUFFIXES[i]
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 function shouldDisableResponseCache(req) {
   if (!req) {
