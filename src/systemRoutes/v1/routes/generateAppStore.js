@@ -1,9 +1,9 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const HAXAppStoreService = require('../../../lib/HAXAppStoreService.js');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const HAXAppStoreService = require("../../../lib/HAXAppStoreService.js");
 const AppStoreService = new HAXAppStoreService();
-const { readEffectiveApiKeys } = require('../../../lib/apiKeys.js');
-const fs = require('fs-extra');
-const path = require('path');
+const { readEffectiveApiKeys } = require("../../../lib/apiKeys.js");
+const fs = require("fs-extra");
+const path = require("path");
 
 function normalizeEnabledBlocks(input = []) {
   if (!Array.isArray(input)) {
@@ -11,11 +11,11 @@ function normalizeEnabledBlocks(input = []) {
   }
   const output = [];
   for (let i = 0; i < input.length; i++) {
-    if (typeof input[i] !== 'string') {
+    if (typeof input[i] !== "string") {
       return null;
     }
     const tag = input[i].trim().toLowerCase();
-    if (tag === '') {
+    if (tag === "") {
       return null;
     }
     if (!/^[a-z][a-z0-9-]*$/.test(tag)) {
@@ -29,37 +29,36 @@ function normalizeEnabledBlocks(input = []) {
 async function readEnabledBlocksSetting() {
   const filePath = path.join(
     HAXCMS.configDirectory,
-    'settings',
-    'enabledBlocks.json',
+    "settings",
+    "enabledBlocks.json",
   );
   if (!(await fs.pathExists(filePath))) {
     return null;
   }
-  const raw = await fs.readFile(filePath, 'utf8');
+  const raw = await fs.readFile(filePath, "utf8");
   const parsed = JSON.parse(raw);
   return normalizeEnabledBlocks(parsed);
 }
-
 
 function filterAutoloaderList(autoloaderList, enabledSet) {
   if (!enabledSet || enabledSet.size === 0) {
     if (Array.isArray(autoloaderList)) {
       return [];
     }
-    if (autoloaderList && typeof autoloaderList === 'object') {
+    if (autoloaderList && typeof autoloaderList === "object") {
       return {};
     }
     return autoloaderList;
   }
   if (Array.isArray(autoloaderList)) {
     return autoloaderList.filter((item) => {
-      if (typeof item !== 'string') {
+      if (typeof item !== "string") {
         return false;
       }
       return enabledSet.has(item.toLowerCase());
     });
   }
-  if (autoloaderList && typeof autoloaderList === 'object') {
+  if (autoloaderList && typeof autoloaderList === "object") {
     const filtered = {};
     const keys = Object.keys(autoloaderList);
     for (let i = 0; i < keys.length; i++) {
@@ -75,33 +74,33 @@ function filterAutoloaderList(autoloaderList, enabledSet) {
 
 function buildProviderConnectionMap() {
   return {
-    'www.googleapis.com/youtube/v3|search': 'youtube',
-    'api.vimeo.com|videos': 'vimeo',
-    'api.giphy.com|v1/gifs/search': 'giphy',
-    'api.unsplash.com|search/photos': 'unsplash',
-    'api.flickr.com|services/rest': 'flickr',
-    'images-api.nasa.gov|search': 'nasa',
-    'api.sketchfab.com|v3/search': 'sketchfab',
-    'api.dailymotion.com|videos': 'dailymotion',
-    'en.wikipedia.org|w/api.php': 'wikipedia',
-    'ccmixter.org|api/query': 'ccmixter',
+    "www.googleapis.com/youtube/v3|search": "youtube",
+    "api.vimeo.com|videos": "vimeo",
+    "api.giphy.com|v1/gifs/search": "giphy",
+    "api.unsplash.com|search/photos": "unsplash",
+    "api.flickr.com|services/rest": "flickr",
+    "images-api.nasa.gov|search": "nasa",
+    "api.sketchfab.com|v3/search": "sketchfab",
+    "api.dailymotion.com|videos": "dailymotion",
+    "en.wikipedia.org|w/api.php": "wikipedia",
+    "ccmixter.org|api/query": "ccmixter",
   };
 }
 
-function normalizeConnectionSegment(value = '') {
-  return String(value || '')
+function normalizeConnectionSegment(value = "") {
+  return String(value || "")
     .trim()
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '')
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "")
     .toLowerCase();
 }
 
 function resolveProviderForApp(app, providerConnectionMap) {
-  if (!app || !app.connection || typeof app.connection !== 'object') {
-    return '';
+  if (!app || !app.connection || typeof app.connection !== "object") {
+    return "";
   }
   if (!app.connection.operations || !app.connection.operations.browse) {
-    return '';
+    return "";
   }
   const connectionUrl = normalizeConnectionSegment(app.connection.url);
   const browseEndPoint = normalizeConnectionSegment(
@@ -111,14 +110,14 @@ function resolveProviderForApp(app, providerConnectionMap) {
   if (Object.prototype.hasOwnProperty.call(providerConnectionMap, signature)) {
     return providerConnectionMap[signature];
   }
-  return '';
+  return "";
 }
 
-function parseConnectionUrl(urlString = '') {
+function parseConnectionUrl(urlString = "") {
   try {
-    let parseTarget = `${urlString || ''}`.trim();
+    let parseTarget = `${urlString || ""}`.trim();
     if (!/^[a-z]+:\/\//i.test(parseTarget)) {
-      parseTarget = `https://${parseTarget.replace(/^\/+/, '')}`;
+      parseTarget = `https://${parseTarget.replace(/^\/+/, "")}`;
     }
     const parsed = new URL(parseTarget);
     const params = {};
@@ -129,8 +128,7 @@ function parseConnectionUrl(urlString = '') {
       valid: true,
       params,
     };
-  }
-  catch {
+  } catch {
     return {
       valid: false,
       params: {},
@@ -177,51 +175,52 @@ function sanitizeBrokerConnectionData(input = {}) {
   return sanitized;
 }
 function getSiteTokenFromHeader(req) {
-  if (!req || !req.headers || typeof req.headers !== 'object') {
-    return '';
+  if (!req || !req.headers || typeof req.headers !== "object") {
+    return "";
   }
-  const rawValue = req.headers['x-haxcms-site-token'];
+  const rawValue = req.headers["x-haxcms-site-token"];
   if (Array.isArray(rawValue)) {
-    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
+    return rawValue.length > 0 ? String(rawValue[0] || "").trim() : "";
   }
-  if (typeof rawValue === 'string') {
+  if (typeof rawValue === "string") {
     return rawValue.trim();
   }
-  return '';
+  return "";
 }
 
 function rewriteConnectionToBroker(connection, provider, req) {
-  const parsed = parseConnectionUrl(connection.url || '');
+  const parsed = parseConnectionUrl(connection.url || "");
   const mergedData = sanitizeBrokerConnectionData(
     mergeConnectionData(parsed.params, connection.data || {}),
   );
   const rewrittenHeaders =
-    connection.headers && typeof connection.headers === 'object'
+    connection.headers && typeof connection.headers === "object"
       ? { ...connection.headers }
       : {};
   const siteToken = getSiteTokenFromHeader(req);
   if (
-    siteToken !== '' &&
+    siteToken !== "" &&
     !Object.prototype.hasOwnProperty.call(
       rewrittenHeaders,
-      'X-HAXCMS-Site-Token',
+      "X-HAXCMS-Site-Token",
     ) &&
     !Object.prototype.hasOwnProperty.call(
       rewrittenHeaders,
-      'x-haxcms-site-token',
+      "x-haxcms-site-token",
     )
   ) {
-    rewrittenHeaders['X-HAXCMS-Site-Token'] = siteToken;
+    rewrittenHeaders["X-HAXCMS-Site-Token"] = siteToken;
   }
-  const browseOperation = (
+  const browseOperation =
     connection.operations &&
     connection.operations.browse &&
-    typeof connection.operations.browse === 'object'
-  ) ? connection.operations.browse : {};
-  const normalizedDomain = String(HAXCMS.domain || '').replace(/\/+$/, '');
-  const normalizedBasePath = String(HAXCMS.basePath || '')
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '');
+    typeof connection.operations.browse === "object"
+      ? connection.operations.browse
+      : {};
+  const normalizedDomain = String(HAXCMS.domain || "").replace(/\/+$/, "");
+  const normalizedBasePath = String(HAXCMS.basePath || "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
   const rewrittenUrl = normalizedBasePath
     ? `${normalizedDomain}/${normalizedBasePath}`
     : normalizedDomain;
@@ -235,7 +234,7 @@ function rewriteConnectionToBroker(connection, provider, req) {
       ...(connection.operations || {}),
       browse: {
         ...browseOperation,
-        method: browseOperation.method || 'GET',
+        method: browseOperation.method || "GET",
         // D38: broker through the system API (parity with PHP) rather than the site API.
         endPoint: `${HAXCMS.systemRequestBase}v1/integrations/app-store/providers/${encodeURIComponent(provider)}/search`,
       },
@@ -271,15 +270,15 @@ async function generateAppStore(req, res) {
   const siteName =
     req && req.query && req.query.siteName
       ? String(req.query.siteName).trim()
-      : '';
+      : "";
   // test if this is a valid user login with this specialty token that HAX looks for
   if (
-    siteToken !== '' &&
-    siteName !== '' &&
+    siteToken !== "" &&
+    siteName !== "" &&
     HAXCMS.validateRequestToken(
       siteToken,
-      HAXCMS.getActiveUserName() + ':' + siteName,
-      req.query
+      HAXCMS.getRequestTokenUserName(req) + ":" + siteName,
+      req.query,
     )
   ) {
     const effectiveApiKeys = await readEffectiveApiKeys(HAXCMS);
@@ -290,7 +289,7 @@ async function generateAppStore(req, res) {
     for (let i = 0; i < baseAppKeys.length; i++) {
       const key = baseAppKeys[i];
       const value = effectiveApiKeys[key];
-      if (typeof value === 'string' && value !== '') {
+      if (typeof value === "string" && value !== "") {
         loadKeys[key] = value;
       }
     }
@@ -298,41 +297,34 @@ async function generateAppStore(req, res) {
     const rewrittenApps = [];
     for (let i = 0; i < appStore.length; i++) {
       const app = appStore[i];
-      if (!app || typeof app !== 'object') {
+      if (!app || typeof app !== "object") {
         continue;
       }
       const provider = resolveProviderForApp(app, providerConnectionMap);
-      if (provider && app.connection && typeof app.connection === 'object') {
+      if (provider && app.connection && typeof app.connection === "object") {
         rewrittenApps.push({
           ...app,
           connection: rewriteConnectionToBroker(app.connection, provider, req),
         });
-      }
-      else {
+      } else {
         rewrittenApps.push(app);
       }
     }
     appStore = rewrittenApps;
     // pull in the core one we supply, though only upload works currently
-    let tmp = HAXCMS.siteConnectionJSON(
-      siteToken,
-      siteName,
-    );
+    let tmp = HAXCMS.siteConnectionJSON(siteToken, siteName);
     appStore.push(tmp);
-    let staxList,autoloaderList;
+    let staxList, autoloaderList;
     if (HAXCMS.config.appStore && HAXCMS.config.appStore.stax) {
-        staxList = HAXCMS.config.appStore.stax;
+      staxList = HAXCMS.config.appStore.stax;
     } else {
-        staxList = AppStoreService.loadBaseStax();
+      staxList = AppStoreService.loadBaseStax();
     }
     if (HAXCMS.config.appStore && HAXCMS.config.appStore.autoloader) {
-        autoloaderList = HAXCMS.config.appStore.autoloader;
+      autoloaderList = HAXCMS.config.appStore.autoloader;
     } else {
       // should not be possible but at least load something if they bricked their autoloader manually
-        autoloaderList = 
-      [
-        "grid-plate",
-      ];
+      autoloaderList = ["grid-plate"];
     }
     const enabledBlocks = await readEnabledBlocksSetting();
     const enabledSet = enabledBlocks ? new Set(enabledBlocks) : null;
@@ -350,7 +342,7 @@ async function generateAppStore(req, res) {
   return res.status(403).json({
     status: 403,
     data: {
-      message: 'invalid request token',
+      message: "invalid request token",
     },
   });
 }

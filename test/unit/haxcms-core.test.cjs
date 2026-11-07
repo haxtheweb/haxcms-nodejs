@@ -570,14 +570,43 @@ test("validateJWT rejects missing, malformed, and foreign-user tokens", () => {
   );
 });
 
-test("validateJWT honors the sessionJwt when no header was supplied", () => {
-  const savedSession = HAXCMS.sessionJwt;
+test("validateJWT ignores any process-level sessionJwt (dead field removed)", () => {
+  // Security: identity is request-bound only. A process-global JWT field
+  // must never authenticate a request that carries no credential of its own.
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(HAXCMS, "sessionJwt"),
+    false,
+  );
+  HAXCMS.sessionJwt = HAXCMS.getJWT(TEST_USER_NAME);
   try {
-    HAXCMS.sessionJwt = HAXCMS.getJWT(TEST_USER_NAME);
-    assert.equal(HAXCMS.validateJWT({ headers: {} }, null), true);
+    assert.equal(HAXCMS.validateJWT({ headers: {} }, null), false);
+    assert.equal(
+      HAXCMS.getRequestAuthenticatedUserName({ headers: {}, cookies: {} }),
+      "",
+    );
   } finally {
-    HAXCMS.sessionJwt = savedSession;
+    delete HAXCMS.sessionJwt;
   }
+});
+
+test("getRequestTokenUserName binds to the request's bearer identity", () => {
+  const good = HAXCMS.getJWT(TEST_USER_NAME);
+  assert.equal(
+    HAXCMS.getRequestTokenUserName({
+      headers: { authorization: "Bearer " + good },
+      cookies: {},
+    }),
+    TEST_USER_NAME,
+  );
+  // no credential on the request: falls back to the active user (PHP parity)
+  assert.equal(
+    HAXCMS.getRequestTokenUserName({ headers: {}, cookies: {} }),
+    HAXCMS.getActiveUserName(),
+  );
+  assert.equal(
+    HAXCMS.getRequestTokenUserName(null),
+    HAXCMS.getActiveUserName(),
+  );
 });
 
 test("validateJWT and validateRequestToken short-circuit when JWT checks are disabled", () => {

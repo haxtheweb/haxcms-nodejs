@@ -4847,7 +4847,6 @@ class HAXCMSClass {
     this.developerModeAdminOnly = false;
     this.cliWritePath = null;
     this.cdn = "./";
-    this.sessionJwt = null;
     // Security (HAX-SEC-001): tracks whether credentials came from .user on disk
     // (true) or were seeded/runtime-overridden (false). Controls whether
     // maybeUpgradePlaintextPassword is allowed to rewrite .user on next login.
@@ -6424,11 +6423,7 @@ class HAXCMSClass {
       return true;
     }
     var request = false;
-    if (this.sessionJwt && this.sessionJwt != null) {
-      request = this.decodeJWT(this.sessionJwt);
-    }
     if (
-      request == false &&
       req &&
       req.headers &&
       typeof req.headers.authorization === "string" &&
@@ -7396,6 +7391,25 @@ class HAXCMSClass {
     return true;
   }
   /**
+   * Security: the identity a request token (X-HAXCMS-User-Token /
+   * X-HAXCMS-Site-Token) must be validated against for THIS request: the
+   * per-request authenticated user (bearer JWT / refresh cookie, see
+   * getRequestAuthenticatedUserName) when one resolves, otherwise the
+   * process-level active user (single-user deployments and the
+   * site-token-only app-store fetch, which carries no bearer). Node port of
+   * PHP getRequestTokenUserName so tokens minted for one authenticated user
+   * never validate under another user's request.
+   */
+  getRequestTokenUserName(req = null) {
+    const authenticatedUser = req
+      ? this.getRequestAuthenticatedUserName(req)
+      : "";
+    if (typeof authenticatedUser === "string" && authenticatedUser !== "") {
+      return authenticatedUser;
+    }
+    return this.getActiveUserName();
+  }
+  /**
    * Security (SEC-SESSION): resolve the authenticated user for a request
    * WITHOUT ending it: a valid Bearer access JWT and/or a refresh cookie that
    * passes both signature/exp validation and the refresh-session store check
@@ -7414,9 +7428,6 @@ class HAXCMSClass {
       if (authorizationHeader.toLowerCase().indexOf("bearer ") === 0) {
         jwtToken = authorizationHeader.substring(7).trim();
       }
-    }
-    if (jwtToken === "" && this.sessionJwt) {
-      jwtToken = this.sessionJwt;
     }
     if (jwtToken !== "") {
       const decoded = this.decodeJWT(jwtToken);
