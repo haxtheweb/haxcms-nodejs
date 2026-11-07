@@ -31,7 +31,10 @@ function pruneExpiredEntries(now, settings) {
     if (!entry) {
       continue;
     }
-    if (entry.blockedUntil <= now && (now - entry.firstAttempt) > settings.windowMs) {
+    if (
+      entry.blockedUntil <= now &&
+      now - entry.firstAttempt > settings.windowMs
+    ) {
       delete failedLoginTracker[key];
     }
   }
@@ -50,11 +53,100 @@ function getClientIP(req) {
   if (req && req.connection && req.connection.remoteAddress) {
     return String(req.connection.remoteAddress);
   }
-  return 'unknown';
+  return "unknown";
 }
 
 function getAttemptKey(req, username) {
-  return getClientIP(req) + '::' + String(username || '');
+  return getClientIP(req) + "::" + String(username || "");
+}
+
+// Security: a second counter keyed on the username alone, so an attacker
+// rotating source addresses against one account is still throttled. Settings
+// are deliberately looser than the per-ip::username ones (default 50 failures
+// per 15 minutes, 15 minute block) so a single mistyped password from a few
+// devices never locks the real user out. Shares the same tracker store.
+const USERNAME_KEY_PREFIX = "user::";
+const DEFAULT_USERNAME_SETTINGS = {
+  windowMs: 15 * 60 * 1000,
+  maxAttempts: 50,
+  blockMs: 15 * 60 * 1000,
+};
+
+function getUsernameAttemptKey(username) {
+  return (
+    USERNAME_KEY_PREFIX +
+    String(username || "")
+      .trim()
+      .toLowerCase()
+  );
+}
+
+function getUsernameSettings(settings) {
+  const base = settings && typeof settings === "object" ? settings : {};
+  const perUser =
+    base.perUsername && typeof base.perUsername === "object"
+      ? base.perUsername
+      : {};
+  const pick = (key) =>
+    typeof perUser[key] === "number" && perUser[key] > 0
+      ? perUser[key]
+      : DEFAULT_USERNAME_SETTINGS[key];
+  return {
+    enabled: perUser.enabled !== false,
+    windowMs: pick("windowMs"),
+    maxAttempts: pick("maxAttempts"),
+    blockMs: pick("blockMs"),
+  };
+}
+
+// Combined view used by the login route and the basic-auth path: both the
+// ip::username entry and the username entry are consulted; a block on either
+// blocks the attempt, a failure is registered on both, success clears both.
+function getLoginAttempt(req, username, now, settings) {
+  const ipKey = getAttemptKey(req, username);
+  const userKey = getUsernameAttemptKey(username);
+  const userSettings = getUsernameSettings(settings);
+  const ipEntry = getTrackerEntry(ipKey, now, settings);
+  const userEntry = userSettings.enabled
+    ? getTrackerEntry(userKey, now, userSettings)
+    : null;
+  return {
+    ipKey: ipKey,
+    userKey: userKey,
+    ipEntry: ipEntry,
+    userEntry: userEntry,
+    userSettings: userSettings,
+    isBlocked: function () {
+      if (isBlocked(ipEntry, now)) {
+        return true;
+      }
+      return userEntry ? !!isBlocked(userEntry, now) : false;
+    },
+    blockedUntil: function () {
+      var until = 0;
+      if (isBlocked(ipEntry, now)) {
+        until = ipEntry.blockedUntil;
+      }
+      if (
+        userEntry &&
+        isBlocked(userEntry, now) &&
+        userEntry.blockedUntil > until
+      ) {
+        until = userEntry.blockedUntil;
+      }
+      return until;
+    },
+    registerFailure: function () {
+      registerFailedAttempt(ipEntry, now, settings);
+      if (userEntry) {
+        registerFailedAttempt(userEntry, now, userSettings);
+      }
+    },
+    clear: function () {
+      clearTrackerEntry(ipKey);
+      clearTrackerEntry(userKey);
+    },
+  };
 }
 
 function getTrackerEntry(key, now, settings) {
@@ -83,9 +175,10 @@ function getTrackerEntry(key, now, settings) {
         if (!candidate || candidate.blockedUntil > now) {
           continue;
         }
-        var seen = typeof candidate.lastSeen === 'number'
-          ? candidate.lastSeen
-          : candidate.firstAttempt;
+        var seen =
+          typeof candidate.lastSeen === "number"
+            ? candidate.lastSeen
+            : candidate.firstAttempt;
         if (seen < evictSeen) {
           evictSeen = seen;
           evictKey = trackedKeys[i];
@@ -143,7 +236,8 @@ function _resetTrackerForTests() {
   }
 }
 function _setMaxTrackedKeysForTests(n) {
-  MAX_TRACKED_KEYS = typeof n === 'number' && n > 0 ? n : DEFAULT_MAX_TRACKED_KEYS;
+  MAX_TRACKED_KEYS =
+    typeof n === "number" && n > 0 ? n : DEFAULT_MAX_TRACKED_KEYS;
 }
 function _trackedKeyCountForTests() {
   return Object.keys(failedLoginTracker).length;
@@ -155,6 +249,9 @@ module.exports = {
   _trackedKeyCountForTests,
   getClientIP,
   getAttemptKey,
+  getUsernameAttemptKey,
+  getUsernameSettings,
+  getLoginAttempt,
   getTrackerEntry,
   clearTrackerEntry,
   isBlocked,

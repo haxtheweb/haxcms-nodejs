@@ -199,7 +199,7 @@ describe("mediaSettings.getEffectiveMediaSettings", () => {
   test("fills defaults for null fields", () => {
     assert.deepEqual(media.getEffectiveMediaSettings({}), {
       jpegQuality: 80,
-      maxUploadSizeMb: 1024,
+      maxUploadSizeMb: 256,
       acceptedFormats: "jpg,jpeg,png,gif,webp,svg",
     });
   });
@@ -222,7 +222,7 @@ describe("mediaSettings.getEffectiveMediaSettings", () => {
   test("DEFAULT_MEDIA_SETTINGS matches the documented defaults", () => {
     assert.deepEqual(media.DEFAULT_MEDIA_SETTINGS, {
       jpegQuality: 80,
-      maxUploadSizeMb: 1024,
+      maxUploadSizeMb: 256,
       acceptedFormats: "jpg,jpeg,png,gif,webp,svg",
     });
   });

@@ -1,11 +1,5 @@
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
-const {
-  getAttemptKey,
-  getTrackerEntry,
-  clearTrackerEntry,
-  isBlocked,
-  registerFailedAttempt,
-} = require("../../../lib/loginRateLimiter.js");
+const { getLoginAttempt } = require("../../../lib/loginRateLimiter.js");
 async function loginRoute(req, res) {
   // primary branch: username / password login
   if (req.body && req.body.username && req.body.password) {
@@ -13,10 +7,13 @@ async function loginRoute(req, res) {
     const p = req.body.password;
     const settings = HAXCMS.getLoginRateLimitSettings();
     const now = Date.now();
-    const attemptKey = getAttemptKey(req, u);
-    const entry = getTrackerEntry(attemptKey, now, settings);
-    if (settings.enabled && isBlocked(entry, now)) {
-      const retryAfterSeconds = Math.ceil((entry.blockedUntil - now) / 1000);
+    // Security: throttled on ip::username AND on the username alone so a
+    // distributed guess against one account is still limited.
+    const attempt = getLoginAttempt(req, u, now, settings);
+    if (settings.enabled && attempt.isBlocked()) {
+      const retryAfterSeconds = Math.ceil(
+        (attempt.blockedUntil() - now) / 1000,
+      );
       if (retryAfterSeconds > 0) {
         res.set("Retry-After", String(retryAfterSeconds));
       }
@@ -31,7 +28,7 @@ async function loginRoute(req, res) {
     // test if this is a valid user login
     if (!HAXCMS.testLogin(u, p, true)) {
       if (settings.enabled) {
-        registerFailedAttempt(entry, now, settings);
+        attempt.registerFailure();
       }
       // D2/Q8: login failure returns 401 (was 403) with JSON D1 envelope
       return res.status(401).json({
@@ -39,7 +36,7 @@ async function loginRoute(req, res) {
         data: { message: "Invalid username or password" },
       });
     }
-    clearTrackerEntry(attemptKey);
+    attempt.clear();
     // set a refresh_token COOKIE that will ship w/ all calls automatically
     // Security (HAX-SEC / PHP [M3] parity): use the centralized helper so
     // Secure/SameSite/HttpOnly/path flags are consistent at every call site.

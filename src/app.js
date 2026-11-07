@@ -127,6 +127,11 @@ var cspBaseDirectives = {
   objectSrc: ["'none'"],
   fontSrc: ["'self'", "data:", "fonts.gstatic.com"],
   frameAncestors: ["'self'"],
+  // Security: an injected <base href> would re-root every relative script /
+  // form URL on the page, and form-action keeps credential forms from being
+  // posted to a third-party origin.
+  baseUri: ["'self'"],
+  formAction: ["'self'"],
 };
 // Security (EXPRESS-HEADERS-001 / M2): mint a per-request nonce and set a
 // Content-Security-Policy header with script-src 'nonce-<n>' (no
@@ -1215,12 +1220,30 @@ function setCorsHeaders(res) {
     "GET, POST, OPTIONS, PUT, PATCH, DELETE",
   );
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS);
+  // Security: the allowed origin is configuration-dependent, so shared caches
+  // must key on Origin rather than serve one origin's CORS answer to another.
+  appendVaryHeader(res, "Origin");
+}
+// Security: CORS headers only belong on the JSON API surfaces (/system/api and
+// /x/api). Static site content, the dashboard and page HTML are same-origin
+// documents and never need a cross-origin grant.
+function isCorsEligibleRequestPath(url = "") {
+  const requestPath = getRequestPathWithoutQuery(url);
+  return (
+    /\/system\/api(?:\/|$)/.test(requestPath) ||
+    isSiteApiRequestPath(requestPath)
+  );
+}
+function setApiCorsHeaders(req, res) {
+  if (isCorsEligibleRequestPath(req && req.url ? req.url : "")) {
+    setCorsHeaders(res);
+  }
 }
 //pre-flight requests: answer with the same CORS headers as the real
 // responses, otherwise the browser rejects any cross-origin request that
 // carries Authorization or the X-HAXCMS-* tokens before it is ever sent
 app.options("*", function (req, res, _next) {
-  setCorsHeaders(res);
+  setApiCorsHeaders(req, res);
   res.sendStatus(200);
 });
 if (linkedWebcomponentsRoot) {
@@ -1344,7 +1367,7 @@ systemStructureContext().then((site) => {
       );
     }
     app.use("/", requestRateLimiter, async (req, res, next) => {
-      setCorsHeaders(res);
+      setApiCorsHeaders(req, res);
       res.setHeader("Content-Type", "application/json");
       if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
         next();
@@ -1508,7 +1531,7 @@ systemStructureContext().then((site) => {
       },
     );
     app.use("/", requestRateLimiter, (req, res, next) => {
-      setCorsHeaders(res);
+      setApiCorsHeaders(req, res);
       res.setHeader("Content-Type", "application/json");
       // advertise the deployment-root agent skills index to header-parsing agents
       res.setHeader(
@@ -2122,10 +2145,51 @@ function startServer(portToTry) {
     server.listen(currentPort);
   }
 }
+// Security: in production, Host-header validation (security.allowedHosts) and
+// forwarded-header trust (security.trustedProxies / trustProxy) are both
+// opt-in. Without them a reverse-proxied deployment builds response URLs
+// from an attacker-controlled Host and rate-limits on the proxy address.
+// Warn once at startup so operators notice; never fatal.
+function getProductionDeploymentWarnings(haxcms = HAXCMS) {
+  const warnings = [];
+  if (!haxcms || typeof haxcms.isProductionRuntime !== "function") {
+    return warnings;
+  }
+  if (!haxcms.isProductionRuntime()) {
+    return warnings;
+  }
+  const allowedHosts =
+    typeof haxcms.getAllowedHosts === "function"
+      ? haxcms.getAllowedHosts()
+      : [];
+  if (!Array.isArray(allowedHosts) || allowedHosts.length === 0) {
+    warnings.push(
+      "SECURITY: config.security.allowedHosts is not set; Host / X-Forwarded-Host are not validated when building response URLs. Set it to your public hostname(s) in production.",
+    );
+  }
+  const trustProxy =
+    typeof haxcms.getTrustProxySetting === "function"
+      ? haxcms.getTrustProxySetting()
+      : false;
+  if (
+    trustProxy === false ||
+    trustProxy === 0 ||
+    (Array.isArray(trustProxy) && trustProxy.length === 0)
+  ) {
+    warnings.push(
+      "SECURITY: config.security.trustedProxies / trustProxy is not set; forwarded client IPs and protocol are ignored. If HAXcms runs behind a reverse proxy, list the proxy addresses so rate limiting and HTTPS detection see the real client.",
+    );
+  }
+  return warnings;
+}
 function onServerListening() {
   const runtimePort = getRuntimePort();
   currentPort = runtimePort;
   process.env.PORT = `${runtimePort}`;
+  const deploymentWarnings = getProductionDeploymentWarnings();
+  for (let w = 0; w < deploymentWarnings.length; w++) {
+    console.warn(deploymentWarnings[w]);
+  }
   if (!serverReadyResolved) {
     resolveServerReady(runtimePort);
     serverReadyResolved = true;
@@ -2190,6 +2254,7 @@ module.exports = {
   serverReady,
   serverProtocol,
   getListenHost: () => listenHost,
+  getProductionDeploymentWarnings,
 };
 function isSiteScopedSystemApiRoutePattern(req) {
   if (!req || !req.route || typeof req.route.path !== "string") {
@@ -2856,19 +2921,16 @@ function authenticateBasicAuthorizationRequest(req) {
   // brute-force throttle shared with the username/password login route
   const rateLimitSettings = HAXCMS.getLoginRateLimitSettings();
   const now = Date.now();
-  const attemptKey = loginRateLimiter.getAttemptKey(req, userName);
-  const attemptEntry = loginRateLimiter.getTrackerEntry(
-    attemptKey,
+  // Security: throttled on ip::username AND on the username alone (shared
+  // store with the login route) so a distributed guess is still limited.
+  const attempt = loginRateLimiter.getLoginAttempt(
+    req,
+    userName,
     now,
     rateLimitSettings,
   );
-  if (
-    rateLimitSettings.enabled &&
-    loginRateLimiter.isBlocked(attemptEntry, now)
-  ) {
-    const retryAfterSeconds = Math.ceil(
-      (attemptEntry.blockedUntil - now) / 1000,
-    );
+  if (rateLimitSettings.enabled && attempt.isBlocked()) {
+    const retryAfterSeconds = Math.ceil((attempt.blockedUntil() - now) / 1000);
     return {
       attempted: true,
       authenticated: false,
@@ -2882,7 +2944,7 @@ function authenticateBasicAuthorizationRequest(req) {
     HAXCMS.validateUser(userName)
   ) {
     if (rateLimitSettings.enabled) {
-      loginRateLimiter.clearTrackerEntry(attemptKey);
+      attempt.clear();
     }
     return {
       attempted: true,
@@ -2891,11 +2953,7 @@ function authenticateBasicAuthorizationRequest(req) {
     };
   }
   if (rateLimitSettings.enabled) {
-    loginRateLimiter.registerFailedAttempt(
-      attemptEntry,
-      now,
-      rateLimitSettings,
-    );
+    attempt.registerFailure();
   }
   return {
     attempted: true,
