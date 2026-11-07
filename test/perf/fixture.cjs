@@ -253,15 +253,17 @@ async function fetchSiteItems(baseUrl, name) {
 }
 
 // Create a fixture site through the API. Returns { name, items } with items
-// read back from site.json.
-async function createFixtureSite(baseUrl, credentials, name) {
+// read back from site.json. `siteName` (optional) builds the perf<N> outline
+// under another site name, e.g. a fresh copy per fuzz run.
+async function createFixtureSite(baseUrl, credentials, name, siteName) {
   const shape = fixtureShape(name);
+  const target = siteName || name;
   const session = await login(baseUrl, credentials);
   const site = await axios.post(
     baseUrl + "/system/api/v1/sites",
     {
       site: {
-        name: name,
+        name: target,
         description: "perf fixture " + name,
         theme: "clean-two",
       },
@@ -283,13 +285,13 @@ async function createFixtureSite(baseUrl, credentials, name) {
         JSON.stringify(site.data),
     );
   }
-  const siteSession = await login(baseUrl, credentials, name);
+  const siteSession = await login(baseUrl, credentials, target);
   const items = buildOutline(shape);
   const batches = batchOutline(items, 250);
   for (let i = 0; i < batches.length; i++) {
     const bulk = await axios.post(
-      baseUrl + "/_sites/" + name + "/x/api/v1/items",
-      { site: { name: name }, items: batches[i] },
+      baseUrl + "/_sites/" + target + "/x/api/v1/items",
+      { site: { name: target }, items: batches[i] },
       {
         headers: {
           Authorization: "Bearer " + siteSession.jwt,
@@ -314,11 +316,13 @@ async function createFixtureSite(baseUrl, credentials, name) {
       );
     }
   }
-  const created = await fetchSiteItems(baseUrl, name);
+  const created = await fetchSiteItems(baseUrl, target);
   if (!created || created.length < items.length) {
-    throw new Error("perf fixture " + name + " is missing items after create");
+    throw new Error(
+      "perf fixture " + target + " is missing items after create",
+    );
   }
-  return { name: name, items: created, reused: false };
+  return { name: target, items: created, reused: false };
 }
 
 // Reuse the fixture when a server already has it (repeat local runs against

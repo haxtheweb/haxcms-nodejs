@@ -32,6 +32,7 @@
     "perf:outline": "node test/perf/run.cjs outline",
     "perf:scale": "node test/perf/run.cjs scale",
     "perf:check": "node test/perf/run.cjs all --check",
+    "fuzz:outline": "node test/fuzz/run.cjs",
     "ui:inventory": "node scripts/ui-inventory.js",
     "release": "npm run build && commit-and-tag-version && git push --follow-tags origin main && npm publish",
     "haxcms-nodejs-cli": "haxcms-nodejs-cli",
