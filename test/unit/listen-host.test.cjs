@@ -232,6 +232,38 @@ test("shouldEmbedBypassJwt: loopback clients only unless HAXCMS_HOST is non-loop
   );
 });
 
+test("shouldEmbedBypassJwt: never to cross-site or same-site script loads", () => {
+  const on = { env: {}, jwtChecksDisabled: true };
+  for (const site of ["cross-site", "same-site", " Cross-Site "]) {
+    assert.equal(
+      shouldEmbedBypassJwt(
+        fakeReq("127.0.0.1", { "sec-fetch-site": site }),
+        on,
+      ),
+      false,
+      site,
+    );
+  }
+  for (const site of ["same-origin", "none", ""]) {
+    assert.equal(
+      shouldEmbedBypassJwt(
+        fakeReq("127.0.0.1", { "sec-fetch-site": site }),
+        on,
+      ),
+      true,
+      site,
+    );
+  }
+  // the header check also applies when the bypass is deliberately exposed
+  assert.equal(
+    shouldEmbedBypassJwt(
+      fakeReq("10.0.0.9", { "sec-fetch-site": "cross-site" }),
+      { env: { HAXCMS_HOST: "0.0.0.0" }, jwtChecksDisabled: true },
+    ),
+    false,
+  );
+});
+
 // Security (SEC-DEPLOY / DNS rebinding): Host header guard for the no-login
 // loopback server.
 const listenHostLib = require(
