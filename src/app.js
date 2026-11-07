@@ -1324,8 +1324,18 @@ systemStructureContext().then((site) => {
         }),
       );
     } else {
+      // Security (M2): index:false so the site index.html for "/" is served by
+      // the app.use('/') handler below (which renders the site index and
+      // stamps inline scripts with the per-request CSP nonce) rather than by
+      // express.static streaming the raw file. The raw file carries no nonce,
+      // so under the nonce-only script-src its inline scripts would be
+      // blocked. Mirrors the multisite branch. Non-index assets are still
+      // served by express.static.
       app.use(
-        express.static(publicDir, { setHeaders: setManagedStaticHeaders }),
+        express.static(publicDir, {
+          index: false,
+          setHeaders: setManagedStaticHeaders,
+        }),
       );
     }
     if (process.env.NODE_ENV === "development") {
