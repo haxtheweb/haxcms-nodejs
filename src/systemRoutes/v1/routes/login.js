@@ -78,30 +78,89 @@ async function loginRoute(req, res) {
     );
   }
   // login end point requested yet a jwt already exists
-  // this is something of a revalidate case
+  // this is something of a revalidate case (PHP parity: login.php login())
   else if (
     (req.body && Object.keys(req.body).length && req.body["jwt"]) ||
     (req.query && Object.keys(req.query).length && req.query["jwt"])
   ) {
-    const valid = HAXCMS.validateJWT(req, res);
-    if (valid) {
+    const user = getRevalidatedUser(req);
+    if (user !== "") {
+      // PHP parity: answer with a fresh token the client can store, not a
+      // boolean
       return res.json({
         status: 200,
-        jwt: valid,
+        jwt: HAXCMS.getJWT(user),
       });
     }
     // D2/Q8: JWT revalidate failure returns 401 (was 403) with JSON envelope
     return res.status(401).json({
       status: 401,
-      data: { message: "Invalid or expired token" },
+      data: { message: "Invalid token" },
     });
   } else {
     // D2/Q8: no credentials supplied returns 401 (was 403) with JSON envelope
     res.status(401).json({
       status: 401,
-      data: { message: "Authentication required" },
+      data: { message: "Login is required" },
     });
   }
+}
+
+/**
+ * The jwt sent with the revalidate request: body first, then query, the same
+ * precedence PHP gets from its merged params.
+ */
+function getSuppliedJwt(req) {
+  const sources = [req.body, req.query];
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i];
+    if (source && typeof source.jwt === "string" && source.jwt.trim() !== "") {
+      return source.jwt.trim();
+    }
+  }
+  return "";
+}
+
+/**
+ * Resolve who a revalidate request is for. PHP decodes the supplied (body /
+ * query) jwt and falls back to the bearer header when it is blank; a token
+ * only counts when it decodes, carries this server's user request token and
+ * names a valid user (same checks as HAXCMS.validateJWT). Returns "" when
+ * nothing verifies.
+ */
+function getRevalidatedUser(req) {
+  if (
+    HAXCMS.isCLI() ||
+    (HAXCMS.HAXCMS_DISABLE_JWT_CHECKS && !HAXCMS.isProductionRuntime())
+  ) {
+    return HAXCMS.getActiveUserName() || "";
+  }
+  let token = getSuppliedJwt(req);
+  if (
+    token === "" &&
+    req.headers &&
+    typeof req.headers.authorization === "string"
+  ) {
+    const authorizationHeader = req.headers.authorization.trim();
+    if (authorizationHeader.toLowerCase().indexOf("bearer ") === 0) {
+      token = authorizationHeader.substring(7).trim();
+    }
+  }
+  if (token === "") {
+    return "";
+  }
+  const decoded = HAXCMS.decodeJWT(token);
+  if (
+    decoded &&
+    typeof decoded.id === "string" &&
+    // Security (L-7, PHP parity): constant-time, type-strict compare.
+    HAXCMS.safeStringCompare(HAXCMS.getRequestToken("user"), decoded.id) &&
+    decoded.user &&
+    HAXCMS.validateUser(decoded.user)
+  ) {
+    return String(decoded.user);
+  }
+  return "";
 }
 
 module.exports = loginRoute;
