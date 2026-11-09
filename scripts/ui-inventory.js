@@ -29,6 +29,16 @@
  *   npm run ui:inventory -- --out /some/dir --states site-view,site-admin
  *   npm run ui:inventory -- --variants desktop-light --sub
  *
+ * Prototypes of something new on a page need the real page around it:
+ *   --page-html <file>   replace the first page's content with this HTML
+ *   --page-title <text>  and its title
+ *   --measure <selector> record that element's box per state and variant
+ *                        (deep query), e.g. an empty slot the proposal fills
+ *   --viewport-height <px>  taller captures for every variant, so content below
+ *                        the fold is in frame (themes such as clean-one scroll
+ *                        inside their own container, so a full-page capture
+ *                        would not show it)
+ *
  * To inventory unreleased webcomponents work, run with a linked checkout:
  *   NODE_ENV=development HAXCMS_WEBCOMPONENTS_ROOT=../webcomponents npm run ui:inventory
  */
@@ -54,6 +64,10 @@ function parseArgs(argv) {
     states: null,
     variants: Object.keys(VARIANTS),
     sub: false,
+    pageHtml: null,
+    pageTitle: null,
+    measure: null,
+    viewportHeight: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -66,6 +80,14 @@ function parseArgs(argv) {
         .split(",")
         .map((s) => s.trim())
         .filter((v) => Object.prototype.hasOwnProperty.call(VARIANTS, v));
+    } else if (a === "--page-html" && argv[i + 1]) {
+      args.pageHtml = path.resolve(argv[++i]);
+    } else if (a === "--page-title" && argv[i + 1]) {
+      args.pageTitle = argv[++i];
+    } else if (a === "--measure" && argv[i + 1]) {
+      args.measure = argv[++i];
+    } else if (a === "--viewport-height" && argv[i + 1]) {
+      args.viewportHeight = parseInt(argv[++i], 10) || null;
     } else if (a === "--sub") {
       args.sub = true;
     }
@@ -533,17 +555,68 @@ function pageCollect() {
   };
 }
 
+// Box of the first element matching `selector` at any depth, in CSS pixels of
+// the viewport, or null when it is missing or not rendered.
+function pageMeasureDeep(selector) {
+  const doc = globalThis.document;
+  function walk(root) {
+    const hit = root.querySelector(selector);
+    if (hit) {
+      return hit;
+    }
+    const all = root.querySelectorAll("*");
+    for (let j = 0; j < all.length; j++) {
+      if (all[j].shadowRoot) {
+        const r = walk(all[j].shadowRoot);
+        if (r) {
+          return r;
+        }
+      }
+    }
+    return null;
+  }
+  const el = walk(doc);
+  if (!el) {
+    return null;
+  }
+  const r = el.getBoundingClientRect();
+  if (!r.width && !r.height) {
+    return null;
+  }
+  return [
+    Math.round(r.left),
+    Math.round(r.top),
+    Math.round(r.width),
+    Math.round(r.height),
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // states
 // ---------------------------------------------------------------------------
 
 // Replaces ctx.page with a new tab in the same (logged-in) browser.
-async function freshPage(ctx) {
+async function freshPage(ctx, scheme) {
   const old = ctx.page;
   const page = await helpers.newPage(ctx.browser);
   page.on("dialog", (dialog) => {
     dialog.accept().catch(() => {});
   });
+  // HAX saves the visitor's dark-mode choice in localStorage
+  // (app-hax-darkMode), and a saved choice wins over prefers-color-scheme.
+  // Another tab's store can write its own value back while this one loads,
+  // so clearing the key is not enough: pin it to this capture's scheme
+  // before any page script runs.
+  await page.evaluateOnNewDocument((dark) => {
+    try {
+      globalThis.window.localStorage.setItem(
+        "app-hax-darkMode",
+        JSON.stringify(dark),
+      );
+    } catch {
+      /* storage unavailable */
+    }
+  }, scheme === "dark");
   if (ctx.onRequestFailed) {
     page.on("requestfailed", ctx.onRequestFailed);
   }
@@ -722,6 +795,7 @@ async function captureState(ctx, state, args) {
   const dir = path.join(args.out, "states", state.id);
   fs.mkdirSync(dir, { recursive: true });
   const shots = {};
+  const measures = {};
   // DOM is recorded once, at the first variant (desktop-light by default).
   let dom = null;
   for (let v = 0; v < args.variants.length; v++) {
@@ -729,10 +803,10 @@ async function captureState(ctx, state, args) {
     const variant = VARIANTS[name];
     // A fresh tab per capture: leaving a page in edit mode raises a
     // "leave site?" prompt that would otherwise block the next navigation.
-    await freshPage(ctx);
+    await freshPage(ctx, variant.scheme);
     await ctx.page.setViewport({
       width: variant.width,
-      height: variant.height,
+      height: args.viewportHeight || variant.height,
     });
     await helpers.pinColorScheme(ctx.page, variant.scheme);
     await state.enter(ctx);
@@ -742,8 +816,15 @@ async function captureState(ctx, state, args) {
       dom.variant = name;
       dom.ms = Date.now() - started;
     }
+    if (args.measure) {
+      measures[name] = await ctx.page.evaluate(pageMeasureDeep, args.measure);
+    }
     const file = path.join(dir, name + ".png");
-    await ctx.page.screenshot({ path: file, type: "png", fullPage: false });
+    await ctx.page.screenshot({
+      path: file,
+      type: "png",
+      fullPage: false,
+    });
     shots[name] = path.relative(args.out, file);
   }
   await ctx.page.setViewport({ width: 1280, height: 800 });
@@ -758,12 +839,44 @@ async function captureState(ctx, state, args) {
     url: dom.url,
     domVariant: dom.variant,
     screenshots: shots,
+    measures: args.measure ? { selector: args.measure, boxes: measures } : null,
     labels: dom.labels,
     elementCount: dom.elements.length,
     dom: path.relative(args.out, path.join(dir, "dom.json")),
     tokens: dom.tokens,
     collectMs: dom.ms,
   };
+}
+
+// Writes the first page of the fixture site from --page-html / --page-title,
+// straight to the site's files, before any state is captured. Returns a line
+// for manifest.fixture so the change is on the record.
+function applyPageFixture(runtime, siteName, args) {
+  const siteDir = path.join(runtime.runtimeRoot, "_sites", siteName);
+  const siteJsonPath = path.join(siteDir, "site.json");
+  const site = JSON.parse(fs.readFileSync(siteJsonPath, "utf8"));
+  const item = site.items && site.items[0];
+  if (!item) {
+    throw new Error("fixture site has no pages");
+  }
+  if (args.pageTitle) {
+    item.title = args.pageTitle;
+    fs.writeFileSync(siteJsonPath, JSON.stringify(site, null, 2));
+  }
+  if (args.pageHtml) {
+    const target = path.resolve(siteDir, item.location);
+    if (target.indexOf(siteDir + path.sep) !== 0) {
+      throw new Error("page location escapes the site: " + item.location);
+    }
+    fs.writeFileSync(target, fs.readFileSync(args.pageHtml, "utf8"));
+  }
+  return (
+    "fresh site " +
+    siteName +
+    "; first page" +
+    (args.pageTitle ? ' titled "' + args.pageTitle + '"' : "") +
+    (args.pageHtml ? " with content from " + path.basename(args.pageHtml) : "")
+  );
 }
 
 function writeTokensCss(out, tokens) {
@@ -870,7 +983,10 @@ async function main() {
     fixture: "fresh site " + siteName + " from the default create flow",
     theme: null,
     variants: args.variants.reduce((acc, name) => {
-      acc[name] = VARIANTS[name];
+      acc[name] = Object.assign({}, VARIANTS[name]);
+      if (args.viewportHeight) {
+        acc[name].height = args.viewportHeight;
+      }
       return acc;
     }, {}),
     states: [],
@@ -886,6 +1002,9 @@ async function main() {
     await helpers.loginViaUI(page, collector, runtime.baseUrl);
     await helpers.createSiteViaUI(page, collector, helpers.FIXED_SITE_NAME);
     helpers.relocateCreatedSite(runtime, helpers.FIXED_SITE_NAME);
+    if (args.pageHtml || args.pageTitle) {
+      manifest.fixture = applyPageFixture(runtime, siteName, args);
+    }
 
     let states = baseStates();
     const wanted = args.states;
