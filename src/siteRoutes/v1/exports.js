@@ -346,9 +346,7 @@ async function getItemMarkdownBody(site, item) {
     site &&
     site.siteDirectory
   ) {
-    const markdownLocation = /\.html?$/i.test(item.location)
-      ? item.location.replace(/\.html?$/i, ".md")
-      : item.location + ".md";
+    const markdownLocation = itemMarkdownLocation(item.location);
     if (markdownLocation.indexOf("..") === -1) {
       try {
         return fs.readFileSync(
@@ -403,6 +401,106 @@ async function buildSiteExportMarkdown(site, ancestor, visibleOnly = false) {
     parts.push(String(await getItemMarkdownBody(site, item)).trim());
   }
   return parts.join("\n").trim() + "\n";
+}
+
+// llms-full.txt cache. buildSiteExportMarkdown reads and converts every
+// page, and llms-full.txt is an anonymous URL, so each hit rebuilt the whole
+// site. The cached markdown is reused only while the fingerprint matches:
+// the site title, description and page URL base, the exported items (whole
+// objects), and the mtime and size of each page's HTML and .md sidecar (for
+// the page loadNode would read, as getItemContent does). Any edit through
+// any route, or on disk, changes the fingerprint. One entry per site and
+// variant, bounded.
+const SITE_EXPORT_MARKDOWN_CACHE_MAX = 64;
+const siteExportMarkdownCache = new Map();
+function statSignature(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return stat.mtimeMs + ":" + stat.size;
+  } catch {
+    return "-";
+  }
+}
+function itemMarkdownLocation(location) {
+  return /\.html?$/i.test(location)
+    ? location.replace(/\.html?$/i, ".md")
+    : location + ".md";
+}
+function siteExportMarkdownFingerprint(site, ancestor, visibleOnly) {
+  let items = getSiteExportItems(site, ancestor);
+  if (visibleOnly) {
+    items = filterItemsVisibleToAnonymous(items);
+  }
+  const firstById = new Map();
+  const manifestItems =
+    site && site.manifest && Array.isArray(site.manifest.items)
+      ? site.manifest.items
+      : [];
+  for (let i = 0; i < manifestItems.length; i++) {
+    const entry = manifestItems[i];
+    if (entry && entry.id && !firstById.has(entry.id)) {
+      firstById.set(entry.id, entry);
+    }
+  }
+  const siteDirectory = String(site.siteDirectory);
+  const hash = crypto.createHash("sha1");
+  hash.update(
+    JSON.stringify([
+      buildSiteExportDocumentTitle(site),
+      site.manifest ? site.manifest.description : "",
+      getSiteExportPageUrlBase(site),
+      items,
+    ]),
+  );
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const sources = [item, item ? firstById.get(item.id) : null];
+    for (let j = 0; j < sources.length; j++) {
+      const source = sources[j];
+      if (source && typeof source.location === "string" && source.location) {
+        hash.update(
+          "\n" +
+            statSignature(path.join(siteDirectory, source.location)) +
+            "|" +
+            statSignature(
+              path.join(siteDirectory, itemMarkdownLocation(source.location)),
+            ),
+        );
+      }
+    }
+  }
+  return hash.digest("hex");
+}
+// Same result as buildSiteExportMarkdown(site, ancestor, visibleOnly).
+async function buildSiteExportMarkdownCached(site, ancestor, visibleOnly) {
+  if (!site || !site.siteDirectory) {
+    return buildSiteExportMarkdown(site, ancestor, visibleOnly);
+  }
+  let fingerprint = null;
+  try {
+    fingerprint = siteExportMarkdownFingerprint(site, ancestor, visibleOnly);
+  } catch {
+    fingerprint = null;
+  }
+  if (fingerprint === null) {
+    return buildSiteExportMarkdown(site, ancestor, visibleOnly);
+  }
+  const cacheKey = JSON.stringify([
+    String(site.siteDirectory),
+    String(ancestor || ""),
+    visibleOnly === true,
+  ]);
+  const cached = siteExportMarkdownCache.get(cacheKey);
+  if (cached && cached.fingerprint === fingerprint) {
+    return cached.markdown;
+  }
+  const markdown = await buildSiteExportMarkdown(site, ancestor, visibleOnly);
+  siteExportMarkdownCache.delete(cacheKey);
+  if (siteExportMarkdownCache.size >= SITE_EXPORT_MARKDOWN_CACHE_MAX) {
+    siteExportMarkdownCache.delete(siteExportMarkdownCache.keys().next().value);
+  }
+  siteExportMarkdownCache.set(cacheKey, { fingerprint, markdown });
+  return markdown;
 }
 
 // Send a text export inline with validators so agents and proxies can
@@ -1617,6 +1715,7 @@ async function siteExportMutation(req, res) {
 
 module.exports = {
   buildSiteExportMarkdown,
+  buildSiteExportMarkdownCached,
   sendCacheableText,
   siteExport,
   siteExportMutation,

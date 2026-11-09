@@ -3929,10 +3929,10 @@ async function tryServeLlmsFull(req, res, site) {
     return;
   }
   const {
-    buildSiteExportMarkdown,
+    buildSiteExportMarkdownCached,
     sendCacheableText,
   } = require("./siteRoutes/v1/exports.js");
-  const markdown = await buildSiteExportMarkdown(site, "", true);
+  const markdown = await buildSiteExportMarkdownCached(site, "", true);
   sendCacheableText(req, res, markdown, "text/markdown; charset=utf-8", true);
 }
 
