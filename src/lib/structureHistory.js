@@ -74,6 +74,101 @@ function readBlobs(siteDirectory, specs) {
   });
 }
 
+/**
+ * Stream many blobs out of one `git cat-file --batch` process, calling
+ * onBlob(index, Buffer|null) for each spec in order as soon as it has been
+ * read, so only one blob is held at a time (readBlobs keeps every blob: up
+ * to 301 site.json versions, ~120MB on a 1,000-page site). Missing objects
+ * and anything after a truncated stream read as null, as with readBlobs;
+ * if git cannot be started every spec reads as null.
+ */
+function forEachBlob(siteDirectory, specs, onBlob) {
+  return new Promise((resolve) => {
+    let next = 0;
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      while (next < specs.length) {
+        onBlob(next++, null);
+      }
+      resolve();
+    };
+    if (!specs.length) {
+      finish();
+      return;
+    }
+    let child = null;
+    try {
+      child = spawn("git", ["--no-pager", "cat-file", "--batch"], {
+        cwd: siteDirectory,
+      });
+    } catch {
+      finish();
+      return;
+    }
+    let pending = [];
+    let pendingLength = 0;
+    // size of the blob body being read, null while waiting for a header
+    let need = null;
+    const flatten = () => {
+      if (pending.length > 1) {
+        pending = [Buffer.concat(pending, pendingLength)];
+      }
+      return pending.length ? pending[0] : Buffer.alloc(0);
+    };
+    const consume = (all, count) => {
+      const rest = all.subarray(count);
+      pending = rest.length ? [rest] : [];
+      pendingLength = rest.length;
+    };
+    const drain = () => {
+      while (!settled && next < specs.length) {
+        if (need === null) {
+          const all = flatten();
+          const newline = all.indexOf(10);
+          if (newline === -1) {
+            return;
+          }
+          const parts = all.toString("utf8", 0, newline).split(" ");
+          consume(all, newline + 1);
+          if (parts.length < 3 || parts[1] !== "blob") {
+            // "<spec> missing" or a non-blob object
+            onBlob(next++, null);
+            continue;
+          }
+          need = parseInt(parts[2], 10);
+        }
+        // content is followed by a newline
+        if (pendingLength < need + 1) {
+          return;
+        }
+        const all = flatten();
+        // copy so the chunk the body came from can be released
+        const body = Buffer.from(all.subarray(0, need));
+        consume(all, need + 1);
+        need = null;
+        onBlob(next++, body);
+      }
+    };
+    child.stdout.on("data", (chunk) => {
+      pending.push(chunk);
+      pendingLength += chunk.length;
+      drain();
+    });
+    child.on("error", finish);
+    child.on("close", () => {
+      drain();
+      finish();
+    });
+    // specs are "<hash>:site.json": hashes come from git log, never input
+    child.stdin.on("error", () => {});
+    child.stdin.end(specs.join("\n") + "\n");
+  });
+}
+
 function parseManifest(blob) {
   if (!blob) {
     return null;
@@ -183,19 +278,22 @@ async function findStructureChanges(siteDirectory, itemId, hashes) {
   if (list.length < 2) {
     return result;
   }
-  const blobs = await readBlobs(
+  // one site.json version in memory at a time, compared as it streams in
+  let newer = null;
+  await forEachBlob(
     siteDirectory,
     list.map((hash) => hash + ":" + SITE_FILE),
+    (index, blob) => {
+      const snapshot = itemSnapshot(parseManifest(blob), itemId);
+      if (index > 0) {
+        const changes = diffSnapshots(snapshot, newer);
+        if (changes.length) {
+          result[list[index - 1]] = changes;
+        }
+      }
+      newer = snapshot;
+    },
   );
-  let newer = itemSnapshot(parseManifest(blobs[0]), itemId);
-  for (let i = 1; i < list.length; i++) {
-    const older = itemSnapshot(parseManifest(blobs[i]), itemId);
-    const changes = diffSnapshots(older, newer);
-    if (changes.length) {
-      result[list[i - 1]] = changes;
-    }
-    newer = older;
-  }
   return result;
 }
 
@@ -203,6 +301,7 @@ module.exports = {
   SITE_FILE,
   STRUCTURE_SCAN_LIMIT,
   readBlobs,
+  forEachBlob,
   itemSnapshot,
   diffSnapshots,
   findStructureChanges,
