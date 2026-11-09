@@ -61,18 +61,21 @@ jobs:
           name: coverage-lcov
           path: coverage/lcov.info
           if-no-files-found: ignore
-      - name: Dependency audit (reporting only)
-        # Security (HAX-SEC-010, haxtheweb/issues#3092): surface high/critical
-        # advisories in runtime dependencies. This repo's lockfile is yarn.lock
-        # (package-lock.json is gitignored), so `npm audit` cannot run here (it
-        # exits ENOLOCK); `yarn audit` (Yarn 1) reads yarn.lock instead.
-        # Reporting-only: a finding emits a workflow warning and a job summary
-        # but does not fail CI. Remove the `|| ...` fallback to make it blocking
-        # once existing advisories are triaged.
+      - name: Dependency audit (blocking, runtime deps, level >= high)
+        # Security (HAX-SEC-010, haxtheweb/issues#3092): fail CI on high /
+        # critical advisories in runtime dependencies. This repo's lockfile is
+        # yarn.lock (package-lock.json is gitignored), so `npm audit --omit=dev`
+        # cannot run here (ENOLOCK); `yarn audit --groups dependencies` (Yarn 1)
+        # reads yarn.lock and is the equivalent. Yarn 1 exits with a bitmask
+        # (1 info, 2 low, 4 moderate, 8 high, 16 critical) and `--level` only
+        # filters the printed table, not the exit code, so the high (8) and
+        # critical (16) bits are masked explicitly: moderate-and-below never
+        # block, high/critical always do.
         run: |
           set +e
           yarn audit --groups dependencies --level high | tee audit.txt
-          status=${PIPESTATUS[0]}
+          raw=${PIPESTATUS[0]}
+          status=$(( raw & 24 ))
           {
             echo '### Dependency audit (yarn audit, runtime deps, level >= high)'
             echo
@@ -81,9 +84,9 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$status" -ne 0 ]; then
-            echo "::warning title=Dependency audit::yarn audit reported high/critical advisories or failed to run (exit $status). Reporting only; see job summary."
+            echo "::error title=Dependency audit::yarn audit reported high/critical advisories in runtime dependencies (exit $raw). See job summary."
+            exit 1
           fi
-          exit 0
 
   e2e:
     name: "e2e UI (node ${{ matrix.node-version }})"

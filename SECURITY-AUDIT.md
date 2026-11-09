@@ -5,9 +5,8 @@ Entry point for recurring security audits of this repo. One of five HAX repos au
 ## Read order (do this first)
 
 1. `AGENTS.md` — test tiers and PR gates
-2. `security_best_practices_report.md` — canonical current state; it is a rolling document (dated re-audit sections are appended, prior findings get verified-fixed notes)
-3. `security_post_fix_reaudit.md` — verification pass after the 2026-08 fix round
-4. `SECURITY.md` — disclosure policy (private advisory at `haxtheweb/issues`, never public issues)
+2. `SECURITY.md` — disclosure policy (private advisory at `haxtheweb/issues`, never public issues) and the documented CSP exceptions
+3. The inline `Security (...)` / `HAX-SEC-00x` comments in `src/` and the matching regression tests in `test/unit/` and `test/api-conformance/` — these are the canonical record of what has been fixed and why; there is no separate rolling report file in this repo
 
 ## Scope
 
@@ -37,7 +36,7 @@ npm audit --omit=dev --audit-level=low --json
 
 ## Reporting convention
 
-- `security_best_practices_report.md` is rolling: append a dated `Re-audit YYYY-MM-DD` section each round and re-verify prior findings
+- Findings are reported in the audit's pull request(s) or private advisory, one PR per logical fix, each with a regression test; prior findings are re-verified by keeping their tests green
 - Cite `file:line` with rule IDs (`EXPRESS-*`, `HAX-SEC-00x`)
 - Mark fixes with inline `HAX-SEC-00x` / security comments in `src/`
 - **Parity:** security and data-model fixes shared with the PHP backend must be mirrored in `haxcms-php` (PHP-parity comments mark the pairs)
