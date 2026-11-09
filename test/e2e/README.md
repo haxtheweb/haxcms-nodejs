@@ -95,6 +95,11 @@ haxtheweb/issues#3234). It never fails on visual change and never writes to
 Options: `--states site-view,site-admin`, `--variants desktop-light,mobile-dark`,
 `--sub` (admin sub-sections). For unreleased webcomponents work, run it with
 `NODE_ENV=development HAXCMS_WEBCOMPONENTS_ROOT=<webcomponents checkout>`.
+For a prototype of something new on a page: `--page-html <file>` and
+`--page-title <text>` set the first page's content, `--measure <selector>`
+records an element's box (e.g. an empty slot) per variant, and
+`--viewport-height <px>` keeps content below the fold in frame (clean-one
+scrolls inside its own container, so a full-page capture would not).
 
 ## Debugging
 
