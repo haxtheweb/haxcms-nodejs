@@ -744,10 +744,12 @@ function sanitizeUntrustedHtml(html) {
   if (typeof html !== "string") {
     return "";
   }
-  // imports never need embedded frames, so drop iframes on top of the
-  // storage policy
+  // imports never need embedded frames or comments (an exported document
+  // can carry hidden notes in comments), so drop them on top of the storage
+  // policy. Mirrors haxcms-php SanitizeContent::sanitizeUntrustedHTML.
   return sanitizeHTMLForStorage(html.replace(/\x00/g, ""), {
     forbidTags: ["iframe"],
+    dropComments: true,
   }).trim();
 }
 
