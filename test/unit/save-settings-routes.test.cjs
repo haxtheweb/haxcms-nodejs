@@ -1487,6 +1487,36 @@ describe("saveLocalizationSettings", () => {
 // saveMediaSettings (system route, config-scoped)
 // ---------------------------------------------------------------------------
 describe("saveMediaSettings", () => {
+  test("user token is validated against the request's authenticated identity, not the process user", async (t) => {
+    // Security: a user token minted for the process-level active user must
+    // not validate on a request whose bearer identity is a different user,
+    // and the token bound to the request's identity must.
+    const seen = [];
+    t.mock.method(HAXCMS, "validateRequestToken", (token, value) => {
+      seen.push(value);
+      return value === "request-user";
+    });
+    t.mock.method(HAXCMS, "getActiveUserName", () => "process-user");
+    t.mock.method(HAXCMS, "getRequestAuthenticatedUserName", (req) =>
+      req && req.headers && req.headers.authorization ? "request-user" : "",
+    );
+    // request carries a bearer for request-user: validated against it
+    const resBound = stubRes();
+    await saveMediaSettings(
+      userReq({}, { authorization: "Bearer jwt" }),
+      resBound,
+    );
+    assert.deepEqual(seen, ["request-user"]);
+    assert.notEqual(resBound.statusCode, 403);
+    // no credential on the request: falls back to the active user and the
+    // token (minted for request-user) is rejected
+    const resAnon = stubRes();
+    await saveMediaSettings(userReq({}), resAnon);
+    assert.deepEqual(seen, ["request-user", "process-user"]);
+    assert.equal(resAnon.statusCode, 403);
+    assert.equal(resAnon.body.data.message, "invalid request token");
+  });
+
   test("missing user token answers 403 invalid request token", async (t) => {
     mockUserAuth(t);
     const res = stubRes();

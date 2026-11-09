@@ -1,11 +1,11 @@
-const fs = require('fs-extra');
-const path = require('path');
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const fs = require("fs-extra");
+const path = require("path");
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
 
 const SCHEMA_CONFIG = {
   skeleton: {
-    directory: 'skeletons',
-    extension: 'json',
+    directory: "skeletons",
+    extension: "json",
   },
 };
 
@@ -19,8 +19,8 @@ function fail(res, status, message) {
 }
 
 function normalizeText(value) {
-  if (typeof value !== 'string') {
-    return '';
+  if (typeof value !== "string") {
+    return "";
   }
   return value.trim();
 }
@@ -32,33 +32,36 @@ function normalizeValue(value) {
 function normalizeSchema(value) {
   const schema = normalizeValue(value);
   if (!Object.prototype.hasOwnProperty.call(SCHEMA_CONFIG, schema)) {
-    return '';
+    return "";
   }
   return schema;
 }
 
 function normalizeAction(value) {
   const action = normalizeValue(value);
-  if (action !== 'upload' && action !== 'rename' && action !== 'delete') {
-    return '';
+  if (action !== "upload" && action !== "rename" && action !== "delete") {
+    return "";
   }
   return action;
 }
 
-function normalizeMachineName(value = '') {
-  if (typeof value !== 'string') {
-    return '';
+function normalizeMachineName(value = "") {
+  if (typeof value !== "string") {
+    return "";
   }
-  const safeValue = path.basename(value).replace(/\.[^/.]+$/g, '').trim();
+  const safeValue = path
+    .basename(value)
+    .replace(/\.[^/.]+$/g, "")
+    .trim();
   if (!safeValue) {
-    return '';
+    return "";
   }
   const normalized = HAXCMS.generateMachineName(safeValue);
   if (
     !normalized ||
-    (normalized === 'default' && safeValue.toLowerCase() !== 'default')
+    (normalized === "default" && safeValue.toLowerCase() !== "default")
   ) {
-    return '';
+    return "";
   }
   return normalized;
 }
@@ -68,7 +71,7 @@ function getRequestValue(req, key) {
     req &&
     req.params &&
     Object.prototype.hasOwnProperty.call(req.params, key) &&
-    typeof req.params[key] !== 'undefined' &&
+    typeof req.params[key] !== "undefined" &&
     req.params[key] !== null
   ) {
     return req.params[key];
@@ -77,7 +80,7 @@ function getRequestValue(req, key) {
     req &&
     req.body &&
     Object.prototype.hasOwnProperty.call(req.body, key) &&
-    typeof req.body[key] !== 'undefined' &&
+    typeof req.body[key] !== "undefined" &&
     req.body[key] !== null
   ) {
     return req.body[key];
@@ -86,45 +89,45 @@ function getRequestValue(req, key) {
     req &&
     req.query &&
     Object.prototype.hasOwnProperty.call(req.query, key) &&
-    typeof req.query[key] !== 'undefined' &&
+    typeof req.query[key] !== "undefined" &&
     req.query[key] !== null
   ) {
     return req.query[key];
   }
-  return '';
+  return "";
 }
 function hasUploadFile(req) {
   return getUploadFile(req) !== null;
 }
 function inferSchemaValue(req, value) {
   const requested = normalizeText(value);
-  if (requested !== '') {
+  if (requested !== "") {
     return normalizeSchema(requested);
   }
   // skeleton operations are the only supported schema in this route family
-  return 'skeleton';
+  return "skeleton";
 }
 function inferActionValue(req, value) {
   const requested = normalizeText(value);
-  if (requested !== '') {
+  if (requested !== "") {
     return normalizeAction(requested);
   }
-  const method = String(req && req.method ? req.method : '').toUpperCase();
-  if (method === 'DELETE') {
-    return 'delete';
+  const method = String(req && req.method ? req.method : "").toUpperCase();
+  if (method === "DELETE") {
+    return "delete";
   }
-  if (method === 'PATCH' || method === 'PUT') {
-    return 'rename';
+  if (method === "PATCH" || method === "PUT") {
+    return "rename";
   }
-  if (method === 'POST' && hasUploadFile(req)) {
-    return 'upload';
+  if (method === "POST" && hasUploadFile(req)) {
+    return "upload";
   }
-  return '';
+  return "";
 }
 
 function getSchemaDirectory(schema) {
   const config = SCHEMA_CONFIG[schema];
-  return path.join(HAXCMS.configDirectory, 'user', config.directory);
+  return path.join(HAXCMS.configDirectory, "user", config.directory);
 }
 
 function getRelativeLocation(schema, fileName) {
@@ -138,8 +141,8 @@ function getUploadFile(req) {
     req &&
     req.file &&
     req.file.path &&
-    typeof req.file.fieldname === 'string' &&
-    req.file.fieldname === 'file'
+    typeof req.file.fieldname === "string" &&
+    req.file.fieldname === "file"
   ) {
     return req.file;
   }
@@ -149,8 +152,8 @@ function getUploadFile(req) {
       if (
         item &&
         item.path &&
-        typeof item.fieldname === 'string' &&
-        item.fieldname === 'file'
+        typeof item.fieldname === "string" &&
+        item.fieldname === "file"
       ) {
         return item;
       }
@@ -159,11 +162,11 @@ function getUploadFile(req) {
   return null;
 }
 
-function getFileExtension(value = '') {
-  if (typeof value !== 'string') {
-    return '';
+function getFileExtension(value = "") {
+  if (typeof value !== "string") {
+    return "";
   }
-  return path.extname(value).replace('.', '').toLowerCase();
+  return path.extname(value).replace(".", "").toLowerCase();
 }
 
 async function resolveExistingSchemaFile(schema, name) {
@@ -179,8 +182,7 @@ async function resolveExistingSchemaFile(schema, name) {
   let files = [];
   try {
     files = await fs.readdir(schemaDirectory);
-  }
-  catch {
+  } catch {
     return null;
   }
   for (let i = 0; i < files.length; i++) {
@@ -189,8 +191,7 @@ async function resolveExistingSchemaFile(schema, name) {
     let stats = null;
     try {
       stats = await fs.stat(filePath);
-    }
-    catch {
+    } catch {
       continue;
     }
     if (!stats || !stats.isFile()) {
@@ -215,21 +216,20 @@ async function resolveExistingSchemaFile(schema, name) {
 }
 
 async function normalizeSkeletonUpload(tmpPath, machineName) {
-  const raw = await fs.readFile(tmpPath, 'utf8');
+  const raw = await fs.readFile(tmpPath, "utf8");
   let parsed = null;
   try {
     parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("invalid skeleton json");
   }
-  catch {
-    throw new Error('invalid skeleton json');
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('invalid skeleton json');
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("invalid skeleton json");
   }
   if (
-    !Object.prototype.hasOwnProperty.call(parsed, 'meta') ||
+    !Object.prototype.hasOwnProperty.call(parsed, "meta") ||
     !parsed.meta ||
-    typeof parsed.meta !== 'object' ||
+    typeof parsed.meta !== "object" ||
     Array.isArray(parsed.meta)
   ) {
     parsed.meta = {};
@@ -240,23 +240,26 @@ async function normalizeSkeletonUpload(tmpPath, machineName) {
 
 async function updateSkeletonMetaMachineName(filePath, machineName) {
   try {
-    const raw = await fs.readFile(filePath, 'utf8');
+    const raw = await fs.readFile(filePath, "utf8");
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return;
     }
     if (
-      !Object.prototype.hasOwnProperty.call(parsed, 'meta') ||
+      !Object.prototype.hasOwnProperty.call(parsed, "meta") ||
       !parsed.meta ||
-      typeof parsed.meta !== 'object' ||
+      typeof parsed.meta !== "object" ||
       Array.isArray(parsed.meta)
     ) {
       parsed.meta = {};
     }
     parsed.meta.machineName = machineName;
-    await fs.writeFile(filePath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
-  }
-  catch {
+    await fs.writeFile(
+      filePath,
+      `${JSON.stringify(parsed, null, 2)}\n`,
+      "utf8",
+    );
+  } catch {
     // intentionally ignored
   }
 }
@@ -272,46 +275,52 @@ async function updateSkeletonMetaMachineName(filePath, machineName) {
  * )
  */
 function getUserTokenFromHeader(req) {
-  if (!req || !req.headers || typeof req.headers !== 'object') {
-    return '';
+  if (!req || !req.headers || typeof req.headers !== "object") {
+    return "";
   }
-  const rawValue = req.headers['x-haxcms-user-token'];
+  const rawValue = req.headers["x-haxcms-user-token"];
   if (Array.isArray(rawValue)) {
-    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
+    return rawValue.length > 0 ? String(rawValue[0] || "").trim() : "";
   }
-  if (typeof rawValue === 'string') {
+  if (typeof rawValue === "string") {
     return rawValue.trim();
   }
-  return '';
+  return "";
 }
 
 async function schemaFileOperation(req, res) {
   const userToken = getUserTokenFromHeader(req);
-  if (!userToken || !HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName())) {
-    return fail(res, 403, 'invalid request token');
+  if (
+    !userToken ||
+    !HAXCMS.validateRequestToken(userToken, HAXCMS.getRequestTokenUserName(req))
+  ) {
+    return fail(res, 403, "invalid request token");
   }
-  const schema = inferSchemaValue(req, getRequestValue(req, 'schema'));
+  const schema = inferSchemaValue(req, getRequestValue(req, "schema"));
   if (!schema) {
-    return fail(res, 400, 'invalid schema');
+    return fail(res, 400, "invalid schema");
   }
-  const action = inferActionValue(req, getRequestValue(req, 'action'));
+  const action = inferActionValue(req, getRequestValue(req, "action"));
   if (!action) {
-    return fail(res, 400, 'invalid action');
+    return fail(res, 400, "invalid action");
   }
   // D26: PATCH/PUT on skeletons/:skeletonName only allows rename.
   // Any other explicitly requested action is rejected with a D1 error.
-  const requestMethod = String((req && req.method) || '').toUpperCase();
-  if ((requestMethod === 'PATCH' || requestMethod === 'PUT') && action !== 'rename') {
-    return fail(res, 400, 'only rename is allowed for PATCH/PUT on skeletons');
+  const requestMethod = String((req && req.method) || "").toUpperCase();
+  if (
+    (requestMethod === "PATCH" || requestMethod === "PUT") &&
+    action !== "rename"
+  ) {
+    return fail(res, 400, "only rename is allowed for PATCH/PUT on skeletons");
   }
   const config = SCHEMA_CONFIG[schema];
   const schemaDirectory = getSchemaDirectory(schema);
-  if (action === 'upload') {
+  if (action === "upload") {
     const upload = getUploadFile(req);
     if (!upload) {
-      return fail(res, 400, 'missing file upload');
+      return fail(res, 400, "missing file upload");
     }
-    if (getFileExtension(upload.originalname || '') !== config.extension) {
+    if (getFileExtension(upload.originalname || "") !== config.extension) {
       if (upload.path && (await fs.pathExists(upload.path))) {
         await fs.remove(upload.path);
       }
@@ -321,15 +330,15 @@ async function schemaFileOperation(req, res) {
         `invalid file type for schema ${schema}; expected .${config.extension}`,
       );
     }
-    let machineName = normalizeMachineName(getRequestValue(req, 'name'));
+    let machineName = normalizeMachineName(getRequestValue(req, "name"));
     if (!machineName) {
-      machineName = normalizeMachineName(upload.originalname || '');
+      machineName = normalizeMachineName(upload.originalname || "");
     }
     if (!machineName) {
       if (upload.path && (await fs.pathExists(upload.path))) {
         await fs.remove(upload.path);
       }
-      return fail(res, 400, 'invalid upload name');
+      return fail(res, 400, "invalid upload name");
     }
     await fs.ensureDir(schemaDirectory);
     const fileName = `${machineName}.${config.extension}`;
@@ -338,20 +347,19 @@ async function schemaFileOperation(req, res) {
       if (upload.path && (await fs.pathExists(upload.path))) {
         await fs.remove(upload.path);
       }
-      return fail(res, 409, 'file already exists');
+      return fail(res, 409, "file already exists");
     }
     try {
       const normalizedSkeleton = await normalizeSkeletonUpload(
         upload.path,
         machineName,
       );
-      await fs.writeFile(destinationPath, normalizedSkeleton, 'utf8');
-    }
-    catch {
+      await fs.writeFile(destinationPath, normalizedSkeleton, "utf8");
+    } catch {
       if (upload.path && (await fs.pathExists(upload.path))) {
         await fs.remove(upload.path);
       }
-      return fail(res, 400, 'invalid skeleton json');
+      return fail(res, 400, "invalid skeleton json");
     }
     if (upload.path && (await fs.pathExists(upload.path))) {
       await fs.remove(upload.path);
@@ -368,27 +376,29 @@ async function schemaFileOperation(req, res) {
       },
     });
   }
-  if (action === 'rename') {
+  if (action === "rename") {
     const existing = await resolveExistingSchemaFile(
       schema,
-      getRequestValue(req, 'name') ||
-        getRequestValue(req, 'oldName') ||
-        getRequestValue(req, 'skeletonName'),
+      getRequestValue(req, "name") ||
+        getRequestValue(req, "oldName") ||
+        getRequestValue(req, "skeletonName"),
     );
     if (!existing) {
-      return fail(res, 404, 'file not found');
+      return fail(res, 404, "file not found");
     }
-    const nextMachineName = normalizeMachineName(getRequestValue(req, 'newName'));
+    const nextMachineName = normalizeMachineName(
+      getRequestValue(req, "newName"),
+    );
     if (!nextMachineName) {
-      return fail(res, 400, 'invalid new name');
+      return fail(res, 400, "invalid new name");
     }
     if (nextMachineName === existing.machineName) {
-      return fail(res, 400, 'new name must be different');
+      return fail(res, 400, "new name must be different");
     }
     const nextFileName = `${nextMachineName}.${config.extension}`;
     const nextPath = path.join(existing.schemaDirectory, nextFileName);
     if (await fs.pathExists(nextPath)) {
-      return fail(res, 409, 'file already exists');
+      return fail(res, 409, "file already exists");
     }
     await fs.move(existing.filePath, nextPath, { overwrite: false });
     await updateSkeletonMetaMachineName(nextPath, nextMachineName);
@@ -406,12 +416,12 @@ async function schemaFileOperation(req, res) {
   }
   const existing = await resolveExistingSchemaFile(
     schema,
-    getRequestValue(req, 'name') ||
-      getRequestValue(req, 'oldName') ||
-      getRequestValue(req, 'skeletonName'),
+    getRequestValue(req, "name") ||
+      getRequestValue(req, "oldName") ||
+      getRequestValue(req, "skeletonName"),
   );
   if (!existing) {
-    return fail(res, 404, 'file not found');
+    return fail(res, 404, "file not found");
   }
   await fs.remove(existing.filePath);
   return res.json({

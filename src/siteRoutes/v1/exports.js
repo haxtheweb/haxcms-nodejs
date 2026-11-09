@@ -1511,6 +1511,16 @@ async function itemExport(req, res) {
   }
 
   if (format === "epub") {
+    // rendered binaries are generated per request; logged-in users only
+    // (same gate as pdf / docx above and the site-level epub export)
+    if (isAnonymousSiteApiRequest(req)) {
+      return res.status(401).json({
+        status: 401,
+        data: {
+          message: `Authentication required for ${format} exports`,
+        },
+      });
+    }
     let epubBuffer = null;
     try {
       epubBuffer = await buildItemExportEpubBuffer(
