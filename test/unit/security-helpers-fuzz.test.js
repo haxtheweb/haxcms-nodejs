@@ -2,6 +2,10 @@
 // handling helpers: path confinement, URL host matching and the untrusted HTML
 // sanitizer. These take attacker-controlled input, so the properties are
 // "never throws" and "never lets the dangerous thing through".
+//
+// This file is deliberately `.js` (still CommonJS: package.json has no
+// "type": "module"). OpenSSF Scorecard's Fuzzing check only scans *.js/*.jsx
+// files for `require("fast-check")`, so a `.cjs` name hides it from Scorecard.
 const test = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
