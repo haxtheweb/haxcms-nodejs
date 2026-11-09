@@ -360,24 +360,20 @@ function isURLLikeAttribute(attributeName) {
   return false;
 }
 
-// jsdom's window.close() walks child frames by index, but window.length also
-// counts <iframe> elements parsed into foreign (SVG/MathML) content, which have
-// no frame window, so close() throws on undefined. Empty the document first so
-// no frames remain, and never let teardown failure escape the sanitizer.
-function closeScratchDom(dom) {
-  try {
-    const document = dom.window.document;
-    if (document && document.documentElement) {
-      document.documentElement.innerHTML = "";
-    }
-  } catch {
-    // fall through to close attempt
+// Scratch documents for the two parse passes. Every `new JSDOM()` keeps
+// about half a megabyte alive after window.close(), so a window per call grew
+// the heap by about 1 MB per sanitize, without bound, on a long-running server.
+// One shared window hands out a new document per call instead; a document
+// made with createHTMLDocument has no browsing context, so its <iframe>s get
+// no frame windows and there is nothing to close. Parsing is the same:
+// body.innerHTML in a fresh HTML document.
+let scratchWindow = null;
+function newScratchDocument() {
+  if (scratchWindow === null) {
+    scratchWindow = new JSDOM("<!doctype html><html><body></body></html>")
+      .window;
   }
-  try {
-    dom.window.close();
-  } catch {
-    // teardown only; the sanitized string has already been captured
-  }
+  return scratchWindow.document.implementation.createHTMLDocument("");
 }
 
 function escapeTemplateText(value) {
@@ -388,8 +384,7 @@ function escapeTemplateText(value) {
 }
 
 function preprocessTextTemplateHosts(html) {
-  const dom = new JSDOM("<!doctype html><html><body></body></html>");
-  const document = dom.window.document;
+  const document = newScratchDocument();
   document.body.innerHTML = html;
 
   const selector = Array.from(TEXT_TEMPLATE_HOSTS).join(",");
@@ -410,9 +405,7 @@ function preprocessTextTemplateHosts(html) {
     });
   }
 
-  const clean = document.body.innerHTML;
-  closeScratchDom(dom);
-  return clean;
+  return document.body.innerHTML;
 }
 
 function getElementChildren(node) {
@@ -598,13 +591,10 @@ function sanitizeHTMLForStorage(html, options = {}) {
     clean = String(clean);
   }
 
-  const dom = new JSDOM("<!doctype html><html><body></body></html>");
-  const document = dom.window.document;
+  const document = newScratchDocument();
   document.body.innerHTML = clean;
   sanitizeElementTree(document.body);
-  clean = document.body.innerHTML;
-  closeScratchDom(dom);
-  return clean;
+  return document.body.innerHTML;
 }
 
 module.exports = {
