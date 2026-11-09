@@ -280,6 +280,61 @@ describe("saveManifest", () => {
     assert.equal(site.calls.updateAlternateFormats, 1);
   });
 
+  test("generated files finish rebuilding before the managed-files commit", async (t) => {
+    const order = [];
+    const site = makeFakeSite({
+      async gitCommit(message) {
+        order.push("commit:" + message);
+      },
+      async updateAlternateFormats() {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        order.push("alternate formats written");
+      },
+    });
+    mockManifestExtras(t, site);
+    mockSiteAuth(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        manifest: { site: { "manifest-title": "Ordered" } },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.deepEqual(order, [
+      "commit:Manifest updated",
+      "alternate formats written",
+      "commit:Managed files updated",
+    ]);
+  });
+
+  test("a failed generated-files rebuild is logged and the save still answers 200", async (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
+    const site = makeFakeSite({
+      async updateAlternateFormats() {
+        throw new Error("search index exploded");
+      },
+    });
+    mockManifestExtras(t, site);
+    mockSiteAuth(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        manifest: { site: { "manifest-title": "Still saved" } },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal(site.calls.gitCommits.length, 2);
+    assert.ok(
+      warn.mock.calls.some((c) =>
+        String(c.arguments[0]).includes("search index exploded"),
+      ),
+    );
+  });
+
   test("full form payload writes every manifest section and the CNAME file", async (t) => {
     const site = makeFakeSite();
     site.manifest.metadata.platform = { features: { addPage: false } };

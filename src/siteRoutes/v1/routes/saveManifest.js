@@ -4,6 +4,9 @@ const fs = require("fs-extra");
 const { sanitizeURLValue } = require("../../../lib/sanitizeContent.js");
 const { isUnsafeRelativePath } = require("../../../lib/pathConfinement.js");
 const {
+  rebuildAlternateFormatsLogged,
+} = require("../../../lib/rebuildAlternateFormatsLogged.js");
+const {
   getRequestHeaderValue,
   ensureSiteMetadataContainers,
   assertSiteFeature,
@@ -497,7 +500,7 @@ async function saveManifest(req, res) {
       await site.gitCommit("Manifest updated");
       // rebuild the files that twig processes
       await site.rebuildManagedFiles();
-      site.updateAlternateFormats();
+      await rebuildAlternateFormatsLogged(site, "saveManifest");
       await site.gitCommit("Managed files updated");
       res.json({ status: 200, data: site.manifest });
     } else {
