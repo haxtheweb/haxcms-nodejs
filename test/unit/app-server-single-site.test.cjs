@@ -288,18 +288,35 @@ test("server boots in single-site mode on an ephemeral port", async () => {
   assert.ok(baseUrl.indexOf("http://127.0.0.1:") === 0);
 });
 
-test("the single-site root serves the raw index through express.static", async () => {
+test("the single-site root renders the index with the CSP nonce (M2)", async () => {
   const baseUrl = await baseUrlPromise;
   const result = await request("GET", baseUrl + "/", {
     headers: { accept: "text/html" },
   });
   assert.equal(result.status, 200);
-  // the single-site branch registers express.static WITHOUT index:false
-  // (non-dev), so the root streams the raw index.html and the render path
-  // only runs for slug-based page requests
   assert.ok(result.bodyText.indexOf("haxcms-site-builder") !== -1);
   assert.ok(
     String(result.headers["content-type"] || "").indexOf("text/html") !== -1,
+  );
+  // Security (M2): the single-site branch registers express.static with
+  // index:false so "/" goes through the render path instead of streaming the
+  // raw index.html. The raw file carries no nonce, which would leave its
+  // inline scripts blocked under the nonce-only script-src.
+  const csp = String(result.headers["content-security-policy"] || "");
+  const nonceMatch = /'nonce-([^']+)'/.exec(csp);
+  assert.ok(nonceMatch, "CSP header carries a per-request nonce");
+  const nonce = nonceMatch[1];
+  assert.ok(
+    !/script-src[^;]*'unsafe-inline'/.test(csp),
+    "script-src does not fall back to 'unsafe-inline'",
+  );
+  assert.ok(
+    result.bodyText.indexOf('<script nonce="' + nonce + '">window.app') !== -1,
+    "template inline script on the root carries the real CSP nonce",
+  );
+  assert.ok(
+    result.bodyText.indexOf("<script>window.app") === -1,
+    "no un-nonced inline script is streamed for the root",
   );
 });
 
