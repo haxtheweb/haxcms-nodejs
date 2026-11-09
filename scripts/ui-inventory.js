@@ -9,8 +9,9 @@
  *
  * It boots the same isolated runtime the e2e suite uses (temp dir, ephemeral
  * port, auth enabled), logs in, creates a site, then walks a fixed list of
- * real UI states: dashboard, site view, edit mode, outline, add page, user
- * menu and every top-level section of the site admin dialog. For each state it
+ * real UI states: dashboard, site view, site view as a visitor who is not
+ * logged in, edit mode, outline, add page, user menu and every top-level
+ * section of the site admin dialog. For each state it
  * writes:
  *
  *   - screenshots at desktop and mobile, light and dark (prefers-color-scheme)
@@ -625,10 +626,8 @@ function pageMeasureDeep(selector) {
 // states
 // ---------------------------------------------------------------------------
 
-// Replaces ctx.page with a new tab in the same (logged-in) browser.
-async function freshPage(ctx, scheme) {
-  const old = ctx.page;
-  const page = await helpers.newPage(ctx.browser);
+// Dialog handling, dark-mode pin and failed-request tracking for a capture tab.
+async function preparePage(ctx, page, scheme) {
   page.on("dialog", (dialog) => {
     dialog.accept().catch(() => {});
   });
@@ -650,7 +649,15 @@ async function freshPage(ctx, scheme) {
   if (ctx.onRequestFailed) {
     page.on("requestfailed", ctx.onRequestFailed);
   }
+}
+
+// Swaps in a new capture tab, closing the previous one (and the visitor
+// context it may have lived in).
+async function replacePage(ctx, page, visitorContext) {
+  const old = ctx.page;
+  const oldVisitorContext = ctx.visitorContext;
   ctx.page = page;
+  ctx.visitorContext = visitorContext || null;
   if (old) {
     try {
       await old.close({ runBeforeUnload: false });
@@ -658,9 +665,38 @@ async function freshPage(ctx, scheme) {
       /* ignore */
     }
   }
+  if (oldVisitorContext) {
+    try {
+      await oldVisitorContext.close();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
-async function gotoSite(ctx) {
+// Replaces ctx.page with a new tab in the same (logged-in) browser.
+async function freshPage(ctx, scheme) {
+  ctx.scheme = scheme;
+  const page = await helpers.newPage(ctx.browser);
+  await preparePage(ctx, page, scheme);
+  await replacePage(ctx, page);
+}
+
+// Replaces ctx.page with a tab in a separate browser context that has never
+// logged in, keeping the viewport and color scheme captureState already set.
+async function visitorPage(ctx) {
+  const viewport = ctx.page.viewport();
+  const context = await ctx.browser.createBrowserContext();
+  const page = await context.newPage();
+  if (viewport) {
+    await page.setViewport(viewport);
+  }
+  await helpers.pinColorScheme(page, ctx.scheme);
+  await preparePage(ctx, page, ctx.scheme);
+  await replacePage(ctx, page, context);
+}
+
+async function gotoSite(ctx, visitor) {
   const url = ctx.runtime.baseUrl + "/_sites/" + ctx.siteName + "/";
   try {
     await ctx.page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
@@ -670,7 +706,11 @@ async function gotoSite(ctx) {
       timeout: 30000,
     });
   }
-  await ctx.page.waitForSelector("haxcms-site-editor-ui", { timeout: 30000 });
+  // a visitor gets the theme without the editor top bar
+  await ctx.page.waitForSelector(
+    visitor ? "haxcms-site-builder" : "haxcms-site-editor-ui",
+    { timeout: 30000 },
+  );
   await delay(4000);
 }
 
@@ -719,6 +759,15 @@ function baseStates() {
       enter: async (ctx) => {
         await gotoSite(ctx);
         await dismissOverlays(ctx);
+      },
+    },
+    {
+      id: "site-view-visitor",
+      description:
+        "site view as a visitor who is not logged in (no editor top bar)",
+      enter: async (ctx) => {
+        await visitorPage(ctx);
+        await gotoSite(ctx, true);
       },
     },
     {
