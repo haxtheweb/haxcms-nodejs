@@ -4,6 +4,13 @@ on:
     branches: [main]
   # No branch filter: stacked PRs (base is another feature branch) must run too.
   pull_request:
+  # Nightly regression run on the latest default branch (haxtheweb/issues#3262):
+  # same unit, api-conformance and coverage steps plus the dependency audit;
+  # e2e stays report-only (continue-on-error below). A failure shows up as a
+  # failed scheduled run.
+  schedule:
+    - cron: "47 6 * * *" # nightly, 06:47 UTC
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
