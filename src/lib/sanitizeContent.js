@@ -136,8 +136,14 @@ const IFRAME_SANDBOX_ALLOWED_TOKENS = new Set([
   "allow-same-origin",
   "allow-scripts",
 ]);
-const IFRAME_DEFAULT_SANDBOX =
-  "allow-scripts allow-same-origin allow-popups allow-forms";
+// Security: the default sandbox applied to iframes that carry no sandbox of
+// their own deliberately omits allow-same-origin. allow-scripts +
+// allow-same-origin together let a same-origin frame remove its own sandbox
+// attribute, which defeats the sandbox entirely. Authors who set an explicit
+// sandbox attribute that includes allow-same-origin keep it (it is still an
+// allowed token below), so existing content with an intentional sandbox is
+// unchanged.
+const IFRAME_DEFAULT_SANDBOX = "allow-scripts allow-popups allow-forms";
 const REFERRER_POLICY_ALLOWED = new Set([
   "no-referrer",
   "origin",
