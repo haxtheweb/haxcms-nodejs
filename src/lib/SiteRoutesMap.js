@@ -83,6 +83,7 @@ const v1BlocksRoutes = require('../siteRoutes/v1/blocks.js');
 const v1ThemesRoutes = require('../siteRoutes/v1/themes.js');
 const v1SiteRoutes = require('../siteRoutes/v1/site.js');
 const v1ContentRoutes = require('../siteRoutes/v1/content.js');
+const v1ContentBlockRoutes = require('../siteRoutes/v1/contentBlocks.js');
 const v1LinkCheckRoutes = require('../siteRoutes/v1/linkChecks.js');
 
 const V1_ENTITY_ROUTE_DEFINITIONS = [
@@ -220,6 +221,18 @@ addRouteHandler(
   'post',
   'v1/site/updateAlternativeFormats',
   v1SiteRoutes.updateSiteAlternativeFormats,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'get',
+  'v1/content/:idOrSlug/blocks',
+  v1ContentBlockRoutes.listContentBlocks,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'patch',
+  'v1/content/:idOrSlug/blocks',
+  v1ContentBlockRoutes.updateContentBlocks,
 );
 addRouteHandler(
   SiteRoutesMap,
