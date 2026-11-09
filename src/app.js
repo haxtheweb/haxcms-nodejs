@@ -126,7 +126,12 @@ var cspBaseDirectives = {
   defaultSrc: ["'self'", "data:", "https:"],
   objectSrc: ["'none'"],
   fontSrc: ["'self'", "data:", "fonts.gstatic.com"],
-  frameAncestors: ["'self'"],
+  // Security: no frame-ancestors by default. HAX sites are built to be
+  // embedded (Canvas and other LMS / portal tools iframe published material
+  // routinely), so a restriction here breaks the primary use case. Operators
+  // who need one set config.security.frameAncestors (array of CSP sources,
+  // e.g. ["'self'", "https://*.instructure.com"]); see configuredFrameAncestors.
+  // Mirrors haxcms-php HAXSiteConfig::configuredFrameAncestors.
   // Security: an injected <base href> would re-root every relative script /
   // form URL on the page, and form-action keeps credential forms from being
   // posted to a third-party origin.
@@ -165,8 +170,37 @@ function cspNonceMiddleware(req, res, next) {
       directives[key] = baseValue.slice();
     }
   }
+  var frameAncestors = configuredFrameAncestors();
+  if (frameAncestors.length > 0) {
+    directives.frameAncestors = frameAncestors;
+  }
   res.setHeader("Content-Security-Policy", formatCspDirectives(directives));
   next();
+}
+
+// config.security.frameAncestors as a clean list of CSP source expressions,
+// or [] (the default: embeddable anywhere). Only [A-Za-z0-9.:*'/_-] survive so
+// a config value can never inject a second directive or break the header.
+// PHP parity: HAXSiteConfig::configuredFrameAncestors().
+function configuredFrameAncestors() {
+  var raw =
+    HAXCMS.config && HAXCMS.config.security
+      ? HAXCMS.config.security.frameAncestors
+      : undefined;
+  if (typeof raw === "string") {
+    raw = raw.trim().split(/\s+/);
+  }
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  var out = [];
+  for (var i = 0; i < raw.length; i++) {
+    var entry = String(raw[i] || "").trim();
+    if (entry !== "" && /^[A-Za-z0-9.:*'/_-]+$/.test(entry)) {
+      out.push(entry);
+    }
+  }
+  return out;
 }
 
 // Security (M2): format a CSP directives object into the header string shape
@@ -2272,6 +2306,7 @@ module.exports = {
   serverProtocol,
   getListenHost: () => listenHost,
   getProductionDeploymentWarnings,
+  configuredFrameAncestors,
 };
 function isSiteScopedSystemApiRoutePattern(req) {
   if (!req || !req.route || typeof req.route.path !== "string") {

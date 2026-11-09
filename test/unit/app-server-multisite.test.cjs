@@ -397,6 +397,36 @@ test("CSP carries base-uri and form-action self", async () => {
   assert.ok(/(^|;\s*)form-action 'self'(;|$)/.test(csp), csp);
 });
 
+test("CSP sends no frame-ancestors by default so LMS tools can iframe sites", async () => {
+  const result = await request("GET", runtime.baseUrl + "/", {});
+  const csp = String(result.headers["content-security-policy"] || "");
+  assert.ok(!/frame-ancestors/.test(csp), csp);
+});
+
+test("config.security.frameAncestors is sanitized into a CSP source list", () => {
+  const saved = HAXCMS.config.security;
+  try {
+    HAXCMS.config.security = {};
+    assert.deepEqual(appModule.configuredFrameAncestors(), []);
+    HAXCMS.config.security = {
+      frameAncestors: ["'self'", "https://*.instructure.com", "bad;value", ""],
+    };
+    assert.deepEqual(appModule.configuredFrameAncestors(), [
+      "'self'",
+      "https://*.instructure.com",
+    ]);
+    HAXCMS.config.security = {
+      frameAncestors: "'self' https://lms.example.edu",
+    };
+    assert.deepEqual(appModule.configuredFrameAncestors(), [
+      "'self'",
+      "https://lms.example.edu",
+    ]);
+  } finally {
+    HAXCMS.config.security = saved;
+  }
+});
+
 test("production deployment warnings fire only when allowedHosts / trusted proxies are unset", () => {
   const warningsFor = (production, allowedHosts, trustProxy) =>
     appModule.getProductionDeploymentWarnings({
