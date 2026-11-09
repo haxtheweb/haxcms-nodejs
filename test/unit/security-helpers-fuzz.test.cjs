@@ -25,19 +25,17 @@ const { sanitizeUntrustedHtml } = require("../../src/lib/convertUtils.js");
 //                      fuzz test means the change under test broke something
 //   npm run test:fuzz  random seed and 20x the runs, to hunt for new bugs;
 //                      a failure prints { seed, path } and the counterexample
-//   HAXCMS_FUZZ_SEED=<seed> HAXCMS_FUZZ_PATH=<path> npm run test:unit
-//                      replays exactly that failure
+//   HAX_FUZZ_SEED=<seed> HAX_FUZZ_PATH=<path> npm run test:unit
+//                      replays exactly that failure (the older HAXCMS_FUZZ_*
+//                      names still work)
 //
 // When a hunt finds something, fix it and add the counterexample to the
 // `examples` of that property so the default run guards it from then on.
-const FUZZ_SEED = process.env.HAXCMS_FUZZ_SEED || "20261105";
-const RUNS = {
-  numRuns: Number(process.env.HAXCMS_FUZZ_RUNS) || 300,
-  ...(FUZZ_SEED === "random" ? {} : { seed: Number(FUZZ_SEED) }),
-  ...(process.env.HAXCMS_FUZZ_PATH
-    ? { path: process.env.HAXCMS_FUZZ_PATH }
-    : {}),
-};
+// Shared HAX convention: test/_helpers/fuzz-config.cjs and
+// https://github.com/haxtheweb/issues/issues/3272
+const { fuzzConfig } = require("../_helpers/fuzz-config.cjs");
+
+const RUNS = fuzzConfig({ defaultSeed: 20261105, aliases: ["HAXCMS"] });
 
 // path-ish strings biased toward traversal tricks
 const pathToken = fc.constantFrom(
