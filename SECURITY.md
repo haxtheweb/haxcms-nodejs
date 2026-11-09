@@ -21,7 +21,7 @@ mints a per-request nonce (`cspNonceMiddleware`) and `script-src` carries
 the inline scripts it injects itself (importmap, dev-reload WebSocket,
 deduping-fix) via `injectNonce`, and page content that reaches disk without the
 save-time sanitizer never receives it. `base-uri 'self'`, `form-action 'self'`,
-`object-src 'none'` and `frame-ancestors 'self'` are also set.
+`object-src 'none'`, `base-uri 'self'` and `form-action 'self'` are also set. No `frame-ancestors` is sent by default because HAX sites are meant to be embedded by LMS and portal tools; operators can restrict framing with `config.security.frameAncestors` (an array of CSP sources).
 
 Two deviations from the strictest policy remain and are deliberate:
 
