@@ -596,12 +596,27 @@ function pageMeasureDeep(selector) {
 // ---------------------------------------------------------------------------
 
 // Replaces ctx.page with a new tab in the same (logged-in) browser.
-async function freshPage(ctx) {
+async function freshPage(ctx, scheme) {
   const old = ctx.page;
   const page = await helpers.newPage(ctx.browser);
   page.on("dialog", (dialog) => {
     dialog.accept().catch(() => {});
   });
+  // HAX saves the visitor's dark-mode choice in localStorage
+  // (app-hax-darkMode), and a saved choice wins over prefers-color-scheme.
+  // Another tab's store can write its own value back while this one loads,
+  // so clearing the key is not enough: pin it to this capture's scheme
+  // before any page script runs.
+  await page.evaluateOnNewDocument((dark) => {
+    try {
+      globalThis.window.localStorage.setItem(
+        "app-hax-darkMode",
+        JSON.stringify(dark),
+      );
+    } catch {
+      /* storage unavailable */
+    }
+  }, scheme === "dark");
   if (ctx.onRequestFailed) {
     page.on("requestfailed", ctx.onRequestFailed);
   }
@@ -788,7 +803,7 @@ async function captureState(ctx, state, args) {
     const variant = VARIANTS[name];
     // A fresh tab per capture: leaving a page in edit mode raises a
     // "leave site?" prompt that would otherwise block the next navigation.
-    await freshPage(ctx);
+    await freshPage(ctx, variant.scheme);
     await ctx.page.setViewport({
       width: variant.width,
       height: args.viewportHeight || variant.height,
