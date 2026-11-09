@@ -115,12 +115,30 @@ async function awaitResponseStatus(collector, urlSubstring, status, timeoutMs) {
 // ---------------------------------------------------------------------------
 
 // Poll an async predicate until it returns a truthy value or timeout.
+// A page.evaluate that is in flight while the page navigates (app-hax reloads
+// after login/logout, the editor redirects) rejects with one of these. In a
+// poll that only means "not known yet", so waitFor retries instead of failing
+// the test; any other error still propagates.
+const NAVIGATION_ERROR =
+  /Execution context was destroyed|Cannot find context with specified id|Execution context is not available|detached Frame|frame got detached/i;
+
+function isNavigationError(err) {
+  return !!(err && NAVIGATION_ERROR.test(String(err.message || err)));
+}
+
 async function waitFor(fn, timeoutMs, intervalMs) {
   const interval = intervalMs || 250;
   const start = Date.now();
   let last = null;
   while (Date.now() - start < timeoutMs) {
-    last = await fn();
+    try {
+      last = await fn();
+    } catch (err) {
+      if (!isNavigationError(err)) {
+        throw err;
+      }
+      last = null;
+    }
     if (last) {
       return last;
     }
