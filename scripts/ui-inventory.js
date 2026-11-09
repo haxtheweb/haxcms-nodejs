@@ -34,6 +34,21 @@
  *   --page-title <text>  and its title
  *   --measure <selector> record that element's box per state and variant
  *                        (deep query), e.g. an empty slot the proposal fills
+ *   --theme <element>    switch the fixture site to this theme (a key of
+ *                        src/coreConfig/themes.json, e.g. clean-two)
+ *   --site-files <dir>   copy this folder's files into the fixture site's
+ *                        files/ (media, captions or images the page uses),
+ *                        so the page needs nothing from the network
+ *   --outline <file>     JSON list of extra pages to add after the first one,
+ *                        each { "title", "parent" (index in this list, or
+ *                        omit for top level), "html" (optional) }, so menus,
+ *                        breadcrumbs and prev / next show a real course shape
+ *   --viewport-width <px>   wider desktop captures (mobile variants keep their
+ *                        width), for layouts that change on large screens
+ *   --page-script <file> run this script in the page after each state is
+ *                        entered and before capture (for example: watch half
+ *                        a video, open a collapse) so learner and interaction
+ *                        state comes from real use; recorded in the manifest
  *   --viewport-height <px>  taller captures for every variant, so content below
  *                        the fold is in frame (themes such as clean-one scroll
  *                        inside their own container, so a full-page capture
@@ -68,6 +83,11 @@ function parseArgs(argv) {
     pageTitle: null,
     measure: null,
     viewportHeight: null,
+    theme: null,
+    siteFiles: null,
+    outline: null,
+    viewportWidth: null,
+    pageScript: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -88,6 +108,16 @@ function parseArgs(argv) {
       args.measure = argv[++i];
     } else if (a === "--viewport-height" && argv[i + 1]) {
       args.viewportHeight = parseInt(argv[++i], 10) || null;
+    } else if (a === "--theme" && argv[i + 1]) {
+      args.theme = argv[++i].trim();
+    } else if (a === "--site-files" && argv[i + 1]) {
+      args.siteFiles = path.resolve(argv[++i]);
+    } else if (a === "--outline" && argv[i + 1]) {
+      args.outline = path.resolve(argv[++i]);
+    } else if (a === "--viewport-width" && argv[i + 1]) {
+      args.viewportWidth = parseInt(argv[++i], 10) || null;
+    } else if (a === "--page-script" && argv[i + 1]) {
+      args.pageScript = path.resolve(argv[++i]);
     } else if (a === "--sub") {
       args.sub = true;
     }
@@ -805,11 +835,21 @@ async function captureState(ctx, state, args) {
     // "leave site?" prompt that would otherwise block the next navigation.
     await freshPage(ctx, variant.scheme);
     await ctx.page.setViewport({
-      width: variant.width,
+      width:
+        args.viewportWidth && name.indexOf("desktop") === 0
+          ? args.viewportWidth
+          : variant.width,
       height: args.viewportHeight || variant.height,
     });
     await helpers.pinColorScheme(ctx.page, variant.scheme);
     await state.enter(ctx);
+    if (args.pageScript) {
+      const source = fs.readFileSync(args.pageScript, "utf8");
+      // the prototype author's own file, run as an async body through the
+      // DevTools protocol (a script tag would be blocked by the site's CSP);
+      // the capture waits for it to finish
+      await ctx.page.evaluate("(async () => {\n" + source + "\n})()");
+    }
     if (!dom) {
       const started = Date.now();
       dom = await ctx.page.evaluate(pageCollect);
@@ -859,9 +899,117 @@ function applyPageFixture(runtime, siteName, args) {
   if (!item) {
     throw new Error("fixture site has no pages");
   }
+  const notes = [];
   if (args.pageTitle) {
     item.title = args.pageTitle;
+  }
+  if (args.theme) {
+    const themes = JSON.parse(
+      fs.readFileSync(
+        path.join(ROOT, "src", "coreConfig", "themes.json"),
+        "utf8",
+      ),
+    );
+    const entry = themes[args.theme];
+    if (!entry || typeof entry !== "object") {
+      throw new Error("unknown theme: " + args.theme);
+    }
+    site.metadata = site.metadata || {};
+    const current = site.metadata.theme || {};
+    site.metadata.theme = Object.assign({}, current, {
+      element: entry.element,
+      path: entry.path,
+      name: entry.name,
+      variables: current.variables || {},
+    });
+    notes.push("theme " + entry.element);
+  }
+  if (args.outline) {
+    const extra = JSON.parse(fs.readFileSync(args.outline, "utf8"));
+    if (!Array.isArray(extra)) {
+      throw new Error("--outline must be a JSON list of pages");
+    }
+    const ids = [];
+    const used = {};
+    site.items.forEach((it) => {
+      used[it.slug] = true;
+    });
+    for (let i = 0; i < extra.length; i++) {
+      const entry = extra[i] || {};
+      const title = String(entry.title || "Page " + (i + 1));
+      let base =
+        title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") || "page";
+      let slug = base;
+      let n = 1;
+      while (used[slug]) {
+        slug = base + "-" + n++;
+      }
+      used[slug] = true;
+      const id = "item-fixture-" + (i + 1);
+      ids.push(id);
+      const parentIndex =
+        typeof entry.parent === "number" &&
+        entry.parent >= 0 &&
+        entry.parent < i
+          ? entry.parent
+          : null;
+      const parent = parentIndex === null ? null : ids[parentIndex];
+      const siblings = site.items.filter(
+        (it) => (it.parent || null) === parent,
+      );
+      const location = "pages/" + slug + "/index.html";
+      const page = JSON.parse(JSON.stringify(item));
+      Object.assign(page, {
+        id: id,
+        title: title,
+        slug: slug,
+        location: location,
+        parent: parent,
+        order: siblings.length,
+        indent:
+          parentIndex === null ? 0 : (extra[parentIndex]._indent || 0) + 1,
+      });
+      entry._indent = page.indent;
+      if (page.metadata) {
+        delete page.metadata.pageType;
+      }
+      site.items.push(page);
+      const target = path.resolve(siteDir, location);
+      if (target.indexOf(siteDir + path.sep) !== 0) {
+        throw new Error("page location escapes the site: " + location);
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(
+        target,
+        typeof entry.html === "string" ? entry.html : "<p>" + title + "</p>",
+      );
+    }
+    notes.push(
+      extra.length + " extra page(s) from " + path.basename(args.outline),
+    );
+  }
+  if (args.pageTitle || args.theme || args.outline) {
     fs.writeFileSync(siteJsonPath, JSON.stringify(site, null, 2));
+  }
+  if (args.siteFiles) {
+    const filesDir = path.join(siteDir, "files");
+    fs.mkdirSync(filesDir, { recursive: true });
+    const names = fs
+      .readdirSync(args.siteFiles, { withFileTypes: true })
+      .filter((d) => d.isFile())
+      .map((d) => d.name);
+    for (let i = 0; i < names.length; i++) {
+      fs.copyFileSync(
+        path.join(args.siteFiles, names[i]),
+        path.join(filesDir, path.basename(names[i])),
+      );
+    }
+    notes.push(
+      names.length + " file(s) in files/ from " + path.basename(args.siteFiles),
+    );
   }
   if (args.pageHtml) {
     const target = path.resolve(siteDir, item.location);
@@ -875,7 +1023,10 @@ function applyPageFixture(runtime, siteName, args) {
     siteName +
     "; first page" +
     (args.pageTitle ? ' titled "' + args.pageTitle + '"' : "") +
-    (args.pageHtml ? " with content from " + path.basename(args.pageHtml) : "")
+    (args.pageHtml
+      ? " with content from " + path.basename(args.pageHtml)
+      : "") +
+    (notes.length ? "; " + notes.join("; ") : "")
   );
 }
 
@@ -987,11 +1138,15 @@ async function main() {
       if (args.viewportHeight) {
         acc[name].height = args.viewportHeight;
       }
+      if (args.viewportWidth && name.indexOf("desktop") === 0) {
+        acc[name].width = args.viewportWidth;
+      }
       return acc;
     }, {}),
     states: [],
     failures: [],
     failedHosts: failedHosts,
+    pageScript: args.pageScript ? path.basename(args.pageScript) : null,
   };
   const allTokens = {};
   try {
@@ -1002,7 +1157,13 @@ async function main() {
     await helpers.loginViaUI(page, collector, runtime.baseUrl);
     await helpers.createSiteViaUI(page, collector, helpers.FIXED_SITE_NAME);
     helpers.relocateCreatedSite(runtime, helpers.FIXED_SITE_NAME);
-    if (args.pageHtml || args.pageTitle) {
+    if (
+      args.pageHtml ||
+      args.pageTitle ||
+      args.theme ||
+      args.siteFiles ||
+      args.outline
+    ) {
       manifest.fixture = applyPageFixture(runtime, siteName, args);
     }
 
