@@ -1146,6 +1146,19 @@ async function openStructure(page, t) {
   // The admin dialog loads Structure on its route; give it time to stamp so
   // callers (ensureOutlineOpen) do not open it a second time.
   result.dialog = !!(await waitFor(() => outlineDialogPresent(page), 15000));
+  // A click can land while the hover menu is closing and do nothing; open the
+  // route directly once rather than failing on a lost click.
+  if (!result.dialog && result.path.indexOf("fallback") === -1) {
+    result.retried = await page.evaluate(() => {
+      const ui = document.querySelector("haxcms-site-editor-ui");
+      if (!ui || typeof ui._outlineButtonTap !== "function") {
+        return false;
+      }
+      ui._outlineButtonTap(null, true, "Structure");
+      return true;
+    });
+    result.dialog = !!(await waitFor(() => outlineDialogPresent(page), 15000));
+  }
   if (t) {
     t.diagnostic("[outline] opened Structure via " + JSON.stringify(result));
   }
