@@ -12,7 +12,9 @@
 //     site.json once after the structure pass; a failure in the content or
 //     delete phase leaves that structure saved, a failure during the
 //     structure pass leaves the pages before it saved
-//   - site.json is overwritten in place (no temp file + rename)
+//   - every site.json write is atomic (temp file + rename,
+//     JSONOutlineSchema.writeFileAtomic): a failed write leaves the
+//     previous site.json as it was
 //
 // Scenario ids (FI-*) are shared with haxcms-php, which mirrors these
 // tests; see "Fault injection testing" in README.md. A scenario whose invariant does
@@ -155,11 +157,23 @@ function errnoError(code) {
   return error;
 }
 
-// fs-extra writeFileSync of `file` runs `fault(file, data)` instead
+// true for `file` and for the temp file next to it that
+// JSONOutlineSchema.writeFileAtomic writes first (.<name>.<hex>.tmp)
+function isWriteOf(file, target) {
+  const resolved = path.resolve(String(target));
+  if (resolved === file) {
+    return true;
+  }
+  const prefix = path.join(path.dirname(file), "." + path.basename(file) + ".");
+  return resolved.indexOf(prefix) === 0 && /\.[0-9a-f]+\.tmp$/.test(resolved);
+}
+
+// fs-extra writeFileSync of `file` (or of its atomic-write temp file) runs
+// `fault(target, data)` instead
 function onWrite(t, file, fault) {
   const original = fs.writeFileSync;
   t.mock.method(fs, "writeFileSync", function (target, data, ...rest) {
-    if (path.resolve(String(target)) === file) {
+    if (isWriteOf(file, target)) {
       return fault.call(this, target, data, rest, original);
     }
     return original.call(this, target, data, ...rest);
@@ -196,19 +210,16 @@ test("FI-OUT-01 ENOSPC writing site.json: the failure is raised and site.json is
   assert.equal(readSiteJson("fi-out-01"), before);
 });
 
-test.todo(
-  "FI-OUT-01 ENOSPC writing site.json leaves no page folder on disk that site.json does not list (BUG: saveOutline copies a new page's folder from the boilerplate during the structure pass, before the site.json checkpoint; when that write fails the folder stays behind, unlisted)",
-  async (t) => {
-    const site = await buildSite(t, "fi-out-01-orphans");
-    onWrite(t, siteJsonPath("fi-out-01-orphans"), () => {
-      throw errnoError("ENOSPC");
-    });
-    const { thrown } = await run(t, site, editWithNewPage(site));
-    t.mock.restoreAll();
-    assert.ok(thrown, "the failure is raised");
-    assert.deepEqual(orphanPageFolders("fi-out-01-orphans"), []);
-  },
-);
+test("FI-OUT-01 ENOSPC writing site.json leaves no page folder on disk that site.json does not list", async (t) => {
+  const site = await buildSite(t, "fi-out-01-orphans");
+  onWrite(t, siteJsonPath("fi-out-01-orphans"), () => {
+    throw errnoError("ENOSPC");
+  });
+  const { thrown } = await run(t, site, editWithNewPage(site));
+  t.mock.restoreAll();
+  assert.ok(thrown, "the failure is raised");
+  assert.deepEqual(orphanPageFolders("fi-out-01-orphans"), []);
+});
 
 test("FI-OUT-02 EACCES writing one page file: 500 failed to write, that file unchanged, structure saved", async (t) => {
   const site = await buildSite(t, "fi-out-02");
@@ -235,44 +246,53 @@ test("FI-OUT-02 EACCES writing one page file: 500 failed to write, that file unc
   assert.deepEqual(orphanPageFolders("fi-out-02"), []);
 });
 
-test.todo(
-  "FI-OUT-03 a site.json write that fails part-way leaves the previous site.json intact (BUG: JSONOutlineSchema.save() overwrites site.json in place with fs.writeFileSync; a write cut short by ENOSPC leaves a truncated file that no longer parses, losing the whole outline. A temp file + rename would keep the old one)",
-  async (t) => {
-    const site = await buildSite(t, "fi-out-03");
-    const before = readSiteJson("fi-out-03");
-    onWrite(t, siteJsonPath("fi-out-03"), (target, data, rest, original) => {
-      const text = String(data);
-      // the first half lands, then the disk is full
-      original.call(fs, target, text.substring(0, Math.floor(text.length / 2)));
-      throw errnoError("ENOSPC");
-    });
-    const { thrown } = await run(t, site, editWithNewPage(site));
-    t.mock.restoreAll();
-    assert.ok(thrown, "the failure is raised");
-    const after = readSiteJson("fi-out-03");
-    assert.doesNotThrow(() => JSON.parse(after), "site.json still parses");
-    assert.equal(after, before);
-  },
-);
+test("FI-OUT-03 a site.json write that fails part-way leaves the previous site.json intact and no temp file behind", async (t) => {
+  const site = await buildSite(t, "fi-out-03");
+  const before = readSiteJson("fi-out-03");
+  onWrite(t, siteJsonPath("fi-out-03"), (target, data, rest, original) => {
+    const text = String(data);
+    // the first half lands, then the disk is full
+    original.call(fs, target, text.substring(0, Math.floor(text.length / 2)));
+    throw errnoError("ENOSPC");
+  });
+  const { thrown } = await run(t, site, editWithNewPage(site));
+  t.mock.restoreAll();
+  assert.ok(thrown, "the failure is raised");
+  const after = readSiteJson("fi-out-03");
+  assert.doesNotThrow(() => JSON.parse(after), "site.json still parses");
+  assert.equal(after, before);
+  assert.deepEqual(
+    fs
+      .readdirSync(path.dirname(siteJsonPath("fi-out-03")))
+      .filter((name) => /\.tmp$/.test(name)),
+    [],
+    "the temp file is removed",
+  );
+});
 
 // ---------------------------------------------------------------------------
 // malformed payloads
 // ---------------------------------------------------------------------------
 
-test.todo(
-  "FI-PAY-03 an item that is null or not an object is a 400 and site.json is unchanged (BUG: a null item throws a TypeError reading item.id, which escapes the route; a number item creates an untitled page)",
-  async (t) => {
-    const site = await buildSite(t, "fi-pay-03");
-    const before = readSiteJson("fi-pay-03");
-    for (const bad of [null, 42]) {
-      const { res, thrown } = await run(t, site, [bad]);
-      assert.equal(thrown, null, "nothing escapes for " + String(bad));
-      assert.equal(res.statusCode, 400, "400 for " + String(bad));
-      assert.equal(typeof res.body.data.message, "string");
-      assert.equal(readSiteJson("fi-pay-03"), before);
+test("FI-PAY-03 an item that is null or not an object is a 400 and site.json is unchanged", async (t) => {
+  const site = await buildSite(t, "fi-pay-03");
+  const before = readSiteJson("fi-pay-03");
+  // what run() does, with HAXCMS.loadSite mocked once for every round
+  t.mock.method(HAXCMS, "loadSite", async () => site);
+  for (const bad of [null, 42, "page", [1]]) {
+    const res = stubRes();
+    let thrown = null;
+    try {
+      await saveOutline(makeReq("fi-pay-03", [bad]), res);
+    } catch (e) {
+      thrown = e;
     }
-  },
-);
+    assert.equal(thrown, null, "nothing escapes for " + String(bad));
+    assert.equal(res.statusCode, 400, "400 for " + String(bad));
+    assert.equal(res.body.data.message, "Each outline item must be an object");
+    assert.equal(readSiteJson("fi-pay-03"), before);
+  }
+});
 
 test("FI-PAY-04 the same existing id sent twice: one page, the last entry wins", async (t) => {
   const site = await buildSite(t, "fi-pay-04");
@@ -293,23 +313,23 @@ test("FI-PAY-04 the same existing id sent twice: one page, the last entry wins",
   assert.deepEqual(orphanPageFolders("fi-pay-04"), []);
 });
 
-test.todo(
-  "FI-PAY-05 the same new client id sent twice is a 400, or creates one page (BUG: each entry creates its own page; idMap can only map the client id to one of them, so the client loses track of the other)",
-  async (t) => {
-    const site = await buildSite(t, "fi-pay-05");
-    const count = site.manifest.items.length;
-    const { res, thrown } = await run(t, site, [
-      page("client-x", "X", null, 5, { contents: "<p>X</p>" }),
-      page("client-x", "X again", null, 6, { contents: "<p>X</p>" }),
-    ]);
-    assert.equal(thrown, null);
-    const added = savedItems("fi-pay-05").length - count;
-    assert.ok(
-      res.statusCode === 400 ? added === 0 : added === 1,
-      "status " + res.statusCode + " added " + added,
-    );
-  },
-);
+test("FI-PAY-05 the same new client id sent twice is a 400 and nothing is written", async (t) => {
+  const site = await buildSite(t, "fi-pay-05");
+  const count = site.manifest.items.length;
+  const { res, thrown } = await run(t, site, [
+    page("client-x", "X", null, 5, { contents: "<p>X</p>" }),
+    page("client-x", "X again", null, 6, { contents: "<p>X</p>" }),
+  ]);
+  assert.equal(thrown, null);
+  // both backends answer 400 (haxcms-php FaultInjectionSaveOutlineTest)
+  assert.equal(res.statusCode, 400, JSON.stringify(res.body));
+  assert.equal(
+    res.body.data.message,
+    "Each new outline item requires its own id",
+  );
+  assert.equal(savedItems("fi-pay-05").length, count, "nothing is added");
+  assert.deepEqual(orphanPageFolders("fi-pay-05"), []);
+});
 
 test("FI-PAY-06 a parent that does not exist: the page is rescued to the top level", async (t) => {
   const site = await buildSite(t, "fi-pay-06");
@@ -379,20 +399,17 @@ function assertCycleRejected(outcome) {
   assert.ok(outcome.result, "the child reported: " + outcome.out);
   assert.equal(outcome.result.thrown, null);
   assert.equal(outcome.result.status, 400);
-  assert.equal(typeof outcome.result.body.data.message, "string");
+  assert.equal(
+    outcome.result.body.data.message,
+    "Outline item parents cannot form a cycle",
+  );
   assert.equal(outcome.result.siteJsonUnchanged, true);
 }
 
-test.todo(
-  "FI-PAY-07 a parent cycle (A under B, B under A) is a 400 and site.json is unchanged (BUG: the request never returns; it spins synchronously walking the parent chain, e.g. getUniqueSlugName in src/lib/HAXCMS.js has no visited set, which blocks every other request on the server)",
-  async () => {
-    assertCycleRejected(await runInChild("cycle"));
-  },
-);
+test("FI-PAY-07 a parent cycle (A under B, B under A) is a 400 and site.json is unchanged", async () => {
+  assertCycleRejected(await runInChild("cycle"));
+});
 
-test.todo(
-  "FI-PAY-08 a page that is its own parent is a 400 and site.json is unchanged (BUG: same endless parent walk as FI-PAY-07)",
-  async () => {
-    assertCycleRejected(await runInChild("self-parent"));
-  },
-);
+test("FI-PAY-08 a page that is its own parent is a 400 and site.json is unchanged", async () => {
+  assertCycleRejected(await runInChild("self-parent"));
+});
