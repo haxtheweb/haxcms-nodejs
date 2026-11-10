@@ -126,6 +126,30 @@ Behavior coverage in the same suite includes:
 Temporary known skip in the suite:
 - `getApiCatalog returns linkset payload`
   - Reason: runtime `/.well-known/api-catalog` fixture behavior is still being finalized
+
+## Fault injection testing
+
+The critical write paths (the outline designer's bulk save `PATCH /x/api/v1/site/outline`, page content save, page create/delete, site settings save, file upload) are tested with faults injected at the filesystem boundary: `fs-extra` methods are mocked with `node:test` mocks so a write, copy or move throws `ENOSPC`, `EACCES` or `EXDEV`, or writes half a file and then fails. Malformed outline payloads (not an array, partial outline, duplicate ids, missing parent, parent cycles) are covered too. No production code seam is used.
+
+- `test/unit/fault-injection-save-outline.test.cjs`: the saveOutline handler against a real site on disk
+- `test/unit/fault-injection-critical-writes-http.test.cjs`: the real server in-process, over HTTP
+
+Both run in `npm test` (blocking). To run only these:
+
+```bash
+node --test test/unit/fault-injection-*.test.cjs
+```
+
+The invariants they protect, for every fault:
+
+- the client gets a non-2xx response with the OpenAPI `ApiError` envelope (`{ status, data: { message } }`) the UI can show
+- what was on disk before (`site.json`, the page file) is unchanged, and nothing is left on disk that `site.json` does not list
+- the server keeps answering requests
+
+saveOutline is checkpointed, not atomic: the new structure is written to `site.json` once after the structure pass, so a failure in the later content or delete phase leaves that structure saved. `site.json` is overwritten in place.
+
+Each scenario has an id (`FI-OUT-*`, `FI-PAY-*`, `FI-NODE-*`, `FI-SITE-*`, `FI-UP-*`, `FI-HTTP-*`) shared with haxcms-php, which mirrors these tests; keep both backends' scenarios in step. A scenario whose invariant does not hold yet is a `test.todo` whose name says what is wrong. When the product fix lands, turn it into a plain `test` in the same PR. To add a scenario, inject the fault with `t.mock.method(fs, ...)` (restore with `t.mock.restoreAll()` before checking the server still serves), give it the next free id, and add the same id to the PHP suite.
+
 ## MCP and deployment profiles
 - MCP policy defaults are controlled via `_config/config.json`.
 - New installs include:
