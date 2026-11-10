@@ -55,9 +55,9 @@ jobs:
       - name: Unit + API conformance tests
         run: npm test
       - name: Lint
-        # Advisory only: lint runs after the real tests and never fails the
-        # build (findings still show as annotations / in the log).
-        continue-on-error: true
+        # Blocking (haxtheweb/issues#3262): runs after the real tests so test
+        # results are still reported first, then any ESLint error fails the
+        # build. Warnings do not fail it.
         run: yarn lint
       - name: Coverage
         run: npm run test:coverage
