@@ -216,6 +216,14 @@ const { applyPageMetadata, toPlainText } = require("./sanitizePageMetadata.js");
 const exec = util.promisify(child_process.exec);
 // Security (SEC-EXEC): argument-array git calls (no shell string)
 const execFile = util.promisify(child_process.execFile);
+// scrypt parameters for stored password hashes (hashPassword / verify*)
+const SCRYPT_PASSWORD_OPTIONS = {
+  N: 16384,
+  r: 8,
+  p: 1,
+  maxmem: 32 * 1024 * 1024,
+};
+const scryptAsync = util.promisify(crypto.scrypt);
 const turndownService = new TurndownService();
 turndownService.keep(function (node) {
   return node && node.nodeName && String(node.nodeName).indexOf("-") !== -1;
@@ -4344,41 +4352,81 @@ class HAXCMSClass {
    * PHP's verifyStoredPassword (HAXCMS.php:1672-1684) which uses
    * password_get_info + password_verify for the same detect-and-verify pattern.
    */
-  verifyStoredPassword(stored, submitted) {
+  /**
+   * Shared input checks and parsing for verifyStoredPassword and
+   * verifyStoredPasswordAsync. Returns { kind: "invalid" }, { kind: "plain" }
+   * or { kind: "scrypt", salt, expected }.
+   */
+  parseStoredPassword(stored, submitted) {
     if (
       typeof stored !== "string" ||
       stored === "" ||
       typeof submitted !== "string" ||
       submitted === ""
     ) {
+      return { kind: "invalid" };
+    }
+    if (!this.isPasswordHashed(stored)) {
+      return { kind: "plain" };
+    }
+    var parts = stored.split("$");
+    if (parts.length !== 3) {
+      return { kind: "invalid" };
+    }
+    var salt;
+    var expected;
+    try {
+      salt = Buffer.from(parts[1], "hex");
+      expected = Buffer.from(parts[2], "hex");
+    } catch {
+      return { kind: "invalid" };
+    }
+    if (salt.length === 0 || expected.length === 0) {
+      return { kind: "invalid" };
+    }
+    return { kind: "scrypt", salt: salt, expected: expected };
+  }
+  verifyStoredPassword(stored, submitted) {
+    var parsed = this.parseStoredPassword(stored, submitted);
+    if (parsed.kind === "invalid") {
       return false;
     }
-    if (this.isPasswordHashed(stored)) {
-      var parts = stored.split("$");
-      if (parts.length !== 3) {
+    if (parsed.kind === "scrypt") {
+      var computed = crypto.scryptSync(
+        submitted,
+        parsed.salt,
+        parsed.expected.length,
+        SCRYPT_PASSWORD_OPTIONS,
+      );
+      if (computed.length !== parsed.expected.length) {
         return false;
       }
-      var salt;
-      var expected;
-      try {
-        salt = Buffer.from(parts[1], "hex");
-        expected = Buffer.from(parts[2], "hex");
-      } catch {
+      return crypto.timingSafeEqual(computed, parsed.expected);
+    }
+    // legacy plaintext -> constant-time compare
+    return this.safeStringCompare(stored, submitted);
+  }
+  /**
+   * Same result as verifyStoredPassword, but scrypt runs on the libuv thread
+   * pool instead of blocking the event loop (~40ms per check at N=16384).
+   * Used on per-request paths (Basic auth, the login route).
+   */
+  async verifyStoredPasswordAsync(stored, submitted) {
+    var parsed = this.parseStoredPassword(stored, submitted);
+    if (parsed.kind === "invalid") {
+      return false;
+    }
+    if (parsed.kind === "scrypt") {
+      var computed = await scryptAsync(
+        submitted,
+        parsed.salt,
+        parsed.expected.length,
+        SCRYPT_PASSWORD_OPTIONS,
+      );
+      if (computed.length !== parsed.expected.length) {
         return false;
       }
-      if (salt.length === 0 || expected.length === 0) {
-        return false;
-      }
-      var computed = crypto.scryptSync(submitted, salt, expected.length, {
-        N: 16384,
-        r: 8,
-        p: 1,
-        maxmem: 32 * 1024 * 1024,
-      });
-      if (computed.length !== expected.length) {
-        return false;
-      }
-      return crypto.timingSafeEqual(computed, expected);
+      return crypto.timingSafeEqual(computed, parsed.expected);
     }
     // legacy plaintext -> constant-time compare
     return this.safeStringCompare(stored, submitted);
@@ -7519,6 +7567,28 @@ class HAXCMSClass {
   /**
    * test the active user login based on session.
    */
+  /**
+   * testLogin with the password checks off the event loop
+   * (verifyStoredPasswordAsync). Same candidates in the same order, same
+   * plaintext upgrade, same result. Per-request paths (Basic auth, the login
+   * route) use this; testLogin stays synchronous for other callers.
+   */
+  async testLoginAsync(name, pass, adminFallback = false) {
+    if (
+      this.safeStringCompare(this.user.name, name) &&
+      (await this.verifyStoredPasswordAsync(this.user.password, pass))
+    ) {
+      this.maybeUpgradePlaintextPassword("user", pass);
+      return true;
+    } else if (
+      adminFallback &&
+      this.safeStringCompare(this.superUser.name, name) &&
+      (await this.verifyStoredPasswordAsync(this.superUser.password, pass))
+    ) {
+      return true;
+    }
+    return false;
+  }
   testLogin(name, pass, adminFallback = false) {
     if (
       this.safeStringCompare(this.user.name, name) &&

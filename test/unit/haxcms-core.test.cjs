@@ -454,6 +454,132 @@ test("testLogin verifies the user account, the super-user fallback, and rejects 
   HAXCMS.superUser = { name: TEST_USER_NAME, password: TEST_USER_PASSWORD };
 });
 
+test("testLoginAsync returns exactly what testLogin returns", async () => {
+  const hashedUser = {
+    name: TEST_USER_NAME,
+    password: HAXCMS.hashPassword("hashed-pass"),
+  };
+  const accounts = [
+    [
+      { name: TEST_USER_NAME, password: TEST_USER_PASSWORD },
+      { name: "super-name", password: "super-pass" },
+    ],
+    [
+      hashedUser,
+      { name: "super-name", password: HAXCMS.hashPassword("super-hashed") },
+    ],
+  ];
+  const attempts = [
+    [TEST_USER_NAME, TEST_USER_PASSWORD, false],
+    [TEST_USER_NAME, "hashed-pass", false],
+    [TEST_USER_NAME, "wrong", true],
+    ["ghost", "nope", true],
+    ["super-name", "super-pass", true],
+    ["super-name", "super-pass", false],
+    ["super-name", "super-hashed", true],
+    ["", "", true],
+  ];
+  const savedUser = HAXCMS.user;
+  const savedSuper = HAXCMS.superUser;
+  try {
+    for (const [user, superUser] of accounts) {
+      HAXCMS.user = user;
+      HAXCMS.superUser = superUser;
+      for (const [name, pass, fallback] of attempts) {
+        assert.equal(
+          await HAXCMS.testLoginAsync(name, pass, fallback),
+          HAXCMS.testLogin(name, pass, fallback),
+          JSON.stringify([user.name, name, pass, fallback]),
+        );
+      }
+    }
+  } finally {
+    HAXCMS.user = savedUser;
+    HAXCMS.superUser = savedSuper;
+  }
+});
+
+test("verifyStoredPasswordAsync returns exactly what verifyStoredPassword returns", async () => {
+  const hashed = HAXCMS.hashPassword("right");
+  const parts = hashed.split("$");
+  const stored = [
+    hashed,
+    "right",
+    "",
+    parts[0] + "$" + parts[1],
+    parts[0] + "$$" + parts[2],
+    parts[0] + "$" + parts[1] + "$",
+    parts[0] + "$zz$" + parts[2],
+    parts[0] + "$" + parts[1] + "$" + parts[2].slice(0, 10),
+    null,
+    42,
+  ];
+  const submitted = ["right", "wrong", "", null, 7];
+  for (const s of stored) {
+    for (const p of submitted) {
+      assert.equal(
+        await HAXCMS.verifyStoredPasswordAsync(s, p),
+        HAXCMS.verifyStoredPassword(s, p),
+        JSON.stringify([s, p]),
+      );
+    }
+  }
+});
+
+test("verifyStoredPasswordAsync lets the event loop run while scrypt works", async () => {
+  const hashed = HAXCMS.hashPassword("loop-pass");
+  let ranDuringCheck = false;
+  setImmediate(() => {
+    ranDuringCheck = true;
+  });
+  // the sync version would finish before the setImmediate callback runs
+  assert.equal(
+    await HAXCMS.verifyStoredPasswordAsync(hashed, "loop-pass"),
+    true,
+  );
+  assert.equal(ranDuringCheck, true);
+});
+
+test("every call to the async auth functions in src is awaited", () => {
+  // a missed await reads .authenticated off a Promise (undefined) and denies,
+  // so this guards against silently breaking Basic auth and login
+  const srcRoot = path.join(__dirname, "..", "..", "src");
+  const files = [
+    path.join(srcRoot, "app.js"),
+    path.join(srcRoot, "systemRoutes", "v1", "routes", "login.js"),
+  ];
+  const names = [
+    "evaluateSystemV1RouteAuthentication",
+    "authenticateBasicAuthorizationRequest",
+    "testLoginAsync",
+    "verifyStoredPasswordAsync",
+  ];
+  let calls = 0;
+  for (const file of files) {
+    const source = fs.readFileSync(file, "utf8");
+    for (const name of names) {
+      let index = source.indexOf(name + "(");
+      while (index !== -1) {
+        const prefix = source.slice(Math.max(0, index - 40), index);
+        // skip the definition itself
+        if (!/function\s+$/.test(prefix)) {
+          calls++;
+          assert.ok(
+            /await\s*\(?\s*(HAXCMS\.)?$/.test(prefix),
+            path.basename(file) +
+              ": " +
+              name +
+              " not awaited after: " +
+              prefix.replace(/\s+/g, " "),
+          );
+        }
+        index = source.indexOf(name + "(", index + name.length);
+      }
+    }
+  }
+  assert.ok(calls >= 7, "expected the known call sites, found " + calls);
+});
+
 test("validateUser accepts the active and super user names only", () => {
   assert.equal(HAXCMS.validateUser(TEST_USER_NAME), true);
   assert.equal(HAXCMS.validateUser("ghost-user"), false);

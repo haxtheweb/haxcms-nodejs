@@ -26,7 +26,7 @@ async function loginRoute(req, res) {
       });
     }
     // test if this is a valid user login
-    if (!HAXCMS.testLogin(u, p, true)) {
+    if (!(await HAXCMS.testLoginAsync(u, p, true))) {
       if (settings.enabled) {
         attempt.registerFailure();
       }
