@@ -1,4 +1,6 @@
 const fs = require("fs-extra");
+const crypto = require("crypto");
+const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const JSONOutlineSchemaItem = require("./JSONOutlineSchemaItem.js");
 const { getLicenseMap } = require("./licenses.js");
@@ -126,6 +128,21 @@ class JSONOutlineSchema {
       let fileData = JSON.parse(
         await fs.readFileSync(location, { encoding: "utf8", flag: "r" }),
       );
+      // Invariant: a site.json that exists but does not parse to an outline
+      // object is never treated as an empty outline. Loading it throws, so no
+      // request can go on to save the default "New site" outline over it
+      // (haxcms-php: JSONOutlineSchema::load throws the same way).
+      if (
+        !fileData ||
+        typeof fileData !== "object" ||
+        Array.isArray(fileData)
+      ) {
+        throw new Error(
+          "JSONOutlineSchema: " +
+            path.basename(location) +
+            " is not a valid JSON outline",
+        );
+      }
       let vars = fileData;
       for (var key in vars) {
         if (typeof this[key] !== "undefined" && key != "items") {
@@ -240,7 +257,85 @@ class JSONOutlineSchema {
     if (output) {
       // reassign so we don't lose it in the transaction
       this.file = file;
-      return await fs.writeFileSync(file, output);
+      JSONOutlineSchema.writeFileAtomic(file, output);
+    }
+  }
+  /**
+   * Invariant: a site.json write is atomic. Readers and the next request see
+   * either the previous file or the complete new one, never a truncated or
+   * half-written file: the data goes to a temp file next to the target
+   * (same directory, so the same filesystem), is flushed to disk, and is
+   * then renamed over the target. A write that fails at any step throws,
+   * removes the temp file and leaves the previous file as it was.
+   * A symlinked target is written through to the file it points at.
+   * Mirrors JSONOutlineSchema::writeFileAtomic in haxcms-php.
+   */
+  static writeFileAtomic(file, data) {
+    let target = file;
+    let mode = null;
+    try {
+      if (fs.lstatSync(target).isSymbolicLink()) {
+        target = fs.realpathSync(target);
+      }
+      // keep the permissions the file had
+      mode = fs.statSync(target).mode & 0o777;
+    } catch {
+      // no file yet: it is created
+    }
+    const directory = path.dirname(target);
+    const temp = path.join(
+      directory,
+      "." +
+        path.basename(target) +
+        "." +
+        crypto.randomBytes(8).toString("hex") +
+        ".tmp",
+    );
+    try {
+      fs.writeFileSync(
+        temp,
+        data,
+        mode === null ? { flag: "wx" } : { flag: "wx", mode: mode },
+      );
+      JSONOutlineSchema.fsyncPath(temp, "r+", true);
+      fs.renameSync(temp, target);
+    } catch (error) {
+      try {
+        fs.unlinkSync(temp);
+      } catch {
+        // never created, or already renamed
+      }
+      throw error;
+    }
+    // make the rename itself durable; not every platform can sync a directory
+    JSONOutlineSchema.fsyncPath(directory, "r", false);
+  }
+  /**
+   * fsync a path. With `required`, a failure other than "this filesystem
+   * cannot fsync" throws (a full disk can surface only here).
+   */
+  static fsyncPath(target, flags, required) {
+    let fd = null;
+    try {
+      fd = fs.openSync(target, flags);
+      fs.fsyncSync(fd);
+    } catch (error) {
+      const unsupported =
+        error &&
+        ["EINVAL", "ENOTSUP", "EOPNOTSUPP", "EISDIR", "EPERM"].indexOf(
+          error.code,
+        ) !== -1;
+      if (required && !unsupported) {
+        throw error;
+      }
+    } finally {
+      if (fd !== null) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // already closed
+        }
+      }
     }
   }
   /**

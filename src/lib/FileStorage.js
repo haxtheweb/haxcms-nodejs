@@ -204,15 +204,21 @@ class FileStorage extends EntityStorage {
       }
     }
     if (modified) {
+      // best effort, as before; save() is async, so a failed write is a
+      // rejection, which must be caught too or it stops the server
       if (site.manifest && typeof site.manifest.save === 'function') {
         try {
-          site.manifest.save();
+          Promise.resolve(site.manifest.save()).catch(() => {
+            // intentionally ignored
+          });
         } catch {
           // intentionally ignored
         }
       } else if (typeof site.save === 'function') {
         try {
-          site.save();
+          Promise.resolve(site.save()).catch(() => {
+            // intentionally ignored
+          });
         } catch {
           // intentionally ignored
         }

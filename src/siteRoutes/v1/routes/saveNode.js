@@ -178,7 +178,7 @@ async function saveNode(req, res) {
             }
             // add the item back into the outline schema
             site.manifest.addItem(item);
-            site.manifest.save();
+            await site.manifest.save();
             await site.gitCommit(
               "Page added:" + item.title + " (" + item.id + ")",
             );

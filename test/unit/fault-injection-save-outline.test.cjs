@@ -12,7 +12,9 @@
 //     site.json once after the structure pass; a failure in the content or
 //     delete phase leaves that structure saved, a failure during the
 //     structure pass leaves the pages before it saved
-//   - site.json is overwritten in place (no temp file + rename)
+//   - every site.json write is atomic (temp file + rename,
+//     JSONOutlineSchema.writeFileAtomic): a failed write leaves the
+//     previous site.json as it was
 //
 // Scenario ids (FI-*) are shared with haxcms-php, which mirrors these
 // tests; see "Fault injection testing" in README.md. A scenario whose invariant does
@@ -155,11 +157,23 @@ function errnoError(code) {
   return error;
 }
 
-// fs-extra writeFileSync of `file` runs `fault(file, data)` instead
+// true for `file` and for the temp file next to it that
+// JSONOutlineSchema.writeFileAtomic writes first (.<name>.<hex>.tmp)
+function isWriteOf(file, target) {
+  const resolved = path.resolve(String(target));
+  if (resolved === file) {
+    return true;
+  }
+  const prefix = path.join(path.dirname(file), "." + path.basename(file) + ".");
+  return resolved.indexOf(prefix) === 0 && /\.[0-9a-f]+\.tmp$/.test(resolved);
+}
+
+// fs-extra writeFileSync of `file` (or of its atomic-write temp file) runs
+// `fault(target, data)` instead
 function onWrite(t, file, fault) {
   const original = fs.writeFileSync;
   t.mock.method(fs, "writeFileSync", function (target, data, ...rest) {
-    if (path.resolve(String(target)) === file) {
+    if (isWriteOf(file, target)) {
       return fault.call(this, target, data, rest, original);
     }
     return original.call(this, target, data, ...rest);
@@ -235,25 +249,29 @@ test("FI-OUT-02 EACCES writing one page file: 500 failed to write, that file unc
   assert.deepEqual(orphanPageFolders("fi-out-02"), []);
 });
 
-test.todo(
-  "FI-OUT-03 a site.json write that fails part-way leaves the previous site.json intact (BUG: JSONOutlineSchema.save() overwrites site.json in place with fs.writeFileSync; a write cut short by ENOSPC leaves a truncated file that no longer parses, losing the whole outline. A temp file + rename would keep the old one)",
-  async (t) => {
-    const site = await buildSite(t, "fi-out-03");
-    const before = readSiteJson("fi-out-03");
-    onWrite(t, siteJsonPath("fi-out-03"), (target, data, rest, original) => {
-      const text = String(data);
-      // the first half lands, then the disk is full
-      original.call(fs, target, text.substring(0, Math.floor(text.length / 2)));
-      throw errnoError("ENOSPC");
-    });
-    const { thrown } = await run(t, site, editWithNewPage(site));
-    t.mock.restoreAll();
-    assert.ok(thrown, "the failure is raised");
-    const after = readSiteJson("fi-out-03");
-    assert.doesNotThrow(() => JSON.parse(after), "site.json still parses");
-    assert.equal(after, before);
-  },
-);
+test("FI-OUT-03 a site.json write that fails part-way leaves the previous site.json intact and no temp file behind", async (t) => {
+  const site = await buildSite(t, "fi-out-03");
+  const before = readSiteJson("fi-out-03");
+  onWrite(t, siteJsonPath("fi-out-03"), (target, data, rest, original) => {
+    const text = String(data);
+    // the first half lands, then the disk is full
+    original.call(fs, target, text.substring(0, Math.floor(text.length / 2)));
+    throw errnoError("ENOSPC");
+  });
+  const { thrown } = await run(t, site, editWithNewPage(site));
+  t.mock.restoreAll();
+  assert.ok(thrown, "the failure is raised");
+  const after = readSiteJson("fi-out-03");
+  assert.doesNotThrow(() => JSON.parse(after), "site.json still parses");
+  assert.equal(after, before);
+  assert.deepEqual(
+    fs
+      .readdirSync(path.dirname(siteJsonPath("fi-out-03")))
+      .filter((name) => /\.tmp$/.test(name)),
+    [],
+    "the temp file is removed",
+  );
+});
 
 // ---------------------------------------------------------------------------
 // malformed payloads

@@ -313,9 +313,19 @@ function failFs(t, method, matches, code) {
   return calls;
 }
 
+// site.json itself, or the temp file next to it that
+// JSONOutlineSchema.writeFileAtomic writes first (.site.json.<hex>.tmp):
+// a full disk fails that write
 function isSiteJsonOf(siteName) {
   const file = siteJsonPath(siteName);
-  return (target) => path.resolve(target) === file;
+  const prefix = path.join(siteDir(siteName), ".site.json.");
+  return (target) => {
+    const resolved = path.resolve(target);
+    return (
+      resolved === file ||
+      (resolved.indexOf(prefix) === 0 && /\.[0-9a-f]+\.tmp$/.test(resolved))
+    );
+  };
 }
 
 // A rejection that escapes a route handler is an unhandledRejection: the
