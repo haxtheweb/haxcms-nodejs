@@ -165,3 +165,7 @@ dist
 
 # Generated UI inventory (npm run ui:inventory); regenerate, never commit
 ui-inventory/
+
+# Stryker mutation testing (yarn test:mutation)
+.stryker-tmp
+reports/mutation
