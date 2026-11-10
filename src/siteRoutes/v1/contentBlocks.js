@@ -9,6 +9,8 @@ const {
 const { sanitizeHTMLForStorage } = require("../../lib/sanitizeContent.js");
 const FileContentScanner = require("../../lib/FileContentScanner.js");
 const blockOperations = require("../../lib/blockOperations.js");
+const { changeBudget } = require("../../lib/linkChecker.js");
+const { HAXCMS } = require("../../lib/HAXCMS.js");
 
 /**
  * x/api/v1/content/{idOrSlug}/blocks (haxtheweb/issues#3270)
@@ -228,6 +230,30 @@ async function updateContentBlocks(req, res) {
           reason: outcome.code,
           detail: outcome.message,
           op: opIndex,
+        },
+      });
+    }
+    // A budget of block changes per site per window, charged only for a
+    // change that passed every check and is about to be written, so a
+    // script or AI agent cannot flood the site with commits while refused
+    // and stale requests cost nothing.
+    const rateSettings = HAXCMS.getBlockOperationsRateLimitSettings();
+    const budget = changeBudget(
+      `blocks::${site.siteDirectory}`,
+      ops.length,
+      Date.now(),
+      rateSettings,
+    );
+    if (!budget.allowed) {
+      const windowSeconds = Math.round(rateSettings.windowMs / 1000);
+      res.set("Retry-After", String(budget.retryAfterSeconds));
+      return res.status(429).json({
+        status: 429,
+        data: {
+          message: `Block change limit reached: ${rateSettings.max} changes per ${windowSeconds} seconds for this site. You can retry in ${budget.retryAfterSeconds} seconds.`,
+          reason: "rate-limited",
+          retryAfter: budget.retryAfterSeconds,
+          remaining: budget.remaining,
         },
       });
     }

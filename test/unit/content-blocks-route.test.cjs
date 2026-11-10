@@ -160,6 +160,55 @@ describe("GET x/api/v1/content/{idOrSlug}/blocks", () => {
 });
 
 describe("PATCH x/api/v1/content/{idOrSlug}/blocks", () => {
+  test("a site's block change budget: 429 over it, refused changes cost nothing", async (t) => {
+    const { file, commits } = makeSite(t);
+    t.mock.method(HAXCMS, "getBlockOperationsRateLimitSettings", () => ({
+      enabled: true,
+      windowMs: 60000,
+      max: 2,
+    }));
+    const patch = async (before, alt) => {
+      const res = stubRes();
+      await routes.updateContentBlocks(
+        makeReq(
+          { idOrSlug: "one" },
+          {
+            ops: [
+              {
+                op: "setAttributes",
+                tag: "img",
+                index: 0,
+                before: before,
+                set: { alt: alt },
+              },
+            ],
+          },
+        ),
+        res,
+      );
+      return res;
+    };
+    // a stale change is refused before the budget is charged
+    assert.equal(
+      (await patch('<img src="files/zzz.png">', "x")).statusCode,
+      409,
+    );
+    const first = await patch('<img src="files/a.png">', "one");
+    assert.equal(first.statusCode, 200);
+    const second = await patch('<img alt="one" src="files/a.png">', "two");
+    assert.equal(second.statusCode, 200);
+    const third = await patch('<img alt="two" src="files/a.png">', "three");
+    assert.equal(third.statusCode, 429);
+    assert.equal(data(third).reason, "rate-limited");
+    assert.match(
+      data(third).message,
+      /^Block change limit reached: 2 changes per 60 seconds for this site\. You can retry in \d+ seconds\.$/,
+    );
+    assert.ok(Number(third.headers["Retry-After"]) >= 1);
+    assert.equal(commits.length, 2);
+    assert.match(fs.readFileSync(file, "utf8"), /alt="two"/);
+  });
+
   test("writes the change, commits once, returns the new block source", async (t) => {
     const { file, commits, page } = makeSite(t);
     const res = stubRes();
