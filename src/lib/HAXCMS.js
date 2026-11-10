@@ -5775,44 +5775,6 @@ class HAXCMSClass {
     return this.config.site.fields;
   }
   /**
-   * Build a selectorList for the front-end that has all values
-   * for selection keyed by item id: title, ordered based on
-   * hierarchy with -- for each level down
-   */
-  // strict-mode fix: `site` used to be read from an undeclared PHP-port global
-  // and itemValues/itemBuilder/distance were implicit globals; the site is now
-  // passed in and the working variables are locals.
-  itemSelectorList(site) {
-    let items = site.manifest.orderTree(site.manifest.items);
-    let itemBuilder;
-    let distance;
-    let itemValues = [
-      {
-        text: "-- No page --",
-        value: null,
-      },
-    ];
-    for (var key in items) {
-      let item = items[key];
-      // calculate -- depth so it looks like a tree
-      itemBuilder = item;
-      // walk back through parent tree
-      distance = "- ";
-      while (itemBuilder && itemBuilder.parent != null) {
-        itemBuilder = this.findParent(items, itemBuilder);
-        // double check structure is sound
-        if (itemBuilder) {
-          distance = "--" + distance;
-        }
-      }
-      itemValues.push({
-        text: distance + item.title,
-        value: item.id,
-      });
-    }
-    return itemValues;
-  }
-  /**
    * Return the form for the siteSettings
    */
   async siteSettingsValue(context) {

@@ -566,6 +566,80 @@ describe('items routes — createItem', () => {
     assert.equal(site.calls.updateAlternateFormats, 1)
     assert.ok(site.calls.gitCommits[0].indexOf('Page added:Brand New Page') === 0)
   })
+
+  function withAddPage(site) {
+    site.calls.addPage = []
+    site.addPage = async (parent, title) => {
+      site.calls.addPage.push(title)
+      return { id: 'bulk-' + site.calls.addPage.length, title: title }
+    }
+    return site
+  }
+
+  test('items that are all marked delete answer 400 and create nothing', async (t) => {
+    const site = withAddPage(makeCreateSite(t))
+    mockSite(t, site)
+    const res = stubRes()
+    await createItem(
+      makeReq({
+        body: {
+          items: [
+            { title: 'Gone 1', delete: true },
+            { title: 'Gone 2', delete: true },
+          ],
+        },
+      }),
+      res,
+      () => {},
+    )
+    assert.equal(res.statusCode, 400)
+    assert.deepEqual(res.body, {
+      status: 400,
+      data: { message: 'Invalid items payload (every item is marked delete)' },
+    })
+    assert.deepEqual(site.calls.addPage, [])
+    assert.deepEqual(site.calls.gitCommits, [])
+    assert.equal(res.sent, null)
+  })
+
+  test('an empty items array with a node creates the node', async (t) => {
+    const site = withAddPage(makeCreateSite(t))
+    mockSite(t, site)
+    const res = stubRes()
+    await createItem(
+      makeReq({ body: { items: [], node: { title: 'Single from node' } } }),
+      res,
+      () => {},
+    )
+    assert.equal(res.statusCode, null)
+    assert.equal(res.sent.status, 200)
+    assert.equal(res.sent.data.title, 'Single from node')
+    assert.deepEqual(site.calls.addPage, [])
+    assert.equal(site.calls.addItem.length, 1)
+  })
+
+  test('items skip deleted entries and return the last created page', async (t) => {
+    const site = withAddPage(makeCreateSite(t))
+    mockSite(t, site)
+    const res = stubRes()
+    await createItem(
+      makeReq({
+        body: {
+          items: [
+            { title: 'Kept 1' },
+            { title: 'Dropped', delete: true },
+            { title: 'Kept 2' },
+          ],
+        },
+      }),
+      res,
+      () => {},
+    )
+    assert.equal(res.sent.status, 200)
+    assert.equal(res.sent.data.title, 'Kept 2')
+    assert.deepEqual(site.calls.addPage, ['Kept 1', 'Kept 2'])
+    assert.equal(site.calls.gitCommits.length, 1)
+  })
 })
 
 // ---------------------------------------------------------------------------
