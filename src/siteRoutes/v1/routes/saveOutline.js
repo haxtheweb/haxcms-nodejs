@@ -91,6 +91,13 @@ async function saveOutline(req, res) {
     // pages, the same as the PHP backend.)
     let savedItems = null;
     let feedItems = null;
+    // Invariant: a page folder exists only for a page site.json lists.
+    // createdFolders holds the folders this request created (page id ->
+    // folder); listedItems is what site.json lists once a write of it
+    // succeeded. A failure removes every created folder site.json does not
+    // list (removeUnlistedPageFolders below).
+    const createdFolders = new Map();
+    let listedItems = null;
     // each write is attempted once, like per-item saving: a write that fails
     // is not retried by the error handler
     const withItems = async (items, fn) => {
@@ -109,6 +116,7 @@ async function saveOutline(req, res) {
         manifestDirty = false;
         try {
           await withItems(savedItems, () => site.manifest.save(false));
+          listedItems = savedItems;
         } catch (e) {
           // per-item saving never rebuilt after a failed site.json write,
           // so the feeds keep describing the site.json that is on disk
@@ -205,13 +213,7 @@ async function saveOutline(req, res) {
         // if it doesn't exist currently make sure the name is unique
         let tmpLoad = site.loadNode(page.id);
         if (!tmpLoad) {
-          await HAXCMS.recurseCopy(
-            HAXCMS.boilerplatePath + "page/default",
-            site.siteDirectory + "/" + page.location.replace("/index.html", ""),
-            [],
-            // Security (SEC-PATH), PHP parity: confine the copy to the site dir
-            site.siteDirectory,
-          );
+          await copyPageBoilerplate(site, page, createdFolders);
           pageAlternateContentMap[page.id] = "";
         }
         // this would imply existing item, lets see if it moved or needs moved
@@ -246,15 +248,7 @@ async function saveOutline(req, res) {
             let tmpTitle = normalizeOutlineSlug(site, cleanTitle, page, pAuto);
             page.location = "pages/" + page.id + "/index.html";
             page.slug = tmpTitle;
-            await HAXCMS.recurseCopy(
-              HAXCMS.boilerplatePath + "page/default",
-              site.siteDirectory +
-                "/" +
-                page.location.replace("/index.html", ""),
-              [],
-              // Security (SEC-PATH), PHP parity: confine the copy to the site dir
-              site.siteDirectory,
-            );
+            await copyPageBoilerplate(site, page, createdFolders);
             pageAlternateContentMap[page.id] = "";
           }
         }
@@ -466,6 +460,11 @@ async function saveOutline(req, res) {
       } catch {
         // the original failure is the one to report
       }
+      removeUnlistedPageFolders(
+        site,
+        createdFolders,
+        listedItems === null ? original : listedItems,
+      );
       throw e;
     }
     await site.manifest.save();
@@ -514,6 +513,37 @@ async function saveOutline(req, res) {
       .status(403)
       .json({ status: 403, data: { message: "Authentication required" } });
   }
+}
+// copy the boilerplate page into a new page's folder, recording the folder
+// in createdFolders when this request created it
+async function copyPageBoilerplate(site, page, createdFolders) {
+  const pageFolder =
+    site.siteDirectory + "/" + page.location.replace("/index.html", "");
+  const folderExisted = fs.existsSync(pageFolder);
+  await HAXCMS.recurseCopy(
+    HAXCMS.boilerplatePath + "page/default",
+    pageFolder,
+    [],
+    // Security (SEC-PATH), PHP parity: confine the copy to the site dir
+    site.siteDirectory,
+  );
+  if (!folderExisted && fs.existsSync(pageFolder)) {
+    createdFolders.set(String(page.id), pageFolder);
+  }
+}
+/**
+ * Remove the page folders this request created (createdFolders, page id ->
+ * folder) that site.json does not list (listedItems), so a failed save
+ * leaves no page folder without its outline entry. Mirrors
+ * removeUnlistedPageFolders() in haxcms-php saveOutline.php.
+ */
+function removeUnlistedPageFolders(site, createdFolders, listedItems) {
+  const listed = new Set(listedItems.map((item) => String(item.id)));
+  createdFolders.forEach((folder, pageId) => {
+    if (!listed.has(pageId)) {
+      site.removeCreatedPageFolder(folder);
+    }
+  });
 }
 /**
  * Checks a saveOutline payload before anything is written. Returns the 400
