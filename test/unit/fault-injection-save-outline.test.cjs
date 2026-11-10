@@ -210,19 +210,16 @@ test("FI-OUT-01 ENOSPC writing site.json: the failure is raised and site.json is
   assert.equal(readSiteJson("fi-out-01"), before);
 });
 
-test.todo(
-  "FI-OUT-01 ENOSPC writing site.json leaves no page folder on disk that site.json does not list (BUG: saveOutline copies a new page's folder from the boilerplate during the structure pass, before the site.json checkpoint; when that write fails the folder stays behind, unlisted)",
-  async (t) => {
-    const site = await buildSite(t, "fi-out-01-orphans");
-    onWrite(t, siteJsonPath("fi-out-01-orphans"), () => {
-      throw errnoError("ENOSPC");
-    });
-    const { thrown } = await run(t, site, editWithNewPage(site));
-    t.mock.restoreAll();
-    assert.ok(thrown, "the failure is raised");
-    assert.deepEqual(orphanPageFolders("fi-out-01-orphans"), []);
-  },
-);
+test("FI-OUT-01 ENOSPC writing site.json leaves no page folder on disk that site.json does not list", async (t) => {
+  const site = await buildSite(t, "fi-out-01-orphans");
+  onWrite(t, siteJsonPath("fi-out-01-orphans"), () => {
+    throw errnoError("ENOSPC");
+  });
+  const { thrown } = await run(t, site, editWithNewPage(site));
+  t.mock.restoreAll();
+  assert.ok(thrown, "the failure is raised");
+  assert.deepEqual(orphanPageFolders("fi-out-01-orphans"), []);
+});
 
 test("FI-OUT-02 EACCES writing one page file: 500 failed to write, that file unchanged, structure saved", async (t) => {
   const site = await buildSite(t, "fi-out-02");

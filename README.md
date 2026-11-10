@@ -146,7 +146,15 @@ The invariants they protect, for every fault:
 - what was on disk before (`site.json`, the page file) is unchanged, and nothing is left on disk that `site.json` does not list
 - the server keeps answering requests
 
-saveOutline is checkpointed, not atomic: the new structure is written to `site.json` once after the structure pass, so a failure in the later content or delete phase leaves that structure saved. `site.json` is overwritten in place.
+The write invariants behind them, kept the same in haxcms-php:
+
+- every `site.json` write is atomic: a temp file in the same directory is written, flushed and renamed over it (`JSONOutlineSchema.writeFileAtomic`), so a failed write leaves the previous `site.json` as it was
+- a `site.json` that does not parse to an outline is refused on load, never treated as an empty outline that a save could write over it
+- an invalid outline payload (items that are not objects, a new page id sent twice, a parent cycle) is rejected with a 400 before anything is written
+- a page folder exists only for a page `site.json` lists: a request that created page folders removes them again when the `site.json` write that would list them fails
+- an error thrown inside any API route answers the 500 `ApiError` envelope (`src/lib/routeHandlerError.js`); it never leaves the request hanging or stops the server
+
+saveOutline is checkpointed, not atomic as a whole: the new structure is written to `site.json` once after the structure pass, so a failure in the later content or delete phase leaves that structure saved.
 
 Each scenario has an id (`FI-OUT-*`, `FI-PAY-*`, `FI-NODE-*`, `FI-SITE-*`, `FI-UP-*`, `FI-HTTP-*`) shared with haxcms-php, which mirrors these tests; keep both backends' scenarios in step. A scenario whose invariant does not hold yet is a `test.todo` whose name says what is wrong. When the product fix lands, turn it into a plain `test` in the same PR. To add a scenario, inject the fault with `t.mock.method(fs, ...)` (restore with `t.mock.restoreAll()` before checking the server still serves), give it the next free id, and add the same id to the PHP suite.
 

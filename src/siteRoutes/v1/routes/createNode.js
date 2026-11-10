@@ -1,5 +1,6 @@
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const path = require("path");
+const fs = require("fs-extra");
 const { sanitizeHTMLForStorage } = require("../../../lib/sanitizeContent.js");
 const {
   materializeInlineImages,
@@ -148,9 +149,14 @@ async function createNode(req, res) {
       // generate the boilerplate to fill this page
       // Security (SEC-PATH), PHP parity: the copy must land inside this site's
       // directory; refuse rather than writing anywhere else.
+      const pageFolder = path.join(
+        site.siteDirectory,
+        item.location.replace("/index.html", ""),
+      );
+      const folderExisted = fs.existsSync(pageFolder);
       const copied = await HAXCMS.recurseCopy(
         HAXCMS.boilerplatePath + "page/default",
-        path.join(site.siteDirectory, item.location.replace("/index.html", "")),
+        pageFolder,
         [],
         site.siteDirectory,
       );
@@ -162,7 +168,15 @@ async function createNode(req, res) {
       }
       // add the item back into the outline schema
       site.manifest.addItem(item);
-      await site.manifest.save();
+      try {
+        await site.manifest.save();
+      } catch (e) {
+        // no page folder without its outline entry
+        if (!folderExisted) {
+          site.removeCreatedPageFolder(pageFolder);
+        }
+        throw e;
+      }
       let alternateContent = "";
       // support for duplicating the content of another item
       if (nodeParams["node"]["duplicate"]) {
