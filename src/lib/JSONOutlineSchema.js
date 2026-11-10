@@ -28,6 +28,9 @@ class JSONOutlineSchema {
     this.license = "by-sa";
     this.metadata = {};
     this.items = [];
+    // declared (null until set) so load() keeps it and save() writes it in
+    // the same key position as haxcms-php (declared after items there)
+    this.location = null;
   }
 
   /**
@@ -127,8 +130,10 @@ class JSONOutlineSchema {
         await fs.readFileSync(location, { encoding: "utf8", flag: "r" }),
       );
       let vars = fileData;
-      for (var key in vars) {
-        if (typeof this[key] !== "undefined" && key != "items") {
+      // Security: only the schema's own top-level keys are read from disk;
+      // site.json can never set where the manifest is written (file)
+      for (const key of JSONOutlineSchema.TOP_LEVEL_KEYS) {
+        if (vars && Object.prototype.hasOwnProperty.call(vars, key)) {
           this[key] = vars[key];
         }
       }
@@ -474,4 +479,15 @@ function normalizeList(value) {
   });
   return list;
 }
+// top-level site.json keys load() reads; items are rebuilt separately.
+// Mirrors JSONOutlineSchema::TOP_LEVEL_KEYS in haxcms-php.
+JSONOutlineSchema.TOP_LEVEL_KEYS = Object.freeze([
+  "id",
+  "title",
+  "author",
+  "description",
+  "license",
+  "metadata",
+  "location",
+]);
 module.exports = JSONOutlineSchema;

@@ -190,7 +190,11 @@ async function saveAppearanceSettings(req, res) {
         .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
-    site.manifest.metadata.theme = themes[themeElement];
+    // a copy: the site's theme is edited below and must never change the
+    // shared HAXCMS.config.themes entry (later sites would inherit regions)
+    site.manifest.metadata.theme = JSON.parse(
+      JSON.stringify(themes[themeElement]),
+    );
   }
 
   if (

@@ -516,4 +516,61 @@ describe('createSite route handler', () => {
     // unsafe paths and non-string URLs are skipped before any fetch
     assert.equal(fetchCount, 4)
   })
+  test('theme edits on one site never leak into the next createSite (regions)', async (t) => {
+    useTempConfigDirectory(t)
+    const saveAppearanceSettings = require('../../src/siteRoutes/v1/routes/saveAppearanceSettings.js')
+    const defaultTheme = HAXCMS.HAXCMS_DEFAULT_THEME
+    const configTheme = HAXCMS.getThemes()[defaultTheme]
+    assert.equal(typeof configTheme, 'object')
+    assert.equal(Object.prototype.hasOwnProperty.call(configTheme, 'regions'), false)
+    // an appearance save on another site adds regions to that site's theme
+    const otherSite = {
+      manifest: {
+        metadata: { site: { name: 'other', settings: {} }, theme: {}, platform: {} },
+        async save() {},
+      },
+      async gitCommit() {},
+      async rebuildManagedFiles() {},
+      updateAlternateFormats() {},
+    }
+    t.mock.method(HAXCMS, 'validateRequestToken', () => true)
+    t.mock.method(HAXCMS, 'getActiveUserName', () => 'tester')
+    t.mock.method(HAXCMS, 'loadSite', async () => otherSite)
+    const appearanceRes = stubRes()
+    await saveAppearanceSettings(
+      {
+        headers: { 'x-haxcms-site-token': 'token' },
+        haxcmsSiteApiAuth: {
+          authenticated: true,
+          securityLevel: 'authenticated-site',
+          userName: 'tester',
+          siteName: 'other',
+        },
+        body: {
+          site: { name: 'other' },
+          manifest: { theme: { 'manifest-metadata-theme-element': defaultTheme } },
+        },
+      },
+      appearanceRes,
+    )
+    assert.equal(appearanceRes.statusCode, null, JSON.stringify(appearanceRes.body))
+    assert.deepEqual(otherSite.manifest.metadata.theme.regions, {})
+    // the shared theme registry entry is untouched
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(HAXCMS.getThemes()[defaultTheme], 'regions'),
+      false,
+    )
+    t.mock.restoreAll()
+    const originalGit = HAXCMS.config.site.git
+    HAXCMS.config.site.git = {}
+    t.after(() => {
+      HAXCMS.config.site.git = originalGit
+    })
+    const res = stubRes()
+    await createSiteRoute(makeReq({ site: { name: 'After Appearance', description: 'd' } }), res)
+    assert.equal(res.sent.status, 200)
+    // a default createSite writes no regions, same as haxcms-php
+    const manifest = readSiteJson('after-appearance')
+    assert.equal(Object.prototype.hasOwnProperty.call(manifest.metadata.theme, 'regions'), false)
+  })
 })

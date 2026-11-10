@@ -170,7 +170,10 @@ async function saveManifest(req, res) {
               "FILTER_SANITIZE_STRING",
             ) == key
           ) {
-            site.manifest.metadata.theme = theme;
+            // a copy: the site's theme is edited below and must never
+            // change the shared HAXCMS.config.themes entry (later sites
+            // would inherit those edits, e.g. regions)
+            site.manifest.metadata.theme = JSON.parse(JSON.stringify(theme));
           }
         }
         if (!site.manifest.metadata.theme.variables) {

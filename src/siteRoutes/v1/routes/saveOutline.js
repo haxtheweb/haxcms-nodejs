@@ -1,6 +1,7 @@
 const fs = require("fs-extra");
 const path = require("path");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const { reserveSlugRoutes } = require("../../../lib/slugRules.js");
 const { sanitizeHTMLForStorage } = require("../../../lib/sanitizeContent.js");
 const { isPathautoEnabled } = require("../../../lib/nodeDetailOperations.js");
 const {
@@ -533,13 +534,9 @@ function normalizeOutlineLocation(location) {
   return parts.join("/");
 }
 function normalizeOutlineSlug(site, slug, page = null, pathAuto = false) {
-  let normalizedSlug = HAXCMS.generateSlugName(slug);
-  if (normalizedSlug == "x") {
-    normalizedSlug = "x-x";
-  }
-  if (normalizedSlug.substring(0, 2) == "x/") {
-    normalizedSlug = normalizedSlug.replace("x/", "x-x/");
-  }
+  // no segment may be the reserved "x" route (getUniqueSlugName applies the
+  // same rule); an empty slug becomes "blank"
+  let normalizedSlug = reserveSlugRoutes(HAXCMS.generateSlugName(slug));
   if (normalizedSlug == "") {
     normalizedSlug = "blank";
   }

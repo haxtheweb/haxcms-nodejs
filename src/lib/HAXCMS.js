@@ -20,6 +20,11 @@ const {
 } = require("./managedFiles.js");
 const { resolveContainedPath, hasTraversal } = require("./pathConfinement.js");
 const {
+  cleanTitleRule,
+  generateSlugRule,
+  reserveSlugRoutes,
+} = require("./slugRules.js");
+const {
   trimTrailingSlashes,
   trimSlashes,
   stripAngleTags,
@@ -4053,6 +4058,9 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     while (rSlug.substring(0, 1) == "/") {
       rSlug = rSlug.substring(1);
     }
+    // reserved front-end route segments ("x" -> "x-x")
+    slug = reserveSlugRoutes(slug);
+    rSlug = reserveSlugRoutes(rSlug);
     let loop = 0;
     let ready = false;
     // while not ready, keep checking
@@ -5428,40 +5436,11 @@ class HAXCMSClass {
    * Generate slug name
    */
   generateSlugName(name) {
-    if (name === undefined || name === null) {
-      return "";
-    }
-    let n = String(name);
-    // Remove null bytes
-    n = n.replace(/\0/g, "");
-    // URL decode to catch encoded traversal attempts
-    try {
-      n = decodeURIComponent(n);
-    } catch {
-      // ignore decode errors, keep original string
-    }
-    // Remove path traversal sequences while preserving forward slashes for URLs
-    n = n.replace(/\.{2,}[\\/]*?/g, ""); // remove ../ and .. sequences
-    n = n.replace(/\\/g, ""); // remove backslashes
-    // Convert to lowercase first
-    let slug = n.toLowerCase();
-    // Allow word chars, hyphens, and forward slashes; normalize others to '-'
-    slug = slug.replace(/[^\w\-/]+/g, "-");
-    // Clean up multiple consecutive hyphens
-    slug = slug.replace(/-{2,}/g, "-");
-    // Clean up multiple consecutive slashes
-    slug = slug.replace(/\/{2,}/g, "/");
-    // Remove leading/trailing hyphens and slashes
-    slug = slug.replace(/^[-/]+|[-/]+$/g, "");
-    // Ensure no path traversal sequences remain after processing
-    if (slug.indexOf("..") !== -1) {
-      slug = slug.replace(/\.+/g, "");
-    }
-    // slugs CAN NOT start with / but otherwise it should be allowed
-    while (slug.substring(0, 1) === "/") {
-      slug = slug.substring(1);
-    }
-    return slug;
+    // Security (path traversal): null bytes, backslashes and dot segments
+    // never survive (raw or %-encoded); only Unicode letters, digits, "_",
+    // "-" and "/" remain, never at either end; empty becomes "blank".
+    // Same rule as HAXCMS::generateSlugName in haxcms-php (see slugRules.js)
+    return generateSlugRule(name);
   }
   /**
    * Generate UUID
@@ -5495,19 +5474,11 @@ class HAXCMSClass {
    * Clean up a title / sanitize the input string for file system usage
    */
   cleanTitle(value, stripPage = true) {
-    let cleanTitle = value.trim();
-    // strips off the identifies for a page on the file system
-    if (stripPage) {
-      cleanTitle = cleanTitle.replace("pages/", "").replace("/index.html", "");
-    }
-    cleanTitle = cleanTitle.replace(/ /g, "-").toLowerCase();
-    cleanTitle = cleanTitle.replace(/[^\w\-/]+/gu, "-");
-    cleanTitle = cleanTitle.replace(/--+/gu, "-");
-    // ensure we don't return an empty title or it could break downstream things
-    if (cleanTitle == "") {
-      cleanTitle = "blank";
-    }
-    return cleanTitle;
+    // Security (path traversal): "./", "../" and "." never survive; only
+    // Unicode letters, digits, "_", "-" and "/" remain, never at either end;
+    // empty becomes "blank". Same rule as HAXCMS::cleanTitle in haxcms-php
+    // (see slugRules.js)
+    return cleanTitleRule(value, stripPage);
   }
   /**
    * Validate that a request token is accurate
