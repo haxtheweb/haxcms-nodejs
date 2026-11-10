@@ -91,7 +91,7 @@ The budgets are the measured values of `main` at the time they were set
 (bundled front end 26.8.0). Counts (reactions, observed nodes, elements,
 requests, bytes) carry little slack because they don't depend on the machine.
 Timings (LCP, blocking time, navigation, outline open) carry wide slack because
-CI runners are slower than a developer machine; if the nightly job's timings
+CI runners are slower than a developer machine; if the weekly job's timings
 sit far from these numbers, re-baseline the timing budgets from its artifact.
 When a fix lands and its front end ships, lower them to the new numbers in the
 same PR that updates the build, so the improvement can't quietly regress.
@@ -120,5 +120,5 @@ run the size you care about. Super-linear metrics are listed at the end.
 
 Run `npm run perf:memory -- --short` before a PR that touches
 haxcms-elements core, the store, the site menu, i18n or a theme, and attach
-the numbers if they moved. CI runs `perf:check` nightly against `main` and on
+the numbers if they moved. CI runs `perf:check` weekly (Sunday night) against `main` and on
 PRs labeled `perf`.

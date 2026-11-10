@@ -2,10 +2,11 @@ name: perf
 # Front-end memory + page-load regression check (haxtheweb/issues#3245).
 # Boots an isolated server, builds a seeded 500 page site, and fails when a
 # metric moves past test/perf/budgets.json. About 10 minutes, so it runs
-# nightly and on PRs labeled `perf`, not on every PR.
+# weekly (Sunday night US Eastern, ready for Monday review) and on PRs
+# labeled `perf`, not on every PR (haxtheweb/issues#3262).
 on:
   schedule:
-    - cron: "17 7 * * *"
+    - cron: "47 4 * * 1" # weekly, Monday 04:47 UTC (Sunday night US Eastern)
   workflow_dispatch:
     inputs:
       command:
