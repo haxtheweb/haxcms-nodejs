@@ -172,3 +172,4 @@ reports/mutation
 
 # perf harness output (npm run perf)
 test/perf/results/
+test/fuzz/results/
