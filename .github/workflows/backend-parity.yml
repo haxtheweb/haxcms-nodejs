@@ -2,8 +2,8 @@ name: backend parity
 # haxcms-nodejs and haxcms-php are kept in parity. These must stay
 # byte-identical between the two backends (haxcms-nodejs is the source of
 # truth for all of them):
-#   site boilerplate   src/boilerplate/site
-#                      system/boilerplate/site
+#   boilerplate        src/boilerplate (site, page, systemsetup, cdns)
+#                      system/boilerplate
 #   site API spec      src/openapi/site-spec.yaml
 #                      system/backend/php/lib/siteRoutes/openapi/site-spec.yaml
 #   system API spec    src/openapi/system-spec.yaml
@@ -50,7 +50,7 @@ jobs:
 
           # label | haxcms-nodejs path | haxcms-php path
           pairs=(
-            "site boilerplate|src/boilerplate/site|system/boilerplate/site"
+            "boilerplate|src/boilerplate|system/boilerplate"
             "site OpenAPI spec|src/openapi/site-spec.yaml|system/backend/php/lib/siteRoutes/openapi/site-spec.yaml"
             "system OpenAPI spec|src/openapi/system-spec.yaml|system/backend/php/lib/systemRoutes/openapi/system-spec.yaml"
             "sanitizer policy|src/lib/haxcmsSanitizePolicy.json|system/backend/php/lib/haxcms-sanitize-policy.json"
