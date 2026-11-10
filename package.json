@@ -154,7 +154,8 @@
     "**/js-beautify/glob": "^14.0.2",
     "**/test-exclude/glob": "^14.0.2",
     "@stryker-mutator/tap-runner/glob": "^14.0.2",
-    "**/typed-rest-client/qs": "^6.16.1"
+    "**/typed-rest-client/qs": "^6.16.1",
+    "**/readdir-glob/minimatch": "^11.0.1"
   },
   "overrides": {
     "image-size": "^2.0.4",
@@ -184,6 +185,9 @@
     },
     "typed-rest-client": {
       "qs": "^6.16.1"
+    },
+    "readdir-glob": {
+      "minimatch": "^11.0.1"
     }
   },
   "lint-staged": {
