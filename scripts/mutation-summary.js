@@ -32,8 +32,9 @@ function oneLine(text) {
     flat.length > MAX_REPLACEMENT
       ? flat.substring(0, MAX_REPLACEMENT) + "…"
       : flat;
-  // keep the markdown table intact
-  return short.replace(/\|/g, "\\|").replace(/`/g, "'");
+  // keep the markdown table intact: escape backslashes first, then the
+  // table separator; backticks would end the code span, so swap them out
+  return short.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/`/g, "'");
 }
 
 function summarize(report) {
