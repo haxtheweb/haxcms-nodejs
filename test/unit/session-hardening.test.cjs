@@ -125,7 +125,7 @@ function lastCookie(res) {
 
 // login through the real route so the cookie + store are produced for real
 async function realLogin(t) {
-  t.mock.method(HAXCMS, "testLogin", () => true);
+  t.mock.method(HAXCMS, "testLoginAsync", async () => true);
   const res = fakeRes();
   await loginRoute(
     {
@@ -1279,7 +1279,7 @@ describe("request tokens on successful session responses", () => {
 
   test("login returns userToken alongside the jwt", async (t) => {
     isolateStore(t);
-    t.mock.method(HAXCMS, "testLogin", () => true);
+    t.mock.method(HAXCMS, "testLoginAsync", async () => true);
     const res = fakeRes();
     await loginRoute(
       {
@@ -1300,7 +1300,7 @@ describe("request tokens on successful session responses", () => {
 
   test("login from a site page also returns that site's siteToken", async (t) => {
     isolateStore(t);
-    t.mock.method(HAXCMS, "testLogin", () => true);
+    t.mock.method(HAXCMS, "testLoginAsync", async () => true);
     const res = fakeRes();
     await loginRoute(
       {

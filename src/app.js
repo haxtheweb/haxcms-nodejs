@@ -1843,12 +1843,12 @@ systemStructureContext().then((site) => {
         // are only checked once.
         const auth =
           getSystemV1PreAuthResult(req, op) ||
-          evaluateSystemV1RouteAuthentication(
+          (await evaluateSystemV1RouteAuthentication(
             req,
             res,
             op,
             systemV1OpenRouteRegistry,
-          );
+          ));
         if (auth.authenticated) {
           const basicAuth = auth.basicAuth;
           if (
@@ -1896,12 +1896,12 @@ systemStructureContext().then((site) => {
         // are only checked once.
         const auth =
           getSystemV1PreAuthResult(req, op) ||
-          evaluateSystemV1RouteAuthentication(
+          (await evaluateSystemV1RouteAuthentication(
             req,
             res,
             op,
             systemV1OpenRouteRegistry,
-          );
+          ));
         if (auth.authenticated) {
           const basicAuth = auth.basicAuth;
           if (
@@ -2396,7 +2396,7 @@ function validateSystemV1RouteAccess(req, op = "") {
 // from the route handlers so the multipart pre-auth middleware makes exactly
 // the same decision (and returns exactly the same status/envelope) before
 // multer runs. Order and messages are unchanged from the inline handler code.
-function evaluateSystemV1RouteAuthentication(
+async function evaluateSystemV1RouteAuthentication(
   req,
   res,
   op = "",
@@ -2412,7 +2412,7 @@ function evaluateSystemV1RouteAuthentication(
   let isAuthenticated = openRoutes.includes(op) || HAXCMS.validateJWT(req, res);
   let basicAuth = null;
   if (!isAuthenticated) {
-    basicAuth = authenticateBasicAuthorizationRequest(req);
+    basicAuth = await authenticateBasicAuthorizationRequest(req);
     if (basicAuth.blocked) {
       return {
         authenticated: false,
@@ -2478,12 +2478,24 @@ function isMultipartCapableSystemRouteParser(parser) {
 // multer never writes their file parts to disk. Non-multipart requests pass
 // through untouched (the handler performs the check as before).
 function createSystemV1UploadPreAuthMiddleware(op = "", openRoutes = []) {
-  return function systemV1UploadPreAuth(req, res, next) {
+  return async function systemV1UploadPreAuth(req, res, next) {
     if (!isMultipartRequest(req)) {
       next();
       return;
     }
-    const auth = evaluateSystemV1RouteAuthentication(req, res, op, openRoutes);
+    // Express 4 ignores a rejected middleware promise, so errors go to next()
+    let auth;
+    try {
+      auth = await evaluateSystemV1RouteAuthentication(
+        req,
+        res,
+        op,
+        openRoutes,
+      );
+    } catch (e) {
+      next(e);
+      return;
+    }
     if (!auth.authenticated) {
       sendSystemV1AuthFailure(res, auth);
       return;
@@ -2951,7 +2963,7 @@ function decodeBasicAuthCredentials(authorizationHeader = "") {
     password: decodedCredentials.substring(separatorIndex + 1),
   };
 }
-function authenticateBasicAuthorizationRequest(req) {
+async function authenticateBasicAuthorizationRequest(req) {
   const authorizationHeader = getRequestHeaderValue(req, "authorization");
   const basicAuthCredentials = decodeBasicAuthCredentials(authorizationHeader);
   if (!basicAuthCredentials) {
@@ -2992,7 +3004,7 @@ function authenticateBasicAuthorizationRequest(req) {
     };
   }
   if (
-    HAXCMS.testLogin(userName, password, true) &&
+    (await HAXCMS.testLoginAsync(userName, password, true)) &&
     HAXCMS.validateUser(userName)
   ) {
     if (rateLimitSettings.enabled) {
@@ -3249,7 +3261,7 @@ async function validateSiteApiRouteAccess(req, route = "", method = "get") {
       }
     }
   }
-  const basicAuth = authenticateBasicAuthorizationRequest(req);
+  const basicAuth = await authenticateBasicAuthorizationRequest(req);
   if (basicAuth.authenticated && !authContext.authenticated) {
     authContext.authenticated = true;
     authContext.userName = basicAuth.userName;
