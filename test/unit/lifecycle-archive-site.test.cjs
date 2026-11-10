@@ -18,8 +18,7 @@
 // and GET /system/api/v1/sites/{siteName} (siteInfo.js): 400 without a name,
 // 404 for an unknown site, and the 200 shape with its lifecycle links.
 //
-// Parity: haxcms-php carries a test under the same name. One response detail
-// differs from PHP and is kept as a todo test (see the comment on it).
+// Parity: haxcms-php carries a test under the same name.
 // CommonJS, globalThis, NO optional chaining, node:test + node:assert/strict.
 
 const { test, describe } = require("node:test");
@@ -141,29 +140,20 @@ describe("lifecycle: archive site", () => {
     assert.equal(fs.existsSync(path.join(sitesRoot, name)), false);
   });
 
-  // PARITY (haxcms-php archiveSite.php): PHP answers "Site archived as
-  // <name>-N because an archived copy already existed" when it had to pick a
-  // new name; Node's archiveSite.js always answers "Site archived" (only the
-  // lifecycle ENOTEMPTY fallback uses the longer text).
-  test(
-    "a renamed archive says so in detail",
-    {
-      todo: "archiveSite.js:67 detail is always 'Site archived' (PHP explains the -N rename)",
-    },
-    async () => {
-      const name = await makeSite("detail");
-      await archive(name);
-      await HAXCMS.createSite(name);
-      const res = await archive(name);
-      assert.equal(res.body.data.archivedName, name + "-1");
-      assert.equal(
-        res.body.data.detail,
-        "Site archived as " +
-          name +
-          "-1 because an archived copy already existed",
-      );
-    },
-  );
+  // parity with haxcms-php archiveSite.php: a renamed archive says so
+  test("a renamed archive says so in detail", async () => {
+    const name = await makeSite("detail");
+    await archive(name);
+    await HAXCMS.createSite(name);
+    const res = await archive(name);
+    assert.equal(res.body.data.archivedName, name + "-1");
+    assert.equal(
+      res.body.data.detail,
+      "Site archived as " +
+        name +
+        "-1 because an archived copy already existed",
+    );
+  });
 
   test("the route param wins over a different body site name", async () => {
     const target = await makeSite("param");
@@ -187,7 +177,7 @@ describe("lifecycle: archive site", () => {
     assert.equal(res.statusCode, 500);
     assert.deepEqual(res.body, {
       status: 500,
-      data: { message: "Server error" },
+      data: { message: "Site does not exist" },
     });
     const after = fs.existsSync(archivedRoot)
       ? fs.readdirSync(archivedRoot).sort()

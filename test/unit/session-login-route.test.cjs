@@ -14,8 +14,8 @@
 //   - JWT revalidate (body / query `jwt`): 200 for a valid bearer, 401 for a
 //     forged one
 //   - no credentials at all: 401 envelope
-// Two revalidate behaviors that differ from haxcms-php are kept as todo tests
-// (see the comments on them) so the owner can decide on a paired fix.
+// Revalidate decodes the body / query jwt and answers a fresh token, as
+// haxcms-php does.
 //
 // Parity: haxcms-php carries a test under the same name for the same route.
 // Credentials are minted per run (crypto.randomBytes); the limiter is keyed by
@@ -94,11 +94,11 @@ function setup(t, opts) {
   );
   t.mock.method(HAXCMS, "getRefreshSessionsPath", () => storePath);
   const goodPassword = secret();
-  t.mock.method(
-    HAXCMS,
-    "testLogin",
-    (u, p) => u === ACTIVE_USER && p === goodPassword,
-  );
+  // login.js checks passwords with testLoginAsync (off the event loop);
+  // testLogin is mocked too so a caller on either path sees the same answer
+  const checkPassword = (u, p) => u === ACTIVE_USER && p === goodPassword;
+  t.mock.method(HAXCMS, "testLogin", checkPassword);
+  t.mock.method(HAXCMS, "testLoginAsync", async (u, p) => checkPassword(u, p));
   const limiter = {
     enabled: !(opts && opts.limiterDisabled),
     windowMs: 60 * 1000,
@@ -266,7 +266,7 @@ describe("auth: session/login contract — credential login", () => {
     assert.equal(onlyUser.statusCode, 401);
     assert.deepEqual(onlyUser.body, {
       status: 401,
-      data: { message: "Authentication required" },
+      data: { message: "Login is required" },
     });
     const onlyPass = fakeRes();
     await loginRoute(
@@ -274,29 +274,29 @@ describe("auth: session/login contract — credential login", () => {
       onlyPass,
     );
     assert.equal(onlyPass.statusCode, 401);
-    assert.equal(onlyPass.body.data.message, "Authentication required");
+    assert.equal(onlyPass.body.data.message, "Login is required");
   });
 });
 
 describe("auth: session/login contract — JWT revalidate and no credentials", () => {
-  test("no body and no query is a 401 Authentication required envelope", async () => {
+  test("no body and no query is a 401 Login is required envelope", async () => {
     const res = fakeRes();
     await loginRoute({ headers: {}, ip: nextIp() }, res);
     assert.equal(res.statusCode, 401);
     assert.deepEqual(res.body, {
       status: 401,
-      data: { message: "Authentication required" },
+      data: { message: "Login is required" },
     });
   });
 
-  test("an empty body and empty query is a 401 Authentication required envelope", async () => {
+  test("an empty body and empty query is a 401 Login is required envelope", async () => {
     const res = fakeRes();
     await loginRoute({ body: {}, query: {}, headers: {}, ip: nextIp() }, res);
     assert.equal(res.statusCode, 401);
-    assert.equal(res.body.data.message, "Authentication required");
+    assert.equal(res.body.data.message, "Login is required");
   });
 
-  test("revalidate with a forged jwt (body or query) is a 401 Invalid or expired token", async () => {
+  test("revalidate with a forged jwt (body or query) is a 401 Invalid token", async () => {
     const forged = JWT.sign(
       { id: "x", user: ACTIVE_USER },
       crypto.randomBytes(32).toString("hex"),
@@ -314,7 +314,7 @@ describe("auth: session/login contract — JWT revalidate and no credentials", (
     assert.equal(viaBody.statusCode, 401);
     assert.deepEqual(viaBody.body, {
       status: 401,
-      data: { message: "Invalid or expired token" },
+      data: { message: "Invalid token" },
     });
     const viaQuery = fakeRes();
     await loginRoute(
@@ -327,7 +327,7 @@ describe("auth: session/login contract — JWT revalidate and no credentials", (
       viaQuery,
     );
     assert.equal(viaQuery.statusCode, 401);
-    assert.equal(viaQuery.body.data.message, "Invalid or expired token");
+    assert.equal(viaQuery.body.data.message, "Invalid token");
   });
 
   test("revalidate with a valid bearer answers 200", async () => {
@@ -346,43 +346,31 @@ describe("auth: session/login contract — JWT revalidate and no credentials", (
     assert.equal(res.body.status, 200);
   });
 
-  // BUG (parity with haxcms-php login.php): Node only validates the
-  // Authorization bearer here and ignores the `jwt` the caller sent, so a
-  // valid body-only jwt gets 401; PHP decodes the body jwt and answers 200.
-  test(
-    "revalidate with a valid body jwt and no bearer answers 200",
-    { todo: "login.js:83-86 ignores body/query jwt (PHP decodes it)" },
-    async () => {
-      const jwt = HAXCMS.getJWT(ACTIVE_USER);
-      const res = fakeRes();
-      await loginRoute(
-        { body: { jwt: jwt }, query: {}, headers: {}, ip: nextIp() },
-        res,
-      );
-      assert.equal(res.statusCode, 200);
-    },
-  );
+  // parity with haxcms-php login.php: the body jwt is what gets decoded
+  test("revalidate with a valid body jwt and no bearer answers 200", async () => {
+    const jwt = HAXCMS.getJWT(ACTIVE_USER);
+    const res = fakeRes();
+    await loginRoute(
+      { body: { jwt: jwt }, query: {}, headers: {}, ip: nextIp() },
+      res,
+    );
+    assert.equal(res.statusCode, 200);
+  });
 
-  // BUG (parity with haxcms-php login.php): Node answers `jwt: true` (the
-  // boolean from validateJWT) instead of a fresh token; PHP returns
-  // getJWT(activeUser), a string the client can store.
-  test(
-    "revalidate returns a fresh JWT string",
-    { todo: "login.js:90 returns jwt: true (PHP returns a new token)" },
-    async () => {
-      const jwt = HAXCMS.getJWT(ACTIVE_USER);
-      const res = fakeRes();
-      await loginRoute(
-        {
-          body: { jwt: jwt },
-          query: {},
-          headers: { authorization: "Bearer " + jwt },
-          ip: nextIp(),
-        },
-        res,
-      );
-      assert.equal(typeof res.body.jwt, "string");
-      assert.ok(HAXCMS.decodeJWT(res.body.jwt));
-    },
-  );
+  // parity with haxcms-php login.php: a fresh token string, not a boolean
+  test("revalidate returns a fresh JWT string", async () => {
+    const jwt = HAXCMS.getJWT(ACTIVE_USER);
+    const res = fakeRes();
+    await loginRoute(
+      {
+        body: { jwt: jwt },
+        query: {},
+        headers: { authorization: "Bearer " + jwt },
+        ip: nextIp(),
+      },
+      res,
+    );
+    assert.equal(typeof res.body.jwt, "string");
+    assert.ok(HAXCMS.decodeJWT(res.body.jwt));
+  });
 });
