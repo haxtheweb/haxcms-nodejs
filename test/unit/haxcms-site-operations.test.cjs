@@ -1837,6 +1837,42 @@ test("itemFromParams slugs from the title when no location was supplied", async 
   assert.ok(item.slug.indexOf("title-only-page") === 0);
 });
 
+// Security (SEC-SANITIZE): the single-page create path stores plain text
+// titles, like addPage / saveOutline / saveNode (haxtheweb/issues#3251).
+// Same cases as PHP HAXCMSSiteMutationsTest::testItemFromParams*Title*.
+test("itemFromParams stores the title as plain text", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  const cases = [
+    ["<img src=x onerror=alert(1)><b>Hello</b>", "Hello"],
+    ["&lt;img src=x onerror=alert(1)&gt;Hi", "Hi"],
+    ["<script>alert(1)</script>Safe", "alert(1)Safe"],
+    ["Line\nOne\nTwo", "LineOneTwo"],
+    ["Plain & simple", "Plain & simple"],
+  ];
+  for (const [raw, expected] of cases) {
+    const item = site.itemFromParams({ node: { title: raw } });
+    assert.equal(item.title, expected, raw);
+    assert.equal(item.title.includes("<"), false, raw);
+  }
+});
+
+test("itemFromParams slugs from the plain title", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  const item = site.itemFromParams({
+    node: { title: "<b>Bold</b> <i>Move</i>" },
+  });
+  assert.equal(item.title, "Bold Move");
+  assert.ok(item.slug.indexOf("bold-move") === 0, item.slug);
+});
+
+test("itemFromParams falls back to the addPage default for a markup-only title", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  for (const raw of ["<img src=x onerror=alert(1)>", "", null, undefined]) {
+    const item = site.itemFromParams({ node: { title: raw } });
+    assert.equal(item.title, "New page", String(raw));
+  }
+});
+
 test("itemFromParams merges request metadata through the page sanitiser", async () => {
   const site = await HAXCMS.loadSite("unit-website");
   const requestMetadata = {

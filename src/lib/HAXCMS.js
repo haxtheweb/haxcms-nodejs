@@ -2868,7 +2868,11 @@ class HAXCMSSite {
     let item = HAXCMS.outlineSchema.newItem();
     let cleanTitle = "";
     // set the title
-    item.title = params["node"]["title"].replace("\n", "");
+    // Security (SEC-SANITIZE): titles are plain text, same as addPage /
+    // saveOutline / saveNode; a title that is nothing but markup gets the
+    // same default as addPage (mirrors PHP HAXCMSSite::itemFromParams)
+    const plainTitle = toPlainText(params["node"]["title"]).replace(/\n/g, "");
+    item.title = plainTitle === "" ? "New page" : plainTitle;
     if (
       params["node"]["id"] &&
       params["node"]["id"] != "" &&
