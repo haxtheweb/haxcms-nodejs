@@ -43,8 +43,8 @@ const GIT_AUTHOR_EMAIL = "fault-injection-unit@local.invalid";
 // a response that has not arrived by then never will: every route under
 // test answers in well under a second on a healthy server
 const REQUEST_TIMEOUT_MS = 4000;
-// todo scenarios whose request is known to hang give up sooner: the
-// rejection that hangs them is raised well before this
+// scenarios whose request used to hang (an error escaping the route) give
+// up sooner: the error is raised well before this
 const HANG_TIMEOUT_MS = 1500;
 // 1x1 transparent PNG
 const PNG_1X1 = Buffer.from(
@@ -320,10 +320,11 @@ function isSiteJsonOf(siteName) {
 
 // A rejection that escapes a route handler is an unhandledRejection: the
 // request never gets a response and, under Node's default
-// --unhandled-rejections=throw, the server process exits. node:test turns
-// it into a file-level failure, so while a scenario that is KNOWN to hit
-// that bug runs (todo tests only), escaped rejections are collected here
-// instead. The test then asserts on the response, which is what fails.
+// --unhandled-rejections=throw, the server process exits. node:test would
+// turn it into a file-level failure, so while a scenario that could hit
+// that runs, escaped rejections are collected here instead and the test
+// asserts there were none (src/app.js answers a thrown handler error with
+// the ApiError envelope).
 async function collectEscapedRejections(fn) {
   const saved = process.listeners("unhandledRejection");
   const escaped = [];
@@ -393,31 +394,28 @@ test("FI-OUT-02 EACCES writing a page file: 500 envelope, that page file unchang
   await assertStillServing(siteName);
 });
 
-test.todo(
-  "FI-OUT-05 a corrupt site.json on the next save answers an error envelope and is left as is (BUG: loading the site throws a SyntaxError that escapes the route, see FI-HTTP-01, so the request hangs)",
-  async () => {
-    const siteName = await freshSite("fi-out-05");
-    const otherSite = await freshSite("fi-out-05-other");
-    const outline = outlineFromDisk(siteName, () => ({ title: "Never saved" }));
-    const whole = readSiteJson(siteName);
-    // a half-written site.json, as a crash mid-write leaves it
-    const corrupt = whole.substring(0, Math.floor(whole.length / 2));
-    fs.writeFileSync(siteJsonPath(siteName), corrupt);
-    const { result, escaped } = await collectEscapedRejections(() =>
-      siteRequest(
-        siteName,
-        "PATCH",
-        "site/outline",
-        { items: outline },
-        HANG_TIMEOUT_MS,
-      ),
-    );
-    assert.equal(readSiteJson(siteName), corrupt, "corrupt file left as is");
-    await assertStillServing(otherSite);
-    assert.equal(escaped.length, 0, "no rejection escapes the route");
-    assertErrorEnvelope(result);
-  },
-);
+test("FI-OUT-05 a corrupt site.json on the next save answers an error envelope and is left as is", async () => {
+  const siteName = await freshSite("fi-out-05");
+  const otherSite = await freshSite("fi-out-05-other");
+  const outline = outlineFromDisk(siteName, () => ({ title: "Never saved" }));
+  const whole = readSiteJson(siteName);
+  // a half-written site.json, as a crash mid-write leaves it
+  const corrupt = whole.substring(0, Math.floor(whole.length / 2));
+  fs.writeFileSync(siteJsonPath(siteName), corrupt);
+  const { result, escaped } = await collectEscapedRejections(() =>
+    siteRequest(
+      siteName,
+      "PATCH",
+      "site/outline",
+      { items: outline },
+      HANG_TIMEOUT_MS,
+    ),
+  );
+  assert.equal(readSiteJson(siteName), corrupt, "corrupt file left as is");
+  await assertStillServing(otherSite);
+  assert.equal(escaped.length, 0, "no rejection escapes the route");
+  assertErrorEnvelope(result);
+});
 
 test("FI-OUT-06 slow IO: other requests are answered while a save is in flight, then the save finishes", async (t) => {
   const siteName = await freshSite("fi-out-06");
@@ -516,32 +514,29 @@ test("FI-PAY-02 partial outline: pages that were not sent are left as they were"
   );
 });
 
-test.todo(
-  "FI-HTTP-01 / FI-OUT-01 ENOSPC writing site.json during saveOutline answers a 5xx envelope instead of hanging (BUG: the site route dispatcher in src/app.js calls runCommitScopedHandler without await/return inside its try, so a handler rejection is unhandled: no response, and Node's default unhandled-rejection mode exits the server)",
-  async (t) => {
-    const siteName = await freshSite("fi-http-01");
-    failFs(t, "writeFileSync", isSiteJsonOf(siteName), "ENOSPC");
-    const { result, escaped } = await collectEscapedRejections(() =>
-      siteRequest(
-        siteName,
-        "PATCH",
-        "site/outline",
-        {
-          items: outlineFromDisk(siteName, () => ({ title: "Renamed" })),
-        },
-        HANG_TIMEOUT_MS,
-      ),
-    );
-    t.mock.restoreAll();
-    await assertStillServing(siteName);
-    assert.deepEqual(
-      escaped.map((e) => String(e && e.code)),
-      [],
-      "no rejection escapes the route",
-    );
-    assertErrorEnvelope(result);
-  },
-);
+test("FI-HTTP-01 / FI-OUT-01 ENOSPC writing site.json during saveOutline answers a 5xx envelope instead of hanging", async (t) => {
+  const siteName = await freshSite("fi-http-01");
+  failFs(t, "writeFileSync", isSiteJsonOf(siteName), "ENOSPC");
+  const { result, escaped } = await collectEscapedRejections(() =>
+    siteRequest(
+      siteName,
+      "PATCH",
+      "site/outline",
+      {
+        items: outlineFromDisk(siteName, () => ({ title: "Renamed" })),
+      },
+      HANG_TIMEOUT_MS,
+    ),
+  );
+  t.mock.restoreAll();
+  await assertStillServing(siteName);
+  assert.deepEqual(
+    escaped.map((e) => String(e && e.code)),
+    [],
+    "no rejection escapes the route",
+  );
+  assertErrorEnvelope(result);
+});
 
 // ---------------------------------------------------------------------------
 // other critical writes
@@ -588,49 +583,43 @@ test.todo(
   },
 );
 
-test.todo(
-  "FI-NODE-03 ENOSPC writing site.json while deleting a page answers a 5xx envelope and keeps the page (BUG: the rejection escapes the route, see FI-HTTP-01)",
-  async (t) => {
-    const siteName = await freshSite("fi-node-03");
-    const page = siteItems(siteName)[0];
-    const before = readSiteJson(siteName);
-    failFs(t, "writeFileSync", isSiteJsonOf(siteName), "ENOSPC");
-    const { result, escaped } = await collectEscapedRejections(() =>
-      siteRequest(siteName, "DELETE", "items/" + page.id, {}, HANG_TIMEOUT_MS),
-    );
-    t.mock.restoreAll();
-    await assertStillServing(siteName);
-    assert.equal(readSiteJson(siteName), before);
-    assert.ok(fs.existsSync(path.join(siteDir(siteName), page.location)));
-    assert.equal(escaped.length, 0, "no rejection escapes the route");
-    assertErrorEnvelope(result);
-  },
-);
+test("FI-NODE-03 ENOSPC writing site.json while deleting a page answers a 5xx envelope and keeps the page", async (t) => {
+  const siteName = await freshSite("fi-node-03");
+  const page = siteItems(siteName)[0];
+  const before = readSiteJson(siteName);
+  failFs(t, "writeFileSync", isSiteJsonOf(siteName), "ENOSPC");
+  const { result, escaped } = await collectEscapedRejections(() =>
+    siteRequest(siteName, "DELETE", "items/" + page.id, {}, HANG_TIMEOUT_MS),
+  );
+  t.mock.restoreAll();
+  await assertStillServing(siteName);
+  assert.equal(readSiteJson(siteName), before);
+  assert.ok(fs.existsSync(path.join(siteDir(siteName), page.location)));
+  assert.equal(escaped.length, 0, "no rejection escapes the route");
+  assertErrorEnvelope(result);
+});
 
-test.todo(
-  "FI-SITE-01 ENOSPC writing site.json while saving site settings answers a 5xx envelope (BUG: the rejection escapes the route, see FI-HTTP-01)",
-  async (t) => {
-    const siteName = await freshSite("fi-site-01");
-    const before = readSiteJson(siteName);
-    failFs(t, "writeFileSync", isSiteJsonOf(siteName), "ENOSPC");
-    const { result, escaped } = await collectEscapedRejections(() =>
-      siteRequest(
-        siteName,
-        "PATCH",
-        "site",
-        {
-          manifest: { site: { "manifest-title": "Renamed site" } },
-        },
-        HANG_TIMEOUT_MS,
-      ),
-    );
-    t.mock.restoreAll();
-    await assertStillServing(siteName);
-    assert.equal(readSiteJson(siteName), before);
-    assert.equal(escaped.length, 0, "no rejection escapes the route");
-    assertErrorEnvelope(result);
-  },
-);
+test("FI-SITE-01 ENOSPC writing site.json while saving site settings answers a 5xx envelope", async (t) => {
+  const siteName = await freshSite("fi-site-01");
+  const before = readSiteJson(siteName);
+  failFs(t, "writeFileSync", isSiteJsonOf(siteName), "ENOSPC");
+  const { result, escaped } = await collectEscapedRejections(() =>
+    siteRequest(
+      siteName,
+      "PATCH",
+      "site",
+      {
+        manifest: { site: { "manifest-title": "Renamed site" } },
+      },
+      HANG_TIMEOUT_MS,
+    ),
+  );
+  t.mock.restoreAll();
+  await assertStillServing(siteName);
+  assert.equal(readSiteJson(siteName), before);
+  assert.equal(escaped.length, 0, "no rejection escapes the route");
+  assertErrorEnvelope(result);
+});
 
 test("FI-UP-01 the move into files/ fails (EXDEV): 500 envelope, no file left in files/ or tmp, still serving", async (t) => {
   const siteName = await freshSite("fi-up-01");

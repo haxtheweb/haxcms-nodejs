@@ -75,6 +75,10 @@ const {
 const loginRateLimiter = require("./lib/loginRateLimiter.js");
 const { createRequestRateLimiter } = require("./lib/requestRateLimiter.js");
 const { haxcmsErrorHandler } = require("./lib/requestErrorHandler.js");
+const {
+  sendRouteHandlerError,
+  guardApiRouteHandler,
+} = require("./lib/routeHandlerError.js");
 const { apiMessageCodesMiddleware } = require("./lib/apiMessageCodes.js");
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
 // colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
@@ -1937,6 +1941,18 @@ systemStructureContext().then((site) => {
         }
         return sendSystemV1AuthFailure(res, auth);
       };
+      // a throw before the handler runs (auth / token checks) answers the
+      // ApiError envelope too; Express 4 does not catch async rejections
+      const systemRouteLabel =
+        "system " + systemMethod.toUpperCase() + " " + systemRoute;
+      const guardedSystemRouteHandler = guardApiRouteHandler(
+        systemRouteLabel,
+        systemRouteHandler,
+      );
+      const guardedSiteScopedSystemRouteHandler = guardApiRouteHandler(
+        systemRouteLabel,
+        siteScopedSystemRouteHandler,
+      );
       if (
         systemRouteParser &&
         isMultipartCapableSystemRouteParser(systemRouteParser)
@@ -1952,30 +1968,30 @@ systemStructureContext().then((site) => {
           systemRoutePath,
           systemUploadPreAuth,
           systemRouteParser,
-          systemRouteHandler,
+          guardedSystemRouteHandler,
         );
         app[systemMethod](
           `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
           systemUploadPreAuth,
           systemRouteParser,
-          siteScopedSystemRouteHandler,
+          guardedSiteScopedSystemRouteHandler,
         );
       } else if (systemRouteParser) {
         app[systemMethod](
           systemRoutePath,
           systemRouteParser,
-          systemRouteHandler,
+          guardedSystemRouteHandler,
         );
         app[systemMethod](
           `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
           systemRouteParser,
-          siteScopedSystemRouteHandler,
+          guardedSiteScopedSystemRouteHandler,
         );
       } else {
-        app[systemMethod](systemRoutePath, systemRouteHandler);
+        app[systemMethod](systemRoutePath, guardedSystemRouteHandler);
         app[systemMethod](
           `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
-          siteScopedSystemRouteHandler,
+          guardedSiteScopedSystemRouteHandler,
         );
       }
     }
@@ -2005,7 +2021,7 @@ systemStructureContext().then((site) => {
           }
           // haxtheweb/issues#3191: commits made by this request carry its
           // actor + operationId + txn
-          runCommitScopedHandler(
+          return runCommitScopedHandler(
             req,
             "site",
             siteMethod,
@@ -3409,8 +3425,13 @@ function getNormalizedBasePath() {
  * every gitCommit() it makes is prefixed with the caller's actor, the route's
  * OpenAPI operationId and a per-request txn. Read-only (GET) routes make no
  * commits and run as before.
+ *
+ * Invariant: the returned promise never rejects. A handler that throws or
+ * rejects answers the ApiError envelope (sendRouteHandlerError), so a failing
+ * write cannot hang the request or stop the server with an unhandled
+ * rejection.
  */
-function runCommitScopedHandler(
+async function runCommitScopedHandler(
   req,
   scope,
   method,
@@ -3419,14 +3440,23 @@ function runCommitScopedHandler(
   res,
   next,
 ) {
-  if (String(method || "").toLowerCase() === "get") {
-    return handler(req, res, next);
+  try {
+    if (String(method || "").toLowerCase() === "get") {
+      return await handler(req, res, next);
+    }
+    const context = createRequestCommitContext(
+      req,
+      getOperationId(scope, method, routeKey),
+    );
+    return await runWithCommitContext(context, () => handler(req, res, next));
+  } catch (error) {
+    sendRouteHandlerError(
+      req,
+      res,
+      error,
+      scope + " " + String(method || "").toUpperCase() + " " + routeKey,
+    );
   }
-  const context = createRequestCommitContext(
-    req,
-    getOperationId(scope, method, routeKey),
-  );
-  return runWithCommitContext(context, () => handler(req, res, next));
 }
 function getSiteApiBasePath() {
   return getNormalizedBasePath() + "x/api";
