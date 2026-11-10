@@ -623,7 +623,7 @@ async function createSite(req, res) {
         domain,
         build
     );
-    // Security (N1/N5 parity): newSite returns false when the boilerplate
+    // Security (SEC-PATH), PHP parity: newSite returns false when the boilerplate
     // copy is refused (traversal / escaping destination); answer with an
     // error envelope instead of dereferencing a missing site.
     if (!site || !site.manifest) {
@@ -1011,7 +1011,7 @@ async function importBuildFile(site, locationName, downloadLocation, index, warn
     "bulk-import": true
   };
   if (downloaded) {
-    // a download carries its size so the site's maxUploadSizeMb applies (HAX-SEC-004)
+    // a download carries its size so the site's maxUploadSizeMb applies (SEC-UPLOAD)
     upload.size = fs.statSync(downloaded).size;
   }
   // check for a file upload; we block a few formats by design. save() can still

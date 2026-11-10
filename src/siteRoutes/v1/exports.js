@@ -30,7 +30,7 @@ const os = require("os");
 const EPUB = require("epub-gen-memory");
 const { parse } = require("node-html-parser");
 const TurndownService = require("turndown");
-// Security (L1): client-safe exception text (no paths / stack internals)
+// Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../lib/clientErrorMessage.js");
 
 const turndownService = new TurndownService();

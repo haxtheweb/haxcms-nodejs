@@ -204,18 +204,18 @@ function createStatusError(message, status) {
   return statusError;
 }
 
-// Security (HAX-SEC-006 / error-leak): only surface exception messages that
+// Security (SEC-ROUTE): only surface exception messages that
 // come from intentional createStatusError validation errors (which carry a
 // .status). Unexpected internal exceptions (sharp, fs-extra, library
 // internals) have no .status and their .message may disclose internal
 // paths/structure, so they get the generic fallback. Used by every file
 // mutation/detail catch block so clients never receive raw internals.
-// (L1, 2026-10-19: shared implementation in lib/clientErrorMessage.js.)
+// (Shared implementation in lib/clientErrorMessage.js.)
 const {
   resolveClientFacingErrorMessage,
 } = require("../../lib/clientErrorMessage.js");
 
-// Security (F3): count-window rate limit for authenticated file-mutation
+// Security (SEC-RATELIMIT): count-window rate limit for authenticated file-mutation
 // ops, keyed by the validated auth context's userName:siteName (set by
 // validateSiteApiRouteAccess before dispatch). Returns true when the request
 // may proceed; returns false after sending a 429 + Retry-So the handler can
@@ -859,7 +859,7 @@ async function scaleImageInPlace(
       fs.removeSync(temporaryPath);
     }
     throw createStatusError(
-      // Security (L1): don't promote raw sharp/fs messages to status errors
+      // Security (SEC-ROUTE): don't promote raw sharp/fs messages to status errors
       resolveClientFacingErrorMessage(e, "Unable to scale image"),
       e && e.status ? e.status : 500,
     );
@@ -918,7 +918,7 @@ async function compressImageInPlace(
       fs.removeSync(temporaryPath);
     }
     throw createStatusError(
-      // Security (L1): don't promote raw sharp/fs messages to status errors
+      // Security (SEC-ROUTE): don't promote raw sharp/fs messages to status errors
       resolveClientFacingErrorMessage(e, "Unable to compress image"),
       e && e.status ? e.status : 500,
     );
@@ -995,7 +995,7 @@ async function transformImageInPlace(
       fs.removeSync(temporaryPath);
     }
     throw createStatusError(
-      // Security (L1): don't promote raw sharp/fs messages to status errors
+      // Security (SEC-ROUTE): don't promote raw sharp/fs messages to status errors
       resolveClientFacingErrorMessage(e, "Unable to transform image"),
       e && e.status ? e.status : 500,
     );
@@ -1038,7 +1038,7 @@ async function rotateImageInPlace(sourcePath, rotation = 90) {
       fs.removeSync(temporaryPath);
     }
     throw createStatusError(
-      // Security (L1): don't promote raw sharp/fs messages to status errors
+      // Security (SEC-ROUTE): don't promote raw sharp/fs messages to status errors
       resolveClientFacingErrorMessage(e, "Unable to rotate image"),
       e && e.status ? e.status : 500,
     );
@@ -1598,7 +1598,7 @@ async function createFile(req, res) {
     });
   }
   try {
-    // Security (HAX-SEC-006): use the server-generated sanitized filename from
+    // Security (SEC-UPLOAD, SEC-EXEC): use the server-generated sanitized filename from
     // the save result, not the attacker-controlled upload.originalname, so user
     // input never reaches the git commit message (argument-injection defense).
     var savedFileName =

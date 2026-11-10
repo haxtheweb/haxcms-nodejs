@@ -23,7 +23,7 @@ const apiKeysMod = require("../../src/lib/apiKeys.js");
 let effectiveApiKeysFixture = {};
 apiKeysMod.readEffectiveApiKeys = async () => effectiveApiKeysFixture;
 
-// Security (L5): the route forwards upstream calls through safeFetch (SSRF
+// Security (SEC-SSRF): the route forwards upstream calls through safeFetch (SSRF
 // guard + byte cap) instead of global fetch, so tests stub safeFetch itself.
 const safeFetchMod = require("../../src/lib/safeFetch.js");
 
@@ -273,7 +273,7 @@ describe("integrations — appStoreProviderSearch", () => {
     assert.deepEqual(res.body, { created: true });
   });
 
-  // Security (L2, 2026-10-19 audit): per-provider param allowlist + pinning
+  // Security (SEC-SSRF): per-provider param allowlist + pinning
   test("params outside the provider allowlist are never forwarded", async (t) => {
     const captured = stubFetch(
       t,

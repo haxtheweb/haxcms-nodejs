@@ -203,7 +203,7 @@ async function saveOutline(req, res) {
             HAXCMS.boilerplatePath + "page/default",
             site.siteDirectory + "/" + page.location.replace("/index.html", ""),
             [],
-            // Security (N1/N5 parity): confine the copy to the site dir
+            // Security (SEC-PATH), PHP parity: confine the copy to the site dir
             site.siteDirectory,
           );
           pageAlternateContentMap[page.id] = "";
@@ -246,7 +246,7 @@ async function saveOutline(req, res) {
                 "/" +
                 page.location.replace("/index.html", ""),
               [],
-              // Security (N1/N5 parity): confine the copy to the site dir
+              // Security (SEC-PATH), PHP parity: confine the copy to the site dir
               site.siteDirectory,
             );
             pageAlternateContentMap[page.id] = "";

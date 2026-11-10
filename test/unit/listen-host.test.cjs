@@ -149,7 +149,7 @@ test("getBrowserHost: localhost for wildcard binds, exact address otherwise", ()
   assert.equal(getBrowserHost("fd00::5"), "[fd00::5]");
 });
 
-// Security (SEC-DEPLOY / PHP SEC-03 parity): superuser JWT embedding gate
+// Security (SEC-DEPLOY), PHP parity: superuser JWT embedding gate
 function fakeReq(remoteAddress, headers) {
   return {
     socket: { remoteAddress },
@@ -264,7 +264,7 @@ test("shouldEmbedBypassJwt: never to cross-site or same-site script loads", () =
   );
 });
 
-// Security (SEC-DEPLOY / DNS rebinding): Host header guard for the no-login
+// Security (SEC-DEPLOY): Host header guard for the no-login
 // loopback server.
 const listenHostLib = require(
   path.join(__dirname, "..", "..", "src", "lib", "listenHost.js"),

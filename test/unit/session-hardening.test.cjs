@@ -666,7 +666,7 @@ describe("connection-settings", () => {
     assert.equal(settings.siteToken, undefined);
   });
 
-  test("default (flag unset): anonymous callers get no tokens (L-3 session required)", async (t) => {
+  test("default (flag unset): anonymous callers get no tokens (session required)", async (t) => {
     isolateStore(t);
     withRequireSessionFlag(t, null);
     const savedCfg = HAXCMS.config.security
@@ -1466,7 +1466,7 @@ describe("requireSessionForRequestTokens flag resolution", () => {
     });
   }
 
-  test("defaults to true (L-3: front-end picks tokens up after login)", (t) => {
+  test("defaults to true (front-end picks tokens up after login)", (t) => {
     withRequireSessionFlag(t, null);
     withConfigValue(t, undefined);
     assert.equal(HAXCMS.getRequireSessionForRequestTokens(), true);

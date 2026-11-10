@@ -213,7 +213,7 @@ async function fetchLatestReleaseVersion() {
     controller.abort();
   }, 4000);
   try {
-    // Security (L5): routed through safeFetch (SSRF guard + byte cap); the
+    // Security (SEC-SSRF): routed through safeFetch (SSRF guard + byte cap); the
     // 4s abort signal is preserved as the request timeout.
     const response = await safeFetch(GITHUB_RELEASES_LATEST_URL, {
       headers: {

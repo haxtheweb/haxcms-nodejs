@@ -1,4 +1,4 @@
-// Security (L1): client-safe exception text (no paths / stack internals)
+// Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 /**
  * POST /system/api/v1/actions/pptx-to-html

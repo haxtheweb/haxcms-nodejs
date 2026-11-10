@@ -25,7 +25,7 @@ class JSONOutlineSchemaItem
    * Load data from the location specified
    */
   async readLocation(basePath = '') {
-    // Security (N1/N5 parity): the location must resolve inside basePath.
+    // Security (SEC-PATH), PHP parity: the location must resolve inside basePath.
     // Rejects NUL bytes and `..` segments, then proves realpath containment
     // (mirrors PHP JSONOutlineSchemaItem::readLocation).
     const resolved = resolveContainedPath(basePath, this.location);
@@ -48,7 +48,7 @@ class JSONOutlineSchemaItem
       body = '<p></p>';
     }
     try {
-      // Security (N1/N5 parity): the destination must stay inside basePath
+      // Security (SEC-PATH), PHP parity: the destination must stay inside basePath
       // (mirrors PHP JSONOutlineSchemaItem::writeLocation).
       const resolved = resolveContainedPath(basePath, this.location);
       if (resolved === false) {

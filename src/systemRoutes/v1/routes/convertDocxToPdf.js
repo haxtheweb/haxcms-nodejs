@@ -4,7 +4,7 @@ const {
   processDocxHtml,
   htmlToPdfBuffer,
 } = require("../../../lib/convertUtils.js");
-// Security (L1): client-safe exception text (no paths / stack internals)
+// Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**

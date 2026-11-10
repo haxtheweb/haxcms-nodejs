@@ -93,7 +93,7 @@ describe("stageRemoteFile — #3060", () => {
       "the URL is fetched as given",
     );
     assert.equal(path.dirname(staged), root);
-    // Security (L6): staged names use crypto.randomUUID(), not Math.random()
+    // Security (SEC-UPLOAD): staged names use crypto.randomUUID(), not Math.random()
     assert.match(
       path.basename(staged),
       /^haximp-\d+-7-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/,

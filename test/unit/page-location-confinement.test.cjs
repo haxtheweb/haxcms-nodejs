@@ -1,13 +1,13 @@
 "use strict";
 
-// Security (N1/N5 parity): page ids and page locations must never let a
+// Security (SEC-PATH), PHP parity: page ids and page locations must never let a
 // request (or a poisoned site.json) read or write outside the site directory.
 //
 // Layout used by every test:
 //   <tmp>/sites/mysite        <- the site under attack
 //   <tmp>/sites/othertenant   <- a sibling site holding a SECRET page
 //   <tmp>/outside.txt         <- a file above the sites dir
-// An id such as `../../othertenant` would (pre-fix) compose the location
+// An id such as `../../othertenant` would, unsanitised, compose the location
 // `pages/../../othertenant/index.html` and land in the sibling site.
 
 const test = require("node:test");

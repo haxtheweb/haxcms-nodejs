@@ -1,6 +1,6 @@
 "use strict";
 
-// Security (code-scanning js/path-injection): a site name from a request must
+// Security (SEC-PATH): a site name from a request must
 // never resolve a site folder outside the sites directory. HAXCMSSite.load()
 // refuses it, newSite() fails creation, and HAXCMS.loadSite() treats it as
 // "not a site" (false) instead of throwing.

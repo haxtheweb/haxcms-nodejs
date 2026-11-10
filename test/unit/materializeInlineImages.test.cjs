@@ -695,7 +695,7 @@ describe("materializeInlineImages — #2945", () => {
     });
   });
 
-  // Security (PR8-2): only PNG/JPEG/GIF/WebP signatures may reach sharp.
+  // Security (SEC-UPLOAD): only PNG/JPEG/GIF/WebP signatures may reach sharp.
   test("detectInlineRasterType accepts png/jpeg/gif/webp signatures only", async () => {
     const png = Buffer.from(PNG_BASE64, "base64");
     const jpeg = await sharp({

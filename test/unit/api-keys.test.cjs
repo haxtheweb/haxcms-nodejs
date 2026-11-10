@@ -272,7 +272,7 @@ test('readEffectiveApiKeys returns empty defaults when neither config nor file e
   }
 })
 
-// Security (SEC-10 parity): apiKeys.json must be written 0600.
+// Security (SEC-INSTALL), PHP parity: apiKeys.json must be written 0600.
 test('writeApiKeys writes apiKeys.json with mode 0600 (plain config object)', { skip: process.platform === 'win32' }, async () => {
   const tmpDir = mkTempConfigDir()
   try {

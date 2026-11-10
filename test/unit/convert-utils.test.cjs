@@ -392,10 +392,10 @@ describe("stripMSWord", () => {
   });
 });
 
-// Security (PR8-5): stripMSWord used backtracking lazy regexes that were
+// Security (SEC-DOS): stripMSWord must not use backtracking lazy regexes, which are
 // O(n^2) on many unterminated openers. The linear replacements must produce
 // byte-identical results to the original regexes and finish quickly.
-describe("stripMSWord linear-time scrubbing (PR8-5)", () => {
+describe("stripMSWord linear-time scrubbing", () => {
   // small deterministic PRNG so failures are reproducible
   function prng(seed) {
     let x = seed >>> 0;

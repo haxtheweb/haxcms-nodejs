@@ -89,7 +89,7 @@ function replaceWithKnownPrefix(value, sourcePrefixes = [], targetPrefix = '') {
       // ensure the path to the new folder is valid
       // recurseCopy preserves theme/ and custom/ directories automatically,
       // so user-customized files such as theme.css, theme.html, and custom.es6.js are retained
-      // Security (N1/N5 parity): recurseCopy refuses traversal / escaping
+      // Security (SEC-PATH), PHP parity: recurseCopy refuses traversal / escaping
       // destinations; never continue to load/rewrite a clone that wasn't made.
       const copied = await HAXCMS.recurseCopy(
           HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.name,

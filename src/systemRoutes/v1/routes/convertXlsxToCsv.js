@@ -2,7 +2,7 @@
 // replaces xlsx@0.18.5 (npm) which has prototype pollution + ReDoS with NO npm fix
 const XLSX = require("../../../lib/vendor/xlsx/xlsx.js");
 const fs = require("fs-extra");
-// Security (L1): client-safe exception text (no paths / stack internals)
+// Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 // eslint-disable-next-line no-unused-vars -- unused; kept until the owner confirms it is dead

@@ -38,7 +38,7 @@ async function loginRoute(req, res) {
     }
     attempt.clear();
     // set a refresh_token COOKIE that will ship w/ all calls automatically
-    // Security (HAX-SEC / PHP [M3] parity): use the centralized helper so
+    // Security (SEC-SESSION), PHP parity: use the centralized helper so
     // Secure/SameSite/HttpOnly/path flags are consistent at every call site.
     HAXCMS.setRefreshTokenCookie(
       res,
@@ -150,7 +150,7 @@ function getRevalidatedUser(req) {
   if (
     decoded &&
     typeof decoded.id === "string" &&
-    // Security (L-7, PHP parity): constant-time, type-strict compare.
+    // Security (SEC-SESSION), PHP parity: constant-time, type-strict compare.
     HAXCMS.safeStringCompare(HAXCMS.getRequestToken("user"), decoded.id) &&
     decoded.user &&
     HAXCMS.validateUser(decoded.user)

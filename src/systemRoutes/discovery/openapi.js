@@ -1,6 +1,6 @@
 const fs = require("node:fs/promises");
 const yaml = require("js-yaml");
-// Security (L1): client-safe exception text (no paths / stack internals)
+// Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../lib/clientErrorMessage.js");
 
 function getRequestPath(req) {

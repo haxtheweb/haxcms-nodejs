@@ -348,7 +348,7 @@ describe('HAXCMSFile.downloadAndSaveFile', () => {
     assert.equal(fs.existsSync(tooBig), false)
   })
 
-  test('does not follow redirects (HAX-SEC-007 posture kept)', async (t) => {
+  test('does not follow redirects (max_redirects=0, PHP parity)', async (t) => {
     const srv = await startServer((req, res) => {
       res.writeHead(302, { location: 'http://169.254.169.254/latest/meta-data/' })
       res.end()

@@ -113,7 +113,7 @@ function decodeLLMSEntities(text = "") {
   );
 }
 const SITE_FILE_NAME = "site.json";
-// Security (H1 rotation): grace window in seconds during which the immediately
+// Security (SEC-SESSION): grace window in seconds during which the immediately
 // previous refresh-token jti is still accepted, so concurrent multi-tab
 // refreshes don't mutually invalidate. Mirrors PHP HAXCMS_REFRESH_GRACE_SECONDS.
 const HAXCMS_REFRESH_GRACE_SECONDS = 30;
@@ -214,7 +214,7 @@ const {
 const { materializeInlineImages } = require("./materializeInlineImages.js");
 const { applyPageMetadata, toPlainText } = require("./sanitizePageMetadata.js");
 const exec = util.promisify(child_process.exec);
-// Security (I3, 2026-10-19 audit): argument-array git calls (no shell string)
+// Security (SEC-EXEC): argument-array git calls (no shell string)
 const execFile = util.promisify(child_process.execFile);
 const turndownService = new TurndownService();
 turndownService.keep(function (node) {
@@ -250,7 +250,7 @@ Twig.extendFunction("constant", function constantLookup(name) {
   return null;
 });
 /**
- * Security (HAX-SEC-006 / PR8-3): sanitize a git commit message to a
+ * Security (SEC-EXEC): sanitize a git commit message to a
  * conservative form before it reaches git-interface, which string-splits the
  * command and only escapes single quotes. Shared by gitCommit() and the
  * initial newSite() commit so site titles cannot inject git arguments.
@@ -268,11 +268,11 @@ function sanitizeGitCommitMessage(msg) {
   }
   return safeMsg;
 }
-// Security (PR8-3): branch names must start alphanumeric (no leading `-` so
+// Security (SEC-EXEC): branch names must start alphanumeric (no leading `-` so
 // they can never be read as a git option) and use only safe characters.
 const GIT_BRANCH_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._\-/]*$/;
 /**
- * Security (PR8-3): a git remote URL is only accepted when it is https:// or
+ * Security (SEC-EXEC): a git remote URL is only accepted when it is https:// or
  * scp-style git@host:path, contains no whitespace / quotes / backslashes /
  * control characters (git-interface splits commands on whitespace), and does
  * not use the ext:: transport (arbitrary command execution) anywhere.
@@ -372,8 +372,8 @@ function siteGitScope(dir) {
   return "none";
 }
 /**
- * Security (PR8-6): managed templates that embed the site title/description,
- * and the per-format escaping applied to those two values (same in PHP PR2).
+ * Security (SEC-SANITIZE): managed templates that embed the site title/description,
+ * and the per-format escaping applied to those two values (same in PHP).
  * Twig autoescape stays off for all of them; the values are pre-escaped for
  * their context instead, so `Tom's R&D` stays literal in JSON/markdown:
  *  - json: escaped as JSON string contents (JSON.stringify(v).slice(1, -1))
@@ -387,7 +387,7 @@ const MANAGED_TEMPLATE_TEXT_FORMATS = {
   "llms.txt": "text",
 };
 /**
- * Security (PR8-6) parity contract with PHP (PR2): before rendering managed
+ * Security (SEC-SANITIZE): parity contract with PHP: before rendering managed
  * JSON/XML, title/description have CR, LF and TAB replaced by a space and every
  * other control character (U+0000-U+001F, U+007F) and every backslash
  * dropped. html autoescape does not touch these, and a raw newline or `\`
@@ -401,7 +401,7 @@ function sanitizeManagedTemplateText(value) {
   return value.replace(/[\r\n\t]/g, " ").replace(/[\x00-\x1f\x7f\\]/g, "");
 }
 /**
- * Security (PR8-6): escape an already rule-sanitized title/description for
+ * Security (SEC-SANITIZE): escape an already rule-sanitized title/description for
  * the managed template format ('json' | 'xml' | 'text').
  */
 function escapeManagedTemplateText(value, format) {
@@ -418,7 +418,7 @@ function escapeManagedTemplateText(value, format) {
   return text;
 }
 /**
- * Security (PR8-6): template variables for one managed file: title and
+ * Security (SEC-SANITIZE): template variables for one managed file: title and
  * description escaped for that file's format, everything else unchanged.
  */
 function managedTemplateVarsFor(fileName, templateVars) {
@@ -455,7 +455,7 @@ class HAXCMSSite {
     tmpname = HAXCMS.cleanTitle(tmpname, false);
     this.basePath = siteBasePath;
     this.directory = directory;
-    // Security (code-scanning js/path-injection): the site name comes from
+    // Security (SEC-PATH): the site name comes from
     // the request; prove the site folder resolves strictly inside the sites
     // directory before any file system access (cleanTitle already strips
     // "..", this makes the containment explicit and verifiable)
@@ -515,7 +515,7 @@ class HAXCMSSite {
       }
     }
     tmpname = newName;
-    // Security (code-scanning js/path-injection): the new site folder must
+    // Security (SEC-PATH): the new site folder must
     // resolve strictly inside the sites directory (see load())
     const sitesRoot = path.resolve(directory);
     // join (not resolve) first so a leading "/" stays relative, as before
@@ -526,7 +526,7 @@ class HAXCMSSite {
     // siteDirectory set so we can discover this and work with it while it's being built
     this.siteDirectory = siteRoot;
     // attempt to shift it on the file system
-    // Security (N1/N5 parity): recurseCopy refuses traversal / escaping
+    // Security (SEC-PATH), PHP parity: recurseCopy refuses traversal / escaping
     // destinations; treat a refusal as a failed site creation (createSite
     // already returns false when newSite does). The sites directory is the
     // containment base, so make sure it exists (copySync used to create it
@@ -818,7 +818,7 @@ class HAXCMSSite {
         directory + "/" + tmpname,
       );
       try {
-        // Security (PR8-3): the site title is user input; run it through the
+        // Security (SEC-EXEC): the site title is user input; run it through the
         // same sanitizer gitCommit() uses before it reaches git-interface.
         // haxtheweb/issues#3191: op-code prefix; a request that creates the
         // site (createSite, an importer) keeps its own op, otherwise siteCreate
@@ -897,7 +897,7 @@ class HAXCMSSite {
   async gitFallbackIdentity(dir) {
     const gitConfigValue = async (key) => {
       try {
-        // Security (I3): execFile with an argument array, matching
+        // Security (SEC-EXEC): execFile with an argument array, matching
         // revisions.js, so no shell ever parses the key.
         const { stdout } = await execFile("git", ["config", key], { cwd: dir });
         return stdout.trim();
@@ -1118,7 +1118,7 @@ class HAXCMSSite {
       hexCode: HAXCMS.HAXCMS_FALLBACK_HEX,
       basePath: this.getPWAScopePath(),
       domain: domain,
-      // Security (PR8-6): see sanitizeManagedTemplateText
+      // Security (SEC-SANITIZE): see sanitizeManagedTemplateText
       title: sanitizeManagedTemplateText(this.manifest.title),
       short: this.manifest.metadata.site.name,
       privateSite:
@@ -1209,7 +1209,7 @@ class HAXCMSSite {
       ) {
         filesize = await fs.statSync(this.siteDirectory + "/index.html").size;
       } else if (
-        // Security (N1/N5 parity): only stat locations contained in the site
+        // Security (SEC-PATH), PHP parity: only stat locations contained in the site
         this.validatePageLocation(item.location) &&
         fs.lstatSync(this.resolvePageLocationRealPath(item.location)).isFile()
       ) {
@@ -1254,7 +1254,7 @@ class HAXCMSSite {
         let output = fs.readFileSync(sourcePath, "utf8");
         if (policy.render) {
           let template = Twig.twig({ data: output, async: false });
-          // Security (PR8-6): title/description pre-escaped per format
+          // Security (SEC-SANITIZE): title/description pre-escaped per format
           // (JSON string / XML / plain text) for the managed files that
           // embed them; see MANAGED_TEMPLATE_TEXT_FORMATS.
           output = template.render(
@@ -1474,7 +1474,7 @@ class HAXCMSSite {
    */
   async gitCommit(msg = "Committed changes", op = "") {
     try {
-      // Security (HAX-SEC-006): sanitize the commit message to a conservative
+      // Security (SEC-EXEC): sanitize the commit message to a conservative
       // allowlist before it reaches git-interface, which string-splits the
       // command (git-interface/dist/index.js:26) and only escapes single
       // quotes. A message containing a quote/control char could break the
@@ -1504,10 +1504,10 @@ class HAXCMSSite {
         this.manifest.metadata.site.git.autoPush &&
         this.manifest.metadata.site.git.branch
       ) {
-        // Security (HAX-SEC-006): validate the branch name against a strict
+        // Security (SEC-EXEC): validate the branch name against a strict
         // pattern before checkout to prevent git argument injection via a
         // configured branch name containing shell/arg metacharacters.
-        // Security (PR8-3): must start alphanumeric so a leading `-` can
+        // Security (SEC-EXEC): must start alphanumeric so a leading `-` can
         // never be parsed as a git option.
         var branch = String(this.manifest.metadata.site.git.branch);
         if (GIT_BRANCH_PATTERN.test(branch)) {
@@ -1572,8 +1572,7 @@ class HAXCMSSite {
    * @var git a stdClass containing repo details
    */
   async gitSetRemote(gitDetails) {
-    // Security (PR8-3): previously referenced an undefined `repo` and always
-    // threw (silently swallowed). Validate the URL before it reaches
+    // Security (SEC-EXEC): validate the URL before it reaches
     // git-interface (which splits the command on whitespace) and use the
     // GitPlus instance. Mirrors PHP set_remote (`git remote add origin`),
     // falling back to `remote set-url` when origin already exists.
@@ -1634,7 +1633,7 @@ class HAXCMSSite {
     let page = new JSONOutlineSchemaItem();
     // support direct ID setting, useful for parent associations calculated ahead of time
     if (id) {
-      // Security (N1/N5 parity): sanitize caller-supplied id before it is
+      // Security (SEC-PATH), PHP parity: sanitize caller-supplied id before it is
       // used to build the on-disk page location (same defense as
       // itemFromParams / PHP HAXCMSSite::addPage), so a crafted id such as
       // `../../othersite` cannot escape the site pages directory.
@@ -2063,7 +2062,7 @@ class HAXCMSSite {
       this.siteDirectory
     ) {
       try {
-        // Security (N1/N5 parity): containment-checked read
+        // Security (SEC-PATH), PHP parity: containment-checked read
         const resolvedLocation = this.resolvePageLocationRealPath(
           item.location,
         );
@@ -2218,7 +2217,7 @@ class HAXCMSSite {
       }
       textData = "";
       try {
-        // Security (N1/N5 parity): read via containment-checked resolver
+        // Security (SEC-PATH), PHP parity: read via containment-checked resolver
         const resolvedLocation = this.resolvePageLocationRealPath(
           item.location,
         );
@@ -2581,7 +2580,7 @@ class HAXCMSSite {
    */
   async getPageContent(page) {
     if (page.location && page.location != "") {
-      // Security (N1/N5 parity): read via the containment-checked resolver
+      // Security (SEC-PATH), PHP parity: read via the containment-checked resolver
       // so a poisoned site.json location cannot read outside the site dir.
       const resolved = this.resolvePageLocationRealPath(page.location);
       if (resolved === false) {
@@ -2601,7 +2600,7 @@ class HAXCMSSite {
     }
   }
   /**
-   * Security (N1/N5 parity): resolve a page location to its real path and
+   * Security (SEC-PATH), PHP parity: resolve a page location to its real path and
    * prove it stays inside this site's directory. Returns false for NUL
    * bytes, `..` segments, missing files, or anything (incl. symlinks) that
    * resolves outside the site. Port of PHP
@@ -2632,7 +2631,7 @@ class HAXCMSSite {
     if (!page || !page.location || page.location == "" || !this.siteDirectory) {
       return false;
     }
-    // Security (N1/N5 parity): sidecars are written beside the page file,
+    // Security (SEC-PATH), PHP parity: sidecars are written beside the page file,
     // so refuse when the page location itself escapes the site directory.
     if (this.resolvePageLocationRealPath(page.location) === false) {
       return false;
@@ -2867,7 +2866,7 @@ class HAXCMSSite {
       params["node"]["id"] != "" &&
       params["node"]["id"] != null
     ) {
-      // Security (N1/N5 parity): sanitize a client-supplied id before
+      // Security (SEC-PATH), PHP parity: sanitize a client-supplied id before
       // composing the on-disk location. generateMachineName strips '..',
       // slashes and NUL bytes (mirrors PHP HAXCMSSite::itemFromParams), so
       // an id such as `../../othertenant` cannot escape the pages dir when
@@ -2907,7 +2906,7 @@ class HAXCMSSite {
       params["metadata"] != "" &&
       params["metadata"] != null
     ) {
-      // Security (SEC-SANITIZE, PHP parity with haxcms-php#704): metadata comes
+      // Security (SEC-SANITIZE), PHP parity: metadata comes
       // straight from the createNode/saveNode request body. Merge it through
       // the same per-field rules addPage() and saveOutline use instead of
       // assigning the request object verbatim (which also aliased the caller's
@@ -4145,7 +4144,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
 
     // write the content to the style guide file
     // Security (SEC-SANITIZE): sanitize the style-guide HTML before writing,
-    // matching saveNode and PHP (SEC-08), so an editor cannot inject <script>
+    // matching saveNode and PHP, so an editor cannot inject <script>
     // into theme/style-guide.html (served to every site visitor).
     const sanitizedContent = sanitizeHTMLForStorage(cleanContent);
     try {
@@ -4186,7 +4185,7 @@ class HAXCMSClass {
     if (!this.user || this.user.name !== "admin") {
       return false;
     }
-    // Security (HAX-SEC-001): a hashed password is never the default 'admin'
+    // Security (SEC-INSTALL): a hashed password is never the default 'admin'
     // credential. Only an unhashed plaintext 'admin' password qualifies.
     if (this.isPasswordHashed(this.user.password)) {
       return false;
@@ -4294,7 +4293,7 @@ class HAXCMSClass {
       name: runtimeCredentialOverride.name,
       password: runtimeCredentialOverride.password,
     };
-    // Security (HAX-SEC-001): do not mutate .user on disk for runtime overrides
+    // Security (SEC-INSTALL): do not mutate .user on disk for runtime overrides
     // (testing/orchestration). The in-memory plaintext is still verified
     // correctly by verifyStoredPassword's legacy plaintext path.
     this.credentialsLoadedFromDisk = false;
@@ -4304,7 +4303,7 @@ class HAXCMSClass {
     return crypto.randomBytes(16).toString("hex");
   }
   /**
-   * Security (HAX-SEC-001): hash a plaintext password with scrypt (NIST-approved
+   * Security (SEC-INSTALL): hash a plaintext password with scrypt (NIST-approved
    * KDF, Node built-in — no new dependency). Stored format:
    *   scrypt$<saltHex>$<hashHex>
    * The salt and hash hex alphabet contains no shell/regex metacharacters.
@@ -4330,7 +4329,7 @@ class HAXCMSClass {
     return "scrypt$" + salt.toString("hex") + "$" + hash.toString("hex");
   }
   /**
-   * Security (HAX-SEC-001): return true if a stored credential is a scrypt hash
+   * Security (SEC-INSTALL): return true if a stored credential is a scrypt hash
    * (vs legacy plaintext). Used by verifyStoredPassword to pick the verify
    * path and by hasDefaultCredentials to skip hashed values.
    */
@@ -4338,7 +4337,7 @@ class HAXCMSClass {
     return typeof stored === "string" && stored.indexOf("scrypt$") === 0;
   }
   /**
-   * Security (HAX-SEC-001): verify a submitted password against a stored
+   * Security (SEC-SESSION): verify a submitted password against a stored
    * credential, transparently supporting both hashed (scrypt$) and legacy
    * plaintext storage. A stored value is treated as a hash when it starts with
    * 'scrypt$'; otherwise it is compared in constant time as plaintext. Mirrors
@@ -4385,7 +4384,7 @@ class HAXCMSClass {
     return this.safeStringCompare(stored, submitted);
   }
   /**
-   * Security (HAX-SEC-001 / migration): opportunistically re-hash and persist a
+   * Security (SEC-SESSION, SEC-INSTALL): opportunistically re-hash and persist a
    * legacy plaintext password from .user as a scrypt hash on the first
    * successful plaintext login. Best-effort and non-fatal: if .user is
    * read-only the login still succeeds and the value remains plaintext until it
@@ -4477,7 +4476,7 @@ class HAXCMSClass {
       ),
     };
   }
-  // Security (F3): rate-limit settings for authenticated file-mutation
+  // Security (SEC-RATELIMIT): rate-limit settings for authenticated file-mutation
   // operations (createFile/updateFile/deleteFile). Mirrors
   // getLoginRateLimitSettings shape but uses `max` (count window) instead of
   // `maxAttempts` (failed-credit block). Defaults (500 ops / 5 min, 5-min
@@ -4619,7 +4618,7 @@ class HAXCMSClass {
       if (typeof this.config.security.trustProxy !== "undefined") {
         return this.normalizeTrustProxyValue(this.config.security.trustProxy);
       }
-      // PHP parity (M2): honor config.security.trustedProxies (array of proxy
+      // Security (SEC-HEADERS), PHP parity: honor config.security.trustedProxies (array of proxy
       // IPs). When set, Express trusts forwarded headers only from those peers,
       // matching PHP's resolveClientIP trusted-proxy allowlist. This keeps
       // config.json portable across both backends.
@@ -4687,7 +4686,7 @@ class HAXCMSClass {
     );
     return false;
   }
-  // PHP parity (M4): read the allowed-host allowlist from
+  // Security (SEC-HEADERS), PHP parity: read the allowed-host allowlist from
   // config.security.allowedHosts (array of host strings, may include port).
   // When empty, host-header validation is not applied (existing behavior
   // preserved). Used by getRequestAbsoluteUrl to validate Host /
@@ -4715,7 +4714,7 @@ class HAXCMSClass {
     }
     return hosts;
   }
-  // PHP parity (M4): resolve the request protocol, trusting X-Forwarded-Proto
+  // Security (SEC-HEADERS), PHP parity: resolve the request protocol, trusting X-Forwarded-Proto
   // only when behind a configured trusted proxy. Shared by getRequestAbsoluteUrl
   // (app.js) and both discovery API endpoints so all response-URL construction
   // uses one trust-proxy-aware implementation and cannot drift apart. Mirrors
@@ -4738,7 +4737,7 @@ class HAXCMSClass {
     }
     return "http";
   }
-  // PHP parity (M4): resolve the request Host, trusting X-Forwarded-Host only
+  // Security (SEC-HEADERS), PHP parity: resolve the request Host, trusting X-Forwarded-Host only
   // when behind a configured trusted proxy, and validating against
   // config.security.allowedHosts when set (falling back to the first allowed
   // host on mismatch). When no allowlist is configured, the header value is
@@ -4788,11 +4787,11 @@ class HAXCMSClass {
     }
     return defaultOrigin;
   }
-  // Security (HAX-SEC-011): write a secret file with mode 0o600 on POSIX
+  // Security (SEC-INSTALL): write a secret file with mode 0o600 on POSIX
   // systems so the JWT signing key, refresh key, salt, and hashed admin
   // password are not group/world-readable. On Windows, POSIX modes are ignored
-  // so the mode option is omitted (the file is still created). Since 1b (API
-  // key encryption) is deferred for parity, this is the primary at-rest
+  // so the mode option is omitted (the file is still created). API keys are not
+  // encrypted at rest (PHP parity), so this is the primary at-rest
   // protection for the shared apiKeys.json alongside the web-serving block.
   writeSecretFile(filePath, data) {
     if (process.platform === "win32") {
@@ -4856,7 +4855,7 @@ class HAXCMSClass {
     log("\n***************************************************************");
     return wroteFile ? passwordFile : null;
   }
-  // Security (HAX-SEC-011): best-effort chmod of an existing secret file to
+  // Security (SEC-INSTALL): best-effort chmod of an existing secret file to
   // 0o600. Covers files created by a previous version that used the default
   // umask. Non-fatal: failures (read-only fs, locked-down env) are swallowed.
   // Skipped on Windows where POSIX modes are ignored.
@@ -4878,7 +4877,7 @@ class HAXCMSClass {
     this.developerModeAdminOnly = false;
     this.cliWritePath = null;
     this.cdn = "./";
-    // Security (HAX-SEC-001): tracks whether credentials came from .user on disk
+    // Security (SEC-INSTALL): tracks whether credentials came from .user on disk
     // (true) or were seeded/runtime-overridden (false). Controls whether
     // maybeUpgradePlaintextPassword is allowed to rewrite .user on next login.
     this.credentialsLoadedFromDisk = false;
@@ -5140,13 +5139,13 @@ class HAXCMSClass {
         "utf8",
       );
       this.superUser = { ...this.user };
-      // Security (HAX-SEC-001): credentials loaded from disk — allow lazy
+      // Security (SEC-INSTALL): credentials loaded from disk — allow lazy
       // plaintext-to-hash migration on next successful login.
       this.credentialsLoadedFromDisk = true;
     } catch {
       // create a default user with secure random password
       const seededPassword = this.generateSecurePassword();
-      // Security (HAX-SEC-001): store a scrypt hash, never the plaintext. The
+      // Security (SEC-INSTALL): store a scrypt hash, never the plaintext. The
       // plaintext is handed off once below (SEC-DEPLOY: 0600 file, stderr only
       // on a TTY) so the admin can capture it; only the hash is persisted to
       // .user. Mirrors PHP install.php:360.
@@ -5176,7 +5175,7 @@ class HAXCMSClass {
         }
       }
     }
-    // Security (HAX-SEC-011): tighten permissions on existing secret files to
+    // Security (SEC-INSTALL): tighten permissions on existing secret files to
     // 0o600 (best-effort, POSIX only). Covers files created by a previous
     // version that used the default umask, so a deploy upgrading to this version
     // gets the restricted mode without a manual chmod.
@@ -5582,7 +5581,7 @@ class HAXCMSClass {
     return allow;
   }
   /**
-   * Security (SEC-SESSION, PHP F2/IDOR-001 parity): object-level
+   * Security (SEC-ROUTE), PHP parity: object-level
    * authorization on a named site. Port of PHP userCanAccessSite.
    * - Non-IAM: any authenticated user can access any existing site.
    * - HAXiam: the site must exist within the authenticated user's sites
@@ -5645,7 +5644,7 @@ class HAXCMSClass {
     return false;
   }
   getRequestToken(value = "") {
-    // Security (L-3, PHP parity): domain-separated key. JWTs are signed with
+    // Security (SEC-SESSION), PHP parity: domain-separated key. JWTs are signed with
     // privateKey + salt directly; request tokens use a key derived from it
     // (hex HMAC-SHA256 of 'haxcms-request-token') so the same secret never
     // MACs two different kinds of message. Mirrors PHP getRequestToken.
@@ -6469,7 +6468,7 @@ class HAXCMSClass {
     if (
       request != false &&
       request.id &&
-      // Security (L-7, PHP parity): constant-time, type-strict compare.
+      // Security (SEC-SESSION), PHP parity: constant-time, type-strict compare.
       typeof request.id === "string" &&
       this.safeStringCompare(this.getRequestToken("user"), request.id) &&
       request.user &&
@@ -6502,7 +6501,7 @@ class HAXCMSClass {
   decodeJWT(key) {
     // if it can decode, it'll be an object, otherwise it's false
     try {
-      // Security (PHP parity): clockTolerance gives 60s leeway on exp/nbf
+      // Security (SEC-SESSION), PHP parity: clockTolerance gives 60s leeway on exp/nbf
       // so tokens issued near a boundary still validate. jsonwebtoken
       // validates exp/nbf automatically; the iat-in-future check below mirrors
       // PHP's validateAccessTokenClaims (HAXCMS.php:1793-1820).
@@ -6523,7 +6522,7 @@ class HAXCMSClass {
   }
   /**
    * Get user's Refresh Token.
-   * Security (H1 rotation): when storeRefreshSession=true the token is given a
+   * Security (SEC-SESSION): when storeRefreshSession=true the token is given a
    * `family` (per login session) and `jti` (per issuance) and the jti hash is
    * recorded server-side so a stolen old refresh token can be invalidated by
    * the next rotation / logout. Mirrors PHP getRefreshToken/createRefreshSession.
@@ -6627,7 +6626,7 @@ class HAXCMSClass {
     return false;
   }
   /**
-   * Security (L-2, PHP parity): Secure flag decision for the refresh cookie.
+   * Security (SEC-SESSION), PHP parity: Secure flag decision for the refresh cookie.
    * TRUE when NODE_ENV=production, when the request is HTTPS (via
    * resolveTrustedProtocol, which only honours X-Forwarded-Proto behind a
    * configured trusted proxy), or when config.security.forceSecureCookie is
@@ -6648,7 +6647,7 @@ class HAXCMSClass {
     );
   }
   /**
-   * PHP parity (M3): centralized refresh-token cookie helper so Secure /
+   * Security (SEC-SESSION), PHP parity: centralized refresh-token cookie helper so Secure /
    * SameSite / HttpOnly / path flags are consistent across every set and
    * clear site (login, logout, refresh, validateRefreshToken clears).
    * Secure follows refreshCookieShouldBeSecure (production, HTTPS request,
@@ -6672,7 +6671,7 @@ class HAXCMSClass {
     res.cookie("haxcms_refresh_token", value, options);
   }
   /**
-   * Security (H1 rotation + SEC-SESSION): refresh-session store. A
+   * Security (SEC-SESSION): refresh-session store. A
    * file-backed JSON under the protected _config/settings directory. Only
    * SHA-256 hashes of jti are stored, never raw token ids. This lets refresh
    * rotate the token (a stolen old copy dies on the legitimate user's next
@@ -7164,7 +7163,7 @@ class HAXCMSClass {
    * Security (SEC-SESSION): config.security.requireSessionForRequestTokens,
    * overridable by env HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS (truthy:
    * 1/true/yes; any other non-empty value means false).
-   * Security (L-3, PHP parity): default TRUE now that the front-end
+   * Security (SEC-SESSION), PHP parity: default TRUE now that the front-end
    * (jwt-login / session-request-tokens.js) picks up the tokens returned by
    * login, refresh and connection-test, so anonymous connection-settings
    * callers no longer receive request tokens. Opt out with config false or a
@@ -7201,7 +7200,7 @@ class HAXCMSClass {
    *      JS payload).
    *   2. caller authenticated (valid bearer, or a refresh cookie that passes
    *      the session store check) -> include.
-   *   3. requireSessionForRequestTokens is true (the default, L-3) -> omit;
+   *   3. requireSessionForRequestTokens is true (the default) -> omit;
    *      the front-end picks tokens up from login/refresh/connection-test.
    *   4. otherwise (explicit opt-out) -> include (legacy behaviour).
    * Returns { include, authenticatedUser, reason }.
@@ -7367,7 +7366,7 @@ class HAXCMSClass {
     return tokens;
   }
   /**
-   * Security (EXPRESS-CSRF-001 / M1 + SEC-SESSION): same-origin gate for the
+   * Security (SEC-SESSION): same-origin gate for the
    * cookie-authenticated, state-changing session endpoints (session/refresh
    * and session/connection-test, which both rotate the refresh cookie).
    * - Sec-Fetch-Site: 'cross-site' is always rejected when the browser sends it.
@@ -7465,7 +7464,7 @@ class HAXCMSClass {
       if (
         decoded &&
         decoded.id &&
-        // Security (L-7, PHP parity): constant-time, type-strict compare.
+        // Security (SEC-SESSION), PHP parity: constant-time, type-strict compare.
         typeof decoded.id === "string" &&
         this.safeStringCompare(this.getRequestToken("user"), decoded.id) &&
         decoded.user &&
@@ -7525,7 +7524,7 @@ class HAXCMSClass {
       this.safeStringCompare(this.user.name, name) &&
       this.verifyStoredPassword(this.user.password, pass)
     ) {
-      // Security (HAX-SEC-001): migrate legacy plaintext to a scrypt hash
+      // Security (SEC-SESSION, SEC-INSTALL): migrate legacy plaintext to a scrypt hash
       // on the first successful plaintext login (best-effort, skips
       // runtime overrides). Mirrors PHP testLogin (HAXCMS.php:1754-1787).
       this.maybeUpgradePlaintextPassword("user", pass);
@@ -7553,7 +7552,7 @@ class HAXCMSClass {
    * Recursive copy to rename high level but copy all files
    */
   async recurseCopy(src, dst, _skip = [], base) {
-    // Security (N1/N5 parity): reject traversal in the destination before
+    // Security (SEC-PATH), PHP parity: reject traversal in the destination before
     // creating anything (mirrors PHP HAXCMSSite::recurseCopy). NUL bytes
     // and any `..` segment are refused; when the caller supplies the
     // directory the copy must land in (e.g. the site directory) the

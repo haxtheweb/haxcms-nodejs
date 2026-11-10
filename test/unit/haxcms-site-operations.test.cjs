@@ -1365,7 +1365,7 @@ test("rebuildManagedFiles re-renders the managed template set", async () => {
   assert.ok(indexHtml.indexOf("<") !== -1);
 });
 
-// Security (PR8-6): a malicious site title/description must not break the
+// Security (SEC-SANITIZE): a malicious site title/description must not break the
 // managed JSON/XML files or inject keys/elements, and ordinary punctuation
 // must stay literal (no HTML entities in JSON / llms.txt).
 test("rebuildManagedFiles keeps manifest.json / package.json / imsmanifest.xml well-formed with a malicious title", async () => {

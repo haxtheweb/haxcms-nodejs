@@ -215,8 +215,8 @@ class JSONOutlineSchema {
   // removed findChildenRecursively(): an unfinished stub with no callers whose
   // body referenced undeclared item/children/currentItems/idList/found/sorted
   // (strict-mode ReferenceErrors). findBranch() above covers the use case.
-  // Security (I4, 2026-10-19 audit): removed the unused getContentById(),
-  // which fetch()ed a manifest-derived location with no SSRF guard. Page
+  // Security (SEC-SSRF): there is no getContentById() that fetch()es a
+  // manifest-derived location without the SSRF guard. Page
   // content is read from disk via HAXCMSSite.getPageContent().
   /**
    * Save data back to the file system location

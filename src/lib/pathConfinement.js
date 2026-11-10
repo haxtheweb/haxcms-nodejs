@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 /**
- * Security (N1/N5 parity): path confinement helpers for page locations.
+ * Security (SEC-PATH), PHP parity: path confinement helpers for page locations.
  *
  * Mirrors the PHP hardening in JSONOutlineSchemaItem.php (haxcmsPathWithinBase,
  * readLocation/writeLocation) and HAXCMSSite.php (resolvePageLocationRealPath,

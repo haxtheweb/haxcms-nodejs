@@ -69,7 +69,7 @@ jobs:
           path: coverage/lcov.info
           if-no-files-found: ignore
       - name: Dependency audit (blocking, runtime deps, level >= high)
-        # Security (HAX-SEC-010, haxtheweb/issues#3092): fail CI on high /
+        # Security (SEC-DEPLOY, haxtheweb/issues#3092): fail CI on high /
         # critical advisories in runtime dependencies. This repo's lockfile is
         # yarn.lock (package-lock.json is gitignored), so `npm audit --omit=dev`
         # cannot run here (ENOLOCK); `yarn audit --groups dependencies` (Yarn 1)

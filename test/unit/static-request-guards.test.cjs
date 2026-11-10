@@ -1,7 +1,7 @@
 "use strict";
 
-// Unit tests for src/lib/staticRequestGuards.js (HAX-SEC-STATIC-DOTFILES /
-// HAX-SEC-LOCAL-ORIGIN): decoded-path dotfile decisions, ".." refusal, strict
+// Unit tests for src/lib/staticRequestGuards.js (SEC-STATIC-DOTFILES,
+// SEC-LOCAL-ORIGIN): decoded-path dotfile decisions, ".." refusal, strict
 // bypass flag parsing, and the local-mode cross-site write guard.
 //
 // Constraints honored: CommonJS (.cjs), require(), NO optional chaining,

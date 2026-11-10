@@ -30,7 +30,7 @@ function getCustomSslCerts() {
 
 function isMkcertAvailable() {
   try {
-    // Security (PR8-7): argv arrays via execFileSync, never a shell string.
+    // Security (SEC-EXEC): argv arrays via execFileSync, never a shell string.
     child_process.execFileSync('mkcert', ['--version'], { stdio: 'ignore' });
     return true;
   } catch {
@@ -60,7 +60,7 @@ function generateMkcertCerts() {
     // -install may already be done or may fail silently; continue to cert generation
   }
   try {
-    // Security (PR8-7): SSL_DIR derives from the discovered config path, which
+    // Security (SEC-EXEC): SSL_DIR derives from the discovered config path, which
     // may contain shell metacharacters; pass paths as argv, not via a shell.
     child_process.execFileSync(
       'mkcert',
@@ -110,7 +110,7 @@ IP.2 = ::1
 `;
   fs.writeFileSync(configPath, sanConfig.trim());
   try {
-    // Security (PR8-7): argv array via execFileSync, no shell interpolation.
+    // Security (SEC-EXEC): argv array via execFileSync, no shell interpolation.
     child_process.execFileSync(
       'openssl',
       ['req', '-x509', '-nodes', '-days', '365', '-newkey', 'rsa:2048', '-keyout', KEY_PATH, '-out', CERT_PATH, '-config', configPath],
