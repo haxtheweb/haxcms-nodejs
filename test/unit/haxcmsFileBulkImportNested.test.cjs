@@ -9,7 +9,7 @@
 // so Gitbook/Notion sub-folder image keys imported correctly on PHP but landed
 // in a flattened, broken-reference state on Node. These tests pin the parity
 // fix: nested keys round-trip to a nested on-disk path + files.json entity,
-// flat keys still land flat (no regression), and SEC-18 traversal/null-byte/
+// flat keys still land flat (no regression), and SEC-PATH traversal/null-byte/
 // absolute-dirname injection is rejected at the save() layer (a second line of
 // defense behind normalizeBulkImportName's own gate).
 //
@@ -187,7 +187,7 @@ describe('HAXCMSFile.save bulk-import nested directory preservation — #3064 Wo
     assert.deepEqual(page.metadata.files, [entity.getUuid()])
   })
 
-  // --- SEC-18: save() rejects traversal / null-byte / absolute dirnames even
+  // --- SEC-PATH: save() rejects traversal / null-byte / absolute dirnames even
   // when called directly (second line of defense behind normalizeBulkImportName) ---
 
   test('save() rejects a bulk-import name with a traversal dirname', async () => {

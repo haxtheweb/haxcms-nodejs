@@ -20,7 +20,7 @@ function getApiBasePath(requestPath = '') {
 }
 
 function getAbsoluteApiBase(req, apiBasePath) {
-  // Security (HAX-SEC / PHP [M4] parity): delegate to the shared trust-proxy-
+  // Security (SEC-HEADERS), PHP parity: delegate to the shared trust-proxy-
   // aware + allowedHosts-validated helpers on HAXCMS so this endpoint cannot be
   // used for host-header injection into the absoluteLinks response field.
   // X-Forwarded-* are trusted only behind a configured trusted proxy and the

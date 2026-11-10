@@ -9,7 +9,7 @@
 // Settings are passed in by callers (resolved from HAXCMS.getLoginRateLimitSettings())
 // so this module stays free of configuration and circular dependencies.
 //
-// Security (HAX-SEC-003): the store is process-local and in-memory. Entries are
+// Security (SEC-RATELIMIT, SEC-DOS): the store is process-local and in-memory. Entries are
 // pruned lazily (on access) and capped at MAX_TRACKED_KEYS to bound memory — an
 // attacker rotating usernames/IPs cannot grow it without limit. For multi-
 // instance deployments, a Redis-backed store can be dropped in behind the same
@@ -20,7 +20,7 @@ const failedLoginTracker = {};
 const DEFAULT_MAX_TRACKED_KEYS = 10000;
 let MAX_TRACKED_KEYS = DEFAULT_MAX_TRACKED_KEYS;
 
-// Security (HAX-SEC-003): remove entries whose block has expired AND whose
+// Security (SEC-RATELIMIT, SEC-DOS): remove entries whose block has expired AND whose
 // window has elapsed. Called lazily on new-entry creation so the map cannot
 // grow without bound. Never drops an entry that is still actively blocking.
 function pruneExpiredEntries(now, settings) {
@@ -41,7 +41,7 @@ function pruneExpiredEntries(now, settings) {
 }
 
 function getClientIP(req) {
-  // Security (HAX-SEC-009 / PHP [M2] parity): rely solely on req.ip, which
+  // Security (SEC-HEADERS, SEC-RATELIMIT), PHP parity: rely solely on req.ip, which
   // honors the app's configured `trust proxy` setting (fed from
   // config.security.trustedProxies via HAXCMS.getTrustProxySetting). Do NOT
   // trust the raw x-forwarded-for header directly — a spoofable XFF lets an
@@ -152,7 +152,7 @@ function getLoginAttempt(req, username, now, settings) {
 function getTrackerEntry(key, now, settings) {
   let entry = failedLoginTracker[key];
   if (!entry) {
-    // Security (HAX-SEC-003): prune expired entries and enforce a hard cap on
+    // Security (SEC-RATELIMIT, SEC-DOS): prune expired entries and enforce a hard cap on
     // total tracked keys to bound memory. An attacker rotating usernames/IPs
     // could otherwise grow failedLoginTracker without limit (DoS).
     pruneExpiredEntries(now, settings);

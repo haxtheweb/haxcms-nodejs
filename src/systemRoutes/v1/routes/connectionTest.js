@@ -35,7 +35,7 @@ function getValidatedJWTFromRefresh(req, res) {
   if (!validUser) {
     return null;
   }
-  // Security (H1 rotation + SEC-SESSION): reject a revoked/stolen/unknown
+  // Security (SEC-SESSION): reject a revoked/stolen/unknown
   // refresh family before minting an access token. Only legacy tokens that
   // carry NO family claim are accepted without a store entry.
   if (!HAXCMS.validateRefreshSession(validRefresh.user, validRefresh.family, validRefresh.jti, validRefresh.iat)) {
@@ -142,7 +142,7 @@ async function connectionTest(req, res) {
   }
 
   if (!jwt) {
-    // Security (HAX-SEC / PHP [M3] parity): clear via the centralized helper so
+    // Security (SEC-SESSION), PHP parity: clear via the centralized helper so
     // the Secure/SameSite/HttpOnly flags match how the cookie was set (required
     // for the browser to actually delete it).
     HAXCMS.setRefreshTokenCookie(res, '', 1);

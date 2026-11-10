@@ -320,7 +320,7 @@ describe("refreshAccessToken", () => {
   });
 
   test("a mismatched Origin scheme alone is NOT rejected (host-only comparison)", async (t) => {
-    // Security (SEC-SESSION, PHP parity): the scheme is not compared, so a
+    // Security (SEC-SESSION), PHP parity: the scheme is not compared, so a
     // TLS-terminating proxy without trusted-proxy config (server sees http,
     // browser sends https Origin) does not produce false 403s
     mockTrustedOrigin(t);

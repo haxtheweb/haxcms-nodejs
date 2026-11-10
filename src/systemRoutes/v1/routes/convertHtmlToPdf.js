@@ -60,7 +60,7 @@ async function convertHtmlToPdf(req, res) {
     }
 
     const rawBase = req.body && req.body.base ? String(req.body.base) : "/";
-    // Security (EXPRESS-XSS-001 / L4): validate the base field as an http(s)
+    // Security (SEC-SANITIZE): validate the base field as an http(s)
     // URL before injecting it into the PDF's <base> tag so a crafted value
     // cannot break the attribute quoting. Falls back to '/' for empty or
     // non-http(s) values rather than 400ing, so existing callers that pass a

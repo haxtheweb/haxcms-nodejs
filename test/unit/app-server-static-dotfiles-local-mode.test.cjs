@@ -3,9 +3,9 @@
 // In-process integration tests that boot the real server from src/app.js in
 // MULTI-SITE local mode (HAXCMS_DISABLE_JWT_CHECKS=true) and drive raw HTTP
 // requests (no client-side path normalization) to confirm:
-// - HAX-SEC-STATIC-DOTFILES: a site's .git cannot be reached through
+// - SEC-STATIC-DOTFILES: a site's .git cannot be reached through
 //   /.well-known/.. (raw or percent-encoded) while .well-known still serves.
-// - HAX-SEC-LOCAL-ORIGIN: cross-site writes are refused in local mode while
+// - SEC-LOCAL-ORIGIN: cross-site writes are refused in local mode while
 //   same-origin and header-less (CLI) requests still work.
 //
 // Server-boot discipline honored: ephemeral port only (PORT=0), temp runtime

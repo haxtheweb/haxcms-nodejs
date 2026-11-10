@@ -1,13 +1,13 @@
-// Security (HAX-SEC-STATIC-DOTFILES / HAX-SEC-LOCAL-ORIGIN): pure request
+// Security (SEC-STATIC-DOTFILES, SEC-LOCAL-ORIGIN): pure request
 // guards shared by the static file handlers and the no-login (local mode)
 // middleware in src/app.js. Kept dependency-free so they can be unit tested
 // without booting the server.
 //
 // 1. Static dotfiles. `res.sendFile` is told `dotfiles: "allow"` so that
 //    `/.well-known/*` (security.txt, api-catalog, agent-skills) can be served.
-//    That decision used to be made with a regex on the RAW url, so
-//    `/.well-known/../.git/config` (or `%2e%2e`) matched, `send` normalized the
-//    path afterwards, and `.git` was served. Every decision here is made on
+//    That decision must never be made with a regex on the RAW url:
+//    `/.well-known/../.git/config` (or `%2e%2e`) would match, `send` normalizes the
+//    path afterwards, and `.git` would be served. Every decision here is made on
 //    the DECODED path split into segments, and any `..` segment is refused.
 //
 // 2. Local mode cross-site writes. With HAXCMS_DISABLE_JWT_CHECKS every

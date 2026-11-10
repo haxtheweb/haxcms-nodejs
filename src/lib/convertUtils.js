@@ -67,7 +67,7 @@ async function convertHtmlToDocxBuffer(html, imageOptions) {
 }
 
 /**
- * Security (PR8-5): remove every non-overlapping `open ... close` span
+ * Security (SEC-DOS): remove every non-overlapping `open ... close` span
  * (shortest match, like a lazy regex) in linear time. When an opener has no
  * closer after it, no later opener can have one either, so scanning stops and
  * the remainder is kept verbatim (same result as the regex, which leaves
@@ -92,7 +92,7 @@ function stripDelimitedSpans(input, open, close) {
 }
 
 /**
- * Security (PR8-5): linear-time equivalent of a global lazy regex shaped
+ * Security (SEC-DOS): linear-time equivalent of a global lazy regex shaped
  *   OPEN gap1 TOKEN1 gap2 TOKEN2 ...
  * where every gap is a lazy "anything" (`(\s|.)*?` / `[\s\S]*?` / `[^>]*`
  * before `>`), or a lazy `.*?` that cannot cross a line terminator
@@ -216,12 +216,12 @@ function stripMSWord(input) {
     .split("\n")
     .join(" ")
     .replace(/( class=")?Mso[a-zA-Z]+(")?/g, "");
-  // Security (PR8-5): the previous /<!--(\s|.)*?-->/ and /<!\?(\s|.)*?>/
-  // regexes were O(n^2) on many unterminated openers (180 KB of `<!--` took
+  // Security (SEC-DOS): lazy regexes like /<!--(\s|.)*?-->/ and /<!\?(\s|.)*?>/
+  // are O(n^2) on many unterminated openers (180 KB of `<!--` took
   // ~60 s, blocking the event loop). Same semantics, linear time.
   output = stripDelimitedSpans(output, "<!--", "-->");
   output = stripDelimitedSpans(output, "<!?", ">");
-  // Security (PR8-5): every lazy "opener ... closer" pattern below that can
+  // Security (SEC-DOS): every lazy "opener ... closer" pattern below that can
   // see many openers without a closer is routed through lazySequenceReplace
   // (linear) instead of a backtracking regex. Comments name the original.
   // was: /<(\/)*(meta|link|...|v:)(\s|.)*?>/gim -> ''
@@ -676,7 +676,7 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
   }
   let browser = null;
   try {
-    // Security (L3): enable Chromium's OS-level sandbox when not running as
+    // Security (SEC-EXEC): enable Chromium's OS-level sandbox when not running as
     // root. --no-sandbox is only required for containerized/CI runs as root
     // where the setuid sandbox cannot engage; production should run Chrome as
     // a non-root user so the sandbox is active. Keeping the root branch
@@ -699,7 +699,7 @@ async function htmlToPdfBuffer(html, base = "/", imageOptions) {
     // <object>, fonts, anything the inlining pass did not cover).
     await installPdfRequestFilter(page);
     if (base && base !== "/") {
-      // Security (L4): full HTML-attribute escape as defense-in-depth even
+      // Security (SEC-SANITIZE): full HTML-attribute escape as defense-in-depth even
       // though the route validates base as a URL. Escaping &, ", <, > ensures
       // the value can never break out of the double-quoted href attribute.
       var escapedBase = base

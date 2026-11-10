@@ -348,7 +348,7 @@ async function connectionSettings(req, res) {
   });
   const returnData = JSON.stringify(returnDataObj);
   let after = "";
-  // Security (SEC-DEPLOY / PHP SEC-03 parity): the superuser JWT is only handed
+  // Security (SEC-DEPLOY), PHP parity: the superuser JWT is only handed
   // out by the no-login bypass outside production and to loopback clients
   // (unless HAXCMS_HOST deliberately exposes the bypass beyond loopback).
   if (

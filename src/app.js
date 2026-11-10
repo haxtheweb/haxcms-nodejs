@@ -23,7 +23,7 @@ const CORS_ALLOWED_HEADERS = [
 const compression = require("compression");
 const helmet = require("helmet");
 const app = express();
-// Security (EXPRESS-FINGERPRINT-001 / I3): disable X-Powered-By explicitly
+// Security (SEC-HEADERS): disable X-Powered-By explicitly
 // at the Express layer so the header is never set, independent of helmet's
 // default middleware. Defense-in-depth that survives any future helmet config.
 app.disable("x-powered-by");
@@ -48,7 +48,7 @@ const {
   requestUrlGuard,
   getBuildAssetRequestPath,
 } = require("./lib/requestUrlGuards.js");
-// Security (HAX-SEC-STATIC-DOTFILES / HAX-SEC-LOCAL-ORIGIN): decoded-path
+// Security (SEC-STATIC-DOTFILES, SEC-LOCAL-ORIGIN): decoded-path
 // dotfile/traversal decisions and the local-mode cross-site write guard.
 const {
   hasParentDirectorySegment,
@@ -138,7 +138,7 @@ var cspBaseDirectives = {
   baseUri: ["'self'"],
   formAction: ["'self'"],
 };
-// Security (EXPRESS-HEADERS-001 / M2): mint a per-request nonce and set a
+// Security (SEC-HEADERS): mint a per-request nonce and set a
 // Content-Security-Policy header with script-src 'nonce-<n>' (no
 // 'unsafe-inline' for scripts) so inline <script> blocks in the served
 // index.html can only execute when the server stamped them with the same
@@ -149,7 +149,7 @@ var cspBaseDirectives = {
 // out here so the nonce can vary per response.
 var cspNonceEnabled = true;
 function cspNonceMiddleware(req, res, next) {
-  // Security (M2): when the local-dev/webcontainer bypass disabled CSP
+  // Security (SEC-HEADERS): when the local-dev/webcontainer bypass disabled CSP
   // (HAXCMS_DISABLE_JWT_CHECKS, non-production), skip the nonce header so the
   // playground/CDN module loads are not blocked. Otherwise mint a per-request
   // nonce and set script-src 'nonce-<n>' (no 'unsafe-inline' for scripts).
@@ -203,7 +203,7 @@ function configuredFrameAncestors() {
   return out;
 }
 
-// Security (M2): format a CSP directives object into the header string shape
+// Security (SEC-HEADERS): format a CSP directives object into the header string shape
 // "directive-a v1 v2; directive-b v1; ...". Replaces helmet's
 // contentSecurityPolicy.formatDirectives, which is not exposed in helmet 7.x.
 // Directive keys are camelCase here; CSP header keys are kebab-case, so
@@ -227,8 +227,8 @@ function formatCspDirectives(directives) {
 
 // flag in local development that disables security
 // this way you launch from local and don't need a U/P relationship
-// Security (HAX-SEC-LOCAL-ORIGIN): only "1"/"true" enable the bypass. Any
-// set value used to count, so HAXCMS_DISABLE_JWT_CHECKS=false turned login off.
+// Security (SEC-LOCAL-ORIGIN): only "1"/"true" enable the bypass. Any other
+// value, including HAXCMS_DISABLE_JWT_CHECKS=false, leaves login on.
 if (
   isEnabledFlagValue(process.env.HAXCMS_DISABLE_JWT_CHECKS) ||
   argv._.includes("HAXCMS_DISABLE_JWT_CHECKS")
@@ -243,7 +243,7 @@ if (
     // disable security policies that would otherwise block local development
     // also enables webcontainer environments which is what our playground runs
     helmetPolicies.contentSecurityPolicy = false;
-    // Security (M2): skip the per-request CSP nonce middleware in local dev /
+    // Security (SEC-HEADERS): skip the per-request CSP nonce middleware in local dev /
     // webcontainer mode so the playground and CDN module loads (which omit
     // nonces) are not blocked. CSP is re-enabled for production automatically
     // because this branch only runs when not isProductionRuntime().
@@ -270,7 +270,7 @@ const {
 } = require("./lib/allRoutes.js");
 // app settings
 const multer = require("multer");
-// Security (HAX-SEC-004): hard cap on upload size (1 GB per file, max 10
+// Security (SEC-UPLOAD, SEC-DOS): hard cap on upload size (1 GB per file, max 10
 // files) prevents unbounded DoS uploads. The site's configured
 // maxUploadSizeMb (if smaller) is additionally enforced at the app layer in
 // HAXCMSFile.save(). Parity with PHP php.ini upload_max_filesize as a safety
@@ -319,7 +319,7 @@ const jsonRequestParser = express.json({
   type: ["application/json", "application/*+json"],
   limit: "10mb",
 });
-// Security (HAX-SEC-012): urlencoded parser is scoped to routes that need it
+// Security (SEC-DOS): urlencoded parser is scoped to routes that need it
 // (via formBodyParser below) rather than running globally on every request
 // including static/GET. Lower limit/parameterLimit than the previous global
 // 50mb/50000 to reduce the DoS surface.
@@ -877,13 +877,13 @@ function mergeImportMapMarkup(existingMarkup = "", linkedDevMarkup = "") {
   return `<script type="importmap" data-haxcms-linked-dev-importmap>${JSON.stringify(merged)}</script>`;
 }
 
-// Security (M1, 2026-10-19 audit): the ONE pattern used both to stamp the
+// Security (SEC-HEADERS): the ONE pattern used both to stamp the
 // per-request nonce (injectNonce) and to pre-mark untrusted page-content
 // scripts (neutralizeUntrustedScriptNonces). Sharing it guarantees every tag
 // injectNonce could stamp was already marked when it came from page content.
 var INLINE_SCRIPT_OPEN_TAG_PATTERN = /<script((?:\s[^>]*)?)>/gi;
 
-// Security (M1, 2026-10-19 audit): page HTML is read from disk and spliced
+// Security (SEC-HEADERS): page HTML is read from disk and spliced
 // into the served index BEFORE injectNonce runs. Without this, any literal
 // <script> in a page file (legacy content, git/filesystem-synced sites,
 // another backend's writes) would receive the real nonce and execute, so the
@@ -903,7 +903,7 @@ function neutralizeUntrustedScriptNonces(html = "") {
   );
 }
 
-// Security (EXPRESS-HEADERS-001 / M2): stamp every inline <script> (and
+// Security (SEC-HEADERS): stamp every inline <script> (and
 // inline <script type="importmap">) in the served index.html with nonce="<n>"
 // so the per-request CSP (cspNonceMiddleware) allows them to execute while
 // 'unsafe-inline' is dropped from script-src. Only inline scripts need a
@@ -947,7 +947,7 @@ function injectNonce(indexFile = "", nonce = "") {
   // inline scripts (e.g. speculation rules) can pick it up. Idempotent: if the
   // meta is already present, don't add a second one.
   var nonceMetaTag = '<meta name="csp-nonce" content="' + cleanNonce + '">';
-  // Security (M1): only look for an existing meta in the document head so
+  // Security (SEC-HEADERS): only look for an existing meta in the document head so
   // page content in the body cannot suppress (or pre-empt) the real one.
   var headEndIndex = output.search(/<\/head>/i);
   var headRegion =
@@ -966,7 +966,7 @@ function injectNonce(indexFile = "", nonce = "") {
   return output;
 }
 
-// Security (M2): read an index.html from disk, stamp its inline scripts
+// Security (SEC-HEADERS): read an index.html from disk, stamp its inline scripts
 // with the per-request CSP nonce, and send it. Used for the static index
 // fallback paths (single-site catch, multisite dashboard non-dev, multisite
 // site catch) so their inline <script> blocks are authorized under the nonce
@@ -1103,14 +1103,14 @@ if (process.env.NODE_ENV === "development") {
   watcher.on("add", handleWatchedFileChange);
   watcher.on("unlink", handleWatchedFileChange);
 }
-// Security (HAX-SEC-012): express.urlencoded was previously applied globally
-// (including to static/GET requests). It is now scoped to POST/PUT/PATCH/
+// Security (SEC-DOS): express.urlencoded is never applied globally
+// (including to static/GET requests). It is scoped to POST/PUT/PATCH/
 // DELETE routes via formBodyParser in the per-route parser selectors above.
-// Security (ReDoS, CodeQL #23/#39): oversized request URLs are rejected with
+// Security (SEC-DOS): oversized request URLs are rejected with
 // 414 before any static/asset/route handling (cap documented in
 // src/lib/requestUrlGuards.js).
 app.use(requestUrlGuard);
-// Security (SEC-DEPLOY / DNS rebinding): the no-login bypass binds loopback,
+// Security (SEC-DEPLOY): the no-login bypass binds loopback,
 // but a hostile web page can still reach it via DNS rebinding. Reject any
 // request whose Host header is not a loopback name in that mode. Runs first so
 // nothing else (static files, API routes) is reachable with a foreign Host.
@@ -1127,7 +1127,7 @@ app.use((req, res, next) => {
   }
   next();
 });
-// Security (HAX-SEC-LOCAL-ORIGIN): with the no-login bypass every request is
+// Security (SEC-LOCAL-ORIGIN): with the no-login bypass every request is
 // the superuser, and browsers send simple cross-site form POSTs without a CORS
 // preflight. Refuse non-safe methods whose Origin is not this server (or the
 // configured security.allowedOrigin) or that the browser marks cross-site.
@@ -1142,7 +1142,7 @@ app.use((req, res, next) => {
   }
   next();
 });
-// Security (HAX-SEC-STATIC-DOTFILES): clients normalize ".." before sending,
+// Security (SEC-STATIC-DOTFILES): clients normalize ".." before sending,
 // so a decoded ".." segment only comes from a crafted request trying to walk
 // out of an allowed directory (e.g. /.well-known/%2e%2e/.git/config). Refuse
 // it before any static or route handling sees the path.
@@ -1154,11 +1154,11 @@ app.use((req, res, next) => {
   next();
 });
 app.use(helmet(helmetPolicies));
-// Security (M2): per-request CSP nonce middleware. Runs after helmet so the
+// Security (SEC-HEADERS): per-request CSP nonce middleware. Runs after helmet so the
 // nonce header is set on every response (alongside helmet's other headers).
 // When cspNonceEnabled is false (local-dev/webcontainer bypass) it is a no-op.
 app.use(cspNonceMiddleware);
-// Security (CodeQL js/missing-rate-limiting): generous per-IP ceiling over every
+// Security (SEC-RATELIMIT): generous per-IP ceiling over every
 // route below (static files, site assets, catch-alls) so filesystem-backed
 // handlers cannot be hammered. Tunable / disableable via
 // config.security.requestRateLimit; keyed on req.ip (honors `trust proxy`).
@@ -1204,7 +1204,7 @@ const SENSITIVE_STATIC_BASENAMES = [
   "config.json",
   ".htaccess",
   ".ishaxcmsconfig",
-  // Security (HAX-SEC / PHP [C1] parity): explicit defense-in-depth for
+  // Security (SEC-DEPLOY), PHP parity: explicit defense-in-depth for
   // sensitive config files. These are also covered by the _config segment
   // rule below, but listing them explicitly protects against any future path
   // where they might be served from outside _config.
@@ -1381,7 +1381,7 @@ systemStructureContext().then((site) => {
         }),
       );
     } else {
-      // Security (M2): index:false so the site index.html for "/" is served by
+      // Security (SEC-HEADERS): index:false so the site index.html for "/" is served by
       // the app.use('/') handler below (which renders the site index and
       // stamps inline scripts with the per-request CSP nonce) rather than by
       // express.static streaming the raw file. The raw file carries no nonce,
@@ -1502,7 +1502,7 @@ systemStructureContext().then((site) => {
           indexFile = injectLinkedDevDedupingFix(indexFile);
           indexFile = injectLinkedDevImportMap(indexFile);
           indexFile = injectDevReloadScript(indexFile, currentPort);
-          // Security (M2): stamp inline scripts with the per-request CSP nonce
+          // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
           // (last so it covers all injected inline scripts too).
           indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
           setNoStoreResponseHeaders(res);
@@ -1512,7 +1512,7 @@ systemStructureContext().then((site) => {
             "Runtime injection failed for single-site index, falling back to static delivery:",
             e,
           );
-          // Security (M2): stamp the static fallback with the nonce too so its
+          // Security (SEC-HEADERS): stamp the static fallback with the nonce too so its
           // inline scripts still execute under the nonce CSP.
           sendNonceIndex(res, req, path.join(publicDir, "index.html"));
         }
@@ -1528,7 +1528,7 @@ systemStructureContext().then((site) => {
         }),
       );
     } else {
-      // Security (M2): index:false so the dashboard index.html is served by
+      // Security (SEC-HEADERS): index:false so the dashboard index.html is served by
       // the app.use('/') handler below (which stamps inline scripts with the
       // per-request CSP nonce) rather than by express.static streaming the
       // raw file (which would bypass the nonce and break under the nonce CSP).
@@ -1602,7 +1602,7 @@ systemStructureContext().then((site) => {
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
-            // Security (M2): stamp inline scripts with the per-request CSP nonce
+            // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
             // (last so it covers all injected inline scripts too).
             indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
             setNoStoreResponseHeaders(res);
@@ -1615,7 +1615,7 @@ systemStructureContext().then((site) => {
             );
           }
         }
-        // Security (M2): non-dev dashboard index. Read+nonce+send so inline
+        // Security (SEC-HEADERS): non-dev dashboard index. Read+nonce+send so inline
         // scripts are authorized under the nonce CSP (no 'unsafe-inline').
         sendNonceIndex(res, req, path.join(publicDir, "index.html"));
       }
@@ -1658,7 +1658,7 @@ systemStructureContext().then((site) => {
           const queryIndex = req.url.indexOf("?");
           const querySuffix =
             queryIndex !== -1 ? req.url.substring(queryIndex) : "";
-          // Security (code-scanning js/server-side-unvalidated-url-redirection):
+          // Security (SEC-ROUTE): no open redirect;
           // a "./" relative target can only resolve against the current
           // "/<sites>/<segment>" URL, so it always stays on this host and
           // lands on "/<sites>/<segment>/" (same as the old absolute form)
@@ -1764,7 +1764,7 @@ systemStructureContext().then((site) => {
               indexFile = injectLinkedDevDedupingFix(indexFile);
               indexFile = injectLinkedDevImportMap(indexFile);
               indexFile = injectDevReloadScript(indexFile, currentPort);
-              // Security (M2): stamp inline scripts with the per-request CSP nonce
+              // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
               // (last so it covers all injected inline scripts too).
               indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
               setNoStoreResponseHeaders(res);
@@ -1777,7 +1777,7 @@ systemStructureContext().then((site) => {
               );
             }
           }
-          // Security (M2): static index fallback — read+nonce+send so inline
+          // Security (SEC-HEADERS): static index fallback — read+nonce+send so inline
           // scripts are authorized under the nonce CSP (no 'unsafe-inline').
           // Mirrors the prior res.sendFile path resolution.
           // Security: derive the site segment via cleanTitle and confine the
@@ -1856,7 +1856,7 @@ systemStructureContext().then((site) => {
           ) {
             return;
           }
-          // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
+          // Security (SEC-ROUTE): enforce site-token policy for 'authenticated-site'
           // system routes (e.g. provider-search) so the router returns a
           // consistent 403 envelope instead of the handler doing the check.
           if (
@@ -1909,7 +1909,7 @@ systemStructureContext().then((site) => {
           ) {
             return;
           }
-          // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
+          // Security (SEC-ROUTE): enforce site-token policy for 'authenticated-site'
           // system routes (e.g. provider-search) so the router returns a
           // consistent 403 envelope instead of the handler doing the check.
           if (
@@ -2129,7 +2129,7 @@ systemStructureContext().then((site) => {
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
-            // Security (M2): stamp inline scripts with the per-request CSP nonce
+            // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
             // (last so it covers all injected inline scripts too).
             indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
             setNoStoreResponseHeaders(res);
@@ -2142,7 +2142,7 @@ systemStructureContext().then((site) => {
             );
           }
         }
-        // Security (M2): non-dev catch-all fallback — read+nonce+send so inline
+        // Security (SEC-HEADERS): non-dev catch-all fallback — read+nonce+send so inline
         // scripts are authorized under the nonce CSP (no 'unsafe-inline').
         sendNonceIndex(res, req, path.join(__dirname, "public", "index.html"));
       } else {
@@ -2150,7 +2150,7 @@ systemStructureContext().then((site) => {
       }
     });
   }
-  // Security (PR8-4): ENOENT -> 404, multer limits -> 413 (HAX-SEC-004), and
+  // Security (SEC-ROUTE, SEC-UPLOAD): ENOENT -> 404, multer limits -> 413, and
   // body-parser failures -> 400/413/415 JSON without logging err.body.
   app.use(haxcmsErrorHandler);
 });
@@ -2811,7 +2811,7 @@ function enforceSystemApiUserTokenPolicy(req, res, op, method, basicAuth) {
   }
   return true;
 }
-// F2/Q14+F3: site-token enforcement for 'authenticated-site' system routes
+// Security (SEC-ROUTE): site-token enforcement for 'authenticated-site' system routes
 // (e.g. provider-search). Mirrors the site API's 'authenticated-site' policy
 // but runs in the system route handler so the 403 envelope is consistent
 // with the rest of the system API. The handler may still do semantic
@@ -3474,7 +3474,7 @@ function setWellKnownContentType(res, requestPath = "") {
   return false;
 }
 // shouldAllowWellKnownDotfiles lives in src/lib/staticRequestGuards.js and
-// decides on the decoded path segments (HAX-SEC-STATIC-DOTFILES).
+// decides on the decoded path segments (SEC-STATIC-DOTFILES).
 function getStaticSendFileOptions(rootPath = "", requestPath = "") {
   const options = {
     root: rootPath,
@@ -3827,7 +3827,7 @@ function resolveVariantFilePath(site, item, format = "json") {
   if (!variantLocation || !site || !site.siteDirectory) {
     return null;
   }
-  // Security (N1/N5 parity): the sidecar path derives from the manifest
+  // Security (SEC-PATH), PHP parity: the sidecar path derives from the manifest
   // location, so prove it resolves inside the site before serving it.
   const absolutePath = resolveContainedPath(
     site.siteDirectory,
@@ -4057,7 +4057,7 @@ function getMultisiteSiteSubPath(requestPath = "") {
 }
 
 function getRequestAbsoluteUrl(req, fallbackPath = "/") {
-  // Security (HAX-SEC / PHP [M4] parity): delegate protocol/host resolution to
+  // Security (SEC-HEADERS), PHP parity: delegate protocol/host resolution to
   // HAXCMS.resolveTrustedProtocol / resolveTrustedHost so this and both
   // discovery API endpoints share one trust-proxy-aware + allowedHosts-validated
   // implementation. An attacker cannot inject a forged Host into canonical/
@@ -4138,7 +4138,7 @@ function replaceSiteBuilderContent(indexFile = "", pageContent = "") {
   if (!builderPattern.test(indexFile)) {
     return indexFile;
   }
-  // Security (M1): page content is untrusted for CSP purposes; pre-mark its
+  // Security (SEC-HEADERS): page content is untrusted for CSP purposes; pre-mark its
   // scripts so the later injectNonce pass never authorizes them.
   const safeContent = neutralizeUntrustedScriptNonces(pageContent);
   // Replacer function (not a replacement string) so `$&`, `$1`, `` $` `` or

@@ -31,7 +31,7 @@ const { featureDisabledResponse } = require("../../lib/platformFeatures.js");
 const createNodeRoute = require("./routes/createNode.js");
 const deleteNodeRoute = require("./routes/deleteNode.js");
 const { ITEM_EXPORT_FORMATS } = require("./exports.js");
-// Security (L1): client-safe exception text (no paths / stack internals)
+// Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../lib/clientErrorMessage.js");
 
 function ensureSiteTokenHeader(req) {

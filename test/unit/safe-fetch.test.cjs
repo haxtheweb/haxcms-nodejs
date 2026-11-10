@@ -140,7 +140,7 @@ test('isPrivateOrReservedIP normalizes IPv4-compatible IPv6 (::a.b.c.d)', () => 
   assert.equal(isPrivateOrReservedIP('::8.8.8.8'), false)
 })
 
-test('isPrivateOrReservedIP flags hex-form IPv4-mapped IPv6 (SSRF hex-bypass, HAX-SEC-007)', () => {
+test('isPrivateOrReservedIP flags hex-form IPv4-mapped IPv6 (hex-spelled SSRF bypass)', () => {
   // ::ffff:7f00:1 == 127.0.0.1, ::ffff:a9fe:a9fe == 169.254.169.254,
   // ::ffff:c0a8:7 == 192.168.0.7, ::ffff:ac10:1 == 172.16.0.1,
   // ::ffff:0a00:1 == 10.0.0.1, ::ffff:6440:1 == 100.64.0.1 (CGNAT).

@@ -66,7 +66,7 @@ function fileNameBaseFromPageTitle(pageTitle) {
 }
 
 /**
- * Security (PR8-2): magic-byte sniff restricted to the raster formats the
+ * Security (SEC-UPLOAD): magic-byte sniff restricted to the raster formats the
  * inline-image path accepts. Returns 'png' | 'jpeg' | 'gif' | 'webp' or null.
  */
 function detectInlineRasterType(buffer) {
@@ -110,7 +110,7 @@ function detectInlineRasterType(buffer) {
  * On failure, returns the original buffer + extension unchanged.
  */
 async function optimizeInlineImageBuffer(buffer, extension) {
-  // Security (PR8-2 / PHP MaterializeInlineImages parity): only hand bytes to
+  // Security (SEC-UPLOAD), PHP MaterializeInlineImages parity: only hand bytes to
   // sharp/libvips when they carry a PNG, JPEG, GIF or WebP signature. PHP only
   // decodes via getimagesize + the gif/jpeg/png/webp GD decoders; anything
   // else (SVG/XML, HEIF/AVIF, TIFF, PDF, ...) must never reach a decoder.
@@ -237,7 +237,7 @@ async function saveImage(src, site, nameBase) {
   }
   const base = nameBase || "page";
   let buffer = Buffer.from(match[2], "base64");
-  // Security (PR8-2): bytes that are not a PNG/JPEG/GIF/WebP raster are never
+  // Security (SEC-UPLOAD): bytes that are not a PNG/JPEG/GIF/WebP raster are never
   // saved (HAXCMSFile.save accepts e.g. SVG, which could carry <script>);
   // returning null renders the image place-holder instead.
   if (!detectInlineRasterType(buffer)) {

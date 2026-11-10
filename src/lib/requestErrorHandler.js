@@ -1,10 +1,10 @@
-// Security (PR8-4): final express error handler.
+// Security (SEC-ROUTE): final express error handler.
 //
 // body-parser errors carry the full raw request body on err.body (and, for
-// JSON parse failures, an excerpt of it in err.message). The previous handler
-// console.error'd the whole error object, writing arbitrary client-supplied
-// bodies (credentials, page content, tokens) to the server log, and answered
-// with a generic 500. Body-parser failures are client errors: answer with the
+// JSON parse failures, an excerpt of it in err.message). Never log the whole
+// error object: that writes arbitrary client-supplied
+// bodies (credentials, page content, tokens) to the server log. Do not answer
+// with a generic 500 either: body-parser failures are client errors: answer with the
 // existing {status, message} JSON envelope and log only the error type plus a
 // truncated message.
 
@@ -61,13 +61,13 @@ function haxcmsErrorHandler(err, req, res, _next) {
     res.status(404).end();
     return;
   }
-  // Security (HAX-SEC-004): return 413 for multer file-size/count limit errors
+  // Security (SEC-UPLOAD, SEC-DOS): return 413 for multer file-size/count limit errors
   // so the client gets a meaningful status instead of a generic 500.
   if (err && (err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_FILE_COUNT')) {
     res.status(413).json({ status: 413, message: 'File too large or too many files' });
     return;
   }
-  // Security (PR8-4): never log err.body (the raw request body).
+  // Security (SEC-ROUTE): never log err.body (the raw request body).
   const bodyStatus = bodyParserErrorStatus(err);
   if (bodyStatus) {
     console.warn(

@@ -9,11 +9,11 @@ const { HAXCMS } = require("../../../lib/HAXCMS.js");
  *   )
  * )
  */
-// Security (EXPRESS-CSRF-001 / M1): the refresh endpoint authenticates via a
+// Security (SEC-SESSION): the refresh endpoint authenticates via a
 // SameSite=Lax cookie and performs a state-changing token rotation. SameSite=Lax
 // still sends the cookie on cross-site top-level GET navigations, so verify the
 // Origin (falling back to Referer) matches the request's trusted host/protocol
-// before honoring the cookie. Security (SEC-SESSION): the check now lives in
+// before honoring the cookie. The check lives in
 // HAXCMS.isSameOriginRequest (shared with session/connection-test) and also
 // rejects `Sec-Fetch-Site: cross-site` when the browser sends it.
 function isSameOriginRequest(req) {
@@ -54,7 +54,7 @@ function isRefreshRequestAllowed(req) {
   return isSameOriginRequest(req);
 }
 async function refreshAccessToken(req, res) {
-  // Security (EXPRESS-CSRF-001 / M1): reject cross-site cookie-bearing requests
+  // Security (SEC-SESSION): reject cross-site cookie-bearing requests
   // to this state-changing refresh endpoint before validating the refresh token.
   if (!isRefreshRequestAllowed(req)) {
     HAXCMS.setRefreshTokenCookie(res, "", 1);
@@ -67,7 +67,7 @@ async function refreshAccessToken(req, res) {
   const validRefresh = HAXCMS.validateRefreshToken(false, req, res);
   // if we have a valid refresh token then rotate it and issue a new access token
   if (validRefresh) {
-    // Security (H1 rotation): rotate the refresh token (family/jti) and set a
+    // Security (SEC-SESSION): rotate the refresh token (family/jti) and set a
     // new cookie so a stolen old refresh token dies on the legitimate user's
     // next refresh. Legacy tokens without family/jti are upgraded in place.
     const rotatedAccessJwt = HAXCMS.rotateRefreshTokenAndCookie(
@@ -110,7 +110,7 @@ async function refreshAccessToken(req, res) {
         data: { message: "Refresh token validation failed" },
       });
   } else {
-    // Security (HAX-SEC / PHP [M3] parity): clear via the centralized helper so
+    // Security (SEC-SESSION), PHP parity: clear via the centralized helper so
     // the Secure/SameSite/HttpOnly flags match how the cookie was set (required
     // for the browser to actually delete it).
     HAXCMS.setRefreshTokenCookie(res, "", 1);

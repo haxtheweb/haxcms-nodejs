@@ -14,13 +14,13 @@ const RESERVED_QUERY_PARAMS = [
 
 const BLOCKED_AUTH_PARAMS = ["key", "access_token", "api_key", "client_id"];
 
-// Security (L2, 2026-10-19 audit): upper bound on how long an upstream
-// provider may hold a request open (EXPRESS-DOS-001).
+// Security (SEC-DOS): upper bound on how long an upstream
+// provider may hold a request open.
 const UPSTREAM_TIMEOUT_MS = 15000;
 
-// Security (L2, 2026-10-19 audit): each provider only receives the params its
+// Security (SEC-SSRF): each provider only receives the params its
 // app-store definition uses (HAXAppStoreService: search fields + fixed data +
-// connection data + pagination keys). Forwarding arbitrary params let any
+// connection data + pagination keys). Forwarding arbitrary params would let any
 // authenticated caller drive the provider API with the deployment's key
 // (e.g. Flickr `method` selects ANY Flickr REST method). `fixedParams` pin a
 // value whenever the caller supplies that key, so it cannot be repurposed.
@@ -202,7 +202,7 @@ function buildForwardedSearchParams(source = {}, providerConfig = {}) {
     if (BLOCKED_AUTH_PARAMS.indexOf(key) !== -1) {
       continue;
     }
-    // Security (L2): allowlist, not denylist (see PROVIDER_DEFINITIONS)
+    // Security (SEC-SSRF): allowlist, not denylist (see PROVIDER_DEFINITIONS)
     if (allowedParams.indexOf(key) === -1) {
       continue;
     }
@@ -270,7 +270,7 @@ async function appStoreProviderSearch(req, res) {
     headers: {
       Accept: "application/json",
     },
-    // Security (L2): bound the upstream call; an abort lands in the 502 path
+    // Security (SEC-DOS): bound the upstream call; an abort lands in the 502 path
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   };
   const queryString = forwardedSearchParams.toString();
@@ -284,7 +284,7 @@ async function appStoreProviderSearch(req, res) {
 
   let upstreamResponse = null;
   try {
-    // Security (L5): routed through safeFetch so the upstream call is
+    // Security (SEC-SSRF): routed through safeFetch so the upstream call is
     // SSRF-guarded (pinned IP, per-hop validation) and byte-capped; the
     // abort signal still bounds the request time.
     upstreamResponse = await safeFetchLib.safeFetch(requestUrl, requestOptions);

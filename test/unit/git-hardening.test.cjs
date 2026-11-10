@@ -1,9 +1,9 @@
 'use strict'
 
-// Security (PR8-3): git hardening in HAXCMSSite.
+// Security (SEC-EXEC): git hardening in HAXCMSSite.
 // - the initial newSite() commit message is sanitized like gitCommit()
 // - autoPush branch names must start alphanumeric
-// - gitSetRemote() actually works (it referenced an undefined `repo`) and
+// - gitSetRemote() works (sets origin through the GitPlus instance) and
 //   only accepts https:// / git@ URLs without whitespace, quotes or ext::.
 //
 // Constraints honored: CommonJS (.cjs), require(), NO optional chaining,

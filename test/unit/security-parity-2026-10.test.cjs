@@ -1,7 +1,7 @@
-// Security parity with haxcms-php (security_best_practices_report_2026-10-19):
-//   L-2  refresh cookie is Secure on HTTPS requests (not only NODE_ENV=production)
-//   L-3  request tokens use a key domain-separated from the JWT signing key
-//   L-7  JWT id claim compared constant-time and type-strict
+// Security (SEC-SESSION), parity with haxcms-php:
+//   - refresh cookie is Secure on HTTPS requests (not only NODE_ENV=production)
+//   - request tokens use a key domain-separated from the JWT signing key
+//   - JWT id claim compared constant-time and type-strict
 // Constraints honored: CommonJS (.cjs), require(), no optional chaining.
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -43,7 +43,7 @@ function withSecurityConfig(t, security) {
   });
 }
 
-// ---- L-3 -----------------------------------------------------------------
+// ---- domain-separated request-token key ----------------------------------
 
 test("getRequestToken matches the PHP known-good literal (cross-backend parity)", (t) => {
   withKeys(t, "pk", "s");
@@ -70,7 +70,7 @@ test("request-token key is separated from the JWT signing key", (t) => {
   assert.notEqual(HAXCMS.getRequestToken("user"), direct);
 });
 
-// ---- L-7 -----------------------------------------------------------------
+// ---- constant-time, type-strict JWT id compare ----------------------------
 
 test("validateRequestToken stays constant-time and rejects non-matching tokens", (t) => {
   const token = HAXCMS.getRequestToken("alice");
@@ -113,7 +113,7 @@ test("a JWT whose id is not a string never authenticates", (_t) => {
   );
 });
 
-// ---- L-2 -----------------------------------------------------------------
+// ---- Secure refresh cookie ----------------------------------------------
 
 test("refreshCookieShouldBeSecure: production, HTTPS request, or forceSecureCookie", (t) => {
   withNodeEnv(t, null);

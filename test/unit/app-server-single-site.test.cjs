@@ -91,7 +91,7 @@ fs.writeFileSync(
 fs.ensureDirSync(path.join(runtimeRoot, "pages", "home"));
 fs.ensureDirSync(path.join(runtimeRoot, "pages", "about"));
 fs.ensureDirSync(path.join(runtimeRoot, "pages", "scripted"));
-// Security (M1, 2026-10-19 audit): a page file that reached disk WITHOUT the
+// Security (SEC-HEADERS): a page file that reached disk WITHOUT the
 // save-time sanitizer (legacy / git-synced / other-backend content). Its
 // inline scripts must never receive the per-request CSP nonce. The `$`
 // sequences prove page content is spliced literally (no String.replace
@@ -160,7 +160,7 @@ fs.writeFileSync(
           description: "about page",
           metadata: { created: 1700000001, updated: 1700000001 },
         },
-        // Security (N1/N5 parity): a poisoned manifest location pointing
+        // Security (SEC-PATH), PHP parity: a poisoned manifest location pointing
         // outside the site; its sidecars must never be served
         {
           id: "poisoned",
@@ -288,7 +288,7 @@ test("server boots in single-site mode on an ephemeral port", async () => {
   assert.ok(baseUrl.indexOf("http://127.0.0.1:") === 0);
 });
 
-test("the single-site root renders the index with the CSP nonce (M2)", async () => {
+test("the single-site root renders the index with the CSP nonce", async () => {
   const baseUrl = await baseUrlPromise;
   const result = await request("GET", baseUrl + "/", {
     headers: { accept: "text/html" },
@@ -298,7 +298,7 @@ test("the single-site root renders the index with the CSP nonce (M2)", async () 
   assert.ok(
     String(result.headers["content-type"] || "").indexOf("text/html") !== -1,
   );
-  // Security (M2): the single-site branch registers express.static with
+  // Security (SEC-HEADERS): the single-site branch registers express.static with
   // index:false so "/" goes through the render path instead of streaming the
   // raw index.html. The raw file carries no nonce, which would leave its
   // inline scripts blocked under the nonce-only script-src.
@@ -366,7 +366,7 @@ test("page variants never serve files outside the site for a poisoned location",
   ]);
 });
 
-test("page-content inline scripts never receive the CSP nonce (M1)", async () => {
+test("page-content inline scripts never receive the CSP nonce", async () => {
   const baseUrl = await baseUrlPromise;
   const result = await request("GET", baseUrl + "/scripted", {
     headers: { accept: "text/html" },
@@ -493,7 +493,7 @@ test("site API paths pass through to the site routes", async () => {
   assert.equal(result.status, 401);
 });
 
-// Security (PR8-4): malformed / oversized JSON bodies answer 400/413 JSON and
+// Security (SEC-ROUTE): malformed / oversized JSON bodies answer 400/413 JSON and
 // the raw request body never reaches the logs.
 test("malformed JSON body returns 400 envelope and does not log the raw body", async (t) => {
   const baseUrl = await baseUrlPromise;

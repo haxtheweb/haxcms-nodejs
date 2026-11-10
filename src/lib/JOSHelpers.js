@@ -146,7 +146,7 @@ async function getItemHTML(site, item) {
   if (!site || !item || !item.location || !site.siteDirectory) {
     return "";
   }
-  // Security (N1/N5 parity): containment-checked resolve of the location
+  // Security (SEC-PATH), PHP parity: containment-checked resolve of the location
   const pagePath = resolveContainedPath(site.siteDirectory, item.location);
   if (pagePath === false || !fs.existsSync(pagePath)) {
     return "";
@@ -362,12 +362,12 @@ async function getYoutubeDuration(vid) {
     return 0;
   }
   let duration = 0;
-  // Security (I1): encode the video id so a crafted value cannot inject
+  // Security (SEC-SSRF): encode the video id so a crafted value cannot inject
   // extra query parameters into the YouTube Data API request.
   const url = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&key=${process.env.YOUTUBE_API_KEY}&id=${encodeURIComponent(vid)}`;
   let ytData = {};
   try {
-    // Security (L5): routed through safeFetch so every outbound call shares
+    // Security (SEC-SSRF): routed through safeFetch so every outbound call shares
     // the SSRF guard, byte cap, and timeout baseline.
     ytData = await safeFetch(url).then((d) => (d.ok ? d.json() : {}));
   } catch {
@@ -635,7 +635,7 @@ async function courseStatsFromOutline(
                   const vimURL = `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(
                     urlData.href,
                   )}`;
-                  // Security (L5): safeFetch routing (SSRF guard + byte cap).
+                  // Security (SEC-SSRF): safeFetch routing (SSRF guard + byte cap).
                   vimData = await safeFetch(vimURL).then((d) =>
                     d.ok ? d.json() : {},
                   );

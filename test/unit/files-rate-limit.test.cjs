@@ -1,6 +1,6 @@
 'use strict'
 
-// Security (F3) unit tests for the file-operations count-window rate limiter
+// Security (SEC-RATELIMIT): unit tests for the file-operations count-window rate limiter
 // (src/lib/fileOpsRateLimiter.js). Proves: under-limit calls proceed, the
 // over-threshold call is blocked, subsequent calls stay blocked until blockMs
 // lapses, the window resets after windowMs, and the key is userName:siteName

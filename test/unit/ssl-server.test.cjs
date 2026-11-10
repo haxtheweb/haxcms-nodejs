@@ -200,7 +200,7 @@ test('createServer prefers custom certs over the local generation flow', { skip:
 })
 
 // ---------------------------------------------------------------------------
-// Security (PR8-7): no shell — every external command goes through
+// Security (SEC-EXEC): no shell — every external command goes through
 // execFileSync with an argv array, so a config path containing shell
 // metacharacters can never be interpreted by a shell.
 // ---------------------------------------------------------------------------

@@ -538,7 +538,7 @@ test("a bare site name redirects to the trailing slash with a 301", async () => 
     },
   );
   assert.equal(result.status, 301);
-  // relative "./<name>/" target (code-scanning js/server-side-unvalidated-url-redirection);
+  // relative "./<name>/" target (no open redirect);
   // resolve it the way a browser does against the request URL
   const requestUrl = runtime.baseUrl + "/_sites/" + SITE_NAME + "?x=1";
   const resolved = new URL(result.headers.location, requestUrl);
@@ -1055,8 +1055,8 @@ test("a registered route with the wrong method answers 405 with Allow", async ()
   assert.ok(body.data.methods.indexOf("GET") !== -1);
 });
 
-// Security (PR8-4): body-parser failures are client errors answered with the
-// {status, message} JSON envelope (previously a 500 that logged err.body).
+// Security (SEC-ROUTE): body-parser failures are client errors answered with the
+// {status, message} JSON envelope (never a 500, never logging err.body).
 test("malformed JSON bodies reach the error middleware as a 400 JSON envelope", async () => {
   const result = await request(
     "POST",

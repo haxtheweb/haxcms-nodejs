@@ -146,7 +146,7 @@ async function createNode(req, res) {
       item.metadata.images = [];
       item.metadata.videos = [];
       // generate the boilerplate to fill this page
-      // Security (N1/N5 parity): the copy must land inside this site's
+      // Security (SEC-PATH), PHP parity: the copy must land inside this site's
       // directory; refuse rather than writing anywhere else.
       const copied = await HAXCMS.recurseCopy(
         HAXCMS.boilerplatePath + "page/default",
