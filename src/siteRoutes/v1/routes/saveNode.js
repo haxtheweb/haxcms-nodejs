@@ -15,7 +15,10 @@ const {
   getRequestHeaderValue,
   assertSiteFeature,
 } = require("../siteRouteUtils.js");
-const { isPathautoEnabled } = require("../../../lib/nodeDetailOperations.js");
+const {
+  isPathautoEnabled,
+  cascadeSlugUpdates,
+} = require("../../../lib/nodeDetailOperations.js");
 const FileContentScanner = require("../../../lib/FileContentScanner.js");
 /**
  * @OA\Post(
@@ -287,6 +290,11 @@ async function saveNode(req, res) {
             if (pathautoEnabled && !page.metadata.overridePathauto) {
               const cleanTitle = HAXCMS.cleanTitle(page.title);
               page.slug = site.getUniqueSlugName(cleanTitle, page, true);
+              // descendants carry the parent's segment; re-slug the branch
+              // (overridePathauto children keep theirs), as haxcms-php does
+              if (Array.isArray(site.manifest.items)) {
+                cascadeSlugUpdates(site, site.manifest.items, [page.id]);
+              }
             }
             // boolean so these are either there or not
             // historically we are published if this value is not set
@@ -439,9 +447,9 @@ async function saveNode(req, res) {
               page.description = toPlainText(data["attributes"]["description"]);
             } else {
               // Security (SEC-SANITIZE): description is plain text derived
-              // from this page's body only (data.content never holds the
+              // from this page's body as saved (sanitized content, never the
               // <page-break> element or its attributes)
-              page.description = pageDescriptionFromBody(data["content"]);
+              page.description = pageDescriptionFromBody(sanitizedContent);
             }
             let readtime = Math.round(countWords(clean) / 200);
             // account for uber small body

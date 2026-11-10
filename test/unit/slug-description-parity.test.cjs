@@ -310,3 +310,205 @@ describe("site.json item order after a content save", () => {
     assert.equal(typeof written.metadata.site.updated, "number");
   });
 });
+
+// a temp site on disk loaded through the real HAXCMSSite, with the git and
+// alternate-format collaborators stubbed
+async function loadTempSite(t, items, settings) {
+  const sitesDir = fs.mkdtempSync(path.join(os.tmpdir(), "haxcms-parity-"));
+  t.after(() => fs.removeSync(sitesDir));
+  const siteDir = path.join(sitesDir, "demo");
+  for (const entry of items) {
+    fs.ensureDirSync(path.join(siteDir, "pages", entry.id));
+    fs.writeFileSync(
+      path.join(siteDir, "pages", entry.id, "index.html"),
+      "<p></p>",
+    );
+  }
+  fs.writeJsonSync(path.join(siteDir, "site.json"), {
+    id: "site-uuid",
+    title: "Demo",
+    author: "",
+    description: "",
+    license: "by-sa",
+    metadata: {
+      site: { name: "demo", settings: settings },
+      platform: { features: {} },
+    },
+    items: items,
+  });
+  const site = new HAXCMSSite();
+  await site.load(sitesDir, "/sites/", "demo");
+  t.mock.method(site, "updateAlternateFormats", async () => {});
+  t.mock.method(site, "writePageAlternateFormats", async () => {});
+  t.mock.method(site, "gitCommit", async () => {});
+  t.mock.method(HAXCMS, "validateRequestToken", () => true);
+  t.mock.method(HAXCMS, "getActiveUserName", () => "tester");
+  t.mock.method(HAXCMS, "loadSite", async () => site);
+  return { site: site, siteDir: siteDir };
+}
+
+function outlineItem(id, parent, slug, metadata) {
+  return {
+    id: id,
+    indent: parent ? 1 : 0,
+    location: "pages/" + id + "/index.html",
+    slug: slug,
+    order: 0,
+    parent: parent,
+    title: id,
+    description: "",
+    metadata: Object.assign({ created: 1000000, updated: 1000000 }, metadata),
+  };
+}
+
+describe("child slug cascade on content save (haxcms-php parity)", () => {
+  test("a parent's new slug reaches every descendant; overridePathauto branches keep theirs", async (t) => {
+    const { siteDir } = await loadTempSite(
+      t,
+      [
+        outlineItem("parent", null, "title-with-b-bold-/b"),
+        outlineItem("child", "parent", "b/child"),
+        outlineItem("grandchild", "child", "b/child/grandchild"),
+        outlineItem("locked", "parent", "keep-me", { overridePathauto: true }),
+        outlineItem("under-locked", "locked", "keep-me/under-locked"),
+      ],
+      { pathauto: true },
+    );
+    const res = stubRes();
+    const req = saveNodeRequest(
+      '<page-break title="Title with bold" item-id="parent"></page-break><p>x</p>',
+    );
+    req.body.node.id = "parent";
+    await saveNode(req, res);
+    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+    const written = fs.readJsonSync(path.join(siteDir, "site.json"));
+    const slugs = {};
+    for (const entry of written.items) {
+      slugs[entry.id] = entry.slug;
+    }
+    assert.deepEqual(slugs, {
+      parent: "title-with-bold",
+      child: "title-with-bold/child",
+      grandchild: "title-with-bold/child/grandchild",
+      locked: "keep-me",
+      "under-locked": "keep-me/under-locked",
+    });
+  });
+
+  test("no cascade when pathauto is off", async (t) => {
+    const { siteDir } = await loadTempSite(
+      t,
+      [
+        outlineItem("parent", null, "old-parent"),
+        outlineItem("child", "parent", "old-parent/child"),
+      ],
+      { pathauto: false },
+    );
+    const res = stubRes();
+    const req = saveNodeRequest(
+      '<page-break title="Renamed" item-id="parent"></page-break><p>x</p>',
+    );
+    req.body.node.id = "parent";
+    await saveNode(req, res);
+    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+    const written = fs.readJsonSync(path.join(siteDir, "site.json"));
+    assert.deepEqual(
+      written.items.map((i) => i.slug),
+      ["old-parent", "old-parent/child"],
+    );
+  });
+});
+
+describe("description from the content as saved", () => {
+  test("script text never reaches the auto description", async (t) => {
+    const page = await saveAgainstStubPage(
+      t,
+      '<page-break title="T" item-id="item-1"></page-break><script>alert("x")</script><p>After script</p>',
+    );
+    assert.equal(page.description, "After script");
+  });
+});
+
+describe("site.json top-level keys survive load + save (haxcms-php parity)", () => {
+  const JSONOutlineSchema = require("../../src/lib/JSONOutlineSchema.js");
+
+  function tempManifest(t, data) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "haxcms-jos-"));
+    t.after(() => fs.removeSync(dir));
+    const file = path.join(dir, "site.json");
+    fs.writeFileSync(file, JSON.stringify(data));
+    return file;
+  }
+
+  test("location and every top-level key round-trip, in haxcms-php key order", async (t) => {
+    const file = tempManifest(t, {
+      location: "/sites/demo/index.html",
+      license: "by",
+      id: "site-uuid",
+      title: "Demo",
+      author: "Ada",
+      description: "About",
+      metadata: { site: { name: "demo" } },
+      items: [],
+    });
+    const manifest = new JSONOutlineSchema();
+    await manifest.load(file);
+    await manifest.save();
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.deepEqual(Object.keys(raw), [
+      "id",
+      "title",
+      "author",
+      "description",
+      "license",
+      "metadata",
+      "items",
+      "location",
+    ]);
+    assert.equal(raw.location, "/sites/demo/index.html");
+    assert.equal(raw.id, "site-uuid");
+    assert.equal(raw.title, "Demo");
+    assert.equal(raw.author, "Ada");
+    assert.equal(raw.description, "About");
+    assert.equal(raw.license, "by");
+    // a second load + save is byte-stable
+    const first = fs.readFileSync(file, "utf8");
+    const again = new JSONOutlineSchema();
+    await again.load(file);
+    await again.save();
+    assert.equal(fs.readFileSync(file, "utf8"), first);
+  });
+
+  test("a site.json without location writes location: null (as haxcms-php)", async (t) => {
+    const file = tempManifest(t, { id: "x", title: "T", items: [] });
+    const manifest = new JSONOutlineSchema();
+    await manifest.load(file);
+    await manifest.save();
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(raw.location, null);
+    assert.ok(Object.prototype.hasOwnProperty.call(raw, "location"));
+  });
+
+  test("Security: site.json cannot redirect the save target or replace methods", async (t) => {
+    const elsewhere = path.join(os.tmpdir(), "haxcms-jos-elsewhere.json");
+    const file = tempManifest(t, {
+      id: "x",
+      file: elsewhere,
+      save: "not a function",
+      unknownKey: "dropped",
+      items: [],
+    });
+    const manifest = new JSONOutlineSchema();
+    await manifest.load(file);
+    assert.equal(manifest.file, file);
+    assert.equal(typeof manifest.save, "function");
+    await manifest.save();
+    assert.equal(fs.existsSync(elsewhere), false);
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(raw, "unknownKey"),
+      false,
+    );
+    assert.equal(Object.prototype.hasOwnProperty.call(raw, "file"), false);
+  });
+});

@@ -101,6 +101,13 @@ function isOverridePathauto(page) {
   return page && page.metadata && page.metadata.overridePathauto === true;
 }
 
+/**
+ * Re-slug every descendant of the pages in changedIds from its own title,
+ * so a parent's new slug segment reaches the whole branch. A descendant with
+ * overridePathauto keeps its slug, and so does its own branch. Shared by
+ * saveNodeDetails (setTitle / setParent) and saveNode; mirrors the
+ * $changedIds loop in haxcms-php saveNode.php / saveNodeDetails.php.
+ */
 function cascadeSlugUpdates(site, items, changedIds) {
   let keepGoing = true;
   while (keepGoing) {
@@ -444,4 +451,5 @@ module.exports = {
   PAGE_DETAIL_OPERATIONS,
   createStatusError,
   isPathautoEnabled,
+  cascadeSlugUpdates,
 };
