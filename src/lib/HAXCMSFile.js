@@ -994,7 +994,7 @@ class HAXCMSFile {
       // (e.g. 'files/assets/x.png' or 'assets/x.png'), mirroring PHP HAXCMSFile
       // save() dirname handling so Gitbook/Notion sub-folder image keys round-
       // trip correctly instead of being flattened to 'files/assets-x.png'.
-      // Security (SEC-PATH): reject traversal/null-byte/absolute dirnames so a
+      // Security (SEC-UPLOAD, SEC-PATH): reject traversal/null-byte/absolute dirnames so a
       // crafted upload name cannot write outside the site files dir. Non-bulk
       // imports keep the legacy flatten-slashes sanitization below.
       var importDirnamePart = "";

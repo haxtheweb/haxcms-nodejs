@@ -1598,7 +1598,7 @@ async function createFile(req, res) {
     });
   }
   try {
-    // Security (SEC-EXEC): use the server-generated sanitized filename from
+    // Security (SEC-UPLOAD, SEC-EXEC): use the server-generated sanitized filename from
     // the save result, not the attacker-controlled upload.originalname, so user
     // input never reaches the git commit message (argument-injection defense).
     var savedFileName =
