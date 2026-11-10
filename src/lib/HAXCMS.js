@@ -1641,7 +1641,13 @@ class HAXCMSSite {
     html = "<p></p>",
     order = null,
     metadata = null,
+    bulk = null,
   ) {
+    // bulk: { createdFolders: [] } when the caller adds many pages in one
+    // request. site.json is then written, and the generated files rebuilt,
+    // once by the caller (finishBulkAddPages) instead of once per page,
+    // which made building an N-page site cost O(N^2). The caller removes
+    // the folders listed in createdFolders if that one write fails.
     // draft an outline schema item
     let page = new JSONOutlineSchemaItem();
     // support direct ID setting, useful for parent associations calculated ahead of time
@@ -1724,14 +1730,20 @@ class HAXCMSSite {
     }
     this.manifest.addItem(page);
     this.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
-    try {
-      await this.manifest.save();
-    } catch (e) {
-      // no page folder without its outline entry
+    if (bulk) {
       if (!folderExisted) {
-        this.removeCreatedPageFolder(location);
+        bulk.createdFolders.push(location);
       }
-      throw e;
+    } else {
+      try {
+        await this.manifest.save();
+      } catch (e) {
+        // no page folder without its outline entry
+        if (!folderExisted) {
+          this.removeCreatedPageFolder(location);
+        }
+        throw e;
+      }
     }
     // support direct HTML setting
     let alternateContent = "";
@@ -1758,13 +1770,32 @@ class HAXCMSSite {
         page.metadata = {};
       }
       page.metadata.files = uuids;
-      if (uuids.length > 0) {
+      if (uuids.length > 0 && !bulk) {
         await this.manifest.save();
       }
     }
     this.writePageAlternateFormats(page, alternateContent);
-    await rebuildAlternateFormatsLogged(this, "addPage");
+    if (!bulk) {
+      await rebuildAlternateFormatsLogged(this, "addPage");
+    }
     return page;
+  }
+  /**
+   * End a bulk add (see addPage's bulk argument): write site.json once and
+   * rebuild the generated files once. If the write fails, the page folders
+   * this bulk created are removed (no page folder without its outline
+   * entry) and the error is thrown.
+   */
+  async finishBulkAddPages(bulk) {
+    try {
+      await this.manifest.save();
+    } catch (e) {
+      for (let i = 0; i < bulk.createdFolders.length; i++) {
+        this.removeCreatedPageFolder(bulk.createdFolders[i]);
+      }
+      throw e;
+    }
+    await rebuildAlternateFormatsLogged(this, "addPage");
   }
   /**
    * Save the site, though this basically is just a mapping to the manifest site.json saving

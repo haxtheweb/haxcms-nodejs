@@ -127,32 +127,49 @@ async function createNode(req, res) {
       });
     }
     if (hasItems) {
-      // create pages
-      for (let i = 0; i < nodeParams["items"].length; i++) {
-        // outline-designer allows delete + confirmation but we don't have anything
-        // so instead, just don't process the thing in question if asked to delete it
-        if (
-          nodeParams["items"][i]["delete"] &&
-          nodeParams["items"][i]["delete"] == true
-        ) {
-          // do nothing
-        } else {
-          item = await site.addPage(
-            nodeParams["items"][i]["parent"],
-            nodeParams["items"][i]["title"],
-            "html",
-            nodeParams["items"][i]["slug"],
-            nodeParams["items"][i]["id"],
-            nodeParams["items"][i]["indent"],
-            nodeParams["items"][i]["content"] ||
-              nodeParams["items"][i]["contents"] ||
-              "",
-            nodeParams["items"][i]["order"],
-            nodeParams["items"][i]["metadata"]
-              ? nodeParams["items"][i]["metadata"]
-              : null,
-          );
+      // create pages; site.json is written and the generated files rebuilt
+      // once for the whole request, not once per page (haxtheweb/issues#3248)
+      const bulk = { createdFolders: [] };
+      let added = 0;
+      try {
+        for (let i = 0; i < nodeParams["items"].length; i++) {
+          // outline-designer allows delete + confirmation but we don't have anything
+          // so instead, just don't process the thing in question if asked to delete it
+          if (
+            nodeParams["items"][i]["delete"] &&
+            nodeParams["items"][i]["delete"] == true
+          ) {
+            // do nothing
+          } else {
+            item = await site.addPage(
+              nodeParams["items"][i]["parent"],
+              nodeParams["items"][i]["title"],
+              "html",
+              nodeParams["items"][i]["slug"],
+              nodeParams["items"][i]["id"],
+              nodeParams["items"][i]["indent"],
+              nodeParams["items"][i]["content"] ||
+                nodeParams["items"][i]["contents"] ||
+                "",
+              nodeParams["items"][i]["order"],
+              nodeParams["items"][i]["metadata"]
+                ? nodeParams["items"][i]["metadata"]
+                : null,
+              bulk,
+            );
+            added++;
+          }
         }
+      } catch (e) {
+        // a page failed part way: keep the pages added before it, as the
+        // per-page writes did, then report the error
+        if (added > 0 || bulk.createdFolders.length > 0) {
+          await site.finishBulkAddPages(bulk);
+        }
+        throw e;
+      }
+      if (added > 0) {
+        await site.finishBulkAddPages(bulk);
       }
       // every entry was marked delete: nothing was created or committed
       if (!item) {
