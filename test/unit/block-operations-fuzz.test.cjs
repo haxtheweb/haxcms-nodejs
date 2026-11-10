@@ -169,7 +169,7 @@ function checkAccepted(html, block, name, value, r) {
     // parenting); verifyStructure already checked the whole tree
     return;
   }
-  // the value as stored: trimmed, CR LF as LF, URLs percent-encoded
+  // the value as stored: trimmed, CR LF as LF
   const want =
     value === null
       ? null

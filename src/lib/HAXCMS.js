@@ -4522,6 +4522,34 @@ class HAXCMSClass {
   // count. Defaults (1000 per 15 min) cover one full check of a large site
   // while keeping the server from being used to hammer other sites.
   // Config: config.security.linkCheckRateLimit { enabled, windowMs, max }.
+  // Block changes per site per window (x/api/v1/content/:idOrSlug/blocks),
+  // so a script or an AI agent driving the API cannot flood a site with
+  // commits. Parity: haxcms-php HAXCMS::getBlockOperationsRateLimitSettings.
+  getBlockOperationsRateLimitSettings() {
+    const defaults = { enabled: true, windowMs: 60 * 1000, max: 1000 };
+    let cfg = {};
+    if (
+      this.config &&
+      this.config.security &&
+      this.config.security.blockOperationsRateLimit
+    ) {
+      cfg = this.config.security.blockOperationsRateLimit;
+    }
+    let enabled = defaults.enabled;
+    if (typeof cfg.enabled !== "undefined") {
+      enabled = cfg.enabled === true;
+    }
+    return {
+      enabled: enabled,
+      windowMs: this.getIntConfigValue(
+        cfg.windowMs,
+        defaults.windowMs,
+        1000,
+        24 * 60 * 60 * 1000,
+      ),
+      max: this.getIntConfigValue(cfg.max, defaults.max, 1, 100000),
+    };
+  }
   // Parity: haxcms-php HAXCMS::getLinkCheckRateLimitSettings.
   getLinkCheckRateLimitSettings() {
     const defaults = { enabled: true, windowMs: 15 * 60 * 1000, max: 1000 };

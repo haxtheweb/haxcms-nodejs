@@ -197,8 +197,7 @@ for (const u of [
 ]) {
   add(`url rule: ${JSON.stringify(u)}`, L, [set(L, "a", 0, { href: u })]);
 }
-// URL values are stored percent-encoded where haxcms-php's libxml would
-// encode them (non-ASCII and $ [ ] ^ ` { | }), on native and custom elements
+// URL values are stored as sent, on native and custom elements
 const LU =
   '<a href="/a">a</a><img src="/i.png"><video-player source="/v.mp4"></video-player><track src="/t.vtt">';
 for (const u of [
@@ -210,20 +209,20 @@ for (const u of [
   "https://e.x/😀",
   "https://[::1]/x",
 ]) {
-  add(`url canonical on a: ${JSON.stringify(u)}`, LU, [
+  add(`url stored as sent on a: ${JSON.stringify(u)}`, LU, [
     set(LU, "a", 0, { href: u }),
   ]);
-  add(`url canonical on img: ${JSON.stringify(u)}`, LU, [
+  add(`url stored as sent on img: ${JSON.stringify(u)}`, LU, [
     set(LU, "img", 0, { src: u }),
   ]);
-  add(`url canonical on custom element: ${JSON.stringify(u)}`, LU, [
+  add(`url stored as sent on custom element: ${JSON.stringify(u)}`, LU, [
     set(LU, "video-player", 0, { source: u }),
   ]);
 }
-add("url canonical on track", LU, [
+add("url stored as sent on track", LU, [
   set(LU, "track", 0, { src: "/captions/é.vtt" }),
 ]);
-add("url length counts the encoded form", L, [
+add("url length counts characters", L, [
   set(L, "a", 0, { href: "/" + "é".repeat(400) }),
 ]);
 // sequences DOMPurify drops an attribute for are refused in both backends;

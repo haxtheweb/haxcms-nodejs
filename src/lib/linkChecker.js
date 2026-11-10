@@ -502,6 +502,7 @@ module.exports = {
   errorReason,
   checkUrl,
   reserveChecks,
+  changeBudget,
   checkSiteLinks,
   resetForTesting,
 };

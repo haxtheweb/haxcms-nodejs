@@ -174,24 +174,17 @@ const URL_FORBIDDEN_RE = new RegExp(`[${TRIM_CLASS}\\u0000-\\u001f\\u007f]`);
 const TEXT_FORBIDDEN_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 // a lone UTF-16 surrogate cannot be stored as UTF-8 (PHP refuses it in JSON)
 const LONE_SURROGATE_RE = /\p{Cs}/u;
-// http(s) URLs: ASCII host name, optional port, no user info
-// (https://good.example@evil.example), then anything without spaces.
-// Bracketed IPv6 hosts are refused: haxcms-php stores through libxml, which
-// percent-encodes the brackets. Site paths: no scheme, not protocol-relative.
+// http(s) URLs: ASCII host name or bracketed IPv6, optional port, no user
+// info (https://good.example@evil.example), then anything without spaces.
+// Site paths: no scheme, not protocol-relative. Both backends store URL
+// values exactly as sent (haxtheweb/issues#3273).
 const HTTP_URL_RE =
-  /^https?:\/\/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::[0-9]{1,5})?(?:[/?#].*)?$/is;
-// URL values are stored percent-encoded wherever haxcms-php's libxml would
-// encode them on save (non-ASCII and " $ [ ] ^ ` { | }), so both backends
-// store the same bytes and the value sent reads back exactly.
-const URL_ENCODE_RE = /[^\u0000-\u007f]|["$[\]^`{|}]/gu;
+  /^https?:\/\/(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?(?:[/?#].*)?$/is;
 // DOMPurify drops an attribute whose value holds one of these (mXSS guard);
 // refuse them in both backends rather than store what one would drop.
 // ASCII case only, like the sanitizer (no u flag).
 const MARKUP_CLOSE_RE =
   /(--!?|\])>|<\/(style|script|title|xmp|textarea|noscript|iframe|noembed|noframes)/i;
-function canonicalUrl(value) {
-  return value.replace(URL_ENCODE_RE, (ch) => encodeURIComponent(ch));
-}
 const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 function isAllowedUrl(value) {
   if (value === "" || value.indexOf("//") === 0 || value.indexOf("\\") !== -1) {
@@ -479,8 +472,7 @@ function allowedAttributes(tag, allowlist) {
 /**
  * Normalize a value by its allowlist kind. Returns { ok, value } or a
  * failure. text: trimmed, no control characters except tab and newline;
- * url: trimmed, no whitespace or control characters, http(s) or a path,
- * then percent-encoded where storage would encode it (canonicalUrl).
+ * url: trimmed, no whitespace or control characters, http(s) or a path.
  */
 function normalizeValue(kind, raw, name) {
   if (raw === null) {
@@ -508,14 +500,13 @@ function normalizeValue(kind, raw, name) {
     if (!isAllowedUrl(value)) {
       return fail("invalid", `${name} must be an http(s) URL or a site path`);
     }
-    const encoded = canonicalUrl(value);
-    if (encoded.length > MAX_URL_LENGTH) {
+    if (codePoints(value) > MAX_URL_LENGTH) {
       return fail(
         "invalid",
         `${name} is longer than ${MAX_URL_LENGTH} characters`,
       );
     }
-    return { ok: true, value: encoded };
+    return { ok: true, value: value };
   }
   if (codePoints(value) > MAX_TEXT_LENGTH) {
     return fail(

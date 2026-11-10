@@ -389,13 +389,19 @@ describe("value rules not reachable through JSON in PHP", () => {
     assert.equal(bo.normalizeValue("text", "a\ud800", "alt").code, "invalid");
     assert.equal(bo.normalizeValue("url", "/x\udc00", "src").code, "invalid");
   });
-  test("url values are percent-encoded where storage would encode them", () => {
+  test("url values are stored as sent", () => {
+    assert.equal(bo.normalizeValue("url", "/café$[]", "src").value, "/café$[]");
     assert.equal(
-      bo.normalizeValue("url", "/café$[]", "src").value,
-      "/caf%C3%A9%24%5B%5D",
+      bo.normalizeValue("url", " https://[::1]:8080/x ", "src").value,
+      "https://[::1]:8080/x",
+    );
+    // the limit counts characters, not bytes
+    assert.equal(
+      bo.normalizeValue("url", "/" + "é".repeat(2047), "src").ok,
+      true,
     );
     assert.equal(
-      bo.normalizeValue("url", "https://[::1]/x", "src").code,
+      bo.normalizeValue("url", "/" + "é".repeat(2048), "src").code,
       "invalid",
     );
   });
