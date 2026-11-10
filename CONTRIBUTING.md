@@ -68,6 +68,17 @@ Note: if your pull request isn't getting enough attention, you can use our [Disc
 
 Unit tests are ideal but not required to be written for proposed changes and enhancements.
 
+### Mutation testing (weekly, report-only)
+
+Mutation testing checks that the tests of the outline designer's bulk save would notice a broken save. [Stryker](https://stryker-mutator.io) makes one small change at a time (flips a condition, drops a statement, empties a string) to the save-critical code and reruns the tests that cover it. A change no test notices is a surviving mutant: a gap in the saveOutline tests.
+
+- Scope (`mutate` in `stryker.config.json`): `src/siteRoutes/v1/routes/saveOutline.js` and the write helpers it calls: `JSONOutlineSchema` `save()` through the tree ordering, `JSONOutlineSchemaItem.writeLocation()`, `HAXCMSSite` `updateNode()`, `deleteNode()` and `getUniqueSlugName()`. Line ranges are used for the two large files, so check them when those methods move.
+- Tests (`tap.testFiles`): `test/unit/save-outline-*.test.cjs`, `test/unit/fault-injection-save-outline.test.cjs` and `test/unit/json-outline-schema*.test.cjs`, run per file with per-file coverage, so each mutant only reruns the files that reach it.
+- Run it locally with `yarn test:mutation`. It takes a while (see the PR that added it for timings). The HTML report is written to `reports/mutation/index.html`; `node scripts/mutation-summary.js` prints the score and the surviving mutants.
+- CI: `.github/workflows/mutation-testing.yml` runs it every Sunday and on demand (workflow_dispatch). It is advisory: it never fails a build and never opens issues or PRs. The score and the surviving mutants are in the job summary; the HTML report is the `mutation-report` artifact.
+
+To act on a surviving mutant, add or tighten a test so that change would fail it. If a mutant cannot change behavior (an equivalent mutant), leave a `// Stryker disable next-line <mutator>: <reason>` comment on that line. To widen or narrow what is mutated, edit `mutate` and `tap.testFiles` in `stryker.config.json`.
+
 ## Security
 
 Please don't report security vulnerabilities in public issues. Follow [SECURITY.md](SECURITY.md) and submit a private advisory at https://github.com/haxtheweb/issues/security/advisories/new. If you'd like to talk it through first, reach the core team privately on [Discord](https://discord.gg/aCGxmRHEJP) or at hax@psu.edu.

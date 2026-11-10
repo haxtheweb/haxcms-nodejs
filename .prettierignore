@@ -12,3 +12,5 @@ src/lib/vendor/**
 src/boilerplate/**
 screenshots
 *.min.js
+.stryker-tmp
+reports

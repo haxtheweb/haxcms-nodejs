@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "yarn",
+  "testRunner": "tap",
+  "tap": {
+    "testFiles": [
+      "test/unit/save-outline-*.test.cjs",
+      "test/unit/fault-injection-save-outline.test.cjs",
+      "test/unit/json-outline-schema*.test.cjs"
+    ]
+  },
+  "coverageAnalysis": "perTest",
+  "mutate": [
+    "src/siteRoutes/v1/routes/saveOutline.js",
+    "src/lib/JSONOutlineSchema.js:224-433",
+    "src/lib/JSONOutlineSchemaItem.js:45-65",
+    "src/lib/HAXCMS.js:3977-4008",
+    "src/lib/HAXCMS.js:4024-4068"
+  ],
+  "ignorePatterns": [
+    "/*",
+    "!/src",
+    "!/test",
+    "!/package.json",
+    "!/babel.config.js",
+    "/src/public/build",
+    "/test/e2e"
+  ],
+  "concurrency": 2,
+  "timeoutMS": 20000,
+  "timeoutFactor": 2,
+  "reporters": ["html", "json", "clear-text", "progress-append-only"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/index.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  },
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  },
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": "always",
+  "disableTypeChecks": false,
+  "incremental": true,
+  "incrementalFile": "reports/mutation/stryker-incremental.json"
+}
