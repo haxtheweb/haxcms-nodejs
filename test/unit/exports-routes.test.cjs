@@ -826,3 +826,100 @@ describe("exports routes — itemExport", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// buildSiteExportMarkdownCached (llms-full.txt)
+// ---------------------------------------------------------------------------
+describe("exports — cached site markdown for llms-full.txt", () => {
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+  const {
+    buildSiteExportMarkdown,
+    buildSiteExportMarkdownCached,
+  } = require("../../src/siteRoutes/v1/exports.js");
+
+  // a fake site whose pages are real files, read the way getPageContent does
+  function diskSite() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "haxcms-llms-full-"));
+    const site = makeFakeSite({ siteDirectory: dir });
+    site.reads = 0;
+    site.getPageContent = async (page) => {
+      site.reads++;
+      try {
+        return fs.readFileSync(path.join(dir, page.location), "utf8");
+      } catch {
+        return "";
+      }
+    };
+    site.manifest.items[1].metadata = { published: true };
+    for (const item of site.manifest.items) {
+      fs.mkdirSync(path.join(dir, path.dirname(item.location)), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(dir, item.location),
+        "<p>" + item.title + " body</p>",
+      );
+    }
+    return site;
+  }
+  function touchLater(file, seconds) {
+    const later = new Date(Date.now() + seconds * 1000);
+    fs.utimesSync(file, later, later);
+  }
+
+  test("matches the uncached build and reuses it while nothing changed", async () => {
+    const site = diskSite();
+    const expected = await buildSiteExportMarkdown(site, "", true);
+    const readsForOneBuild = site.reads;
+    assert.equal(await buildSiteExportMarkdownCached(site, "", true), expected);
+    const afterFirst = site.reads;
+    assert.equal(afterFirst, readsForOneBuild * 2);
+    assert.equal(await buildSiteExportMarkdownCached(site, "", true), expected);
+    assert.equal(site.reads, afterFirst, "second call should not rebuild");
+  });
+
+  test("a changed page file, a new .md sidecar, or a manifest edit rebuilds", async () => {
+    const site = diskSite();
+    const first = await buildSiteExportMarkdownCached(site, "", true);
+    assert.ok(first.indexOf("First Page body") !== -1);
+    // page HTML edited on disk
+    const htmlPath = path.join(
+      site.siteDirectory,
+      site.manifest.items[0].location,
+    );
+    fs.writeFileSync(htmlPath, "<p>Edited first body</p>");
+    touchLater(htmlPath, 5);
+    const edited = await buildSiteExportMarkdownCached(site, "", true);
+    assert.ok(edited.indexOf("Edited first body") !== -1);
+    assert.equal(edited, await buildSiteExportMarkdown(site, "", true));
+    // a markdown sidecar appears for the second page
+    const mdPath = path.join(site.siteDirectory, "pages/item-2/index.md");
+    fs.writeFileSync(mdPath, "Sidecar markdown wins");
+    touchLater(mdPath, 10);
+    const sidecar = await buildSiteExportMarkdownCached(site, "", true);
+    assert.ok(sidecar.indexOf("Sidecar markdown wins") !== -1);
+    // manifest-only edits: title, then unpublishing a page
+    site.manifest.title = "Renamed Site";
+    assert.ok(
+      (await buildSiteExportMarkdownCached(site, "", true)).indexOf(
+        "# Renamed Site",
+      ) === 0,
+    );
+    site.manifest.items[1].metadata = { published: false };
+    const unpublished = await buildSiteExportMarkdownCached(site, "", true);
+    assert.equal(unpublished.indexOf("Sidecar markdown wins"), -1);
+    assert.equal(unpublished, await buildSiteExportMarkdown(site, "", true));
+  });
+
+  test("the anonymous and full variants are cached separately", async () => {
+    const site = diskSite();
+    site.manifest.items[1].metadata = { published: false };
+    const anon = await buildSiteExportMarkdownCached(site, "", true);
+    const full = await buildSiteExportMarkdownCached(site, "", false);
+    assert.equal(anon.indexOf("Second Page body"), -1);
+    assert.ok(full.indexOf("Second Page body") !== -1);
+    assert.equal(await buildSiteExportMarkdownCached(site, "", true), anon);
+  });
+});
