@@ -11,6 +11,11 @@
 //   --size <n>           pages in the starting outline (default 60)
 //   --replay <file>      replay the exact edits from a failure report
 //   --no-shrink          report a failure without shrinking it
+//   --record-saves <f>   save equivalence: write what each save sent, and
+//                        the edits, for every seed to <f>
+//   --compare-saves <f>  replay the edits recorded in <f> and fail if any
+//                        save sends something different (see
+//                        save-equivalence.cjs)
 //   --base-url <url>     use a running server (HAXCMS_PERF_PASSWORD, and
 //                        HAXCMS_PERF_USERNAME default admin); page file
 //                        checks are skipped since the site directory is not
@@ -28,6 +33,7 @@ const path = require("path");
 const minimist = require("minimist");
 const { createFixtureSite } = require("../perf/fixture.cjs");
 const { runOutlineFuzz } = require("./outline-designer.cjs");
+const { firstDifference, normalizeSaves } = require("./save-equivalence.cjs");
 
 const RESULTS_DIR = path.join(__dirname, "results");
 const MAX_SHRINK_RUNS = 40;
@@ -90,22 +96,38 @@ async function shrink(steps, stillFails) {
 async function main() {
   const argv = minimist(process.argv.slice(2), {
     boolean: ["shrink", "help"],
-    string: ["seeds", "base-url", "replay"],
+    string: ["seeds", "base-url", "replay", "record-saves", "compare-saves"],
     default: { shrink: true },
   });
   if (argv.help) {
     process.stdout.write(
-      "usage: node test/fuzz/run.cjs [--seeds 1-3] [--ops 200] [--save-every 20] [--size 60] [--replay file] [--no-shrink] [--base-url url]\n",
+      "usage: node test/fuzz/run.cjs [--seeds 1-3] [--ops 200] [--save-every 20] [--size 60] [--replay file] [--no-shrink] [--record-saves file | --compare-saves file] [--base-url url]\n",
     );
     return 0;
   }
-  const ops = parseInt(argv.ops || 200, 10);
-  const saveEvery = parseInt(argv["save-every"] || 20, 10);
-  const size = parseInt(argv.size || 60, 10);
+  const recordFile = argv["record-saves"]
+    ? path.resolve(argv["record-saves"])
+    : null;
+  const compare = argv["compare-saves"]
+    ? JSON.parse(fs.readFileSync(path.resolve(argv["compare-saves"]), "utf8"))
+    : null;
+  // a comparison replays the recording's sessions exactly
+  const ops = compare ? compare.ops : parseInt(argv.ops || 200, 10);
+  const saveEvery = compare
+    ? compare.saveEvery
+    : parseInt(argv["save-every"] || 20, 10);
+  const size = compare ? compare.size : parseInt(argv.size || 60, 10);
   const replay = argv.replay
     ? JSON.parse(fs.readFileSync(path.resolve(argv.replay), "utf8"))
     : null;
-  const seeds = replay ? [replay.seed] : parseSeeds(argv.seeds);
+  const seeds = compare
+    ? Object.keys(compare.sessions).map(Number)
+    : replay
+      ? [replay.seed]
+      : parseSeeds(argv.seeds);
+  const recording = recordFile
+    ? { size: size, ops: ops, saveEvery: saveEvery, sessions: {} }
+    : null;
 
   let server;
   if (argv["base-url"]) {
@@ -150,9 +172,14 @@ async function main() {
     );
     return siteName;
   };
-  const session = async function (seed, steps) {
+  const session = async function (seed, steps, sent) {
     const site = await freshSite(seed);
     return runOutlineFuzz(browser, {
+      beforeSave: sent
+        ? async function (page, before) {
+            sent.push(before.sent);
+          }
+        : null,
       baseUrl: server.baseUrl,
       site: site,
       credentials: server.credentials,
@@ -168,11 +195,44 @@ async function main() {
     for (let i = 0; i < seeds.length; i++) {
       const seed = seeds[i];
       const started = Date.now();
+      const sent = recording || compare ? [] : null;
       const result = await session(
         seed,
-        replay ? replay.minimal || replay.steps : null,
+        compare
+          ? compare.sessions[seed].steps
+          : replay
+            ? replay.minimal || replay.steps
+            : null,
+        sent,
       );
       const took = Math.round((Date.now() - started) / 1000);
+      if (result.ok && recording) {
+        recording.sessions[seed] = {
+          steps: result.steps,
+          saves: normalizeSaves(sent),
+        };
+      }
+      if (result.ok && compare) {
+        const diff = firstDifference(
+          compare.sessions[seed].saves,
+          normalizeSaves(sent),
+        );
+        if (diff) {
+          failures++;
+          log("seed " + seed + ": SAVES DIFFER: " + diff);
+          continue;
+        }
+        log(
+          "seed " +
+            seed +
+            ": " +
+            sent.length +
+            " saves identical to the recording (" +
+            took +
+            " s)",
+        );
+        continue;
+      }
       if (result.ok) {
         log(
           "seed " +
@@ -238,6 +298,20 @@ async function main() {
   } finally {
     await browser.close();
     await server.stop();
+  }
+  if (recording) {
+    if (failures) {
+      log("not writing " + recordFile + ": a session failed");
+    } else {
+      fs.mkdirSync(path.dirname(recordFile), { recursive: true });
+      fs.writeFileSync(recordFile, JSON.stringify(recording) + "\n");
+      log(
+        "recorded the saves of " +
+          Object.keys(recording.sessions).length +
+          " sessions to " +
+          recordFile,
+      );
+    }
   }
   return failures ? 1 : 0;
 }
