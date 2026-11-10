@@ -57,3 +57,73 @@ test("git ignores the runtime secrets in src/boilerplate/systemsetup", () => {
     );
   }
 });
+
+// A local run that writes to a non-string path leaves files named "false",
+// "undefined" and so on in src/boilerplate; babel --copy-files would ship them
+// (26.8.1 put boilerplate/site/false into every new site).
+const {
+  stripBoilerplateStrays,
+  STRAY_NAMES,
+} = require("../../scripts/strip-boilerplate-secrets.cjs");
+
+test("removes files named after a JS value anywhere in dist boilerplate", () => {
+  const dist = fs.mkdtempSync(path.join(os.tmpdir(), "strip-strays-"));
+  const site = path.join(dist, "boilerplate", "site");
+  const nested = path.join(site, "assets");
+  fs.mkdirSync(nested, { recursive: true });
+  const keep = [
+    path.join(site, "index.html"),
+    path.join(site, "falsey-but-real.txt"),
+    path.join(nested, "true.svg"),
+  ];
+  for (const file of keep) {
+    fs.writeFileSync(file, "x");
+  }
+  // every stray name as a file, except "null", which is a directory here
+  for (const name of STRAY_NAMES) {
+    if (name !== "null") {
+      fs.writeFileSync(path.join(site, name), "");
+    }
+  }
+  fs.writeFileSync(path.join(nested, "undefined"), "");
+  fs.mkdirSync(path.join(site, "null"));
+  fs.writeFileSync(path.join(site, "null", "inside.txt"), "");
+
+  const removed = stripBoilerplateStrays(dist);
+  // every stray at the top level (null is a directory) plus the nested one
+  assert.equal(removed.length, STRAY_NAMES.length + 1);
+  for (const name of STRAY_NAMES) {
+    assert.ok(!fs.existsSync(path.join(site, name)), name + " should be gone");
+  }
+  assert.ok(!fs.existsSync(path.join(nested, "undefined")));
+  for (const file of keep) {
+    assert.ok(fs.existsSync(file), path.basename(file) + " should stay");
+  }
+  fs.rmSync(dist, { recursive: true, force: true });
+});
+
+test("stray cleanup is a no-op on a clean build or with no boilerplate", () => {
+  const dist = fs.mkdtempSync(path.join(os.tmpdir(), "strip-strays-"));
+  assert.deepEqual(stripBoilerplateStrays(dist), []);
+  fs.mkdirSync(path.join(dist, "boilerplate", "site"), { recursive: true });
+  fs.writeFileSync(path.join(dist, "boilerplate", "site", "index.html"), "x");
+  assert.deepEqual(stripBoilerplateStrays(dist), []);
+  fs.rmSync(dist, { recursive: true, force: true });
+});
+
+test("the real boilerplate source has no stray files", () => {
+  const src = path.join(__dirname, "..", "..", "src");
+  const found = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (STRAY_NAMES.includes(entry.name)) {
+        found.push(path.relative(src, full));
+      } else if (entry.isDirectory()) {
+        walk(full);
+      }
+    }
+  };
+  walk(path.join(src, "boilerplate"));
+  assert.deepEqual(found, []);
+});
