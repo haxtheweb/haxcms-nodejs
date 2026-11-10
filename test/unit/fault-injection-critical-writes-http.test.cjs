@@ -569,29 +569,26 @@ test("FI-NODE-01 EACCES saving page content: 500 envelope, page file unchanged, 
   await assertStillServing(siteName);
 });
 
-test.todo(
-  "FI-NODE-02 ENOSPC writing site.json while creating a page answers a 5xx envelope and leaves no orphan page folder (BUG: the rejection escapes the route, see FI-HTTP-01; the new page folder is copied before site.json is written)",
-  async (t) => {
-    const siteName = await freshSite("fi-node-02");
-    const before = readSiteJson(siteName);
-    failFs(t, "writeFileSync", isSiteJsonOf(siteName), "ENOSPC");
-    const { result, escaped } = await collectEscapedRejections(() =>
-      siteRequest(
-        siteName,
-        "POST",
-        "items",
-        { node: { title: "New page" } },
-        HANG_TIMEOUT_MS,
-      ),
-    );
-    t.mock.restoreAll();
-    await assertStillServing(siteName);
-    assert.equal(readSiteJson(siteName), before);
-    assert.equal(escaped.length, 0, "no rejection escapes the route");
-    assertErrorEnvelope(result);
-    assert.deepEqual(orphanPageFolders(siteName), []);
-  },
-);
+test("FI-NODE-02 ENOSPC writing site.json while creating a page answers a 5xx envelope and leaves no orphan page folder", async (t) => {
+  const siteName = await freshSite("fi-node-02");
+  const before = readSiteJson(siteName);
+  failFs(t, "writeFileSync", isSiteJsonOf(siteName), "ENOSPC");
+  const { result, escaped } = await collectEscapedRejections(() =>
+    siteRequest(
+      siteName,
+      "POST",
+      "items",
+      { node: { title: "New page" } },
+      HANG_TIMEOUT_MS,
+    ),
+  );
+  t.mock.restoreAll();
+  await assertStillServing(siteName);
+  assert.equal(readSiteJson(siteName), before);
+  assert.equal(escaped.length, 0, "no rejection escapes the route");
+  assertErrorEnvelope(result);
+  assert.deepEqual(orphanPageFolders(siteName), []);
+});
 
 test("FI-NODE-03 ENOSPC writing site.json while deleting a page answers a 5xx envelope and keeps the page", async (t) => {
   const siteName = await freshSite("fi-node-03");

@@ -1683,6 +1683,7 @@ class HAXCMSSite {
     page.metadata.created = Math.floor(Date.now() / 1000);
     page.metadata.updated = Math.floor(Date.now() / 1000);
     let location = path.join(this.siteDirectory, "pages", page.id);
+    const folderExisted = fs.existsSync(location);
     // copy the page we use for simplicity (or later complexity if we want)
     switch (template) {
       case "course":
@@ -1710,7 +1711,15 @@ class HAXCMSSite {
     }
     this.manifest.addItem(page);
     this.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
-    await this.manifest.save();
+    try {
+      await this.manifest.save();
+    } catch (e) {
+      // no page folder without its outline entry
+      if (!folderExisted) {
+        this.removeCreatedPageFolder(location);
+      }
+      throw e;
+    }
     // support direct HTML setting
     let alternateContent = "";
     if (template == "html") {
@@ -3994,6 +4003,45 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
    * Delete a page from the manifest
    * @return JSONOutlineSchemaItem or false
    */
+  /**
+   * Invariant: a page folder exists only for a page site.json lists. A
+   * request that creates a page folder and then fails to write the
+   * site.json that would list it removes the folder again with this.
+   * Only a folder under this site's pages/ directory is removed, and
+   * callers pass only folders the same request created (never one that
+   * existed before it). Mirrors HAXCMSSite::removeCreatedPageFolder in
+   * haxcms-php.
+   * @return boolean whether a folder was removed
+   */
+  removeCreatedPageFolder(folder) {
+    if (typeof folder !== "string" || folder === "") {
+      return false;
+    }
+    // Security (SEC-PATH): only a folder strictly inside this site's pages/
+    // directory (real path, not a symlink) is ever removed
+    const pagesDirectory = path.join(this.siteDirectory, "pages");
+    const relative = path.relative(pagesDirectory, path.resolve(folder));
+    if (
+      relative === "" ||
+      path.isAbsolute(relative) ||
+      relative.split(path.sep)[0] === ".."
+    ) {
+      return false;
+    }
+    try {
+      if (fs.lstatSync(folder).isSymbolicLink()) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+    const contained = resolveContainedPath(pagesDirectory, relative);
+    if (!contained) {
+      return false;
+    }
+    fs.removeSync(contained);
+    return !fs.existsSync(contained);
+  }
   async deleteNode(page) {
     for (var key in this.manifest.items) {
       let item = this.manifest.items[key];
