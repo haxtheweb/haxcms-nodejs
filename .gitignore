@@ -169,3 +169,6 @@ ui-inventory/
 # Stryker mutation testing (yarn test:mutation)
 .stryker-tmp
 reports/mutation
+
+# perf harness output (npm run perf)
+test/perf/results/

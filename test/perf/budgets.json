@@ -1,0 +1,440 @@
+{
+  "//": "Measured on main with the bundled front end (26.8.0), Nov 2026: see test/perf/README.md. Counts are tight; timing metrics carry slack for slower CI runners. Lower these when fixes ship.",
+  "tolerance": 0.15,
+  "full": {
+    "desktop.deep.perf500.lcpMs": {
+      "max": 1164,
+      "slack": 1500
+    },
+    "desktop.deep.perf500.fcpMs": {
+      "max": 100,
+      "slack": 300
+    },
+    "desktop.deep.perf500.blockingMs": {
+      "max": 78,
+      "slack": 400
+    },
+    "desktop.deep.perf500.requests": {
+      "max": 170,
+      "slack": 5
+    },
+    "desktop.deep.perf500.transferKB": {
+      "max": 625,
+      "slack": 25
+    },
+    "desktop.deep.perf500.elements": {
+      "max": 5094,
+      "slack": 50
+    },
+    "desktop.deep.perf500.heapMB": {
+      "max": 13.1,
+      "slack": 2
+    },
+    "desktop.deep.perf500.lighthouseScore": {
+      "min": 92,
+      "slack": 10
+    },
+    "desktop.deep.perf500.lighthouseLcpMs": {
+      "max": 1318,
+      "slack": 1500
+    },
+    "desktop.deep.perf500.lighthouseTbtMs": {
+      "max": 157,
+      "slack": 400
+    },
+    "desktop.home.perf500.lcpMs": {
+      "max": 1248,
+      "slack": 1500
+    },
+    "desktop.home.perf500.fcpMs": {
+      "max": 108,
+      "slack": 300
+    },
+    "desktop.home.perf500.blockingMs": {
+      "max": 95,
+      "slack": 400
+    },
+    "desktop.home.perf500.requests": {
+      "max": 241,
+      "slack": 5
+    },
+    "desktop.home.perf500.transferKB": {
+      "max": 843,
+      "slack": 25
+    },
+    "desktop.home.perf500.elements": {
+      "max": 5574,
+      "slack": 50
+    },
+    "desktop.home.perf500.heapMB": {
+      "max": 13.7,
+      "slack": 2
+    },
+    "desktop.home.perf500.lighthouseScore": {
+      "min": 89,
+      "slack": 10
+    },
+    "desktop.home.perf500.lighthouseLcpMs": {
+      "max": 1628,
+      "slack": 1500
+    },
+    "desktop.home.perf500.lighthouseTbtMs": {
+      "max": 130,
+      "slack": 400
+    },
+    "editor.perf500.heapKBPerVisit": {
+      "max": 227.5,
+      "slack": 10
+    },
+    "editor.perf500.nodesPerVisit": {
+      "max": 1859.3,
+      "slack": 50
+    },
+    "editor.perf500.listenersPerVisit": {
+      "max": 235.6,
+      "slack": 5
+    },
+    "editor.perf500.reactionsPerVisit": {
+      "max": 30.44,
+      "slack": 0.5
+    },
+    "editor.perf500.detachedObserved": {
+      "max": 211,
+      "slack": 20
+    },
+    "editor.perf500.i18nDeadEntries": {
+      "max": 1363,
+      "slack": 50
+    },
+    "editor.perf500.idleRequests": {
+      "max": 0,
+      "slack": 1
+    },
+    "editor.perf500.idleTimers": {
+      "max": 102,
+      "slack": 60
+    },
+    "editor.perf500.idleGrowthKB": {
+      "max": 0,
+      "slack": 200
+    },
+    "editor.perf500.navMsMedian": {
+      "max": 74,
+      "slack": 40
+    },
+    "editor.perf500.navTimeouts": {
+      "max": 0,
+      "slack": 0
+    },
+    "mobile.deep.perf500.lcpMs": {
+      "max": 4364,
+      "slack": 1500
+    },
+    "mobile.deep.perf500.fcpMs": {
+      "max": 312,
+      "slack": 300
+    },
+    "mobile.deep.perf500.blockingMs": {
+      "max": 370,
+      "slack": 400
+    },
+    "mobile.deep.perf500.requests": {
+      "max": 160,
+      "slack": 5
+    },
+    "mobile.deep.perf500.transferKB": {
+      "max": 592,
+      "slack": 25
+    },
+    "mobile.deep.perf500.elements": {
+      "max": 480,
+      "slack": 50
+    },
+    "mobile.deep.perf500.heapMB": {
+      "max": 10.7,
+      "slack": 2
+    },
+    "mobile.deep.perf500.lighthouseScore": {
+      "min": 59,
+      "slack": 10
+    },
+    "mobile.deep.perf500.lighthouseLcpMs": {
+      "max": 5642,
+      "slack": 1500
+    },
+    "mobile.deep.perf500.lighthouseTbtMs": {
+      "max": 737,
+      "slack": 400
+    },
+    "mobile.home.perf500.lcpMs": {
+      "max": 4728,
+      "slack": 1500
+    },
+    "mobile.home.perf500.fcpMs": {
+      "max": 328,
+      "slack": 300
+    },
+    "mobile.home.perf500.blockingMs": {
+      "max": 460,
+      "slack": 400
+    },
+    "mobile.home.perf500.requests": {
+      "max": 214,
+      "slack": 5
+    },
+    "mobile.home.perf500.transferKB": {
+      "max": 779,
+      "slack": 25
+    },
+    "mobile.home.perf500.elements": {
+      "max": 592,
+      "slack": 50
+    },
+    "mobile.home.perf500.heapMB": {
+      "max": 11.1,
+      "slack": 2
+    },
+    "mobile.home.perf500.lighthouseScore": {
+      "min": 55,
+      "slack": 10
+    },
+    "mobile.home.perf500.lighthouseLcpMs": {
+      "max": 6900,
+      "slack": 1500
+    },
+    "mobile.home.perf500.lighthouseTbtMs": {
+      "max": 789,
+      "slack": 400
+    },
+    "outline.perf500.outlineOpenMs": {
+      "max": 1572,
+      "slack": 1500
+    },
+    "outline.perf500.outlineHeapMB": {
+      "max": 33.3,
+      "slack": 5
+    },
+    "outline.perf500.outlineNodes": {
+      "max": 342766,
+      "slack": 1000
+    },
+    "reader.perf500.heapKBPerVisit": {
+      "max": 33.4,
+      "slack": 10
+    },
+    "reader.perf500.nodesPerVisit": {
+      "max": 268.3,
+      "slack": 50
+    },
+    "reader.perf500.listenersPerVisit": {
+      "max": 16.4,
+      "slack": 5
+    },
+    "reader.perf500.reactionsPerVisit": {
+      "max": 0.92,
+      "slack": 0.5
+    },
+    "reader.perf500.detachedObserved": {
+      "max": 188,
+      "slack": 20
+    },
+    "reader.perf500.i18nDeadEntries": {
+      "max": 1629,
+      "slack": 50
+    },
+    "reader.perf500.idleRequests": {
+      "max": 0,
+      "slack": 1
+    },
+    "reader.perf500.idleTimers": {
+      "max": 201,
+      "slack": 60
+    },
+    "reader.perf500.idleGrowthKB": {
+      "max": 0,
+      "slack": 200
+    },
+    "reader.perf500.navMsMedian": {
+      "max": 41,
+      "slack": 40
+    },
+    "reader.perf500.navTimeouts": {
+      "max": 0,
+      "slack": 0
+    },
+    "site.perf500.createSeconds": {
+      "max": 23.2,
+      "slack": 30
+    },
+    "site.perf500.siteJsonKB": {
+      "max": 209.6,
+      "slack": 5
+    },
+    "site.perf500.siteJsonGzipKB": {
+      "max": 16.4,
+      "slack": 2
+    },
+    "site.perf500.pageHtmlKB": {
+      "max": 2.9,
+      "slack": 1
+    }
+  },
+  "short": {
+    "editor.perf500.heapKBPerVisit": {
+      "max": 272.9,
+      "slack": 10
+    },
+    "editor.perf500.nodesPerVisit": {
+      "max": 2288.2,
+      "slack": 50
+    },
+    "editor.perf500.listenersPerVisit": {
+      "max": 282.8,
+      "slack": 5
+    },
+    "editor.perf500.reactionsPerVisit": {
+      "max": 14.7,
+      "slack": 0.5
+    },
+    "editor.perf500.detachedObserved": {
+      "max": 74,
+      "slack": 20
+    },
+    "editor.perf500.i18nDeadEntries": {
+      "max": 437,
+      "slack": 50
+    },
+    "editor.perf500.idleRequests": {
+      "max": 0,
+      "slack": 1
+    },
+    "editor.perf500.idleTimers": {
+      "max": 34,
+      "slack": 60
+    },
+    "editor.perf500.idleGrowthKB": {
+      "max": 4,
+      "slack": 200
+    },
+    "editor.perf500.navMsMedian": {
+      "max": 73,
+      "slack": 40
+    },
+    "editor.perf500.navTimeouts": {
+      "max": 0,
+      "slack": 0
+    },
+    "mobile.deep.perf500.lcpMs": {
+      "max": 4468,
+      "slack": 1500
+    },
+    "mobile.deep.perf500.fcpMs": {
+      "max": 292,
+      "slack": 300
+    },
+    "mobile.deep.perf500.blockingMs": {
+      "max": 510,
+      "slack": 400
+    },
+    "mobile.deep.perf500.requests": {
+      "max": 160,
+      "slack": 5
+    },
+    "mobile.deep.perf500.transferKB": {
+      "max": 592,
+      "slack": 25
+    },
+    "mobile.deep.perf500.elements": {
+      "max": 480,
+      "slack": 50
+    },
+    "mobile.deep.perf500.heapMB": {
+      "max": 10.7,
+      "slack": 2
+    },
+    "mobile.deep.perf500.lighthouseScore": {
+      "min": 59,
+      "slack": 10
+    },
+    "mobile.deep.perf500.lighthouseLcpMs": {
+      "max": 5864,
+      "slack": 1500
+    },
+    "mobile.deep.perf500.lighthouseTbtMs": {
+      "max": 703,
+      "slack": 400
+    },
+    "outline.perf500.outlineOpenMs": {
+      "max": 1580,
+      "slack": 1500
+    },
+    "outline.perf500.outlineHeapMB": {
+      "max": 33.4,
+      "slack": 5
+    },
+    "outline.perf500.outlineNodes": {
+      "max": 342766,
+      "slack": 1000
+    },
+    "reader.perf500.heapKBPerVisit": {
+      "max": 40.7,
+      "slack": 10
+    },
+    "reader.perf500.nodesPerVisit": {
+      "max": 305.8,
+      "slack": 50
+    },
+    "reader.perf500.listenersPerVisit": {
+      "max": 25.5,
+      "slack": 5
+    },
+    "reader.perf500.reactionsPerVisit": {
+      "max": 1,
+      "slack": 0.5
+    },
+    "reader.perf500.detachedObserved": {
+      "max": 63,
+      "slack": 20
+    },
+    "reader.perf500.i18nDeadEntries": {
+      "max": 335,
+      "slack": 50
+    },
+    "reader.perf500.idleRequests": {
+      "max": 0,
+      "slack": 1
+    },
+    "reader.perf500.idleTimers": {
+      "max": 51,
+      "slack": 60
+    },
+    "reader.perf500.idleGrowthKB": {
+      "max": 0,
+      "slack": 200
+    },
+    "reader.perf500.navMsMedian": {
+      "max": 45,
+      "slack": 40
+    },
+    "reader.perf500.navTimeouts": {
+      "max": 0,
+      "slack": 0
+    },
+    "site.perf500.createSeconds": {
+      "max": 23.4,
+      "slack": 30
+    },
+    "site.perf500.siteJsonKB": {
+      "max": 209.6,
+      "slack": 5
+    },
+    "site.perf500.siteJsonGzipKB": {
+      "max": 16.4,
+      "slack": 2
+    },
+    "site.perf500.pageHtmlKB": {
+      "max": 2.9,
+      "slack": 1
+    }
+  }
+}
