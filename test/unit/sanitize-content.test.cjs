@@ -17,6 +17,7 @@ const {
 // Security: no allow-same-origin by default (with allow-scripts it would let
 // the frame strip its own sandbox); an explicit author sandbox keeps it.
 const DEFAULT_SANDBOX = "allow-scripts allow-popups allow-forms";
+const CROSS_ORIGIN_SANDBOX = DEFAULT_SANDBOX + " allow-same-origin";
 
 describe("sanitizeHTMLForStorage — forbidden tags stripped", () => {
   test("script tag and its contents are removed", () => {
@@ -163,12 +164,21 @@ describe("sanitizeHTMLForStorage — URL attributes", () => {
 });
 
 describe("sanitizeHTMLForStorage — iframe sandbox normalization", () => {
-  test("missing sandbox receives the default sandbox tokens", () => {
+  test("missing sandbox on a same-origin src receives the strict default", () => {
+    assert.equal(
+      sanitizeHTMLForStorage('<iframe src="/files/embed.html"></iframe>'),
+      '<iframe src="/files/embed.html" loading="lazy" referrerpolicy="no-referrer" sandbox="' +
+        DEFAULT_SANDBOX +
+        '"></iframe>',
+    );
+  });
+
+  test("missing sandbox on a cross-origin http(s) src also gets allow-same-origin", () => {
     assert.equal(
       sanitizeHTMLForStorage('<iframe src="https://example.com"></iframe>'),
       '<iframe src="https://example.com" loading="lazy" referrerpolicy="no-referrer" sandbox="' +
         DEFAULT_SANDBOX +
-        '"></iframe>',
+        ' allow-same-origin"></iframe>',
     );
   });
 
@@ -190,12 +200,28 @@ describe("sanitizeHTMLForStorage — iframe sandbox normalization", () => {
     );
   });
 
-  test("the default sandbox never grants allow-same-origin", () => {
-    const output = sanitizeHTMLForStorage(
-      '<iframe src="https://example.com"></iframe>',
+  test("the default sandbox never grants allow-same-origin to a non-http(s) or same-origin src", () => {
+    for (const src of [
+      "/files/x.html",
+      "files/x.html",
+      "about:blank",
+      "data:text/html,hi",
+      "blob:https://a.example/b",
+    ]) {
+      const output = sanitizeHTMLForStorage(
+        '<iframe src="' + src + '"></iframe>',
+      );
+      assert.equal(output.indexOf("allow-same-origin"), -1, src);
+      assert.ok(
+        output.indexOf('sandbox="' + DEFAULT_SANDBOX + '"') !== -1,
+        src,
+      );
+    }
+    // javascript: src is removed outright, leaving no src and the strict default
+    const js = sanitizeHTMLForStorage(
+      '<iframe src="javascript:alert(1)"></iframe>',
     );
-    assert.equal(output.indexOf("allow-same-origin"), -1);
-    assert.ok(output.indexOf('sandbox="' + DEFAULT_SANDBOX + '"') !== -1);
+    assert.equal(js.indexOf("allow-same-origin"), -1);
   });
 
   test("allowed sandbox tokens are kept (deduped, lowercased)", () => {
@@ -233,7 +259,7 @@ describe("sanitizeHTMLForStorage — referrerpolicy normalization", () => {
         '<iframe src="https://example.com" referrerpolicy="bogus"></iframe>',
       ),
       '<iframe src="https://example.com" referrerpolicy="no-referrer" loading="lazy" sandbox="' +
-        DEFAULT_SANDBOX +
+        CROSS_ORIGIN_SANDBOX +
         '"></iframe>',
     );
   });
@@ -251,7 +277,7 @@ describe("sanitizeHTMLForStorage — referrerpolicy normalization", () => {
         '<iframe src="https://example.com" referrerpolicy="origin"></iframe>',
       ),
       '<iframe src="https://example.com" referrerpolicy="origin" loading="lazy" sandbox="' +
-        DEFAULT_SANDBOX +
+        CROSS_ORIGIN_SANDBOX +
         '"></iframe>',
     );
   });
@@ -262,7 +288,7 @@ describe("sanitizeHTMLForStorage — referrerpolicy normalization", () => {
         '<iframe src="https://example.com" referrerpolicy="ORIGIN"></iframe>',
       ),
       '<iframe src="https://example.com" referrerpolicy="origin" loading="lazy" sandbox="' +
-        DEFAULT_SANDBOX +
+        CROSS_ORIGIN_SANDBOX +
         '"></iframe>',
     );
   });
@@ -279,7 +305,7 @@ describe("sanitizeHTMLForStorage — credentialless iframe support", () => {
         '<iframe src="https://www.youtube.com/embed/x" credentialless></iframe>',
       ),
       '<iframe src="https://www.youtube.com/embed/x" credentialless="" loading="lazy" referrerpolicy="no-referrer" sandbox="' +
-        DEFAULT_SANDBOX +
+        CROSS_ORIGIN_SANDBOX +
         '"></iframe>',
     );
   });
@@ -290,7 +316,7 @@ describe("sanitizeHTMLForStorage — credentialless iframe support", () => {
         '<iframe src="https://www.youtube.com/embed/x" credentialless=""></iframe>',
       ),
       '<iframe src="https://www.youtube.com/embed/x" credentialless="" loading="lazy" referrerpolicy="no-referrer" sandbox="' +
-        DEFAULT_SANDBOX +
+        CROSS_ORIGIN_SANDBOX +
         '"></iframe>',
     );
   });
@@ -301,7 +327,7 @@ describe("sanitizeHTMLForStorage — credentialless iframe support", () => {
         '<iframe src="https://www.youtube.com/embed/x" credentialless referrerpolicy="strict-origin-when-cross-origin"></iframe>',
       ),
       '<iframe src="https://www.youtube.com/embed/x" credentialless="" referrerpolicy="strict-origin-when-cross-origin" loading="lazy" sandbox="' +
-        DEFAULT_SANDBOX +
+        CROSS_ORIGIN_SANDBOX +
         '"></iframe>',
     );
   });
@@ -312,7 +338,7 @@ describe("sanitizeHTMLForStorage — credentialless iframe support", () => {
         '<iframe src="https://www.youtube.com/embed/x" referrerpolicy="strict-origin-when-cross-origin"></iframe>',
       ),
       '<iframe src="https://www.youtube.com/embed/x" referrerpolicy="strict-origin-when-cross-origin" loading="lazy" sandbox="' +
-        DEFAULT_SANDBOX +
+        CROSS_ORIGIN_SANDBOX +
         '"></iframe>',
     );
   });

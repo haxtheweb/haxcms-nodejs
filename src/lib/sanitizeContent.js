@@ -136,14 +136,27 @@ const IFRAME_SANDBOX_ALLOWED_TOKENS = new Set([
   "allow-same-origin",
   "allow-scripts",
 ]);
-// Security: the default sandbox applied to iframes that carry no sandbox of
-// their own deliberately omits allow-same-origin. allow-scripts +
-// allow-same-origin together let a same-origin frame remove its own sandbox
-// attribute, which defeats the sandbox entirely. Authors who set an explicit
-// sandbox attribute that includes allow-same-origin keep it (it is still an
-// allowed token below), so existing content with an intentional sandbox is
-// unchanged.
+// Security (SEC-SANITIZE): the default sandbox for iframes that carry no
+// sandbox of their own. allow-scripts + allow-same-origin together let a
+// SAME-origin frame remove its own sandbox, so allow-same-origin is only added
+// for real cross-origin embeds: an absolute http(s) (or protocol-relative) src.
+// Those frames keep their own origin (YouTube, Vimeo and most players need it
+// for storage and cookies) and still cannot reach the page. Relative, about:,
+// data:, blob:, javascript: or missing sources get the strict default, whose
+// origin is opaque or would be the page's. Same rule as the editor's
+// iframeSandboxForSource (haxtheweb/webcomponents#1177). Authors who set an
+// explicit sandbox keep it unchanged. PHP parity: SanitizeContent.
 const IFRAME_DEFAULT_SANDBOX = "allow-scripts allow-popups allow-forms";
+const IFRAME_CROSS_ORIGIN_SANDBOX =
+  IFRAME_DEFAULT_SANDBOX + " allow-same-origin";
+
+function isCrossOriginEmbedSource(src) {
+  if (typeof src !== "string") {
+    return false;
+  }
+  const value = src.trim();
+  return /^(?:https?:)?\/\/[^/\\\s]/i.test(value);
+}
 const REFERRER_POLICY_ALLOWED = new Set([
   "no-referrer",
   "origin",
@@ -460,7 +473,12 @@ function normalizeIframeAttributes(iframe) {
 
   const sandboxValue = normalizeSandboxValue(iframe.getAttribute("sandbox"));
   if (sandboxValue === "") {
-    iframe.setAttribute("sandbox", IFRAME_DEFAULT_SANDBOX);
+    iframe.setAttribute(
+      "sandbox",
+      isCrossOriginEmbedSource(iframe.getAttribute("src"))
+        ? IFRAME_CROSS_ORIGIN_SANDBOX
+        : IFRAME_DEFAULT_SANDBOX,
+    );
   } else {
     iframe.setAttribute("sandbox", sandboxValue);
   }
