@@ -1,6 +1,7 @@
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const filter_var = require("../../../lib/filter_var.js");
 const path = require("path");
+const { reserveSlugRoutes } = require("../../../lib/slugRules.js");
 const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
 const {
   toPlainText,
@@ -232,20 +233,12 @@ async function saveNode(req, res) {
               page.metadata.overridePathauto = false;
             }
             if (data["attributes"]["slug"]) {
-              // account for x being the only front end reserved route
-              if (data["attributes"]["slug"] == "x") {
-                data["attributes"]["slug"] = "x-x";
-              }
-              // same but trying to force a sub-route; paths cannot conflict with front end
-              if (data["attributes"]["slug"].substring(0, 2) == "x/") {
-                data["attributes"]["slug"] = data["attributes"]["slug"].replace(
-                  "x/",
-                  "x-x/",
-                );
-              }
-              // machine name should more aggressively scrub the slug than clean title
+              // machine name should more aggressively scrub the slug than
+              // clean title; no segment may be the reserved "x" route
               // @todo need to verify this doesn't already exist
-              page.slug = HAXCMS.generateSlugName(data["attributes"]["slug"]);
+              page.slug = reserveSlugRoutes(
+                HAXCMS.generateSlugName(data["attributes"]["slug"]),
+              );
             }
             if (data["attributes"]["parent"]) {
               page.parent = data["attributes"]["parent"];
@@ -273,7 +266,9 @@ async function saveNode(req, res) {
               }
               // ensure it exists
               else if (themes[value]) {
-                page.metadata.theme = themes[value];
+                // a copy: setting key must not change the shared
+                // HAXCMS.config.themes entry
+                page.metadata.theme = JSON.parse(JSON.stringify(themes[value]));
                 page.metadata.theme.key = value;
               }
             } else if (page.metadata.theme) {

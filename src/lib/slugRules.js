@@ -126,7 +126,23 @@ function generateSlugRule(name) {
   return finishSlug(n, true);
 }
 
+/**
+ * Reserved front-end route: a page slug segment can never be "x" (the
+ * /x/... API and system routes), so every "x" segment becomes "x-x".
+ * Applied wherever a page slug is generated or set (getUniqueSlugName,
+ * the pathauto cascade, setSlug, the page-break slug attribute,
+ * saveOutline). Idempotent. Mirrors HAXCMSSite::reserveSlugRoutes in
+ * haxcms-php.
+ */
+function reserveSlugRoutes(slug) {
+  return String(slug)
+    .split("/")
+    .map((segment) => (segment === "x" ? "x-x" : segment))
+    .join("/");
+}
+
 module.exports = {
+  reserveSlugRoutes,
   cleanTitleRule,
   generateSlugRule,
   phpUrlDecode,

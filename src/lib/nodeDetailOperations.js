@@ -1,6 +1,7 @@
 const stripTagsImport = require('locutus/php/strings/strip_tags');
 const strip_tags = stripTagsImport.strip_tags || stripTagsImport;
 const { HAXCMS } = require('./HAXCMS.js');
+const { reserveSlugRoutes } = require('./slugRules.js');
 const {
   sanitizeURLValue,
   sanitizeMetadataValue
@@ -237,14 +238,8 @@ function applyMetadataMutation(page, details = {}, operation = null, site = null
         Object.prototype.hasOwnProperty.call(details, 'slug') &&
         details.slug !== ''
       ) {
-        let newSlug = details.slug;
-        if (newSlug === 'x') {
-          newSlug = 'x-x';
-        }
-        if (newSlug.substring(0, 2) === 'x/') {
-          newSlug = newSlug.replace('x/', 'x-x/');
-        }
-        page.slug = HAXCMS.generateSlugName(newSlug);
+        // no segment may be the reserved "x" route
+        page.slug = reserveSlugRoutes(HAXCMS.generateSlugName(details.slug));
         // When user manually sets a slug, mark it as overridden so pathauto won't overwrite it
         ensureMetadataObject(page);
         page.metadata.overridePathauto = true;

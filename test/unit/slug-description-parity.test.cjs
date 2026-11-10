@@ -512,3 +512,87 @@ describe("site.json top-level keys survive load + save (haxcms-php parity)", () 
     assert.equal(Object.prototype.hasOwnProperty.call(raw, "file"), false);
   });
 });
+
+describe("reserved x route segment (haxcms-php parity)", () => {
+  const { reserveSlugRoutes } = require("../../src/lib/slugRules.js");
+
+  test("every x segment becomes x-x; idempotent", () => {
+    // same cases as haxcms-php SlugDescriptionParityTest
+    const cases = {
+      x: "x-x",
+      "x/a": "x-x/a",
+      "a/x": "a/x-x",
+      "a/x/b": "a/x-x/b",
+      "x/inbox/a": "x-x/inbox/a",
+      "x-x": "x-x",
+      xx: "xx",
+      "box/x": "box/x-x",
+      "inbox/a": "inbox/a",
+    };
+    for (const input of Object.keys(cases)) {
+      assert.equal(reserveSlugRoutes(input), cases[input], input);
+      assert.equal(reserveSlugRoutes(cases[input]), cases[input], input);
+    }
+    assert.equal(
+      reserveSlugRoutes(HAXCMS.generateSlugName("X/Search")),
+      "x-x/search",
+    );
+  });
+
+  test("the cascade applies the rule to every generated segment", async (t) => {
+    const items = [
+      outlineItem("resume", null, "old"),
+      outlineItem("padded", "resume", "old/padded-title"),
+      outlineItem("leaf", "padded", "old/padded-title/x-x"),
+      outlineItem("direct", "resume", "old/x-x"),
+    ];
+    items[1].title = "Padded Title";
+    // titles that clean to the reserved "x" segment
+    items[2].title = "X";
+    items[3].title = "X";
+    const { siteDir } = await loadTempSite(t, items, { pathauto: true });
+    const res = stubRes();
+    const req = saveNodeRequest(
+      '<page-break title="Résumé" item-id="resume"></page-break><p>x</p>',
+    );
+    req.body.node.id = "resume";
+    await saveNode(req, res);
+    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+    const slugs = {};
+    for (const entry of fs.readJsonSync(path.join(siteDir, "site.json"))
+      .items) {
+      slugs[entry.id] = entry.slug;
+    }
+    assert.deepEqual(slugs, {
+      resume: "résumé",
+      padded: "résumé/padded-title",
+      leaf: "résumé/padded-title/x-x",
+      direct: "résumé/x-x",
+    });
+  });
+
+  test("slug attribute and new pages never use the reserved segment", async (t) => {
+    const { site } = await loadTempSite(
+      t,
+      [outlineItem("item-1", null, "item-1")],
+      { pathauto: false },
+    );
+    const cases = { X: "x-x", "x/inbox/a": "x-x/inbox/a", "a/x": "a/x-x" };
+    for (const input of Object.keys(cases)) {
+      const res = stubRes();
+      await saveNode(
+        saveNodeRequest(
+          '<page-break title="T" item-id="item-1" slug="' +
+            input +
+            '"></page-break><p>b</p>',
+        ),
+        res,
+      );
+      assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+      assert.equal(site.loadNode("item-1").slug, cases[input], input);
+    }
+    // createItem / addPage derive slugs through getUniqueSlugName
+    assert.equal(site.getUniqueSlugName("x"), "x-x");
+    assert.equal(site.getUniqueSlugName("item-1/x"), "item-1/x-x");
+  });
+});

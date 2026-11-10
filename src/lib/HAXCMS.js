@@ -19,7 +19,11 @@ const {
   getSecurityTxtExpires,
 } = require("./managedFiles.js");
 const { resolveContainedPath, hasTraversal } = require("./pathConfinement.js");
-const { cleanTitleRule, generateSlugRule } = require("./slugRules.js");
+const {
+  cleanTitleRule,
+  generateSlugRule,
+  reserveSlugRoutes,
+} = require("./slugRules.js");
 const {
   trimTrailingSlashes,
   trimSlashes,
@@ -4040,6 +4044,9 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     while (rSlug.substring(0, 1) == "/") {
       rSlug = rSlug.substring(1);
     }
+    // reserved front-end route segments ("x" -> "x-x")
+    slug = reserveSlugRoutes(slug);
+    rSlug = reserveSlugRoutes(rSlug);
     let loop = 0;
     let ready = false;
     // while not ready, keep checking
