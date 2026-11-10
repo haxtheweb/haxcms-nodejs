@@ -1125,7 +1125,8 @@ test("generateSlugName keeps forward slashes and strips traversal", () => {
   assert.equal(HAXCMS.generateSlugName("../etc/passwd"), "etc/passwd");
   assert.equal(HAXCMS.generateSlugName("/leading/slash"), "leading/slash");
   assert.equal(HAXCMS.generateSlugName("double//slash"), "double/slash");
-  assert.equal(HAXCMS.generateSlugName(null), "");
+  // an empty result becomes "blank" (same as cleanTitle and haxcms-php)
+  assert.equal(HAXCMS.generateSlugName(null), "blank");
 });
 
 test("generateUUID returns distinct v4 identifiers", () => {
@@ -1138,7 +1139,7 @@ test("generateUUID returns distinct v4 identifiers", () => {
 test("cleanTitle strips page path fragments and normalizes spacing", () => {
   assert.equal(HAXCMS.cleanTitle("pages/my-page/index.html"), "my-page");
   assert.equal(HAXCMS.cleanTitle("My Page"), "my-page");
-  // slashes are intentionally preserved by the char class ([^\w\-\/]+)
+  // slashes are intentionally preserved by the char class ([^\p{L}\p{N}_/-]+)
   assert.equal(
     HAXCMS.cleanTitle("dots..and//slashes", false),
     "dots-and//slashes",

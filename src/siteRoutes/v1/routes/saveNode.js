@@ -2,7 +2,10 @@ const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const filter_var = require("../../../lib/filter_var.js");
 const path = require("path");
 const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
-const { toPlainText } = require("../../../lib/sanitizePageMetadata.js");
+const {
+  toPlainText,
+  pageDescriptionFromBody,
+} = require("../../../lib/sanitizePageMetadata.js");
 const {
   sanitizeHTMLForStorage,
   sanitizeURLValue,
@@ -435,11 +438,10 @@ async function saveNode(req, res) {
               // Security (SEC-SANITIZE): decode then strip (see title)
               page.description = toPlainText(data["attributes"]["description"]);
             } else {
-              // Security (SEC-SANITIZE): decode then strip (see title)
-              const decodedClean = toPlainText(body);
-              page.description = decodedClean
-                .substring(0, 200)
-                .replace("\n", "");
+              // Security (SEC-SANITIZE): description is plain text derived
+              // from this page's body only (data.content never holds the
+              // <page-break> element or its attributes)
+              page.description = pageDescriptionFromBody(data["content"]);
             }
             let readtime = Math.round(countWords(clean) / 200);
             // account for uber small body
@@ -503,6 +505,9 @@ async function saveNode(req, res) {
             );
             await site.updateNode(page);
             await site.writePageAlternateFormats(page, sanitizedContent);
+            // stamp the site as updated and save site.json in tree order
+            // (orderTree), the same order every reordering save writes;
+            // mirrors saveNode in haxcms-php
             site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
             await site.manifest.save();
             await site.gitCommit(

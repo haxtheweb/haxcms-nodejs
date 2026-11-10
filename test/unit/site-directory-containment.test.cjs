@@ -14,13 +14,18 @@ const os = require("os");
 const path = require("path");
 const fs = require("fs-extra");
 
-const { HAXCMSSite } = require("../../src/lib/HAXCMS.js");
+const { HAXCMS, HAXCMSSite } = require("../../src/lib/HAXCMS.js");
 
 function tmpSitesDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "haxcms-site-contain-"));
 }
 
-test("load() refuses a name that resolves to the sites directory itself", async () => {
+test("load() refuses a name that resolves to the sites directory itself", async (t) => {
+  // cleanTitle trims "/" from both ends (so "/" becomes "blank"); a
+  // passthrough stand-in proves the containment check itself still refuses
+  // a name that collapses to the sites directory. Mirrors
+  // SiteDirectoryContainmentTest in haxcms-php.
+  t.mock.method(HAXCMS, "cleanTitle", (value) => String(value).trim());
   const sites = tmpSitesDir();
   // a site.json at the sites root must not be loadable as a "site"
   fs.writeJsonSync(path.join(sites, "site.json"), { items: [] });
@@ -33,6 +38,14 @@ test("load() refuses a name that resolves to the sites directory itself", async 
       names[i],
     );
     assert.equal(site.siteDirectory, undefined, names[i]);
+  }
+});
+
+test("cleanTitle never maps a site name to the sites directory itself", () => {
+  const names = ["/", "%2F", "//", "./", "../", ".", ".."];
+  for (let i = 0; i < names.length; i++) {
+    const segment = HAXCMS.cleanTitle(decodeURIComponent(names[i]), false);
+    assert.equal(segment, "blank", names[i]);
   }
 });
 

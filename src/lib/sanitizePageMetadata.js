@@ -30,6 +30,26 @@ function toPlainText(value) {
   return strip_tags(html_entity_decode(String(value)));
 }
 
+// longest auto-generated page description, in characters (code points)
+const AUTO_DESCRIPTION_MAX_CHARS = 200;
+
+/**
+ * Security (SEC-SANITIZE): an auto page description is plain text derived
+ * from the page body only. The caller passes the body without its
+ * <page-break> element (pageBreakParser content), so page attributes can
+ * never reach the description. Tags are stripped, entities decoded, then
+ * tags stripped again so decoded markup cannot survive; every CR / LF is
+ * removed and the result is cut at 200 characters (code points, not UTF-16
+ * units or bytes). Mirrors SanitizeContent::pageDescription in haxcms-php.
+ */
+function pageDescriptionFromBody(body) {
+  if (body === null || body === undefined) {
+    return '';
+  }
+  const text = toPlainText(strip_tags(String(body))).replace(/[\r\n]/g, '');
+  return Array.from(text).slice(0, AUTO_DESCRIPTION_MAX_CHARS).join('');
+}
+
 function sanitizeMetadataString(value) {
   return sanitizeMetadataValue(value, false);
 }
@@ -202,6 +222,8 @@ function applyPageMetadata(page, incoming, options = {}) {
 
 module.exports = {
   toPlainText,
+  pageDescriptionFromBody,
+  AUTO_DESCRIPTION_MAX_CHARS,
   sanitizePageMetadata,
   applyPageMetadata,
   FORBIDDEN_METADATA_KEYS,

@@ -57,6 +57,8 @@ jobs:
             "sanitizer vectors|test/fixtures/sanitize-vectors.json|system/backend/php/tests/fixtures/sanitize-vectors.json"
             "block operations allowlist|src/lib/haxcmsBlockAttributes.json|system/backend/php/lib/haxcms-block-attributes.json"
             "block operations vectors|test/fixtures/block-operations-vectors.json|system/backend/php/tests/fixtures/block-operations-vectors.json"
+            "slug vectors|test/fixtures/slug-vectors.json|system/backend/php/tests/fixtures/slug-vectors.json"
+            "page description vectors|test/fixtures/page-description-vectors.json|system/backend/php/tests/fixtures/page-description-vectors.json"
           )
 
           drift=0
