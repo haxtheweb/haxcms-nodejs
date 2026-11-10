@@ -8,7 +8,7 @@
 //   A) SITE EDITOR    — haxcms-site-editor-ui chrome (#editbutton save,
 //      #outlinebutton, #addpagebutton), haxcms-site-editor > h-a-x#hax >
 //      hax-body (recursive shadow search), PATCH /x/api/v1/content/:idOrSlug.
-//   C) OUTLINE EDITOR — #outlinebutton opens haxcms-outline-editor-dialog
+//   C) OUTLINE EDITOR — Structure (site settings menu) opens haxcms-outline-editor-dialog
 //      (outline-designer#outline + .hax-modal-btn "Save Outline"),
 //      PATCH /x/api/v1/site/outline (saveOutline), plus
 //      POST /x/api/v1/items (createNode) + DELETE /x/api/v1/items/:idOrSlug
@@ -30,6 +30,7 @@ const {
   deepQuery,
   E2E_USER_NAME,
   E2E_USER_PASSWORD,
+  openStructure,
 } = require('./index.cjs')
 
 const SITES_DIR = '_sites'
@@ -669,8 +670,8 @@ async function main() {
     await new Promise((r) => setTimeout(r, 2000))
 
     // ---------- PHASE C: outline editor ----------
-    section('PHASE C: open outline editor (#outlinebutton)')
-    const outlineOpen = await clickEditorButtonById(page, '#outlinebutton')
+    section('PHASE C: open outline editor (Structure, site settings menu)')
+    const outlineOpen = await openStructure(page, null)
     logJSON('OUTLINE OPEN', outlineOpen)
     await new Promise((r) => setTimeout(r, 3000))
     const outlineDump = await dumpOutlineDialog(page)

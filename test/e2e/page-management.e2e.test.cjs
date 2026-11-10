@@ -48,6 +48,7 @@ const {
   // flows helpers (single source of truth in helpers/flows.cjs)
   waitFor,
   waitForDeep,
+  openStructure,
   ensureOutlineOpen,
   safeCompareBaseline,
   setShadowInput,
@@ -505,29 +506,18 @@ test('page management e2e (add + delete page on HAXSITEAUTOMATEDTESTING)', { tim
   }
   t.diagnostic('[delete-page] cross-check OK: item removed from manifest + items list')
 
-  // 9. A11y: open the outline editor dialog (#outlinebutton in editor-ui
-  //    shadowRoot) -> a simple-modal with haxcms-outline-editor-dialog as a
-  //    light-DOM child. The #outlinebutton is disabled in edit mode, but we never
-  //    entered edit mode (create/delete used global events), so it is enabled.
-  //
-  //    Click detail (VERIFIED by discovery): #outlinebutton is a
-  //    simple-toolbar-button whose click handler lives on its INNER <button> (in
-  //    its own shadowRoot), so click the inner button and fall back to the host
-  //    .click() — matches the discovery clickEditorButtonById pattern. Calling
-  //    only btn.click() on the host does NOT open the modal.
-  const outlineClicked = await page.evaluate(() => {
-    const ui = document.querySelector('haxcms-site-editor-ui')
-    if (!ui || !ui.shadowRoot) return { error: 'no editor-ui shadowRoot' }
-    const btn = ui.shadowRoot.querySelector('#outlinebutton')
-    if (!btn) return { error: 'no #outlinebutton' }
-    if (btn.hasAttribute('disabled')) return { error: 'outlinebutton disabled (in edit mode?)' }
-    var inner = btn.shadowRoot && btn.shadowRoot.querySelector('button')
-    if (inner) inner.click()
-    else btn.click()
-    return { clicked: true, usedInner: !!(inner) }
-  })
-  assert.ok(outlineClicked.clicked, '#outlinebutton clicked to open outline editor: ' + JSON.stringify(outlineClicked))
-  t.diagnostic('[outline] #outlinebutton clicked (usedInner=' + outlineClicked.usedInner + ')')
+  // 9. A11y: open the outline editor dialog the way a person does: the
+  //    Structure quick link in the house's site settings menu (see
+  //    flows.openStructure; the top bar's #outlinebutton was removed by
+  //    haxtheweb/webcomponents 9f7a70591b) -> a simple-modal with
+  //    haxcms-outline-editor-dialog as a light-DOM child. The menu is hidden in
+  //    edit mode, but we never entered edit mode (create/delete used global
+  //    events), so it is available.
+  const outlineOpened = await openStructure(page, t)
+  assert.ok(
+    outlineOpened.clicked !== false && outlineOpened.called !== false,
+    'Structure opened to show the outline editor: ' + JSON.stringify(outlineOpened),
+  )
 
   // Wait for haxcms-outline-editor-dialog. It is a light-DOM child of
   // simple-modal, but there may be multiple simple-modal instances (e.g. a stale
@@ -558,12 +548,12 @@ test('page management e2e (add + delete page on HAXSITEAUTOMATEDTESTING)', { tim
         })
       }
       var ui = document.querySelector('haxcms-site-editor-ui')
-      var btn = ui && ui.shadowRoot ? ui.shadowRoot.querySelector('#outlinebutton') : null
+      var btn = ui && ui.shadowRoot ? ui.shadowRoot.querySelector('#site-menu app-hax-user-menu-button[data-route="structure"]') : null
       return {
         modalCount: modals.length,
         modalInfo: modalInfo,
         outlineDialogAnywhere: !!document.querySelector('haxcms-outline-editor-dialog'),
-        outlineBtnDisabled: btn ? btn.hasAttribute('disabled') : null,
+        structureLinkFound: !!btn,
         uiEditMode: ui ? ui.hasAttribute('edit-mode') : null,
       }
     })

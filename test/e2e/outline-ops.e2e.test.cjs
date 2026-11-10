@@ -5,7 +5,7 @@
 //
 // Flow: boot isolated runtime (JWT auth ENABLED) -> two-step UI login -> create
 // HAXSITEAUTOMATEDTESTING -> navigate into the site editor -> open the outline
-// editor dialog (#outlinebutton) -> for each operation:
+// editor dialog (Structure, site settings menu) -> for each operation:
 //   1. rename a page via the edit-title menu action (in-memory)
 //   2. reorder via move up/down menu actions (in-memory)
 //   3. nest/unnest via indent/outdent menu actions (in-memory)
@@ -48,7 +48,7 @@ const {
   relocateCreatedSite,
   ensureOutlineOpen,
   safeCompareBaseline,
-  clickEditorButtonById,
+  openStructure,
   acceptAdminConfirm,
 } = require('./helpers')
 
@@ -161,7 +161,7 @@ async function navigateToEditor(page, runtime, t) {
 
 async function openOutlineDialog(page, t) {
   // After a save in the admin shell the outline is still open; settle and
-  // keep using it instead of re-clicking #outlinebutton (see
+  // keep using it instead of opening Structure again (see
   // waitForOutlineSettled).
   const settled = await waitForOutlineSettled(page, 15000)
   t.diagnostic('[outline] settled before (re)open: ' + !!settled)
@@ -180,8 +180,8 @@ async function openOutlineDialog(page, t) {
     await new Promise((r) => setTimeout(r, 500))
     return
   }
-  const outlineOpen = await clickEditorButtonById(page, '#outlinebutton')
-  t.diagnostic('[outline] #outlinebutton clicked: ' + JSON.stringify(outlineOpen))
+  const outlineOpen = await openStructure(page, t)
+  t.diagnostic('[outline] Structure opener: ' + JSON.stringify(outlineOpen))
   const ready = await ensureOutlineOpen(page, t)
   t.diagnostic('[outline] dialog ready: ' + ready)
   assert.ok(ready, 'haxcms-outline-editor-dialog rendered')
@@ -392,7 +392,7 @@ async function assertNoPromptAfterSave(page, t, label) {
 // outline editor's _saveTap returns early when inShell). It is settled once
 // the shell has left 'saving' and the outline no longer reports unsaved
 // changes, i.e. the store manifest refresh from the save has landed. Until
-// then, re-clicking #outlinebutton swaps the modal and its unsaved-changes
+// then, opening Structure again swaps the modal and its unsaved-changes
 // check raises a "Discard outline changes?" prompt against the stale manifest.
 async function waitForOutlineSettled(page, timeoutMs) {
   return waitFor(
