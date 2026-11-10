@@ -492,8 +492,12 @@ test("an outline save rewrites only content-driven managed files", async (t) => 
   // settings did not change, so no settings-driven or static file is
   // rewritten (service-worker.js tracks content and is not listed here)
   assert.deepEqual(written, []);
-  // the spy is live: the outline itself was written through it
-  assert.ok(seen.indexOf("site.json") !== -1, "site.json write observed");
+  // the spy is live: the outline itself was written through it (to the
+  // temp file JSONOutlineSchema.writeFileAtomic renames over site.json)
+  assert.ok(
+    seen.some((name) => /^\.site\.json\.[0-9a-f]+\.tmp$/.test(name)),
+    "site.json write observed",
+  );
 });
 
 test("an outline save keeps owner content outside managed blocks", async (t) => {
