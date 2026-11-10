@@ -26,6 +26,7 @@ const {
   diffSnapshots,
   findStructureChanges,
   readBlobs,
+  forEachBlob,
 } = require("../../src/lib/structureHistory.js");
 
 function git(cwd, ...args) {
@@ -338,5 +339,129 @@ describe("structureHistory helpers", () => {
     ]);
     assert.ok(blobs[0] && blobs[0].length > 0);
     assert.equal(blobs[1], null);
+  });
+});
+
+describe("structureHistory streaming", () => {
+  // the pre-change findStructureChanges: every blob read up front
+  async function referenceFindStructureChanges(dir, itemId, hashes) {
+    const result = {};
+    if (hashes.length < 2) {
+      return result;
+    }
+    const blobs = await readBlobs(
+      dir,
+      hashes.map((hash) => hash + ":site.json"),
+    );
+    const parse = (blob) => {
+      if (!blob) {
+        return null;
+      }
+      try {
+        const manifest = JSON.parse(blob.toString("utf8"));
+        return manifest && Array.isArray(manifest.items) ? manifest : null;
+      } catch {
+        return null;
+      }
+    };
+    let newer = itemSnapshot(parse(blobs[0]), itemId);
+    for (let i = 1; i < hashes.length; i++) {
+      const older = itemSnapshot(parse(blobs[i]), itemId);
+      const changes = diffSnapshots(older, newer);
+      if (changes.length) {
+        result[hashes[i - 1]] = changes;
+      }
+      newer = older;
+    }
+    return result;
+  }
+
+  // a repo whose site.json versions are large enough to span many pipe
+  // chunks, with titles, parents, order and flags changing over time, plus
+  // a broken version
+  function buildHistory(t) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "structure-stream-"));
+    t.after(() => fs.removeSync(dir));
+    git(dir, "init", "--quiet");
+    const hashes = [];
+    for (let c = 0; c < 40; c++) {
+      let body;
+      if (c === 17) {
+        body = "{ broken json " + "x".repeat(70000);
+      } else {
+        const items = [];
+        for (let i = 0; i < 600; i++) {
+          items.push({
+            id: "item-" + i,
+            title: "Page " + i + (i === 5 ? " v" + Math.floor(c / 3) : ""),
+            slug: "page-" + i,
+            parent: i === 5 && c % 4 === 0 ? "item-1" : null,
+            order: i === 5 ? c % 5 : i,
+            location: "pages/item-" + i + "/index.html",
+            description: "Description for page " + i,
+            metadata: {
+              published: !(i === 5 && c % 7 === 0),
+              hideInMenu: i === 5 && c % 6 === 0,
+            },
+          });
+        }
+        body = JSON.stringify({ title: "Site", items: items }, null, 2);
+      }
+      fs.writeFileSync(path.join(dir, "site.json"), body);
+      git(dir, "add", ".");
+      git(dir, "commit", "--quiet", "-m", "commit " + c);
+      hashes.unshift(git(dir, "rev-parse", "HEAD"));
+    }
+    return { dir, hashes };
+  }
+
+  test("forEachBlob yields exactly what readBlobs returns, in order", async (t) => {
+    const { dir, hashes } = buildHistory(t);
+    const specs = hashes.map((hash) => hash + ":site.json");
+    // a missing object in the middle and at the end
+    specs.splice(10, 0, "0000000000000000000000000000000000000000:site.json");
+    specs.push(hashes[0] + ":does-not-exist.json");
+    const expected = await readBlobs(dir, specs);
+    const seen = [];
+    await forEachBlob(dir, specs, (index, blob) => {
+      seen.push(index);
+      if (expected[index] === null) {
+        assert.equal(blob, null, "spec " + index);
+      } else {
+        assert.ok(Buffer.isBuffer(blob), "spec " + index);
+        assert.ok(blob.equals(expected[index]), "spec " + index);
+      }
+    });
+    assert.deepEqual(
+      seen,
+      specs.map((_, i) => i),
+    );
+    assert.ok(expected[0].length > 64 * 1024, "blobs should span chunks");
+  });
+
+  test("findStructureChanges matches the read-everything version", async (t) => {
+    const { dir, hashes } = buildHistory(t);
+    for (const itemId of ["item-5", "item-1", "item-599", "missing"]) {
+      assert.deepEqual(
+        await findStructureChanges(dir, itemId, hashes),
+        await referenceFindStructureChanges(dir, itemId, hashes),
+        itemId,
+      );
+    }
+    const changes = await findStructureChanges(dir, "item-5", hashes);
+    assert.ok(Object.keys(changes).length > 5);
+  });
+
+  test("forEachBlob reads every spec as null when git cannot run there", async () => {
+    const seen = [];
+    await forEachBlob(
+      path.join(os.tmpdir(), "no-such-dir-" + Date.now()),
+      ["a:site.json", "b:site.json"],
+      (index, blob) => seen.push([index, blob]),
+    );
+    assert.deepEqual(seen, [
+      [0, null],
+      [1, null],
+    ]);
   });
 });
