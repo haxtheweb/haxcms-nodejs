@@ -24,17 +24,16 @@ Assessment Tasks
 
 Use this matrix to audit or design a course module. Each row is one learning objective.
 
-| #   | Learning Objective                                                  | Cognitive Level | Knowledge Type | Instructional Activity                                    | Assessment Task                                          | Joint A | Joint B | Action |
-| --- | ------------------------------------------------------------------- | --------------- | -------------- | --------------------------------------------------------- | -------------------------------------------------------- | ------- | ------- | ------ |
-| 1   | List the six cognitive levels of Bloom's revised taxonomy           | Remember        | Factual        | Lecture + reading                                         | Multiple-choice quiz                                     | ✓       | ✓       | —      |
-| 2   | Explain the difference between Analyze and Evaluate                 | Understand      | Conceptual     | Paired discussion, compare-contrast worksheet             | Short-answer exam question                               | ✓       | ✓       | —      |
-| 3   | Write a learning objective using the correct verb for a given level | Apply           | Procedural     | Guided practice with verb bank; peer review               | Objective-writing assignment, graded with rubric         | ✓       | ✓       | —      |
-| 4   | Audit an existing syllabus for cognitive level distribution         | Analyze         | Procedural     | Case-study workshop: annotate a real syllabus             | Annotated syllabus submission                            | ✓       | ✓       | —      |
-| 5   | Judge whether a given assessment is appropriately aligned           | Evaluate        | Conceptual     | Socratic seminar: defend alignment decisions              | Essay: critique a published course design                | ✓       | ✓       | —      |
-| 6   | Design a fully aligned module from scratch                          | Create          | Procedural     | Project studio: iterative drafts with instructor feedback | Portfolio: complete module plan with alignment rationale | ✓       | ✓       | —      |
+| # | Learning Objective | Cognitive Level | Knowledge Type | Instructional Activity | Assessment Task | Joint A | Joint B | Action |
+|---|-------------------|-----------------|----------------|------------------------|-----------------|---------|---------|--------|
+| 1 | List the six cognitive levels of Bloom's revised taxonomy | Remember | Factual | Lecture + reading | Multiple-choice quiz | ✓ | ✓ | — |
+| 2 | Explain the difference between Analyze and Evaluate | Understand | Conceptual | Paired discussion, compare-contrast worksheet | Short-answer exam question | ✓ | ✓ | — |
+| 3 | Write a learning objective using the correct verb for a given level | Apply | Procedural | Guided practice with verb bank; peer review | Objective-writing assignment, graded with rubric | ✓ | ✓ | — |
+| 4 | Audit an existing syllabus for cognitive level distribution | Analyze | Procedural | Case-study workshop: annotate a real syllabus | Annotated syllabus submission | ✓ | ✓ | — |
+| 5 | Judge whether a given assessment is appropriately aligned | Evaluate | Conceptual | Socratic seminar: defend alignment decisions | Essay: critique a published course design | ✓ | ✓ | — |
+| 6 | Design a fully aligned module from scratch | Create | Procedural | Project studio: iterative drafts with instructor feedback | Portfolio: complete module plan with alignment rationale | ✓ | ✓ | — |
 
 ### Alignment Check Codes
-
 - ✓ = aligned (same cognitive level ±1)
 - ↑ = assessment/instruction demands HIGHER level than objective
 - ↓ = assessment/instruction demands LOWER level than objective
@@ -44,14 +43,14 @@ Use this matrix to audit or design a course module. Each row is one learning obj
 
 ## Cognitive Level ↔ Assessment Method Lookup
 
-| Cognitive Level | NOT appropriate                  | Appropriate                            | Strong match                                               |
-| --------------- | -------------------------------- | -------------------------------------- | ---------------------------------------------------------- |
-| **Remember**    | Open-ended essay, design project | True/false, fill-in-blank              | Closed-book MCQ, labeling diagram                          |
-| **Understand**  | Unseen algorithm implementation  | Summary writing, MCQ with explanations | Concept mapping, paraphrase tasks                          |
-| **Apply**       | Pure definition recall           | Solved examples, structured case       | Novel problem set, simulation                              |
-| **Analyze**     | Single-answer MCQ                | Compare-contrast essay                 | Deconstructing argument, data interpretation               |
-| **Evaluate**    | Step-by-step procedure test      | Structured critique                    | Defending a recommendation, peer review with justification |
-| **Create**      | Recall quiz                      | Synthesis paper                        | Original design project, capstone                          |
+| Cognitive Level | NOT appropriate | Appropriate | Strong match |
+|-----------------|-----------------|-------------|--------------|
+| **Remember** | Open-ended essay, design project | True/false, fill-in-blank | Closed-book MCQ, labeling diagram |
+| **Understand** | Unseen algorithm implementation | Summary writing, MCQ with explanations | Concept mapping, paraphrase tasks |
+| **Apply** | Pure definition recall | Solved examples, structured case | Novel problem set, simulation |
+| **Analyze** | Single-answer MCQ | Compare-contrast essay | Deconstructing argument, data interpretation |
+| **Evaluate** | Step-by-step procedure test | Structured critique | Defending a recommendation, peer review with justification |
+| **Create** | Recall quiz | Synthesis paper | Original design project, capstone |
 
 ---
 
@@ -65,11 +64,11 @@ Use this matrix to audit or design a course module. Each row is one learning obj
 
 ### Step 1 — Map to taxonomy
 
-| Element     | Stated / Implied Level | Knowledge Type |
-| ----------- | ---------------------- | -------------- |
-| Objective   | Evaluate               | Conceptual     |
-| Instruction | Remember / Understand  | Factual        |
-| Assessment  | Remember               | Factual        |
+| Element | Stated / Implied Level | Knowledge Type |
+|---------|----------------------|----------------|
+| Objective | Evaluate | Conceptual |
+| Instruction | Remember / Understand | Factual |
+| Assessment | Remember | Factual |
 
 ### Step 2 — Check joints
 
@@ -78,17 +77,15 @@ Use this matrix to audit or design a course module. Each row is one learning obj
 
 ### Step 3 — Identify the gap
 
-The assessment tests what instruction delivers, but neither reaches the declared objective level. This is a _ceiling mismatch_: the course is operating two levels below its stated goal.
+The assessment tests what instruction delivers, but neither reaches the declared objective level. This is a *ceiling mismatch*: the course is operating two levels below its stated goal.
 
 ### Step 4 — Fix options
 
 **Option A — Lower the objective** (if the course is genuinely introductory):
-
 > Revised objective: "Students will be able to **describe** the four main marketing strategy frameworks and **identify** which framework applies to a given business scenario."  
 > Keep MCQ assessment; add scenario-matching questions for Apply level.
 
 **Option B — Raise instruction and assessment** (if Evaluate is genuinely required):
-
 > Add: case studies with real campaign data (Analyze practice).  
 > Add: structured debate activity where students defend a strategy choice (Evaluate practice).  
 > Replace MCQ exam with: written case analysis (Analyze/Evaluate) — student selects the most effective strategy from three options and defends with evidence.
@@ -100,7 +97,6 @@ The assessment tests what instruction delivers, but neither reaches the declared
 For course-level audits with many objectives, compute a simple alignment ratio.
 
 **Per-objective alignment score** (0–2):
-
 - 0 = both joints misaligned
 - 1 = one joint aligned, one misaligned
 - 2 = both joints aligned
@@ -111,12 +107,12 @@ For course-level audits with many objectives, compute a simple alignment ratio.
 CAI = (sum of per-objective scores) / (2 × number of objectives)
 ```
 
-| CAI range | Interpretation                                            |
-| --------- | --------------------------------------------------------- |
-| 0.90–1.00 | Well-aligned; minor revisions only                        |
+| CAI range | Interpretation |
+|-----------|----------------|
+| 0.90–1.00 | Well-aligned; minor revisions only |
 | 0.75–0.89 | Moderate alignment; target specific mismatched objectives |
-| 0.50–0.74 | Significant gaps; systematic revision needed              |
-| < 0.50    | Structurally misaligned; course redesign warranted        |
+| 0.50–0.74 | Significant gaps; systematic revision needed |
+| < 0.50 | Structurally misaligned; course redesign warranted |
 
 ### Example calculation
 
@@ -134,15 +130,14 @@ Interpretation: well-aligned overall; objectives 3, 8 (score 1) and 5 (score 0) 
 
 Cognitive level alignment is necessary but not sufficient. Knowledge type must also match.
 
-| Objective knowledge type                   | Assessment tests            | Verdict         |
-| ------------------------------------------ | --------------------------- | --------------- |
-| Procedural (how to do X)                   | Factual recall (define X)   | ✗ Type mismatch |
-| Conceptual (why X works)                   | Procedural execution (do X) | ✗ Type mismatch |
-| Metacognitive (monitor your own reasoning) | Conceptual explanation      | ✗ Type mismatch |
-| Procedural                                 | Application problem         | ✓ Aligned       |
+| Objective knowledge type | Assessment tests | Verdict |
+|--------------------------|------------------|---------|
+| Procedural (how to do X) | Factual recall (define X) | ✗ Type mismatch |
+| Conceptual (why X works) | Procedural execution (do X) | ✗ Type mismatch |
+| Metacognitive (monitor your own reasoning) | Conceptual explanation | ✗ Type mismatch |
+| Procedural | Application problem | ✓ Aligned |
 
-**Diagnostic question**: _Could a student who memorized the textbook (but never practiced) pass this assessment?_
-
+**Diagnostic question**: *Could a student who memorized the textbook (but never practiced) pass this assessment?*
 - Yes → assessment is testing Factual/Conceptual regardless of stated level
 - No → assessment likely reaches Procedural or higher knowledge type
 
@@ -183,7 +178,7 @@ A one-level upward stretch on assessment is acceptable; it signals that the cour
 ### Pattern 3 — "Verb laundering"
 
 **Symptom**: Objective says "analyze" but the worksheet just asks students to list components without explaining how they relate or what the implications are.  
-**Fix**: Verify the _task demand_, not the verb. Listing = Remember. Grouping = Understand. Identifying relationships = Analyze. The verb in the objective must match the _actual cognitive operation_ the assessment requires.
+**Fix**: Verify the *task demand*, not the verb. Listing = Remember. Grouping = Understand. Identifying relationships = Analyze. The verb in the objective must match the *actual cognitive operation* the assessment requires.
 
 ### Pattern 4 — "Foundational skip"
 

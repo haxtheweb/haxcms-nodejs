@@ -9,18 +9,7 @@ version: 1.1.0
 license: Apache-2.0
 metadata:
   author: haxtheweb
-  tags:
-    [
-      hax,
-      design-system,
-      ddd,
-      simplecolors,
-      css,
-      tokens,
-      accessibility,
-      hax-ui,
-      admin,
-    ]
+  tags: [hax, design-system, ddd, simplecolors, css, tokens, accessibility, hax-ui, admin]
 ---
 
 # HAX Design System
@@ -113,7 +102,6 @@ Full guide, token tables and patterns: [`hax-ui-admin.md`](https://github.com/ha
 ## SimpleColors Migration
 
 When encountering legacy SimpleColors usage:
-
 1. Identify the SimpleColors variable being used
 2. Check if DDD provides an equivalent token
 3. Replace with DDD token if available
