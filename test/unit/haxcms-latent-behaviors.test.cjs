@@ -23,9 +23,8 @@
 //   - HAXCMS.config.node.fields.advanced walks the same rejecting push.
 //   - processForm('siteSettings', ...) runs the whole settings-value load and
 //     has no return value (its undeclared-global strict-mode error is fixed).
-//   - itemSelectorList now takes the site as an argument (it used to read an
-//     undeclared PHP-port global); hierarchical items still reject on the
-//     missing this.findParent method.
+//   - itemSelectorList (unused; its depth walk called a findParent method
+//     that never existed) is removed, matching haxcms-php.
 //   - HAXCMS.createSite falls back to config.site.git for git details and
 //     appends '<name>.git' to its url; the github.io domain heuristic and
 //     the node_modules symlink branch also walk here.
@@ -239,45 +238,11 @@ test("processForm runs the settings value load and resolves", async () => {
   );
 });
 
-test("itemSelectorList builds the selector from the site it is given", () => {
-  // strict-mode fix: the site is an argument now (it used to be read from an
-  // undeclared global); flat pages exercise the whole walk without findParent
-  const items = [
-    { id: "p1", title: "Page One", parent: null },
-    { id: "p2", title: "Page Two", parent: null },
-  ];
-  const fakeSite = { manifest: { orderTree: (list) => list, items: items } };
-  const list = HAXCMS.itemSelectorList(fakeSite);
-  assert.deepEqual(list[0], { text: "-- No page --", value: null });
-  assert.deepEqual(list[1], { text: "- Page One", value: "p1" });
-  assert.deepEqual(list[2], { text: "- Page Two", value: "p2" });
-  // no implicit globals leak out of the walk
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(globalThis, "itemValues"),
-    false,
-  );
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(globalThis, "distance"),
-    false,
-  );
-});
-
-test("itemSelectorList rejects on hierarchical items because findParent is missing", () => {
-  const items = [
-    { id: "p1", title: "Page One", parent: null },
-    { id: "p2", title: "Page Two", parent: "p1" },
-  ];
-  const fakeSite = { manifest: { orderTree: (list) => list, items: items } };
-  // Characterization: the depth walk calls this.findParent, which is not
-  // defined on the core class, so any hierarchical item rejects.
-  assert.throws(
-    () => HAXCMS.itemSelectorList(fakeSite),
-    function (err) {
-      return (
-        err instanceof TypeError && err.message.indexOf("findParent") !== -1
-      );
-    },
-  );
+test("the unused itemSelectorList is gone", () => {
+  // nothing called it and any hierarchical item crashed on the missing
+  // this.findParent; removed in both backends
+  assert.equal(typeof HAXCMS.itemSelectorList, "undefined");
+  assert.equal(typeof HAXCMS.findParent, "undefined");
 });
 
 test("the unported PHP DOM helpers are gone", () => {

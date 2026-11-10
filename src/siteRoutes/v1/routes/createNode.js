@@ -111,7 +111,21 @@ async function createNode(req, res) {
     }
     // implies we've been TOLD to create nodes
     // this is typically from a docx import
-    if (nodeParams["items"]) {
+    // (same test as the items route: an empty items array is no bulk payload)
+    const hasItems =
+      Array.isArray(nodeParams["items"]) && nodeParams["items"].length > 0;
+    if (
+      !hasItems &&
+      (!nodeParams["node"] ||
+        typeof nodeParams["node"] !== "object" ||
+        Array.isArray(nodeParams["node"]))
+    ) {
+      return res.status(400).json({
+        status: 400,
+        data: { message: "Node payload is required" },
+      });
+    }
+    if (hasItems) {
       // create pages
       for (let i = 0; i < nodeParams["items"].length; i++) {
         // outline-designer allows delete + confirmation but we don't have anything
@@ -138,6 +152,15 @@ async function createNode(req, res) {
               : null,
           );
         }
+      }
+      // every entry was marked delete: nothing was created or committed
+      if (!item) {
+        return res.status(400).json({
+          status: 400,
+          data: {
+            message: "Invalid items payload (every item is marked delete)",
+          },
+        });
       }
       await site.gitCommit(nodeParams["items"].length + " pages added");
     } else {
