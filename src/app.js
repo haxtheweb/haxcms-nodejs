@@ -1350,6 +1350,15 @@ try {
 } catch {
   // intentionally ignored
 }
+// mtime + size of a single-site site.json, or null when it can't be read
+function statSingleSiteManifest(siteDirectory) {
+  try {
+    const stat = fs.statSync(path.join(siteDirectory, "site.json"));
+    return { mtimeMs: stat.mtimeMs, size: stat.size };
+  } catch {
+    return null;
+  }
+}
 function getRuntimePort() {
   const address = server.address();
   if (
@@ -1371,6 +1380,36 @@ systemStructureContext().then((site) => {
     publicDir = site.siteDirectory;
     HAXCMS.runtimeServerMode = "single-site";
     activeSite = site;
+    // Page views reuse one loaded site, but saves (API, CLI, git pull) write
+    // site.json without telling this process. Reload it whenever site.json's
+    // mtime or size changes, so pages added or renamed after boot resolve
+    // (they used to 404 with the page-miss shell until a restart). A failed
+    // reload (missing or half-written site.json) keeps serving the last good
+    // copy and is retried on the next request. Multisite and PHP already load
+    // the site per request.
+    let singleSiteStat = statSingleSiteManifest(publicDir);
+    const currentSingleSite = async () => {
+      const stat = statSingleSiteManifest(publicDir);
+      if (
+        !stat ||
+        (singleSiteStat &&
+          stat.mtimeMs === singleSiteStat.mtimeMs &&
+          stat.size === singleSiteStat.size)
+      ) {
+        return site;
+      }
+      try {
+        const reloaded = await systemStructureContext(publicDir);
+        if (reloaded) {
+          site = reloaded;
+          activeSite = reloaded;
+          singleSiteStat = stat;
+        }
+      } catch {
+        // keep the last good copy; the next request tries again
+      }
+      return site;
+    };
     if (process.env.NODE_ENV === "development") {
       // express.static will only serve the original static index.html file
       // so dev builds need to set this ignore option to inject any edits
@@ -1456,6 +1495,7 @@ systemStructureContext().then((site) => {
           getStaticSendFileOptions(publicDir, req.url),
         );
       } else {
+        const site = await currentSingleSite();
         const requestPath = getRequestPathWithoutQuery(req.url);
         let variantResponse = {
           served: false,

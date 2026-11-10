@@ -541,3 +541,79 @@ test("malformed JSON body returns 400 envelope and does not log the raw body", a
   assert.equal(all.indexOf(secret), -1, "raw body must not be logged");
   assert.equal(all.indexOf("x".repeat(200)), -1, "log output is truncated");
 });
+
+test("pages added or renamed after boot resolve without a restart", async (t) => {
+  const baseUrl = await baseUrlPromise;
+  const siteJsonPath = path.join(runtimeRoot, "site.json");
+  const original = fs.readFileSync(siteJsonPath, "utf8");
+  t.after(() => {
+    fs.writeFileSync(siteJsonPath, original);
+    fs.removeSync(path.join(runtimeRoot, "pages", "fresh"));
+  });
+  // the page-view route has served from its loaded copy
+  const before = await request("GET", baseUrl + "/fresh", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(before.status, 404);
+  // a save elsewhere (API, CLI, git pull) rewrites site.json
+  const manifest = JSON.parse(original);
+  manifest.items.find((i) => i.id === "about").title = "About Renamed";
+  manifest.items.push({
+    id: "fresh",
+    indent: 0,
+    location: "pages/fresh/index.html",
+    slug: "fresh",
+    order: 9,
+    parent: "",
+    title: "Fresh Page",
+    description: "added after boot",
+    metadata: { created: 1700000009, updated: 1700000009 },
+  });
+  fs.ensureDirSync(path.join(runtimeRoot, "pages", "fresh"));
+  fs.writeFileSync(
+    path.join(runtimeRoot, "pages", "fresh", "index.html"),
+    "<p>Fresh page body</p>",
+  );
+  fs.writeFileSync(siteJsonPath, JSON.stringify(manifest, null, 2));
+  const fresh = await request("GET", baseUrl + "/fresh", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(fresh.status, 200);
+  assert.ok(fresh.bodyText.indexOf("Fresh page body") !== -1);
+  assert.equal(fresh.bodyText.indexOf("haxcms-page-miss"), -1);
+  const markdown = await request("GET", baseUrl + "/fresh.md", {});
+  assert.equal(markdown.status, 200);
+  const about = await request("GET", baseUrl + "/about", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(about.status, 200);
+  assert.ok(about.bodyText.indexOf("About Renamed") !== -1);
+});
+
+test("a half-written site.json keeps serving the last good copy, then recovers", async (t) => {
+  const baseUrl = await baseUrlPromise;
+  const siteJsonPath = path.join(runtimeRoot, "site.json");
+  const original = fs.readFileSync(siteJsonPath, "utf8");
+  t.after(() => fs.writeFileSync(siteJsonPath, original));
+  // load a known-good copy first
+  const good = await request("GET", baseUrl + "/about", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(good.status, 200);
+  // caught mid-write: truncated JSON
+  fs.writeFileSync(siteJsonPath, original.slice(0, 40));
+  const during = await request("GET", baseUrl + "/about", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(during.status, 200);
+  assert.ok(during.bodyText.indexOf("About page body") !== -1);
+  // the write completes with a change; the next request picks it up
+  const manifest = JSON.parse(original);
+  manifest.items.find((i) => i.id === "about").title = "About After Recovery";
+  fs.writeFileSync(siteJsonPath, JSON.stringify(manifest, null, 2));
+  const after = await request("GET", baseUrl + "/about", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(after.status, 200);
+  assert.ok(after.bodyText.indexOf("About After Recovery") !== -1);
+});
