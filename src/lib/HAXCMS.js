@@ -182,6 +182,9 @@ function loadConfigJson(configDirectory) {
 }
 // HAXCMSSite which overlaps heavily and is referenced here often
 const utf8 = require("utf8");
+const {
+  rebuildAlternateFormatsLogged,
+} = require("./rebuildAlternateFormatsLogged.js");
 const JSONOutlineSchemaItem = require("./JSONOutlineSchemaItem.js");
 const FeedMe = require("./RSS.js");
 const TurndownService = require("turndown");
@@ -1739,7 +1742,7 @@ class HAXCMSSite {
       }
     }
     this.writePageAlternateFormats(page, alternateContent);
-    this.updateAlternateFormats();
+    await rebuildAlternateFormatsLogged(this, "addPage");
     return page;
   }
   /**

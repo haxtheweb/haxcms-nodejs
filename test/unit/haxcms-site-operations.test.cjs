@@ -1895,3 +1895,46 @@ test("getManagedTemplateFiles lists the managed file map", async () => {
   assert.equal(templates["404"], "404.html");
   assert.equal(templates["fileshtaccess"], "files/.htaccess");
 });
+
+test("addPage resolves only after the search index and feeds include the new page", async () => {
+  const site = await HAXCMS.loadSite("unit-site");
+  const title = "Indexed On Return " + Date.now();
+  const page = await site.addPage(null, title, "default", "indexed-on-return");
+  // no waiting: the rebuild must already be on disk when addPage returns
+  const index = JSON.parse(
+    fs.readFileSync(
+      path.join(site.siteDirectory, "lunrSearchIndex.json"),
+      "utf8",
+    ),
+  );
+  assert.ok(
+    index.some((entry) => entry.title === title),
+    "new page missing from lunrSearchIndex.json",
+  );
+  assert.ok(page && page.id);
+  const llms = fs.readFileSync(
+    path.join(site.siteDirectory, "llms.txt"),
+    "utf8",
+  );
+  assert.ok(llms.indexOf(title) !== -1, "new page missing from llms.txt");
+});
+
+test("addPage still returns the page when the generated-files rebuild fails", async (t) => {
+  const site = await HAXCMS.loadSite("unit-site");
+  const warn = t.mock.method(console, "warn", () => {});
+  t.mock.method(site, "lunrSearchIndex", async () => {
+    throw new Error("index build failed");
+  });
+  const page = await site.addPage(
+    null,
+    "Rebuild Fails",
+    "default",
+    "rebuild-fails",
+  );
+  assert.ok(page && page.id);
+  assert.ok(
+    warn.mock.calls.some((c) =>
+      String(c.arguments[0]).includes("index build failed"),
+    ),
+  );
+});
