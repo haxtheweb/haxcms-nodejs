@@ -63,6 +63,12 @@ async function saveOutline(req, res) {
     ) {
       return;
     }
+    // Invariant: an invalid outline is rejected with a 400 before anything
+    // is written (no page folder, no site.json change)
+    const invalid = validateOutlineItems(site, req.body["items"]);
+    if (invalid) {
+      return saveOutlineError(res, 400, invalid);
+    }
     let original = [...site.manifest.items];
     let originalLocationMap = {};
     for (let originalKey in original) {
@@ -509,6 +515,67 @@ async function saveOutline(req, res) {
       .json({ status: 403, data: { message: "Authentication required" } });
   }
 }
+/**
+ * Checks a saveOutline payload before anything is written. Returns the 400
+ * message for the first problem found, or null when the outline can be
+ * saved. Mirrors validateOutlineItems() in haxcms-php
+ * (lib/operations/saveOutline.php), with the same messages:
+ *   - items must be an array
+ *   - every item must be an object (not null, a number, a string or a list)
+ *   - a new page (an id the site does not have) is sent once: idMap can
+ *     only map a client id to one server id. An existing id sent twice is
+ *     one page, the last entry wins.
+ *   - no page is its own ancestor in the outline the save would produce
+ *     (the site's parents with the sent ones applied): a parent cycle would
+ *     loop forever in every parent walk (slugs, breadcrumbs, menus)
+ * A parent that does not exist is allowed; the save rescues that page to
+ * the top level.
+ */
+function validateOutlineItems(site, items) {
+  if (!Array.isArray(items)) {
+    return "Outline payload requires an items array";
+  }
+  const parents = new Map();
+  site.manifest.items.forEach((existing) => {
+    parents.set(String(existing.id), existing.parent);
+  });
+  const newIds = new Set();
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      return "Each outline item must be an object";
+    }
+    const id = String(item.id);
+    if (!site.loadNode(item.id)) {
+      if (newIds.has(id)) {
+        return "Each new outline item requires its own id";
+      }
+      newIds.add(id);
+    }
+  }
+  items.forEach((item) => {
+    parents.set(String(item.id), item.parent);
+  });
+  // top level, or not an id at all
+  const isTop = (parent) =>
+    (typeof parent !== "string" && typeof parent !== "number") || parent === "";
+  for (let i = 0; i < items.length; i++) {
+    const seen = new Set();
+    let current = String(items[i].id);
+    while (parents.has(current)) {
+      if (seen.has(current)) {
+        return "Outline item parents cannot form a cycle";
+      }
+      seen.add(current);
+      const parent = parents.get(current);
+      if (isTop(parent)) {
+        break;
+      }
+      current = String(parent);
+    }
+  }
+  return null;
+}
 function normalizeOutlineLocation(location) {
   if (typeof location !== "string") {
     return false;
@@ -587,4 +654,5 @@ saveOutline.normalizeOutlineSlug = normalizeOutlineSlug;
 saveOutline.getValidatedWritePath = getValidatedWritePath;
 saveOutline.isLikelyHtmlContent = isLikelyHtmlContent;
 saveOutline.saveOutlineError = saveOutlineError;
+saveOutline.validateOutlineItems = validateOutlineItems;
 module.exports = saveOutline;

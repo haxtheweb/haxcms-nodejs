@@ -277,20 +277,25 @@ test("FI-OUT-03 a site.json write that fails part-way leaves the previous site.j
 // malformed payloads
 // ---------------------------------------------------------------------------
 
-test.todo(
-  "FI-PAY-03 an item that is null or not an object is a 400 and site.json is unchanged (BUG: a null item throws a TypeError reading item.id, which escapes the route; a number item creates an untitled page)",
-  async (t) => {
-    const site = await buildSite(t, "fi-pay-03");
-    const before = readSiteJson("fi-pay-03");
-    for (const bad of [null, 42]) {
-      const { res, thrown } = await run(t, site, [bad]);
-      assert.equal(thrown, null, "nothing escapes for " + String(bad));
-      assert.equal(res.statusCode, 400, "400 for " + String(bad));
-      assert.equal(typeof res.body.data.message, "string");
-      assert.equal(readSiteJson("fi-pay-03"), before);
+test("FI-PAY-03 an item that is null or not an object is a 400 and site.json is unchanged", async (t) => {
+  const site = await buildSite(t, "fi-pay-03");
+  const before = readSiteJson("fi-pay-03");
+  // what run() does, with HAXCMS.loadSite mocked once for every round
+  t.mock.method(HAXCMS, "loadSite", async () => site);
+  for (const bad of [null, 42, "page", [1]]) {
+    const res = stubRes();
+    let thrown = null;
+    try {
+      await saveOutline(makeReq("fi-pay-03", [bad]), res);
+    } catch (e) {
+      thrown = e;
     }
-  },
-);
+    assert.equal(thrown, null, "nothing escapes for " + String(bad));
+    assert.equal(res.statusCode, 400, "400 for " + String(bad));
+    assert.equal(res.body.data.message, "Each outline item must be an object");
+    assert.equal(readSiteJson("fi-pay-03"), before);
+  }
+});
 
 test("FI-PAY-04 the same existing id sent twice: one page, the last entry wins", async (t) => {
   const site = await buildSite(t, "fi-pay-04");
@@ -311,23 +316,23 @@ test("FI-PAY-04 the same existing id sent twice: one page, the last entry wins",
   assert.deepEqual(orphanPageFolders("fi-pay-04"), []);
 });
 
-test.todo(
-  "FI-PAY-05 the same new client id sent twice is a 400, or creates one page (BUG: each entry creates its own page; idMap can only map the client id to one of them, so the client loses track of the other)",
-  async (t) => {
-    const site = await buildSite(t, "fi-pay-05");
-    const count = site.manifest.items.length;
-    const { res, thrown } = await run(t, site, [
-      page("client-x", "X", null, 5, { contents: "<p>X</p>" }),
-      page("client-x", "X again", null, 6, { contents: "<p>X</p>" }),
-    ]);
-    assert.equal(thrown, null);
-    const added = savedItems("fi-pay-05").length - count;
-    assert.ok(
-      res.statusCode === 400 ? added === 0 : added === 1,
-      "status " + res.statusCode + " added " + added,
-    );
-  },
-);
+test("FI-PAY-05 the same new client id sent twice is a 400 and nothing is written", async (t) => {
+  const site = await buildSite(t, "fi-pay-05");
+  const count = site.manifest.items.length;
+  const { res, thrown } = await run(t, site, [
+    page("client-x", "X", null, 5, { contents: "<p>X</p>" }),
+    page("client-x", "X again", null, 6, { contents: "<p>X</p>" }),
+  ]);
+  assert.equal(thrown, null);
+  // both backends answer 400 (haxcms-php FaultInjectionSaveOutlineTest)
+  assert.equal(res.statusCode, 400, JSON.stringify(res.body));
+  assert.equal(
+    res.body.data.message,
+    "Each new outline item requires its own id",
+  );
+  assert.equal(savedItems("fi-pay-05").length, count, "nothing is added");
+  assert.deepEqual(orphanPageFolders("fi-pay-05"), []);
+});
 
 test("FI-PAY-06 a parent that does not exist: the page is rescued to the top level", async (t) => {
   const site = await buildSite(t, "fi-pay-06");
@@ -397,20 +402,17 @@ function assertCycleRejected(outcome) {
   assert.ok(outcome.result, "the child reported: " + outcome.out);
   assert.equal(outcome.result.thrown, null);
   assert.equal(outcome.result.status, 400);
-  assert.equal(typeof outcome.result.body.data.message, "string");
+  assert.equal(
+    outcome.result.body.data.message,
+    "Outline item parents cannot form a cycle",
+  );
   assert.equal(outcome.result.siteJsonUnchanged, true);
 }
 
-test.todo(
-  "FI-PAY-07 a parent cycle (A under B, B under A) is a 400 and site.json is unchanged (BUG: the request never returns; it spins synchronously walking the parent chain, e.g. getUniqueSlugName in src/lib/HAXCMS.js has no visited set, which blocks every other request on the server)",
-  async () => {
-    assertCycleRejected(await runInChild("cycle"));
-  },
-);
+test("FI-PAY-07 a parent cycle (A under B, B under A) is a 400 and site.json is unchanged", async () => {
+  assertCycleRejected(await runInChild("cycle"));
+});
 
-test.todo(
-  "FI-PAY-08 a page that is its own parent is a 400 and site.json is unchanged (BUG: same endless parent walk as FI-PAY-07)",
-  async () => {
-    assertCycleRejected(await runInChild("self-parent"));
-  },
-);
+test("FI-PAY-08 a page that is its own parent is a 400 and site.json is unchanged", async () => {
+  assertCycleRejected(await runInChild("self-parent"));
+});

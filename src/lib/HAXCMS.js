@@ -4030,7 +4030,14 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       let item = { ...page };
       let pieces = [slug];
       let tmp = "";
+      // a parent cycle already on disk must not loop forever: each
+      // ancestor is visited once (saveOutline rejects new cycles)
+      const visited = new Set([String(page.id)]);
       while ((item = this.manifest.getItemById(item.parent))) {
+        if (visited.has(String(item.id))) {
+          break;
+        }
+        visited.add(String(item.id));
         tmp = explode("/", item.slug);
         array_unshift(pieces, tmp.pop());
       }
