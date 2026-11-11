@@ -242,6 +242,17 @@ describe("magicLinks store", () => {
     }
   });
 
+  test("the HAXiam installers' _config/IAM marker alone turns it off", () => {
+    const h = fakeHaxcms();
+    assert.equal(magicLinks.isMagicLinkEnabled(h), true);
+    fs.writeFileSync(path.join(h.configDirectory, "IAM"), "");
+    assert.equal(magicLinks.isHaxiamDeployment(h), true);
+    assert.equal(magicLinks.isMagicLinkEnabled(h), false);
+    assert.throws(() => magicLinks.issueMagicLink(h), {
+      code: "MAGIC_LINK_DISABLED",
+    });
+  });
+
   test("HAXCMS_MAGIC_LINK_ENABLED turns HAXiam on; DISABLED still wins over it", () => {
     const h = fakeHaxcms({ config: { iam: true } });
     process.env.HAXCMS_MAGIC_LINK_ENABLED = "1";

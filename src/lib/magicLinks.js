@@ -66,10 +66,19 @@ function isHaxiamDeployment(haxcms) {
   if (haxcms.config.iam) {
     return true;
   }
-  return (
+  if (
     String(haxcms.config.deploymentProfile || "").toLowerCase() ===
     "haxiam-managed"
-  );
+  ) {
+    return true;
+  }
+  // Security (SEC-MAGICLINK): the HAXiam installers also drop an `IAM` marker
+  // in the core's _config; honour it too (parity with haxcms-php).
+  try {
+    return fs.existsSync(path.join(getConfigDirectory(haxcms), "IAM"));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -77,7 +86,8 @@ function isHaxiamDeployment(haxcms) {
  *   single-site / self-hosted multisite: on by default (with no HTTP issuance
  *     path, only links minted by someone with _config access can be redeemed);
  *     config.security.magicLink.enabled=false turns it off.
- *   HAXiam (config.iam or deploymentProfile haxiam-managed): off by default;
+ *   HAXiam (config.iam, deploymentProfile haxiam-managed, or an `IAM` marker
+ *     in _config): off by default;
  *     HAXCMS_MAGIC_LINK_ENABLED (env) turns it on. Tenant config is ignored.
  *   HAXCMS_MAGIC_LINK_DISABLED (env) turns it off everywhere and wins.
  */
@@ -129,14 +139,16 @@ function getMagicLinkSettings(haxcms) {
   };
 }
 
-function getMagicLinksPath(haxcms) {
-  var configDirectory =
-    haxcms &&
+function getConfigDirectory(haxcms) {
+  return haxcms &&
     typeof haxcms.configDirectory === "string" &&
     haxcms.configDirectory
-      ? haxcms.configDirectory
-      : path.join(process.cwd(), "_config");
-  return path.join(configDirectory, "settings", "magicLinks.json");
+    ? haxcms.configDirectory
+    : path.join(process.cwd(), "_config");
+}
+
+function getMagicLinksPath(haxcms) {
+  return path.join(getConfigDirectory(haxcms), "settings", "magicLinks.json");
 }
 
 function hashVerifier(verifier) {
