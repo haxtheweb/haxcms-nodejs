@@ -161,12 +161,13 @@ class JSONOutlineSchema {
           let item = vars["items"][key];
           if (item) {
             let newItem = new JSONOutlineSchemaItem();
-            newItem.id = item.id;
+            // ids are strings (see normalizeOutlineId)
+            newItem.id = JSONOutlineSchema.normalizeOutlineId(item.id);
             newItem.indent = item.indent;
             newItem.location = item.location;
             newItem.slug = item.slug;
             newItem.order = item.order;
-            newItem.parent = item.parent;
+            newItem.parent = JSONOutlineSchema.normalizeOutlineId(item.parent);
             newItem.title = item.title;
             newItem.description = item.description;
             // metadata can be anything so whatever
@@ -358,8 +359,26 @@ class JSONOutlineSchema {
     }
   }
   /**
+   * Invariant: an outline item id, and a parent that refers to one, is a
+   * string (haxtheweb/json-outline-schema: id is a string, parent an id or
+   * null). A hand-made site.json may hold integers (7); load() and every
+   * save turn an integer into its decimal string ("7") so ids always
+   * compare as strings. Only integers both backends read exactly (up to
+   * 2^53 - 1) are converted; anything else (null, "", a string, a
+   * fraction) is returned unchanged. Mirrors
+   * JSONOutlineSchema::normalizeOutlineId in haxcms-php.
+   */
+  static normalizeOutlineId(value) {
+    if (Number.isSafeInteger(value)) {
+      // String(-0) is "0", as in PHP
+      return String(value);
+    }
+    return value;
+  }
+  /**
    * Canonical value types for site.json, per haxtheweb/json-outline-schema:
-   * top-level parent is null, indent / order / timestamps are integers,
+   * item ids and parents are strings (normalizeOutlineId), top-level parent
+   * is null, indent / order / timestamps are integers,
    * published / hideInMenu / locked are booleans, tags and relatedItems are
    * arrays. Older sites stored "1" / "" flags, numeric strings and
    * comma-separated tags; readers keep accepting those, every save writes
@@ -372,6 +391,12 @@ class JSONOutlineSchema {
   static normalizeItemValues(item) {
     if (!item || typeof item !== "object") {
       return item;
+    }
+    if ("id" in item) {
+      item.id = JSONOutlineSchema.normalizeOutlineId(item.id);
+    }
+    if ("parent" in item) {
+      item.parent = JSONOutlineSchema.normalizeOutlineId(item.parent);
     }
     if (item.parent === "" || item.parent === false) {
       item.parent = null;

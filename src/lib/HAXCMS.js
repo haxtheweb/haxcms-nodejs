@@ -1650,6 +1650,10 @@ class HAXCMSSite {
     // the folders listed in createdFolders if that one write fails.
     // draft an outline schema item
     let page = new JSONOutlineSchemaItem();
+    // ids are strings: an import / skeleton item with integer ids (id 7,
+    // parent 7) keeps its parent link, the same as a site.json load
+    id = JSONOutlineSchema.normalizeOutlineId(id);
+    parent = JSONOutlineSchema.normalizeOutlineId(parent);
     // support direct ID setting, useful for parent associations calculated ahead of time
     if (id) {
       // Security (SEC-PATH), PHP parity: sanitize caller-supplied id before it is
