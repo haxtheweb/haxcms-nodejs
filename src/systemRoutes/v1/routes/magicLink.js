@@ -130,21 +130,27 @@ function sendFailure(req, res, status, failure) {
   );
 }
 
-// When the feature is turned off the endpoint behaves as if it doesn't exist:
-// no confirmation page, nothing that suggests a recovery path is available.
-function sendNotFound(res) {
-  return res.status(404).json({ status: 404, data: { message: "Not found" } });
+// Security (SEC-MAGICLINK): when the feature is off the endpoint must be
+// indistinguishable from a route that doesn't exist (no confirmation page,
+// nothing suggesting a recovery path), so hand the request on and let it end
+// in the same 404 any unknown system route gets.
+function passAsUnknownRoute(res, next) {
+  if (typeof next === "function") {
+    return next();
+  }
+  return res.status(404).end();
 }
 
 /**
  * GET: show a confirmation page. GET never consumes the link, so link
  * scanners / chat unfurlers / browser prefetch cannot burn it.
  */
-function magicLinkConfirm(req, res) {
-  setNoStoreHeaders(res);
+function magicLinkConfirm(req, res, next) {
+  // checked before anything else so an off feature sets no headers of its own
   if (!magicLinks.isMagicLinkEnabled(HAXCMS)) {
-    return sendNotFound(res);
+    return passAsUnknownRoute(res, next);
   }
+  setNoStoreHeaders(res);
   var token = getSubmittedToken(req);
   if (!magicLinks.isWellFormedToken(token)) {
     return sendFailure(req, res, 400, GENERIC_FAILURE);
@@ -176,11 +182,12 @@ function magicLinkConfirm(req, res) {
  * POST: redeem the link once, issue the same refresh cookie as a password
  * login, then hand off to the app (which bootstraps via session/connection-test).
  */
-async function magicLinkConsume(req, res) {
-  setNoStoreHeaders(res);
+async function magicLinkConsume(req, res, next) {
+  // checked before anything else so an off feature sets no headers of its own
   if (!magicLinks.isMagicLinkEnabled(HAXCMS)) {
-    return sendNotFound(res);
+    return passAsUnknownRoute(res, next);
   }
+  setNoStoreHeaders(res);
   // Security (SEC-SESSION, SEC-MAGICLINK): shared with session/refresh and connection-test (Origin/Referer plus
   // Sec-Fetch-Site), so all cookie-issuing session routes use one CSRF model
   if (!HAXCMS.isSameOriginRequest(req)) {

@@ -531,18 +531,26 @@ describe("session/magic-link route", () => {
     assert.equal(r.cookies.length, 0, "a failed link must not sign anyone out");
   });
 
-  test("with the feature disabled both methods 404 and nothing is consumed", async () => {
+  test("with the feature off both methods fall through like an unknown route", async () => {
     const { token } = magicLinks.issueMagicLink(HAXCMS);
     process.env.HAXCMS_MAGIC_LINK_DISABLED = "1";
     try {
+      let passed = 0;
+      const next = () => {
+        passed++;
+      };
       const g = res();
-      route.magicLinkConfirm(req({ query: { token } }), g);
-      assert.equal(g.statusCode, 404);
-      assert.equal(typeof g.body, "object", "no HTML confirmation page");
+      route.magicLinkConfirm(req({ query: { token } }), g, next);
+      assert.equal(g.body, null, "no confirmation page or any body of its own");
       const p = res();
-      await route.magicLinkConsume(req({ body: { token } }), p);
-      assert.equal(p.statusCode, 404);
+      await route.magicLinkConsume(req({ body: { token } }), p, next);
+      assert.equal(p.body, null);
       assert.equal(p.cookies.length, 0);
+      assert.equal(
+        passed,
+        2,
+        "both handed on to the router's unknown-route 404",
+      );
     } finally {
       delete process.env.HAXCMS_MAGIC_LINK_DISABLED;
     }
