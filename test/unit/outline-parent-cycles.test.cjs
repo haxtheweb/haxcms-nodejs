@@ -101,8 +101,24 @@ test("items that are not objects and repeated new ids are rejected", () => {
     validate(site, [sent("n", null), sent("n", null), { title: "x" }]),
     "Each outline item requires an id",
   );
-  // a numeric id is still an id here (haxcms-php only accepts strings)
-  assert.equal(validate(site, [sent(7, null)]), null);
+  // ids are strings, as in haxcms-php: a number is not an id (site.json
+  // numeric ids are turned into strings when the site is loaded)
+  [7, 0, -1, 1.5].forEach((numericId) => {
+    assert.equal(
+      validate(site, [sent(numericId, null)]),
+      "Each outline item requires an id",
+      "id " + String(numericId),
+    );
+  });
+  // opaque ids: a padded id is accepted as sent; blank-only is not
+  assert.equal(validate(site, [sent(" a ", null)]), null);
+  ["\t", "\n", "\u00a0", "\ufeff", "\u2003 "].forEach((blank) => {
+    assert.equal(
+      validate(site, [{ id: blank, title: "x" }]),
+      "Each outline item requires an id",
+      "id " + JSON.stringify(blank),
+    );
+  });
   assert.equal(
     validate(site, "not-an-array"),
     "Outline payload requires an items array",

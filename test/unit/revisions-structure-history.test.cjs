@@ -309,6 +309,24 @@ describe("structureHistory helpers", () => {
     assert.equal(itemSnapshot(null, "b"), null);
   });
 
+  test("itemSnapshot finds a page in a revision that stored its id as a number", () => {
+    // site.json written before ids were normalized to strings (haxcms-php
+    // StructureHistory::itemSnapshot compares the same way)
+    const manifest = {
+      items: [
+        { title: "No id" },
+        { id: 1, title: "One", parent: null, order: 0 },
+        { id: 2, title: "Two", parent: 1, order: 1 },
+      ],
+    };
+    const snap = itemSnapshot(manifest, "2");
+    assert.ok(snap, "found by its string id");
+    assert.equal(snap.title, "Two");
+    assert.equal(snap.parent, "One");
+    assert.equal(snap.parentId, "1");
+    assert.equal(itemSnapshot(manifest, "undefined"), null);
+  });
+
   test("diffSnapshots ignores a missing side (page created or deleted)", () => {
     const snap = itemSnapshot({ items: [unit("a", "Alpha", 0)] }, "a");
     assert.deepEqual(diffSnapshots(null, snap), []);

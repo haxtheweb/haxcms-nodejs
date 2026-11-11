@@ -555,9 +555,10 @@ function removeUnlistedPageFolders(site, createdFolders, listedItems) {
  *   - every item must be an object (not null, a number, a string or a list)
  *   - every item has an id: the server only maps the ids a client sent
  *     (idMap), so an item without one could never be referred to again.
- *     Missing, null, a blank string, or a value that is neither a string
- *     nor a number is "Each outline item requires an id". (A numeric id is
- *     still accepted here; haxcms-php only accepts strings.)
+ *     The id is a non-blank string, kept exactly as sent (never trimmed).
+ *     Missing, null, blank (only whitespace) or not a string (a number
+ *     included: site.json ids are strings, JSONOutlineSchema.load turns
+ *     numeric ones into strings) is "Each outline item requires an id".
  *     These two per-item checks run over the whole payload before the checks
  *     below, so a payload with several problems reports the same first one
  *     on both backends.
@@ -622,14 +623,12 @@ function validateOutlineItems(site, items) {
   return null;
 }
 // an outline item's id is a non-blank string (what every client sends: the
-// ids the server gave existing pages, "item-<uuid>" for new ones). A number
-// is still accepted, as it always has been here, so a site.json holding
-// numeric ids keeps saving.
+// ids the server gave existing pages, "item-<uuid>" for new ones). Ids are
+// opaque: one with surrounding whitespace is that exact id, it is only
+// checked for being blank. Blank is the whitespace String.prototype.trim
+// removes; haxcms-php's isBlankOutlineId uses the same set.
 function hasOutlineItemId(item) {
-  if (typeof item.id === "string") {
-    return item.id.trim() !== "";
-  }
-  return typeof item.id === "number" && Number.isFinite(item.id);
+  return typeof item.id === "string" && item.id.trim() !== "";
 }
 function normalizeOutlineLocation(location) {
   if (typeof location !== "string") {

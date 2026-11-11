@@ -206,11 +206,18 @@ function itemSnapshot(manifest, itemId) {
   const titles = {};
   for (let i = 0; i < manifest.items.length; i++) {
     const entry = manifest.items[i];
-    if (!entry || typeof entry !== "object") {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      entry.id === undefined ||
+      entry.id === null
+    ) {
       continue;
     }
     titles[entry.id] = entry.title;
-    if (entry.id === itemId) {
+    // compared as strings, like haxcms-php: revisions written before ids
+    // were normalized to strings may hold the same id as a number
+    if (String(entry.id) === String(itemId)) {
       item = entry;
     }
   }
