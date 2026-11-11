@@ -6,16 +6,18 @@
     "testFiles": [
       "test/unit/save-outline-*.test.cjs",
       "test/unit/fault-injection-save-outline.test.cjs",
-      "test/unit/json-outline-schema*.test.cjs"
+      "test/unit/json-outline-schema*.test.cjs",
+      "test/unit/remove-created-page-folder.test.cjs",
+      "test/unit/outline-parent-cycles.test.cjs"
     ]
   },
   "coverageAnalysis": "perTest",
   "mutate": [
     "src/siteRoutes/v1/routes/saveOutline.js",
-    "src/lib/JSONOutlineSchema.js:224-433",
+    "src/lib/JSONOutlineSchema.js:247-572",
     "src/lib/JSONOutlineSchemaItem.js:45-65",
-    "src/lib/HAXCMS.js:3977-4008",
-    "src/lib/HAXCMS.js:4024-4068"
+    "src/lib/HAXCMS.js:4040-4108",
+    "src/lib/HAXCMS.js:4126-4179"
   ],
   "ignorePatterns": [
     "/*",
