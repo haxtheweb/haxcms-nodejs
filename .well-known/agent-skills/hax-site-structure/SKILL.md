@@ -83,7 +83,6 @@ A HAXsite is a directory with this shape (the HAXcms boilerplate):
 ```
 
 Key rules for reading items:
-
 - `parent` is an item id or `null` (top level). `order` is the sibling order. `indent` is depth.
 - `location` is the page content path relative to the site root (e.g. `pages/<item-id>/index.html`).
 - `slug` is the URL path segment. A nested slug is the full path (e.g. `welcome/community/pillars`).

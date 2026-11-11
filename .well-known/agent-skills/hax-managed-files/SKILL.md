@@ -77,12 +77,12 @@ partly managed files in the next section.
 HAXcms owns part of these files and the site owner owns the rest. A rebuild rewrites only
 HAXcms's part, and only when it changed; everything else is kept.
 
-| File           | HAXcms-owned part                                                         | Where site-specific changes go                                           |
-| -------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `AGENTS.md`    | between `<!-- haxcms:managed:start -->` and `<!-- haxcms:managed:end -->` | below the block (the "Site-specific notes" section)                      |
-| `.htaccess`    | between `# BEGIN HAXcms managed` and `# END HAXcms managed`               | above or below the markers                                               |
-| `robots.txt`   | between `# BEGIN HAXcms managed` and `# END HAXcms managed`               | after the END marker, each group starting with its own `User-agent` line |
-| `package.json` | the keys the boilerplate defines                                          | extra keys, scripts and dependencies are kept                            |
+| File | HAXcms-owned part | Where site-specific changes go |
+|---|---|---|
+| `AGENTS.md` | between `<!-- haxcms:managed:start -->` and `<!-- haxcms:managed:end -->` | below the block (the "Site-specific notes" section) |
+| `.htaccess` | between `# BEGIN HAXcms managed` and `# END HAXcms managed` | above or below the markers |
+| `robots.txt` | between `# BEGIN HAXcms managed` and `# END HAXcms managed` | after the END marker, each group starting with its own `User-agent` line |
+| `package.json` | the keys the boilerplate defines | extra keys, scripts and dependencies are kept |
 
 - Never edit inside a managed block or remove a marker. A file with only one marker left is
   treated as damaged: a fresh block is added above it, and the old content is kept for the
@@ -91,7 +91,6 @@ HAXcms's part, and only when it changed; everything else is kept.
 - `files/.htaccess` (execution hardening for uploads) stays fully managed. Do not edit it.
 
 When a managed file is wrong, fix the **source** it is generated from, then rebuild:
-
 - `llms.txt` / the managed block of `robots.txt` / `sitemap` / `lunrSearchIndex` — regenerate via `rebuildManagedFiles`
   (triggered by save operations or the `hax` CLI).
 - `wc-registry.json` / `build*.js` / minified `build/` assets — fix in the **webcomponents

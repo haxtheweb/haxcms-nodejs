@@ -14,3 +14,5 @@ screenshots
 *.min.js
 .stryker-tmp
 reports
+# agent skills are byte-for-byte snapshots from praw; their index.json pins sha256 digests
+.well-known/agent-skills/**

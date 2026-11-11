@@ -24,7 +24,7 @@ ideas / no depth (twin sin #2).
 3. **Overarching + topical essential questions present and genuinely open.**
    Manifest: `stage1.essentialQuestions.overarching` and `.topical` both
    non-empty; each Q has no single right answer.
-   Fail signal: a Q with one correct answer (that is a _leading_ question →
+   Fail signal: a Q with one correct answer (that is a *leading* question →
    reclassify to K/S).
 
 4. **Predictable misunderstandings named, pre-assessed, AND confronted.**
@@ -81,13 +81,13 @@ ideas / no depth (twin sin #2).
 
 ## Rating → diagnosis mapping
 
-| Rating            | Meaning                                                    | Next action                          |
-| ----------------- | ---------------------------------------------------------- | ------------------------------------ |
-| Aligned           | All 12 pass                                                | Publish / teach                      |
-| Partial           | Goals present, evidence or sequence incomplete             | Run the missing stage skill          |
-| Activity-oriented | Lots of activities, weak/no aligned evidence (twin sin #1) | Rebuild Stage 2 from Stage 1         |
-| Coverage-bound    | Content march, no big ideas / no depth (twin sin #2)       | Rebuild Stage 1 (find the big ideas) |
+| Rating | Meaning | Next action |
+|---|---|---|
+| Aligned | All 12 pass | Publish / teach |
+| Partial | Goals present, evidence or sequence incomplete | Run the missing stage skill |
+| Activity-oriented | Lots of activities, weak/no aligned evidence (twin sin #1) | Rebuild Stage 2 from Stage 1 |
+| Coverage-bound | Content march, no big ideas / no depth (twin sin #2) | Rebuild Stage 1 (find the big ideas) |
 
-"Coverage" is a _negative_ term; "survey"/"overview" is legitimate. Do not flag a
+"Coverage" is a *negative* term; "survey"/"overview" is legitimate. Do not flag a
 purposeful, transparent overview as coverage-bound — coverage is content march
 with no overarching intellectual purpose.
