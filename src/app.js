@@ -67,6 +67,7 @@ const PAGE_VARIANT_CONTENT_TYPES = {
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require("./lib/HAXCMS.js");
 const { resolveContainedPath } = require("./lib/pathConfinement.js");
+const { legacySlugMatches } = require("./lib/slugRules.js");
 const {
   createRequestCommitContext,
   runWithCommitContext,
@@ -3904,6 +3905,13 @@ function resolvePageBySlug(site, slug = "") {
   for (let i = 0; i < site.manifest.items.length; i++) {
     const item = site.manifest.items[i];
     if (item && item.slug === slug) {
+      return item;
+    }
+  }
+  // a slug saved with a leading "/" answers to the path without it
+  for (let i = 0; i < site.manifest.items.length; i++) {
+    const item = site.manifest.items[i];
+    if (item && legacySlugMatches(item.slug, slug)) {
       return item;
     }
   }

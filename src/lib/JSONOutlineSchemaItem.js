@@ -54,9 +54,20 @@ class JSONOutlineSchemaItem
       if (resolved === false) {
         return false;
       }
-      if (fs.lstatSync(resolved).isFile()) {
-        fs.writeFileSync(resolved, body);
+      // a page location names a file, never a folder
+      const last = this.location.charAt(this.location.length - 1);
+      if (last === "/" || last === "\\") {
+        return false;
       }
+      // a page is a regular file: an existing one is overwritten, a missing
+      // one is created when its folder exists (no folders are made here).
+      // Anything else at the location (a directory, a dangling symlink) is
+      // not written and answers false.
+      const existing = fs.lstatSync(resolved, { throwIfNoEntry: false });
+      if (existing && !existing.isFile()) {
+        return false;
+      }
+      fs.writeFileSync(resolved, body);
       return true;
     }
     catch {

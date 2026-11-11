@@ -22,6 +22,7 @@ const { resolveContainedPath, hasTraversal } = require("./pathConfinement.js");
 const {
   cleanTitleRule,
   generateSlugRule,
+  joinSlugSegments,
   reserveSlugRoutes,
 } = require("./slugRules.js");
 const {
@@ -4142,12 +4143,11 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
         array_unshift(pieces, tmp.pop());
       }
       slug = implode("/", pieces);
-      rSlug = slug;
     }
-    // trap for a / as 1st character if we had empty pieces
-    while (rSlug.substring(0, 1) == "/") {
-      rSlug = rSlug.substring(1);
-    }
+    // an ancestor with an empty slug adds no segment: the slug, and every
+    // numbered variant of it, never starts with "/" or holds "//"
+    slug = joinSlugSegments(slug);
+    rSlug = slug;
     // reserved front-end route segments ("x" -> "x-x")
     slug = reserveSlugRoutes(slug);
     rSlug = reserveSlugRoutes(rSlug);

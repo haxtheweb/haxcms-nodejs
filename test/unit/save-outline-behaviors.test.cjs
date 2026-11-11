@@ -330,37 +330,50 @@ test("slugs: an ancestor with an empty slug adds no leading slash", async (t) =>
   assert.equal(byTitle(siteName, "Child").slug, "child");
 });
 
-test(
-  "slugs: an ancestor with an empty slug adds no leading slash, even when the slug clashes",
-  {
-    todo:
-      "getUniqueSlugName trims the leading '/' from the slug it checks but " +
-      "numbers a clash from the untrimmed one, so the page gets '/child-1'. " +
-      "Same in haxcms-php HAXCMSSite::getUniqueSlugName.",
-  },
-  async (t) => {
-    const siteName = "beh-slug-empty-parent-clash";
-    await buildSite(t, siteName, { pathauto: true });
-    const res = await save(siteName, [
-      newPage("p", "Parent"),
-      newPage("o", "Child", { order: 1 }),
-    ]);
-    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
-    const site = await HAXCMS.loadSite(siteName);
-    const parent = site.manifest.items.find((i) => i.title === "Parent");
-    parent.slug = "";
-    await site.manifest.save(false);
-    // "child" is taken by the top-level page
-    const child = await save(siteName, [
-      newPage("c", "Child", { parent: parent.id, indent: 1 }),
-    ]);
-    assert.equal(child.statusCode, 200, JSON.stringify(child.body));
-    const created = readItems(siteName).find(
-      (i) => i.id === child.body.data.idMap.c,
-    );
-    assert.equal(created.slug, "child-1");
-  },
-);
+test("slugs: an ancestor with an empty slug adds no leading slash, even when the slug clashes", async (t) => {
+  const siteName = "beh-slug-empty-parent-clash";
+  await buildSite(t, siteName, { pathauto: true });
+  const res = await save(siteName, [
+    newPage("p", "Parent"),
+    newPage("o", "Child", { order: 1 }),
+  ]);
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  const site = await HAXCMS.loadSite(siteName);
+  const parent = site.manifest.items.find((i) => i.title === "Parent");
+  parent.slug = "";
+  await site.manifest.save(false);
+  // "child" is taken by the top-level page
+  const child = await save(siteName, [
+    newPage("c", "Child", { parent: parent.id, indent: 1 }),
+  ]);
+  assert.equal(child.statusCode, 200, JSON.stringify(child.body));
+  const created = readItems(siteName).find(
+    (i) => i.id === child.body.data.idMap.c,
+  );
+  assert.equal(created.slug, "child-1");
+});
+
+test("slugs: an empty-slug ancestor between two others adds no '//'", async (t) => {
+  const siteName = "beh-slug-empty-middle";
+  await buildSite(t, siteName, { pathauto: true });
+  const res = await save(siteName, [
+    newPage("g", "Grand"),
+    newPage("p", "Parent", { parent: "g", indent: 1 }),
+  ]);
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  const site = await HAXCMS.loadSite(siteName);
+  const parent = site.manifest.items.find((i) => i.title === "Parent");
+  parent.slug = "";
+  await site.manifest.save(false);
+  const child = await save(siteName, [
+    newPage("c", "Child", { parent: parent.id, indent: 2 }),
+  ]);
+  assert.equal(child.statusCode, 200, JSON.stringify(child.body));
+  const created = readItems(siteName).find(
+    (i) => i.id === child.body.data.idMap.c,
+  );
+  assert.equal(created.slug, "grand/child");
+});
 
 // ---------------------------------------------------------------------------
 // the site methods every outline save goes through
