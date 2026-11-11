@@ -561,8 +561,9 @@ function resolveLinkedDevAssetPath(cleanFilePath = "") {
 // visible quickly. ETag/Last-Modified still go out, so a stale entry costs a
 // 304, not a full download. Excluded: development mode, the registry files
 // that name what to load, a site's own custom/build output, and anything
-// under files/ (user uploads). The Apache .htaccess used by haxcms-php
-// already caches these files (ExpiresDefault A1209600).
+// under files/ (user uploads). The paths carry no version, so the lifetime
+// must stay short: anything longer lets a page mix old and new modules after
+// an upgrade. haxcms-php sends the same header.
 const BUILD_ASSET_CACHE_CONTROL = "public, max-age=3600";
 function isCacheableBuildAssetPath(filePath = "") {
   if (process.env.NODE_ENV === "development") {
