@@ -77,24 +77,40 @@ async function runOutlineScenario(browser, opts) {
     }
     await page.goto(url, { waitUntil: "networkidle0", timeout: 180000 });
     await page.evaluate(INSTALL_DEEP_QUERY);
+    // the editor is up: older builds have an Outline toolbar button, the
+    // current one opens Structure from its menu (_outlineButtonTap)
     await page.waitForFunction(
       function () {
-        return globalThis.__perfDeepQuery("#outlinebutton") !== null;
+        return (
+          globalThis.__perfDeepQuery("#outlinebutton") !== null ||
+          globalThis.__perfDeepQuery("haxcms-site-editor-ui") !== null
+        );
       },
       { timeout: 60000, polling: 100 },
     );
     await wait(1000);
     await cdp.send("HeapProfiler.collectGarbage");
     const before = await page.metrics();
-    // a real pointer click on the toolbar button, as an editor would
+    // a real pointer click on the toolbar button when there is one, as an
+    // editor would; otherwise what the Structure menu item calls
     const box = await page.evaluate(function () {
-      const r = globalThis
-        .__perfDeepQuery("#outlinebutton")
-        .getBoundingClientRect();
+      const button = globalThis.__perfDeepQuery("#outlinebutton");
+      if (!button) {
+        return null;
+      }
+      const r = button.getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     });
     const started = Date.now();
-    await page.mouse.click(box.x, box.y);
+    if (box) {
+      await page.mouse.click(box.x, box.y);
+    } else {
+      await page.evaluate(function () {
+        globalThis
+          .__perfDeepQuery("haxcms-site-editor-ui")
+          ._outlineButtonTap(null, false, null, {});
+      });
+    }
     // rows on screen and unchanged across three checks 150ms apart
     const rows = await page.evaluate(async function (timeoutMs) {
       const countRows = function () {
