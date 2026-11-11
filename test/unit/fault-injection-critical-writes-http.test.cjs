@@ -590,6 +590,92 @@ test("FI-NODE-02 ENOSPC writing site.json while creating a page answers a 5xx en
   assert.deepEqual(orphanPageFolders(siteName), []);
 });
 
+test("FI-NODE-02b ENOSPC writing site.json during a bulk create answers a 5xx envelope and leaves no orphan page folders", async (t) => {
+  const siteName = await freshSite("fi-node-02b");
+  const before = readSiteJson(siteName);
+  const calls = failFs(t, "writeFileSync", isSiteJsonOf(siteName), "ENOSPC");
+  const { result, escaped } = await collectEscapedRejections(() =>
+    siteRequest(
+      siteName,
+      "POST",
+      "items",
+      {
+        items: [
+          { id: "bulk-a", title: "Bulk A", parent: null, indent: 0, order: 0 },
+          {
+            id: "bulk-b",
+            title: "Bulk B",
+            parent: "bulk-a",
+            indent: 1,
+            order: 0,
+          },
+          { id: "bulk-c", title: "Bulk C", parent: null, indent: 0, order: 1 },
+        ],
+      },
+      HANG_TIMEOUT_MS,
+    ),
+  );
+  t.mock.restoreAll();
+  await assertStillServing(siteName);
+  // one site.json write for the whole request (haxtheweb/issues#3248)
+  assert.equal(calls.length, 1);
+  assert.equal(readSiteJson(siteName), before);
+  assert.equal(escaped.length, 0, "no rejection escapes the route");
+  assertErrorEnvelope(result);
+  assert.deepEqual(orphanPageFolders(siteName), []);
+});
+
+test("bulk create stores every page with one site.json write and rebuilds the generated files once", async (t) => {
+  const siteName = await freshSite("bulk-create-once");
+  const before = siteItems(siteName).length;
+  const original = fs.writeFileSync;
+  const matches = isSiteJsonOf(siteName);
+  let writes = 0;
+  t.mock.method(fs, "writeFileSync", function (target, ...rest) {
+    if (matches(String(target))) {
+      writes++;
+    }
+    return original.call(this, target, ...rest);
+  });
+  const items = [];
+  for (let i = 0; i < 12; i++) {
+    items.push({
+      id: "many-" + i,
+      title: "Many " + i,
+      parent: i % 3 === 0 ? null : "many-" + (i - (i % 3)),
+      indent: i % 3 === 0 ? 0 : 1,
+      order: i,
+      contents: "<p>Body " + i + "</p>",
+    });
+  }
+  const result = await siteRequest(siteName, "POST", "items", { items });
+  t.mock.restoreAll();
+  assert.equal(result.status, 200);
+  assert.equal(writes, 1, "site.json written once for the request");
+  const stored = siteItems(siteName);
+  assert.equal(stored.length, before + 12);
+  for (let i = 0; i < 12; i++) {
+    const item = stored.find((it) => it.id === "many-" + i);
+    assert.ok(item, "many-" + i + " stored");
+    assert.equal(
+      fs
+        .readFileSync(path.join(siteDir(siteName), item.location), "utf8")
+        .indexOf("Body " + i) !== -1,
+      true,
+      "many-" + i + " content written",
+    );
+  }
+  assert.deepEqual(orphanPageFolders(siteName), []);
+  // the generated files list the new pages
+  const sitemap = fs.readFileSync(
+    path.join(siteDir(siteName), "sitemap.xml"),
+    "utf8",
+  );
+  assert.ok(
+    sitemap.indexOf(stored.find((it) => it.id === "many-11").slug) !== -1,
+  );
+});
+
 test("FI-NODE-03 ENOSPC writing site.json while deleting a page answers a 5xx envelope and keeps the page", async (t) => {
   const siteName = await freshSite("fi-node-03");
   const page = siteItems(siteName)[0];

@@ -569,9 +569,15 @@ describe('items routes — createItem', () => {
 
   function withAddPage(site) {
     site.calls.addPage = []
-    site.addPage = async (parent, title) => {
+    site.calls.bulks = []
+    site.calls.finishBulk = []
+    site.addPage = async (parent, title, template, slug, id, indent, html, order, metadata, bulk) => {
       site.calls.addPage.push(title)
+      site.calls.bulks.push(bulk)
       return { id: 'bulk-' + site.calls.addPage.length, title: title }
+    }
+    site.finishBulkAddPages = async (bulk) => {
+      site.calls.finishBulk.push(bulk)
     }
     return site
   }
@@ -600,6 +606,8 @@ describe('items routes — createItem', () => {
     assert.deepEqual(site.calls.addPage, [])
     assert.deepEqual(site.calls.gitCommits, [])
     assert.equal(res.sent, null)
+    // nothing added: site.json is not rewritten
+    assert.deepEqual(site.calls.finishBulk, [])
   })
 
   test('an empty items array with a node creates the node', async (t) => {
@@ -638,6 +646,12 @@ describe('items routes — createItem', () => {
     assert.equal(res.sent.status, 200)
     assert.equal(res.sent.data.title, 'Kept 2')
     assert.deepEqual(site.calls.addPage, ['Kept 1', 'Kept 2'])
+    // one bulk for the request: site.json written and generated files
+    // rebuilt once, not per page (haxtheweb/issues#3248)
+    assert.equal(site.calls.finishBulk.length, 1)
+    assert.ok(site.calls.bulks[0] && Array.isArray(site.calls.bulks[0].createdFolders))
+    assert.equal(site.calls.bulks[1], site.calls.bulks[0])
+    assert.equal(site.calls.finishBulk[0], site.calls.bulks[0])
     assert.equal(site.calls.gitCommits.length, 1)
   })
 })
