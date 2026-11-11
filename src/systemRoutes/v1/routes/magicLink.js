@@ -8,7 +8,7 @@ const {
   registerFailedAttempt,
 } = require("../../../lib/loginRateLimiter.js");
 
-// Rate-limit buckets are client IP + the link's (non-secret) selector, kept
+// Security (SEC-RATELIMIT, SEC-MAGICLINK): buckets are client IP + the link's (non-secret) selector, kept
 // apart from password-login buckets. Keying by selector means junk requests
 // (or many users behind one proxy IP) can't lock out everyone else's links;
 // guessing a link is infeasible anyway (256-bit verifier).
@@ -80,7 +80,7 @@ function getAppRoot() {
 
 function setNoStoreHeaders(res) {
   res.setHeader("Cache-Control", "no-store");
-  // keep the token out of Referer headers sent to other sites. Must not be
+  // Security (SEC-HEADERS, SEC-MAGICLINK): keep the token out of Referer headers sent to other sites. Must not be
   // no-referrer: that makes the browser post the confirm form with
   // Origin: null, which the same-origin check (correctly) rejects.
   res.setHeader("Referrer-Policy", "same-origin");
@@ -107,7 +107,7 @@ function renderPage(title, bodyHtml) {
   );
 }
 
-// Failures leave any existing session alone: clearing the refresh cookie here
+// Security (SEC-SESSION, SEC-MAGICLINK): failures leave any existing session alone; clearing the refresh cookie here
 // would let a cross-site link to this URL sign people out.
 function sendFailure(req, res, status, failure) {
   if (wantsJson(req)) {
@@ -181,7 +181,7 @@ async function magicLinkConsume(req, res) {
   if (!magicLinks.isMagicLinkEnabled(HAXCMS)) {
     return sendNotFound(res);
   }
-  // shared with session/refresh and connection-test (Origin/Referer plus
+  // Security (SEC-SESSION, SEC-MAGICLINK): shared with session/refresh and connection-test (Origin/Referer plus
   // Sec-Fetch-Site), so all cookie-issuing session routes use one CSRF model
   if (!HAXCMS.isSameOriginRequest(req)) {
     return sendFailure(req, res, 403, CROSS_ORIGIN);

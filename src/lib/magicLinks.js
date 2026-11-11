@@ -3,6 +3,7 @@
 // haxtheweb/issues#2854. A link carries a split token `<selector>.<verifier>`:
 //   - selector: random, non-secret lookup key for the stored record
 //   - verifier: 256-bit secret; only its SHA-256 hash is persisted
+// Security (SEC-MAGICLINK): see SECURITY-AUDIT.md for the full rule this file keeps.
 // Records live in _config/settings/magicLinks.json next to refreshSessions.json
 // (same protected directory, same 0o600 secret-file handling). No database.
 //
@@ -93,7 +94,7 @@ function getMagicLinkSettings(haxcms) {
   }
   var enabled;
   if (isHaxiamDeployment(haxcms)) {
-    // HAXiam: off by default. Most HAXiam deploys sign in through third-party
+    // Security (SEC-MAGICLINK): HAXiam is off by default. Most HAXiam deploys sign in through third-party
     // OAuth/SSO, so there's no local account to recover. Only the operator can
     // turn it on (env), never a tenant's config.
     enabled = isTruthyFlag(process.env.HAXCMS_MAGIC_LINK_ENABLED);
@@ -101,12 +102,12 @@ function getMagicLinkSettings(haxcms) {
     // single-site / self-hosted multisite: on unless config turns it off
     enabled = source.enabled !== false;
   }
-  // System-level kill switch. Wins over everything, including
+  // Security (SEC-MAGICLINK): system-level kill switch. Wins over everything, including
   // HAXCMS_MAGIC_LINK_ENABLED, so "off" is always the safe answer.
   if (isTruthyFlag(process.env.HAXCMS_MAGIC_LINK_DISABLED)) {
     enabled = false;
   }
-  // on HAXiam a tenant's config doesn't shape the policy at all (lifetime
+  // Security (SEC-MAGICLINK): on HAXiam a tenant's config doesn't shape the policy at all (lifetime
   // included); only the operator's environment does
   var policySource = isHaxiamDeployment(haxcms) ? {} : source;
   var ttlSeconds = clampInt(
@@ -194,7 +195,7 @@ function saveLinks(haxcms, links) {
   matchSettingsOwner(storePath);
 }
 
-// Running the CLI as root (sudo) would leave a 0600 root-owned store the web
+// Security (SEC-MAGICLINK): running the CLI as root (sudo) would leave a 0600 root-owned store the web
 // server can't read, so every link would fail as "not found". Hand files we
 // create back to whoever owns the settings directory.
 function matchSettingsOwner(filePath) {
@@ -220,7 +221,7 @@ var LOCK_STALE_MS = 10000;
 var sleepCell = new Int32Array(new SharedArrayBuffer(4));
 
 /**
- * Run fn() while holding an exclusive lock on the store. The CLI and the
+ * Security (SEC-MAGICLINK): run fn() while holding an exclusive lock on the store. The CLI and the
  * server are separate processes writing the same file; without this, a CLI
  * mint could write back a link the server had just consumed (making it
  * usable again), or two processes could both redeem one link. The lock is a
