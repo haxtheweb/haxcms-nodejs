@@ -10,10 +10,11 @@
 //   - a location that leaves basePath is refused (false) and nothing is
 //     written outside it
 //   - when nothing was written the answer is exactly false
+//   - a missing page file is created when its folder exists (no folders are
+//     made); a directory or a dangling symlink at the location is refused
 //
 // Parity: haxcms-php carries the same scenarios, under the same names, in
-// JSONOutlineSchemaItemWriteLocationTest.php. Two Node/PHP differences are
-// left as todo tests below (see their reasons). CommonJS, NO optional
+// JSONOutlineSchemaItemWriteLocationTest.php. CommonJS, NO optional
 // chaining, node:test + node:assert/strict.
 
 const { test } = require("node:test");
@@ -94,42 +95,60 @@ test("writeLocation: when nothing was written the answer is exactly false", asyn
   }
 });
 
-test(
-  "writeLocation: a page file that does not exist yet is created",
-  {
-    todo:
-      "Node/PHP difference: haxcms-php writeLocation creates the missing file " +
-      "(file_put_contents) and returns the byte count; haxcms-nodejs refuses " +
-      "and returns false. saveOutline is unaffected (it copies the " +
-      "boilerplate page file before writing).",
-  },
-  async (t) => {
-    const dirs = makeSite(t);
-    fs.mkdirpSync(path.join(dirs.site, "pages", "b"));
-    const result = await item("pages/b/index.html").writeLocation(
-      "<p>b</p>",
-      dirs.site,
-    );
-    assert.ok(result);
-    assert.equal(
-      fs.readFileSync(path.join(dirs.site, "pages/b/index.html"), "utf8"),
-      "<p>b</p>",
-    );
-  },
-);
+test("writeLocation: a page file that does not exist yet is created", async (t) => {
+  const dirs = makeSite(t);
+  fs.mkdirpSync(path.join(dirs.site, "pages", "b"));
+  const result = await item("pages/b/index.html").writeLocation(
+    "<p>b</p>",
+    dirs.site,
+  );
+  assert.ok(result);
+  assert.equal(
+    fs.readFileSync(path.join(dirs.site, "pages/b/index.html"), "utf8"),
+    "<p>b</p>",
+  );
+});
 
-test(
-  "writeLocation: a location that is a directory is not reported as written",
-  {
-    todo:
-      "haxcms-nodejs answers true for a directory without writing anything " +
-      "(only regular files are written, but the call still reports " +
-      "success); haxcms-php answers false. saveOutline is unaffected (it " +
-      "checks the target is a regular file first).",
-  },
-  async (t) => {
-    const dirs = makeSite(t);
-    const result = await item("pages/a").writeLocation("<p>dir</p>", dirs.site);
-    assert.equal(result, false);
-  },
-);
+test("writeLocation: a missing page folder is not created", async (t) => {
+  const dirs = makeSite(t);
+  const result = await item("pages/c/index.html").writeLocation(
+    "<p>c</p>",
+    dirs.site,
+  );
+  assert.equal(result, false);
+  assert.equal(fs.existsSync(path.join(dirs.site, "pages", "c")), false);
+});
+
+test("writeLocation: a location ending in '/' is refused", async (t) => {
+  const dirs = makeSite(t);
+  fs.mkdirpSync(path.join(dirs.site, "pages", "d"));
+  const result = await item("pages/d/").writeLocation("<p>d</p>", dirs.site);
+  assert.equal(result, false);
+  assert.ok(fs.statSync(path.join(dirs.site, "pages", "d")).isDirectory());
+  assert.equal(fs.existsSync(path.join(dirs.site, "pages", "e")), false);
+  const missing = await item("pages/e/").writeLocation("<p>e</p>", dirs.site);
+  assert.equal(missing, false);
+  assert.equal(fs.existsSync(path.join(dirs.site, "pages", "e")), false);
+});
+
+test("writeLocation: a location that is a directory is not reported as written", async (t) => {
+  const dirs = makeSite(t);
+  const result = await item("pages/a").writeLocation("<p>dir</p>", dirs.site);
+  assert.equal(result, false);
+  assert.ok(fs.statSync(path.join(dirs.site, "pages", "a")).isDirectory());
+});
+
+test("writeLocation: a dangling symlink out of the base path is not followed", async (t) => {
+  const dirs = makeSite(t);
+  const outsideTarget = path.join(dirs.root, "outside", "created.html");
+  fs.symlinkSync(
+    outsideTarget,
+    path.join(dirs.site, "pages", "a", "link.html"),
+  );
+  const result = await item("pages/a/link.html").writeLocation(
+    "<p>escaped</p>",
+    dirs.site,
+  );
+  assert.equal(result, false);
+  assert.equal(fs.existsSync(outsideTarget), false);
+});

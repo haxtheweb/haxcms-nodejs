@@ -141,8 +141,37 @@ function reserveSlugRoutes(slug) {
     .join("/");
 }
 
+/**
+ * A page slug is its non-empty "/" segments joined by "/": it never starts
+ * or ends with "/" and never holds "//". Used by getUniqueSlugName, where an
+ * ancestor with an empty slug would otherwise leave an empty segment.
+ * Mirrors HAXCMSSite::joinSlugSegments in haxcms-php.
+ */
+function joinSlugSegments(slug) {
+  return String(slug)
+    .split("/")
+    .filter((segment) => segment !== "")
+    .join("/");
+}
+
+/**
+ * Lookup tolerance for slugs saved with a leading "/" (getUniqueSlugName
+ * could produce one, e.g. "/child-1"): such a stored slug answers to the
+ * same path without the leading "/". Callers try the exact slug first.
+ * Mirrors HAXCMSSite::legacySlugMatches in haxcms-php.
+ */
+function legacySlugMatches(storedSlug, value) {
+  if (typeof storedSlug !== "string" || storedSlug.charAt(0) !== "/") {
+    return false;
+  }
+  const trimmed = trimChars(storedSlug, "/");
+  return trimmed !== "" && trimmed === trimChars(String(value), "/");
+}
+
 module.exports = {
   reserveSlugRoutes,
+  joinSlugSegments,
+  legacySlugMatches,
   cleanTitleRule,
   generateSlugRule,
   phpUrlDecode,
