@@ -75,6 +75,21 @@ const INSTALL_DESIGNER_HELPERS = function () {
     el: function () {
       return globalThis.__perfDeepQuery("outline-designer");
     },
+    // the dialog can re-render the designer right after a save; wait for
+    // it instead of reading a missing element
+    ready: async function () {
+      const deadline = Date.now() + 15000;
+      while (!globalThis.__fz.el() && Date.now() < deadline) {
+        await new Promise(function (r) {
+          setTimeout(r, 100);
+        });
+      }
+      const el = globalThis.__fz.el();
+      if (!el) {
+        throw new Error("outline-designer is not on the page");
+      }
+      return el;
+    },
     settle: async function (ms) {
       const el = globalThis.__fz.el();
       if (!el) {
@@ -128,7 +143,7 @@ const INSTALL_DESIGNER_HELPERS = function () {
         });
     },
     capture: async function () {
-      const el = globalThis.__fz.el();
+      const el = await globalThis.__fz.ready();
       // folded pages hide their sub-pages' rows; open everything so "shown"
       // is the whole outline
       el.expandAll();
@@ -234,7 +249,7 @@ async function chooseOp(page, rand, counter) {
 async function applyOp(page, step) {
   const ok = await page.evaluate(async function (step) {
     const fz = globalThis.__fz;
-    const el = fz.el();
+    const el = await fz.ready();
     // resolve the recorded row to the page on that row now
     const rows = fz.rows();
     if (typeof step.row === "number") {
@@ -691,10 +706,9 @@ async function runOutlineFuzz(browser, opts) {
       // ...with the server's ids: a page still under the id the designer
       // made up for it would be created again by the next save
       const unknown = await page.evaluate(
-        function (ids) {
-          return globalThis.__fz
-            .el()
-            .items.map(function (i) {
+        async function (ids) {
+          return (await globalThis.__fz.ready()).items
+            .map(function (i) {
               return i.id;
             })
             .filter(function (id) {
