@@ -257,13 +257,27 @@ class JSONOutlineSchema {
     let file = schema["file"];
     // delete so it doesn't show up in the site.json file
     delete schema["file"];
-    let output = JSON.stringify(schema, null, 2);
-    // ensure we have valid json object
-    if (output) {
-      // reassign so we don't lose it in the transaction
+    let output;
+    let encodeError = null;
+    try {
+      output = JSON.stringify(schema, null, 2);
+    } catch (e) {
+      // e.g. a circular structure or a BigInt somewhere in the outline
+      encodeError = e;
+    } finally {
+      // reassign so we don't lose it in the transaction, even when it fails
       this.file = file;
-      JSONOutlineSchema.writeFileAtomic(file, output);
     }
+    // Invariant: an outline that cannot be encoded is an error, never a
+    // silent no-op: save() throws and site.json is left as it was. Mirrors
+    // JSONOutlineSchema::save in haxcms-php.
+    if (typeof output !== "string") {
+      throw new Error(
+        "JSONOutlineSchema: unable to encode " + path.basename(String(file)),
+        encodeError ? { cause: encodeError } : undefined,
+      );
+    }
+    JSONOutlineSchema.writeFileAtomic(file, output);
   }
   /**
    * Invariant: a site.json write is atomic. Readers and the next request see

@@ -221,6 +221,25 @@ test("FI-OUT-01 ENOSPC writing site.json leaves no page folder on disk that site
   assert.deepEqual(orphanPageFolders("fi-out-01-orphans"), []);
 });
 
+test("FI-OUT-07 a site.json that cannot be encoded: the failure is raised, site.json unchanged, no orphan folder", async (t) => {
+  const site = await buildSite(t, "fi-out-07");
+  const before = readSiteJson("fi-out-07");
+  // something in the loaded outline JSON cannot represent (haxcms-php uses
+  // invalid UTF-8, which json_encode refuses)
+  const circular = {};
+  circular.self = circular;
+  site.manifest.metadata.site.bad = circular;
+  const { res, thrown } = await run(t, site, editWithNewPage(site));
+  assert.ok(
+    thrown,
+    "the failure is raised (the route answers 500 Server error)",
+  );
+  assert.match(String(thrown.message), /unable to encode site\.json/);
+  assert.equal(res.body, null, "no success is reported");
+  assert.equal(readSiteJson("fi-out-07"), before);
+  assert.deepEqual(orphanPageFolders("fi-out-07"), []);
+});
+
 test("FI-OUT-02 EACCES writing one page file: 500 failed to write, that file unchanged, structure saved", async (t) => {
   const site = await buildSite(t, "fi-out-02");
   const b = byTitle(site, "B");
@@ -329,6 +348,59 @@ test("FI-PAY-05 the same new client id sent twice is a 400 and nothing is writte
   );
   assert.equal(savedItems("fi-pay-05").length, count, "nothing is added");
   assert.deepEqual(orphanPageFolders("fi-pay-05"), []);
+});
+
+test("FI-PAY-09 an item without an id is a 400 and nothing is written", async (t) => {
+  const site = await buildSite(t, "fi-pay-09");
+  const before = readSiteJson("fi-pay-09");
+  const b = byTitle(site, "B");
+  // what run() does, with HAXCMS.loadSite mocked once for every round
+  t.mock.method(HAXCMS, "loadSite", async () => site);
+  const missing = [
+    { title: "No id", parent: null, indent: 0, order: 5 },
+    { id: null, title: "Null id", parent: null, indent: 0, order: 5 },
+    { id: "", title: "Empty id", parent: null, indent: 0, order: 5 },
+    { id: "   ", title: "Blank id", parent: null, indent: 0, order: 5 },
+    { id: true, title: "Boolean id", parent: null, indent: 0, order: 5 },
+    { id: {}, title: "Object id", parent: null, indent: 0, order: 5 },
+  ];
+  for (const bad of missing) {
+    const res = stubRes();
+    let thrown = null;
+    try {
+      // an existing page renamed alongside it: the whole payload is refused
+      await saveOutline(
+        makeReq("fi-pay-09", [page(b.id, "B renamed", null, 1), bad]),
+        res,
+      );
+    } catch (e) {
+      thrown = e;
+    }
+    assert.equal(thrown, null, "nothing escapes for " + bad.title);
+    // both backends answer 400 (haxcms-php FaultInjectionSaveOutlineTest)
+    assert.equal(
+      res.statusCode,
+      400,
+      bad.title + ": " + JSON.stringify(res.body),
+    );
+    assert.equal(res.body.data.message, "Each outline item requires an id");
+    assert.equal(readSiteJson("fi-pay-09"), before, bad.title);
+    assert.deepEqual(orphanPageFolders("fi-pay-09"), [], bad.title);
+  }
+  // the per-item checks cover the whole payload before the duplicate check,
+  // so the first problem reported is the same one haxcms-php reports
+  const res = stubRes();
+  await saveOutline(
+    makeReq("fi-pay-09", [
+      page("client-x", "X one", null, 3),
+      page("client-x", "X two", null, 4),
+      { title: "No id", parent: null, indent: 0, order: 5 },
+    ]),
+    res,
+  );
+  assert.equal(res.statusCode, 400, JSON.stringify(res.body));
+  assert.equal(res.body.data.message, "Each outline item requires an id");
+  assert.equal(readSiteJson("fi-pay-09"), before);
 });
 
 test("FI-PAY-06 a parent that does not exist: the page is rescued to the top level", async (t) => {

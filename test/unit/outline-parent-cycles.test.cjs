@@ -85,6 +85,24 @@ test("items that are not objects and repeated new ids are rejected", () => {
     validate(site, [sent("n", null), sent("n", null)]),
     "Each new outline item requires its own id",
   );
+  [undefined, null, "", "  ", true, {}, [], NaN].forEach((badId) => {
+    assert.equal(
+      validate(site, [sent("a", null), { id: badId, title: "x" }]),
+      "Each outline item requires an id",
+      "id " + String(badId),
+    );
+  });
+  assert.equal(
+    validate(site, [{ title: "no id at all" }]),
+    "Each outline item requires an id",
+  );
+  // checked over every item before repeated new ids are looked for
+  assert.equal(
+    validate(site, [sent("n", null), sent("n", null), { title: "x" }]),
+    "Each outline item requires an id",
+  );
+  // a numeric id is still an id here (haxcms-php only accepts strings)
+  assert.equal(validate(site, [sent(7, null)]), null);
   assert.equal(
     validate(site, "not-an-array"),
     "Outline payload requires an items array",

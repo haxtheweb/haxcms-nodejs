@@ -470,7 +470,8 @@ describe('createSite latent branches — skeleton resolution', () => {
     // Characterization: cloneJsonValue(JSON.stringify) throws for BigInt, so
     // the theme falls back to the ORIGINAL registry object (shared reference)
     // with the hostile value still inside — and the shared reference then
-    // poisons manifest.save, so createSite rejects with the BigInt TypeError
+    // poisons manifest.save, so createSite rejects (save() reports the
+    // outline cannot be encoded, with the BigInt TypeError as its cause)
     // after the site directory was already copied to disk. If this fails
     // after a hardening fix, update it to the fixed contract.
     const registryTheme = {
@@ -489,8 +490,9 @@ describe('createSite latent branches — skeleton resolution', () => {
         stubRes(),
       ),
       function (err) {
-        return err instanceof TypeError &&
-          err.message.indexOf('Do not know how to serialize a BigInt') !== -1
+        return err.message.indexOf('unable to encode site.json') !== -1 &&
+          err.cause instanceof TypeError &&
+          err.cause.message.indexOf('Do not know how to serialize a BigInt') !== -1
       },
     )
     // the boilerplate site directory was created and the manifest was

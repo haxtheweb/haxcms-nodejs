@@ -89,6 +89,30 @@ test("a failed rename throws, keeps the previous file and removes the temp file"
   assert.deepEqual(tempFiles(dir), []);
 });
 
+test("an outline that cannot be encoded throws, keeps the previous file and its file path", async (t) => {
+  const dir = tempDir(t);
+  const file = path.join(dir, "site.json");
+  // a circular structure and a BigInt: JSON.stringify throws on both
+  // (haxcms-php's json_encode fails on invalid UTF-8 and INF / NAN)
+  const circular = {};
+  circular.self = circular;
+  for (const bad of [circular, BigInt(1)]) {
+    await schemaFor(file, "Before").save();
+    const before = fs.readFileSync(file, "utf8");
+    const schema = schemaFor(file, "After");
+    schema.metadata.site.bad = bad;
+    await assert.rejects(schema.save(), /unable to encode site\.json/);
+    assert.equal(fs.readFileSync(file, "utf8"), before);
+    assert.deepEqual(tempFiles(dir), []);
+    // the failed save does not lose where site.json is: once the value is
+    // gone the same object saves normally
+    assert.equal(schema.file, file);
+    delete schema.metadata.site.bad;
+    await schema.save();
+    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).title, "After");
+  }
+});
+
 test("an fsync failure throws and keeps the previous file; an fsync the filesystem cannot do is skipped", async (t) => {
   const dir = tempDir(t);
   const file = path.join(dir, "site.json");

@@ -553,6 +553,14 @@ function removeUnlistedPageFolders(site, createdFolders, listedItems) {
  * (lib/operations/saveOutline.php), with the same messages:
  *   - items must be an array
  *   - every item must be an object (not null, a number, a string or a list)
+ *   - every item has an id: the server only maps the ids a client sent
+ *     (idMap), so an item without one could never be referred to again.
+ *     Missing, null, a blank string, or a value that is neither a string
+ *     nor a number is "Each outline item requires an id". (A numeric id is
+ *     still accepted here; haxcms-php only accepts strings.)
+ *     These two per-item checks run over the whole payload before the checks
+ *     below, so a payload with several problems reports the same first one
+ *     on both backends.
  *   - a new page (an id the site does not have) is sent once: idMap can
  *     only map a client id to one server id. An existing id sent twice is
  *     one page, the last entry wins.
@@ -570,12 +578,18 @@ function validateOutlineItems(site, items) {
   site.manifest.items.forEach((existing) => {
     parents.set(String(existing.id), existing.parent);
   });
-  const newIds = new Set();
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
       return "Each outline item must be an object";
     }
+    if (!hasOutlineItemId(item)) {
+      return "Each outline item requires an id";
+    }
+  }
+  const newIds = new Set();
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
     const id = String(item.id);
     if (!site.loadNode(item.id)) {
       if (newIds.has(id)) {
@@ -606,6 +620,16 @@ function validateOutlineItems(site, items) {
     }
   }
   return null;
+}
+// an outline item's id is a non-blank string (what every client sends: the
+// ids the server gave existing pages, "item-<uuid>" for new ones). A number
+// is still accepted, as it always has been here, so a site.json holding
+// numeric ids keeps saving.
+function hasOutlineItemId(item) {
+  if (typeof item.id === "string") {
+    return item.id.trim() !== "";
+  }
+  return typeof item.id === "number" && Number.isFinite(item.id);
 }
 function normalizeOutlineLocation(location) {
   if (typeof location !== "string") {
