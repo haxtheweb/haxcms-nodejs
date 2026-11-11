@@ -129,7 +129,7 @@ Temporary known skip in the suite:
 
 ## Fault injection testing
 
-The critical write paths (the outline designer's bulk save `PATCH /x/api/v1/site/outline`, page content save, page create/delete, site settings save, file upload) are tested with faults injected at the filesystem boundary: `fs-extra` methods are mocked with `node:test` mocks so a write, copy or move throws `ENOSPC`, `EACCES` or `EXDEV`, or writes half a file and then fails. Malformed outline payloads (not an array, partial outline, duplicate ids, missing parent, parent cycles) are covered too. No production code seam is used.
+The critical write paths (the outline designer's bulk save `PATCH /x/api/v1/site/outline`, page content save, page create/delete, site settings save, file upload) are tested with faults injected at the filesystem boundary: `fs-extra` methods are mocked with `node:test` mocks so a write, copy or move throws `ENOSPC`, `EACCES` or `EXDEV`, or writes half a file and then fails. Malformed outline payloads (not an array, partial outline, missing ids, duplicate ids, missing parent, parent cycles) are covered too. No production code seam is used.
 
 - `test/unit/fault-injection-save-outline.test.cjs`: the saveOutline handler against a real site on disk
 - `test/unit/fault-injection-critical-writes-http.test.cjs`: the real server in-process, over HTTP
@@ -149,8 +149,9 @@ The invariants they protect, for every fault:
 The write invariants behind them, kept the same in haxcms-php:
 
 - every `site.json` write is atomic: a temp file in the same directory is written, flushed and renamed over it (`JSONOutlineSchema.writeFileAtomic`), so a failed write leaves the previous `site.json` as it was
+- an outline that cannot be encoded as JSON is an error, never a silent no-op: `JSONOutlineSchema.save()` throws and `site.json` is left as it was
 - a `site.json` that does not parse to an outline is refused on load, never treated as an empty outline that a save could write over it
-- an invalid outline payload (items that are not objects, a new page id sent twice, a parent cycle) is rejected with a 400 before anything is written
+- an invalid outline payload (items that are not objects, an item without an id, a new page id sent twice, a parent cycle) is rejected with a 400 before anything is written
 - a page folder exists only for a page `site.json` lists: a request that created page folders removes them again when the `site.json` write that would list them fails
 - an error thrown inside any API route answers the 500 `ApiError` envelope (`src/lib/routeHandlerError.js`); it never leaves the request hanging or stops the server
 
