@@ -268,6 +268,67 @@ describe("refresh-session store truth table", () => {
     assert.equal(HAXCMS.checkRefreshSession(phone).reason, "current");
   });
 
+  test("revokeAllRefreshSessions revokes every family and legacy token of the user", async (t) => {
+    const storePath = isolateStore(t);
+    const laptop = HAXCMS.decodeRefreshToken(
+      HAXCMS.getRefreshToken(ACTIVE_USER),
+    );
+    const phone = HAXCMS.decodeRefreshToken(
+      HAXCMS.getRefreshToken(ACTIVE_USER),
+    );
+    const legacy = HAXCMS.decodeRefreshToken(
+      legacyRefreshToken(ACTIVE_USER, -30),
+    );
+    const other = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken("bob"));
+    assert.equal(HAXCMS.checkRefreshSession(laptop).ok, true);
+    assert.equal(HAXCMS.checkRefreshSession(legacy).ok, true);
+
+    HAXCMS.revokeAllRefreshSessions(ACTIVE_USER);
+
+    const entry = readStore(storePath).users[ACTIVE_USER];
+    for (const token of [laptop, phone]) {
+      const fam = entry.families[token.family];
+      assert.equal(fam.revoked, true);
+      assert.ok(fam.exp >= Math.floor(Date.now() / 1000) + 86400 + 60 - 2);
+      assert.equal(HAXCMS.checkRefreshSession(token).reason, "revoked");
+      assert.equal(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), token), null);
+    }
+    assert.equal(typeof entry.legacyRevokedAt, "number");
+    assert.equal(HAXCMS.checkRefreshSession(legacy).reason, "revoked");
+    assert.equal(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), legacy), null);
+    // other users keep their sessions
+    assert.equal(HAXCMS.checkRefreshSession(other).ok, true);
+    // signing in again afterwards works normally
+    const fresh = HAXCMS.decodeRefreshToken(
+      HAXCMS.getRefreshToken(ACTIVE_USER),
+    );
+    assert.equal(HAXCMS.checkRefreshSession(fresh).reason, "current");
+    assert.notEqual(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), fresh), null);
+  });
+
+  test("revokeAllRefreshSessions keeps existing tombstones and ignores empty users", async (t) => {
+    const storePath = isolateStore(t);
+    const old = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken(ACTIVE_USER));
+    HAXCMS.revokeRefreshSession(ACTIVE_USER, old.family);
+    const revokedAt =
+      readStore(storePath).users[ACTIVE_USER].families[old.family].revokedAt;
+    HAXCMS.revokeAllRefreshSessions(ACTIVE_USER);
+    assert.equal(
+      readStore(storePath).users[ACTIVE_USER].families[old.family].revokedAt,
+      revokedAt,
+    );
+    // never-seen user: legacy tombstone so legacy tokens already out there die
+    HAXCMS.revokeAllRefreshSessions("carol");
+    assert.equal(
+      typeof readStore(storePath).users.carol.legacyRevokedAt,
+      "number",
+    );
+    const before = fs.readFileSync(storePath, "utf8");
+    HAXCMS.revokeAllRefreshSessions("");
+    HAXCMS.revokeAllRefreshSessions(null);
+    assert.equal(fs.readFileSync(storePath, "utf8"), before);
+  });
+
   test("a v1 store file is migrated on load so live sessions survive the upgrade", async (t) => {
     const storePath = isolateStore(t);
     const now = Math.floor(Date.now() / 1000);

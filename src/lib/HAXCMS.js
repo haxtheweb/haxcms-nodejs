@@ -7149,6 +7149,47 @@ class HAXCMSClass {
     this._saveRefreshSessions(store);
   }
   /**
+   * Security (SEC-SESSION): revoke EVERY refresh session of a user (sign out
+   * everywhere). Every family currently in the store is tombstoned and a
+   * legacy tombstone is written, so no refresh token issued up to now (with
+   * or without a family claim) can mint another access token. Tokens issued
+   * afterwards start new families and are unaffected. For callers that know
+   * the user but not which family to revoke (e.g. a HAXiam logout running on
+   * another host than the one holding the refresh cookie). Same store shape
+   * as revokeRefreshSession (parity with PHP revokeAllRefreshSessions).
+   * Best-effort.
+   */
+  revokeAllRefreshSessions(user) {
+    if (!user) {
+      return;
+    }
+    const store = this._loadRefreshSessions();
+    const userEntry = this._getRefreshUserEntry(store, user, true);
+    if (!userEntry) {
+      return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    if (!userEntry.families || typeof userEntry.families !== "object") {
+      userEntry.families = {};
+    }
+    for (const familyKey of Object.keys(userEntry.families)) {
+      const existing = userEntry.families[familyKey];
+      if (existing && existing.revoked === true) {
+        continue;
+      }
+      userEntry.families[familyKey] = {
+        revoked: true,
+        revokedAt: now,
+        exp: this._refreshTombstoneExp(existing && existing.exp),
+      };
+    }
+    userEntry.legacyRevokedAt = now;
+    userEntry.legacyRevokedExp = this._refreshTombstoneExp(
+      userEntry.legacyRevokedExp,
+    );
+    this._saveRefreshSessions(store);
+  }
+  /**
    * Validate a refresh token's family/jti against the store WITHOUT rotating.
    * Used by connectionTest recovery and request authentication.
    * Security (SEC-SESSION): only legacy tokens with NO family claim are
