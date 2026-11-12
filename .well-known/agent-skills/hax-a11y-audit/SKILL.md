@@ -1,6 +1,6 @@
 ---
 name: hax-a11y-audit
-description: 'READ-ONLY WCAG 2.0 AA audit of authored HAX pages (alt text, headings, landmarks, contrast, captions, keyboard, ARIA) with HAX remediation. Use for "is this accessible" or "audit for WCAG". Diagnoses only; hands off to hax-site-building.'
+description: "READ-ONLY WCAG 2.0 AA audit of authored HAX pages (alt text, headings, landmarks, contrast, captions, keyboard, ARIA) with HAX remediation. Use for \"is this accessible\" or \"audit for WCAG\". Diagnoses only; hands off to hax-site-building."
 version: 1.1.0
 license: MIT
 metadata:

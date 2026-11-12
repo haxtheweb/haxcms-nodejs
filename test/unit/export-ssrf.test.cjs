@@ -307,6 +307,10 @@ describe('safeFetch byte cap', () => {
     const bigPath = path.join(dir, 'big.bin')
     await rejectsCode(safeFetchToFile('http://files.test/big', bigPath, { maxBytes: 10 * 1024 }), 'SSRF_TOO_LARGE')
     assert.equal(fs.existsSync(bigPath), false)
+    // and it stays gone: the sink's asynchronous open must not land after
+    // the cleanup and recreate the partial file
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.equal(fs.existsSync(bigPath), false)
 
     const missingPath = path.join(dir, 'missing.bin')
     await rejectsCode(safeFetchToFile('http://files.test/missing', missingPath), 'SSRF_HTTP_STATUS')

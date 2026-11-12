@@ -230,11 +230,6 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
       if (settled) { return; }
       settled = true;
       if (timer) { clearTimeout(timer); }
-      if (sink) {
-        try { sink.destroy(); } catch {
-          // intentionally ignored
-        }
-      }
       if (activeResponse) {
         try { activeResponse.destroy(); } catch {
           // intentionally ignored
@@ -244,6 +239,17 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
         try { req.destroy(); } catch {
           // intentionally ignored
         }
+      }
+      // A failed download leaves no file behind: reject only once the sink
+      // has closed. The sink opens its file asynchronously, so rejecting
+      // first would let the caller unlink before a still-pending open
+      // creates the file.
+      if (sink && !sink.closed) {
+        sink.once('close', function () { reject(err); });
+        try { sink.destroy(); } catch {
+          reject(err);
+        }
+        return;
       }
       reject(err);
     }
