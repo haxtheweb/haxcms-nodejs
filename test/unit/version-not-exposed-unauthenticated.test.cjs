@@ -317,6 +317,117 @@ test("a forged bearer on system/version and status is refused without the versio
   }
 });
 
+test("a JWT without X-HAXCMS-User-Token on system/version and status is refused without the version", async () => {
+  const routes = ["system/version", "status"];
+  for (let i = 0; i < routes.length; i++) {
+    const result = await request("GET", systemUrl(routes[i]), {
+      headers: {
+        accept: "application/json",
+        authorization: "Bearer " + runtime.jwt,
+      },
+    });
+    assert.equal(result.status, 403, routes[i] + " -> " + result.bodyText);
+    assert.equal(
+      JSON.parse(result.bodyText).data.message,
+      "X-HAXCMS-User-Token header is required for this endpoint",
+      routes[i],
+    );
+    assert.equal(findVersionLeak(result), "", routes[i]);
+  }
+});
+
+test("a JWT with a wrong X-HAXCMS-User-Token on system/version and status is refused without the version", async () => {
+  const routes = ["system/version", "status"];
+  for (let i = 0; i < routes.length; i++) {
+    const result = await request("GET", systemUrl(routes[i]), {
+      headers: {
+        accept: "application/json",
+        authorization: "Bearer " + runtime.jwt,
+        "x-haxcms-user-token": "not-" + runtime.userToken,
+      },
+    });
+    assert.equal(result.status, 403, routes[i] + " -> " + result.bodyText);
+    assert.equal(
+      JSON.parse(result.bodyText).data.message,
+      "Invalid X-HAXCMS-User-Token header",
+      routes[i],
+    );
+    assert.equal(findVersionLeak(result), "", routes[i]);
+  }
+});
+
+// issues#3220: through the real route gate, the site entity listing shows
+// system-scope entities only to a JWT + X-HAXCMS-User-Token caller
+test("site entities: anonymous callers get site scope only, whatever ?scope= asks", async () => {
+  const base = runtime.baseUrl + "/_sites/" + SITE_NAME + "/x/api/v1/entities";
+  const urls = [base, base + "?scope=system", base + "?scope=site"];
+  for (let i = 0; i < urls.length; i++) {
+    const result = await request("GET", urls[i], {
+      headers: { accept: "application/json" },
+    });
+    assert.equal(result.status, 200, urls[i] + " -> " + result.bodyText);
+    const listed = JSON.parse(result.bodyText).data.entities;
+    assert.ok(listed.length > 0, urls[i]);
+    for (let j = 0; j < listed.length; j++) {
+      assert.equal(listed[j].scope, "site", urls[i] + " " + listed[j].type);
+    }
+  }
+});
+
+test("site entities: JWT only and a wrong user token get the existing 403s", async () => {
+  const url =
+    runtime.baseUrl +
+    "/_sites/" +
+    SITE_NAME +
+    "/x/api/v1/entities?scope=system";
+  const jwtOnly = await request("GET", url, {
+    headers: {
+      accept: "application/json",
+      authorization: "Bearer " + runtime.jwt,
+    },
+  });
+  assert.equal(jwtOnly.status, 403, jwtOnly.bodyText);
+  assert.equal(
+    JSON.parse(jwtOnly.bodyText).data.message,
+    "X-HAXCMS-User-Token header is required for this endpoint",
+  );
+  const wrong = await request("GET", url, {
+    headers: {
+      accept: "application/json",
+      authorization: "Bearer " + runtime.jwt,
+      "x-haxcms-user-token": "not-" + runtime.userToken,
+    },
+  });
+  assert.equal(wrong.status, 403, wrong.bodyText);
+  assert.equal(
+    JSON.parse(wrong.bodyText).data.message,
+    "Invalid X-HAXCMS-User-Token header",
+  );
+});
+
+test("site entities: JWT + user token keeps the merged listing and ?scope=system", async () => {
+  const base = runtime.baseUrl + "/_sites/" + SITE_NAME + "/x/api/v1/entities";
+  const headers = {
+    accept: "application/json",
+    authorization: "Bearer " + runtime.jwt,
+    "x-haxcms-user-token": runtime.userToken,
+  };
+  const merged = await request("GET", base, { headers: headers });
+  assert.equal(merged.status, 200, merged.bodyText);
+  const scopes = JSON.parse(merged.bodyText).data.entities.map((e) => e.scope);
+  assert.ok(scopes.indexOf("system") !== -1, "merged listing has system scope");
+  assert.ok(scopes.indexOf("site") !== -1, "merged listing has site scope");
+  const system = await request("GET", base + "?scope=system", {
+    headers: headers,
+  });
+  assert.equal(system.status, 200, system.bodyText);
+  const systemScopes = JSON.parse(system.bodyText).data.entities.map(
+    (e) => e.scope,
+  );
+  assert.ok(systemScopes.length > 0);
+  assert.ok(systemScopes.every((scope) => scope === "system"));
+});
+
 test("no open system route leaks the version to an anonymous caller", async () => {
   const methods = ["GET", "POST"];
   for (let i = 0; i < SystemV1OpenRoutes.length; i++) {
