@@ -1176,6 +1176,15 @@ const requestRateLimiter = createRequestRateLimiter(
 app.use(requestRateLimiter);
 app.use(cookieParser());
 app.use(compression());
+// Page bodies (pages/<id>/index.html) are fragments the front end loads into
+// the site shell. Crawlers may fetch them to render a page, but they are not
+// pages of their own, so they are kept out of search results.
+app.use((req, res, next) => {
+  if (isPageFragmentRequestPath(req.path)) {
+    res.setHeader("X-Robots-Tag", "noindex");
+  }
+  next();
+});
 // translatable API messages: add a `code` next to response messages (issues#3157)
 app.use(apiMessageCodesMiddleware);
 app.use((req, res, next) => {
@@ -3648,6 +3657,10 @@ const STATIC_CHARSET_EXTENSIONS = /\.(txt|md|json|ya?ml|xml)$/i;
 // type. Pass null as `fallback` to only set a header when mime resolves.
 // Used at call sites that res.sendFile() afterward: send respects a
 // pre-set Content-Type (it does not override), so this header wins.
+function isPageFragmentRequestPath(requestPath = "") {
+  return /(^|\/)pages\/[^/]+\/index\.html$/.test(String(requestPath || ""));
+}
+
 function setStaticContentTypeWithCharset(
   res,
   requestPath = "",
@@ -4377,7 +4390,7 @@ async function renderDynamicSiteIndexResponse(
   );
   indexFile = replaceManagedHeadMarkup(
     indexFile,
-    metadata,
+    pageMiss ? noindexRobotsMeta(metadata) : metadata,
     serviceWorkerScript,
   );
   let pageContent = "";
@@ -4392,6 +4405,15 @@ async function renderDynamicSiteIndexResponse(
   }
   indexFile = replaceSiteBuilderContent(indexFile, pageContent);
   return indexFile;
+}
+// a page miss answers 404 with the site shell; keep it out of search results
+function noindexRobotsMeta(metadata = "") {
+  // private sites already send "none"; only the public value changes, and
+  // any noai directives after it are kept
+  return String(metadata || "").replace(
+    '<meta name="robots" content="index, follow',
+    '<meta name="robots" content="noindex, follow',
+  );
 }
 function getPageMissShellMarkup() {
   return `<style>

@@ -16,8 +16,8 @@
     "src/siteRoutes/v1/routes/saveOutline.js",
     "src/lib/JSONOutlineSchema.js:247-572",
     "src/lib/JSONOutlineSchemaItem.js:45-76",
-    "src/lib/HAXCMS.js:4041-4109",
-    "src/lib/HAXCMS.js:4127-4179"
+    "src/lib/HAXCMS.js:4005-4073",
+    "src/lib/HAXCMS.js:4091-4143"
   ],
   "ignorePatterns": [
     "/*",
