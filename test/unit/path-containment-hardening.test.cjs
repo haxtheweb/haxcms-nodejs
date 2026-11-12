@@ -132,9 +132,10 @@ test("getLogoSize: traversal / absolute / non-files logo never reads or writes o
   for (const bad of BAD_PATHS.concat(["x.png", "pages/item-1/index.html"])) {
     fx.site.manifest.metadata.site.logo = bad;
     const out = await fx.site.getLogoSize("16", "16");
+    // 16 and 32 fall back to the shipped 32x32 favicon (no icon-16x16 exists)
     assert.equal(
       out,
-      "assets/icon-16x16.png",
+      "assets/favicon.png",
       "fallback for " + JSON.stringify(bad),
     );
   }
@@ -157,7 +158,7 @@ test("getLogoSize: symlinked logo escaping the site is refused", async (t) => {
   );
   fx.site.manifest.metadata.site.logo = "files/evil/a.png";
   const out = await fx.site.getLogoSize("16", "16");
-  assert.equal(out, "assets/icon-16x16.png");
+  assert.equal(out, "assets/favicon.png");
   assert.deepEqual(
     fs.readdirSync(path.join(fx.otherDir, "files", "haxcms-managed")),
     [],

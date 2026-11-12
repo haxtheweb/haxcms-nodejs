@@ -1224,7 +1224,7 @@ test("getSiteMetadata honors theme hex codes and cdn preconnect", async () => {
 test("getSiteMetadata emits verbatim hints for custom themes and registry-prefixed hints for registry themes", async () => {
   const site = await HAXCMS.loadSite("unit-website");
   const originalThemePath = site.manifest.metadata.theme.path;
-  // registry theme keeps the base + build/es6/node_modules/ prefix on both hints
+  // registry theme keeps the base + build/es6/node_modules/ prefix
   site.manifest.metadata.theme.path = "@haxtheweb/clean-two/clean-two.js";
   const registryMeta = await site.getSiteMetadata(null, "https://unit.example");
   assert.ok(
@@ -1232,10 +1232,19 @@ test("getSiteMetadata emits verbatim hints for custom themes and registry-prefix
       '<link rel="modulepreload" href="./build/es6/node_modules/@haxtheweb/clean-two/clean-two.js"',
     ) !== -1,
   );
-  assert.ok(
+  // one module hint per URL: a preload as=script beside the modulepreload
+  // is a second request the module loader never reuses
+  assert.equal(
     registryMeta.indexOf(
       '<link rel="preload" href="./build/es6/node_modules/@haxtheweb/clean-two/clean-two.js"',
-    ) !== -1,
+    ),
+    -1,
+  );
+  assert.equal(
+    registryMeta.split(
+      'href="./build/es6/node_modules/@haxtheweb/clean-two/clean-two.js"',
+    ).length - 1,
+    1,
   );
   // custom theme: site-relative path is emitted verbatim, never mangled
   site.manifest.metadata.theme.path = "./custom/build/custom.es6.js";
@@ -1245,10 +1254,11 @@ test("getSiteMetadata emits verbatim hints for custom themes and registry-prefix
       '<link rel="modulepreload" href="./custom/build/custom.es6.js"',
     ) !== -1,
   );
-  assert.ok(
+  assert.equal(
     customMeta.indexOf(
       '<link rel="preload" href="./custom/build/custom.es6.js"',
-    ) !== -1,
+    ),
+    -1,
   );
   assert.equal(customMeta.indexOf("build/es6/node_modules/./custom"), -1);
   assert.equal(customMeta.indexOf("build/es6/node_modules/custom/"), -1);
@@ -1269,6 +1279,68 @@ test("getSiteMetadata emits verbatim hints for custom themes and registry-prefix
     ).indexOf("@haxtheweb/clean-two/clean-two.js") !== -1,
   );
   site.manifest.metadata.theme.path = originalThemePath;
+});
+
+test("getSiteMetadata social cards, preconnects and the canonical default", async () => {
+  const site = await HAXCMS.loadSite("unit-training");
+  const settings = site.manifest.metadata.site.settings;
+  const originalCanonical = settings.canonical;
+  try {
+    const home = site.manifest.items[0];
+    const deep = site.manifest.items[site.manifest.items.length - 1];
+    const homeMeta = await site.getSiteMetadata(home, "https://unit.example");
+    const deepMeta = await site.getSiteMetadata(deep, "https://unit.example");
+    // the front page describes the site; other pages are articles
+    assert.ok(homeMeta.indexOf('property="og:type" content="website"') !== -1);
+    if (site.manifest.items.length > 1) {
+      assert.ok(
+        deepMeta.indexOf('property="og:type" content="article"') !== -1,
+      );
+    }
+    // twitter:site is an @handle, never a URL; HAXcms has none to give
+    assert.equal(homeMeta.indexOf("twitter:site"), -1);
+    // the font CSS host (no CORS) and the font file host (CORS) only
+    assert.ok(
+      homeMeta.indexOf(
+        '<link rel="preconnect" href="https://fonts.googleapis.com">',
+      ) !== -1,
+    );
+    assert.ok(
+      homeMeta.indexOf(
+        '<link rel="preconnect" crossorigin href="https://fonts.gstatic.com">',
+      ) !== -1,
+    );
+    for (const host of [
+      "cdnjs.cloudflare.com",
+      "i.creativecommons.org",
+      "licensebuttons.net",
+    ]) {
+      assert.equal(
+        homeMeta.indexOf('preconnect" crossorigin href="https://' + host),
+        -1,
+        host,
+      );
+    }
+    // sites made before createSite stored the flag still get a canonical
+    delete settings.canonical;
+    const legacyMeta = await site.getSiteMetadata(
+      home,
+      "https://unit.example",
+      "",
+      "/home",
+    );
+    assert.ok(legacyMeta.indexOf('rel="canonical"') !== -1);
+    settings.canonical = false;
+    const offMeta = await site.getSiteMetadata(
+      home,
+      "https://unit.example",
+      "",
+      "/home",
+    );
+    assert.equal(offMeta.indexOf('rel="canonical"'), -1);
+  } finally {
+    settings.canonical = originalCanonical;
+  }
 });
 
 test("getSiteMetadata uses the site domain for canonical and og urls", async () => {
@@ -1337,7 +1409,27 @@ test("getSocialShareImage resolves legacy file shapes and the theme banner", asy
 
 test("getLogoSize falls back to the default icon and resizes a configured logo", async () => {
   const site = await HAXCMS.loadSite("unit-website");
-  assert.equal(await site.getLogoSize("16", "16"), "assets/icon-16x16.png");
+  // the boilerplate has no 16/32 icon; those sizes are the 32x32 favicon
+  assert.equal(await site.getLogoSize("16", "16"), "assets/favicon.png");
+  assert.equal(await site.getLogoSize("32", "32"), "assets/favicon.png");
+  assert.equal(await site.getLogoSize("48", "48"), "assets/icon-48x48.png");
+  for (const size of [
+    "16",
+    "32",
+    "48",
+    "72",
+    "96",
+    "144",
+    "192",
+    "256",
+    "512",
+  ]) {
+    const icon = await site.getLogoSize(size, size);
+    assert.ok(
+      fs.existsSync(path.join(HAXCMS.boilerplatePath, "site", icon)),
+      size + " -> " + icon + " ships in the boilerplate",
+    );
+  }
   const logoPath = path.join(site.siteDirectory, "files", "unit-logo.png");
   await sharp({
     create: { width: 64, height: 64, channels: 3, background: "#ff0000" },
@@ -1363,6 +1455,53 @@ test("rebuildManagedFiles re-renders the managed template set", async () => {
   );
   assert.ok(indexHtml.indexOf("overwrite me") === -1);
   assert.ok(indexHtml.indexOf("<") !== -1);
+});
+
+function renderedShellFiles(site) {
+  const sw = fs.readFileSync(
+    path.join(site.siteDirectory, "service-worker.js"),
+    "utf8",
+  );
+  const match = sw.match(/var shellFiles = ([\s\S]*?);\n/);
+  assert.ok(match, "shellFiles rendered");
+  return JSON.parse(match[1]);
+}
+
+test("service worker precaches only the shell, never pages or uploads", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  fs.writeFileSync(
+    path.join(site.siteDirectory, "files", "unit-lecture.pdf"),
+    Buffer.alloc(1024, 65),
+  );
+  await site.rebuildManagedFiles();
+  const locations = renderedShellFiles(site).map((item) => item[0]);
+  for (const location of locations) {
+    assert.ok(!location.startsWith("files/"), location);
+    assert.ok(!location.startsWith("pages/"), location);
+  }
+  assert.ok(locations.indexOf("site.json") !== -1);
+  assert.ok(locations.indexOf("offline.html") !== -1);
+});
+
+test("service worker version follows content, not file size", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  const siteJson = path.join(site.siteDirectory, "site.json");
+  const json = fs.readFileSync(siteJson, "utf8");
+  try {
+    await site.rebuildManagedFiles();
+    const before = JSON.stringify(renderedShellFiles(site));
+    // a same-size edit (a typo fix) must still give visitors a new shell
+    const edited = json.replace(/("title":\s*")(.)/, function (m, prefix, c) {
+      return prefix + (c === "Z" ? "Y" : "Z");
+    });
+    assert.equal(edited.length, json.length);
+    assert.notEqual(edited, json);
+    fs.writeFileSync(siteJson, edited);
+    await site.rebuildManagedFiles();
+    assert.notEqual(JSON.stringify(renderedShellFiles(site)), before);
+  } finally {
+    fs.writeFileSync(siteJson, json);
+  }
 });
 
 // Security (SEC-SANITIZE): a malicious site title/description must not break the

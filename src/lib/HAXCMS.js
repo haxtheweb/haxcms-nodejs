@@ -451,6 +451,16 @@ function managedTemplateVarsFor(fileName, templateVars) {
   });
 }
 // a site object
+// The boilerplate ships assets/icon-<n>x<n>.png at 48 to 512; the 16 and
+// 32 pixel sizes (favicon) are the 32x32 assets/favicon.png, so pages never
+// link an icon that does not exist.
+function defaultIconPath(height, width) {
+  if (String(height) === "16" || String(height) === "32") {
+    return "assets/favicon.png";
+  }
+  return "assets/icon-" + height + "x" + width + ".png";
+}
+
 class HAXCMSSite {
   constructor() {
     this.name;
@@ -1163,88 +1173,46 @@ class HAXCMSSite {
       logo48x48: await this.getLogoSize("48", "48"),
       favicon: await this.getLogoSize("32", "32"),
     };
-    let swItems = [...this.manifest.items];
-    // the core files you need in every SW manifest
-    let coreFiles = [
+    // the service worker precaches only this small shell; pages, uploads and
+    // build modules are cached as visitors use them (service-worker.js). Each
+    // entry is versioned by a hash of its content, so any edit (not just one
+    // that changes the file size) gives visitors a fresh shell.
+    const shellFiles = [
       "index.html",
-      await this.getLogoSize("512", "512"),
-      await this.getLogoSize("256", "256"),
-      await this.getLogoSize("192", "192"),
-      await this.getLogoSize("144", "144"),
-      await this.getLogoSize("96", "96"),
-      await this.getLogoSize("72", "72"),
-      await this.getLogoSize("48", "48"),
-      "manifest.json",
       "site.json",
-      "404.html",
+      "manifest.json",
+      "offline.html",
+      await this.getLogoSize("192", "192"),
     ];
-    let handle;
-    // loop through files directory so we can cache those things too
-    if ((handle = fs.readdirSync(this.siteDirectory + "/files"))) {
-      handle.forEach((file) => {
-        if (
-          file != "." &&
-          file != ".." &&
-          file != ".gitkeep" &&
-          file != ".DS_Store" &&
-          file != ".htaccess"
-        ) {
-          // ensure this is a file
-          if (fs.lstatSync(this.siteDirectory + "/files/" + file).isFile()) {
-            coreFiles.push("files/" + file);
-          } else {
-            // @todo maybe step into directories?
-          }
-        }
-      });
-    }
-    for (let key in coreFiles) {
-      let coreItem = {};
-      coreItem.location = coreFiles[key];
-      swItems.push(coreItem);
-    }
-    // generate a legit hash value that's the same for each file name + file size
-    for (let key in swItems) {
-      let filesize;
-      let item = swItems[key];
-      // managed files are sized from the boilerplate source, matching the
+    for (const location of shellFiles) {
+      // managed files are hashed from the boilerplate source, matching the
       // old copy-then-render flow (the site copy may be one rebuild behind)
-      const managedSource =
-        item.location === "" || item.location === templateVars["basePath"]
-          ? managedSourcePaths["index.html"]
-          : typeof item.location === "string"
-            ? managedSourcePaths[item.location]
-            : undefined;
-      if (managedSource) {
-        filesize = fs.statSync(managedSource).size;
-      } else if (
-        item.location === "" ||
-        item.location === templateVars["basePath"]
+      let filePath = managedSourcePaths[location];
+      if (
+        !filePath &&
+        // Security (SEC-PATH), PHP parity: only read locations contained in the site
+        this.validatePageLocation(location) &&
+        fs.pathExistsSync(this.resolvePageLocationRealPath(location)) &&
+        fs.lstatSync(this.resolvePageLocationRealPath(location)).isFile()
       ) {
-        filesize = await fs.statSync(this.siteDirectory + "/index.html").size;
-      } else if (
-        // Security (SEC-PATH), PHP parity: only stat locations contained in the site
-        this.validatePageLocation(item.location) &&
-        fs.lstatSync(this.resolvePageLocationRealPath(item.location)).isFile()
-      ) {
-        filesize = await fs.statSync(
-          this.resolvePageLocationRealPath(item.location),
-        ).size;
-      } else {
-        // ?? file referenced but doesn't exist
-        filesize = 0;
+        filePath = this.resolvePageLocationRealPath(location);
       }
-      if (filesize !== 0) {
-        templateVars["swhash"].push([
-          item.location,
-          strtr(HAXCMS.hmacBase64(item.location + filesize, "haxcmsswhash"), {
-            "+": "",
-            "/": "",
-            "=": "",
-            "-": "",
-          }),
-        ]);
+      if (!filePath) {
+        continue;
       }
+      const contentHash = crypto
+        .createHash("sha256")
+        .update(fs.readFileSync(filePath))
+        .digest("hex");
+      templateVars["swhash"].push([
+        location,
+        strtr(HAXCMS.hmacBase64(location + contentHash, "haxcmsswhash"), {
+          "+": "",
+          "/": "",
+          "=": "",
+          "-": "",
+        }),
+      ]);
     }
     if (
       this.manifest.metadata.theme &&
@@ -2610,10 +2578,10 @@ class HAXCMSSite {
             if (navigator.serviceWorker.controller) {
               navigator.serviceWorker.controller.onstatechange = function(event) {
                 if (event.target.state === 'redundant') {
-                  var b = document.createElement('paper-button');
+                  var b = document.createElement('button');
+                  b.type = 'button';
                   b.appendChild(document.createTextNode('Reload'));
-                  b.raised = true;
-                  b.addEventListener('click', function(e){ window.location.reload(true); });
+                  b.addEventListener('click', function(e){ window.location.reload(); });
                   window.dispatchEvent(new CustomEvent('haxcms-toast-show', {
                     bubbles: true,
                     cancelable: false,
@@ -3075,9 +3043,14 @@ class HAXCMSSite {
       canonicalBase = sanitizeUrl(this.manifest.metadata.site.domain);
     }
     let canonicalUrl = canonicalBase;
+    // on unless the site turned it off: sites made before createSite stored
+    // the flag have none, and a page without a canonical splits its ranking
+    // across every URL that reaches it (?query, trailing slash, aliases)
+    const siteSettings = this.manifest.metadata.site.settings || {};
     if (
-      this.manifest.metadata.site.settings &&
-      this.manifest.metadata.site.settings.canonical
+      siteSettings.canonical === undefined ||
+      siteSettings.canonical === null ||
+      siteSettings.canonical
     ) {
       if (canonicalPath && canonicalPath != "") {
         const normalizedCanonicalPath =
@@ -3174,6 +3147,12 @@ class HAXCMSSite {
     }
     const safeSocialShareImage = escapeHtml(socialImageUrl);
     const safeHexCode = escapeHtml(hexCode);
+    // the front page describes the site; every other page is an article
+    const ogType =
+      // getItemKeyById returns the key as a string ("0")
+      !page.id || String(this.manifest.getItemKeyById(page.id)) === "0"
+        ? "website"
+        : "article";
     const joinUrl = (baseValue = "", segmentValue = "") => {
       const normalizedBase = String(baseValue || "");
       const normalizedSegment = String(segmentValue || "");
@@ -3448,30 +3427,21 @@ class HAXCMSSite {
         continue;
       }
       contentSeen[tagPathStr] = true;
+      // modulepreload only: a preload as=script for the same URL is a
+      // separate classic-script request the module loader never reuses
       contentPreload +=
-        '\n  <link rel="preload" href="' +
-        base +
-        "build/es6/node_modules/" +
-        tagPathStr +
-        '" as="script" crossorigin="anonymous" />' +
         '\n  <link rel="modulepreload" href="' +
         base +
         "build/es6/node_modules/" +
         tagPathStr +
-        '" />';
+        '" crossorigin="anonymous" />';
     }
     let themePreload = "";
     if (themePath) {
       if (themePath.charAt(0) === "@") {
-        // registry theme: modulepreload is already in the shell set above;
-        // keep only the preload-as-script hint so the theme fetch is
-        // prioritized early.
-        themePreload =
-          '  <link rel="preload" href="' +
-          base +
-          "build/es6/node_modules/" +
-          themePath +
-          '" as="script" crossorigin="anonymous" />';
+        // registry theme: its modulepreload is already in the shell set
+        // above; a preload as=script would be a second, unused request
+        themePreload = "";
       } else {
         // custom theme: site-relative path (e.g. ./custom/build/custom.es6.js)
         // loaded directly by build-haxcms.js. Emit the hrefs verbatim so they
@@ -3481,10 +3451,7 @@ class HAXCMSSite {
         themePreload =
           '  <link rel="modulepreload" href="' +
           safeCustomThemePath +
-          '" crossorigin="anonymous" />\n' +
-          '  <link rel="preload" href="' +
-          safeCustomThemePath +
-          '" as="script" crossorigin="anonymous" />';
+          '" crossorigin="anonymous" />';
       }
     }
     // haxcms-site-builder fetches the active page's HTML right after
@@ -3500,10 +3467,8 @@ class HAXCMSSite {
     }
     let metadata = `<meta charset="utf-8" />
   ${preconnect}
-  <link rel="preconnect" crossorigin href="https://fonts.googleapis.com">
-  <link rel="preconnect" crossorigin href="https://cdnjs.cloudflare.com">
-  <link rel="preconnect" crossorigin href="https://i.creativecommons.org">
-  <link rel="preconnect" crossorigin href="https://licensebuttons.net">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" crossorigin href="https://fonts.gstatic.com">
   <link rel="preload" href="${base}build.js" as="script" />
   <link rel="preload" href="${base}build-haxcms.js" as="script" />
   <link rel="preload" href="${base}wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
@@ -3542,7 +3507,7 @@ ${themePreload}${contentPreload}${pageDataPreload}
   <meta name="description" content="${safeDescription}" />
   <meta name="og:site_name" property="og:site_name" content="${safeManifestTitle}" />
   <meta name="og:title" property="og:title" content="${safeTitle}" />
-  <meta name="og:type" property="og:type" content="article" />
+  <meta name="og:type" property="og:type" content="${ogType}" />
   <meta name="og:url" property="og:url" content="${safeDomain}" />
   <meta name="og:description" property="og:description" content="${safeDescription}" />
 ${
@@ -3551,7 +3516,6 @@ ${
 `
     : ""
 }  <meta name="twitter:card" property="twitter:card" content="summary_large_image" />
-  <meta name="twitter:site" property="twitter:site" content="${safeDomain}" />
   <meta name="twitter:title" property="twitter:title" content="${safeTitle}" />
   <meta name="twitter:description" property="twitter:description" content="${safeDescription}" />
 ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" content="${safeSocialShareImage}" />` : ""}`;
@@ -3817,11 +3781,11 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
             this.manifest.metadata.site.logo == null ||
             this.manifest.metadata.site.logo == "null"))
       ) {
-        fileName = "assets/icon-" + height + "x" + width + ".png";
+        fileName = defaultIconPath(height, width);
       } else {
         // ensure this path exists otherwise let's create it on the fly
         const logo = this.manifest.metadata.site.logo;
-        const fallback = "assets/icon-" + height + "x" + width + ".png";
+        const fallback = defaultIconPath(height, width);
         const sizedName =
           typeof logo === "string" && logo.startsWith("files/")
             ? logo.replace(
