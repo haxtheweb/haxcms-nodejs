@@ -2699,6 +2699,21 @@ function normalizeSiteApiSecurityPolicy(securityConfig = null) {
   if (securityConfig.length === 0) {
     return "public";
   }
+  // An empty requirement ({}) anywhere in the list makes auth optional, as
+  // in OpenAPI: the route is public at the gate, whatever order the
+  // requirements are listed in, and the handler decides what a signed-in
+  // caller gets (e.g. listEntityDescriptors with bearer + site token).
+  for (let i = 0; i < securityConfig.length; i++) {
+    const requirement = securityConfig[i];
+    if (
+      requirement &&
+      typeof requirement === "object" &&
+      !Array.isArray(requirement) &&
+      Object.keys(requirement).length === 0
+    ) {
+      return "public";
+    }
+  }
   let requiresBearer = false;
   let requiresUserToken = false;
   for (let i = 0; i < securityConfig.length; i++) {

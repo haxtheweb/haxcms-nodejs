@@ -60,13 +60,32 @@ function buildEntityDescriptorsFromRegistry(registry, scope) {
 
 // Security (entity listing scope): the system-scope part of the entity
 // registry (and the endpoints it names) is only listed to a caller that is
-// signed in and sends its X-HAXCMS-User-Token. Everyone else gets the site
-// scope only, whatever ?scope= asks for, so an unauthenticated request can
-// not fingerprint the build from the system entities. A signed-in caller
-// without a valid user token gets the same 403 envelopes as the
-// authenticated-user routes. CLI and disabled-JWT modes are trusted, as the
-// route gate already treats them. Kept identical in haxcms-php.
-function resolveEntityListingAccess(req) {
+// signed in and sends the X-HAXCMS-Site-Token for this site, the same
+// credential every other signed-in site API route uses (bearer JWT + site
+// token, bound to user and site). Everyone else gets the site scope only,
+// whatever ?scope= asks for, so an unauthenticated request can not
+// fingerprint the build from the system entities. A signed-in caller
+// without a valid site token for this site gets the same 403 envelopes as
+// the authenticated-site routes. CLI and disabled-JWT modes are trusted, as
+// the route gate already treats them. Kept identical in haxcms-php.
+function getSiteNameForListing(req, site) {
+  const fromPath = getMultisiteSiteNameFromPath(getRequestPath(req));
+  if (fromPath !== "") {
+    return fromPath;
+  }
+  if (
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    site.manifest.metadata.site.name
+  ) {
+    return String(site.manifest.metadata.site.name);
+  }
+  return "";
+}
+
+function resolveEntityListingAccess(req, site) {
   const auth = req && req.haxcmsSiteApiAuth;
   if (!auth || typeof auth !== "object" || auth.authenticated !== true) {
     return { full: false };
@@ -74,19 +93,28 @@ function resolveEntityListingAccess(req) {
   if (HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
     return { full: true };
   }
-  const userToken = getRequestHeaderValue(req, "x-haxcms-user-token");
-  if (userToken === "") {
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  if (siteToken === "") {
     return {
       full: false,
       status: 403,
-      message: "X-HAXCMS-User-Token header is required for this endpoint",
+      message: "X-HAXCMS-Site-Token header is required for this endpoint",
     };
   }
-  if (!HAXCMS.validateRequestToken(userToken, String(auth.userName || ""))) {
+  const userName = String(auth.userName || "");
+  const siteName = getSiteNameForListing(req, site);
+  if (userName === "" || siteName === "") {
     return {
       full: false,
       status: 403,
-      message: "Invalid X-HAXCMS-User-Token header",
+      message: "Unable to resolve site token context",
+    };
+  }
+  if (!HAXCMS.validateRequestToken(siteToken, `${userName}:${siteName}`)) {
+    return {
+      full: false,
+      status: 403,
+      message: "Invalid X-HAXCMS-Site-Token header",
     };
   }
   return { full: true };
@@ -121,7 +149,7 @@ async function entities(req, res) {
   if (site && site.siteDirectory) {
     FileStorage.registerOn(registry);
   }
-  const access = resolveEntityListingAccess(req);
+  const access = resolveEntityListingAccess(req, site);
   if (access.status) {
     return res.status(access.status).json({
       status: access.status,
