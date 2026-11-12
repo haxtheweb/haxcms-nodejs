@@ -247,7 +247,7 @@ describe("Entities endpoints — Phase 1 (#3043)", () => {
 });
 
 // issues#3220: system-scope descriptors are only listed to a signed-in caller
-// that sends a valid X-HAXCMS-User-Token
+// that sends this site's X-HAXCMS-Site-Token
 describe("/x/api/v1/entities listing scope (#3220)", () => {
   const entities = require("../../src/siteRoutes/v1/entities.js");
   let savedMiddleware;
@@ -295,43 +295,75 @@ describe("/x/api/v1/entities listing scope (#3220)", () => {
     }
   }
 
-  test("bearer without X-HAXCMS-User-Token: 403 user token required", async () => {
+  const siteTokenFor = (user, site) =>
+    HAXCMS.getRequestToken(user + ":" + site);
+
+  test("bearer without X-HAXCMS-Site-Token: 403 site token required", async () => {
     const res = mockRes();
     await entities(req({}, signedIn), res);
     assert.equal(res.statusCode, 403);
     assert.equal(
       res.body.data.message,
-      "X-HAXCMS-User-Token header is required for this endpoint",
+      "X-HAXCMS-Site-Token header is required for this endpoint",
     );
     assert.equal(res.body.data.entities, undefined);
   });
 
-  test("bearer with a wrong X-HAXCMS-User-Token: 403 invalid", async () => {
+  test("bearer with a wrong X-HAXCMS-Site-Token: 403 invalid", async () => {
     const res = mockRes();
     await entities(
       req({ scope: "system" }, signedIn, {
-        "x-haxcms-user-token": "not-the-token",
+        "x-haxcms-site-token": "not-the-token",
       }),
       res,
     );
     assert.equal(res.statusCode, 403);
-    assert.equal(res.body.data.message, "Invalid X-HAXCMS-User-Token header");
+    assert.equal(res.body.data.message, "Invalid X-HAXCMS-Site-Token header");
   });
 
-  test("another user's token is refused", async () => {
+  test("a site token for another site is refused", async () => {
     const res = mockRes();
     await entities(
       req({}, signedIn, {
-        "x-haxcms-user-token": HAXCMS.getRequestToken("someone-else"),
+        "x-haxcms-site-token": siteTokenFor("admin", "othersite"),
       }),
       res,
     );
     assert.equal(res.statusCode, 403);
-    assert.equal(res.body.data.message, "Invalid X-HAXCMS-User-Token header");
+    assert.equal(res.body.data.message, "Invalid X-HAXCMS-Site-Token header");
   });
 
-  test("bearer with a valid user token keeps the merged listing and ?scope=", async () => {
-    const headers = { "x-haxcms-user-token": HAXCMS.getRequestToken("admin") };
+  test("another user's site token is refused", async () => {
+    const res = mockRes();
+    await entities(
+      req({}, signedIn, {
+        "x-haxcms-site-token": siteTokenFor("someone-else", "testsite"),
+      }),
+      res,
+    );
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.data.message, "Invalid X-HAXCMS-Site-Token header");
+  });
+
+  test("the user token alone no longer opens the full listing", async () => {
+    const res = mockRes();
+    await entities(
+      req({}, signedIn, {
+        "x-haxcms-user-token": HAXCMS.getRequestToken("admin"),
+      }),
+      res,
+    );
+    assert.equal(res.statusCode, 403);
+    assert.equal(
+      res.body.data.message,
+      "X-HAXCMS-Site-Token header is required for this endpoint",
+    );
+  });
+
+  test("bearer with this site's token keeps the merged listing and ?scope=", async () => {
+    const headers = {
+      "x-haxcms-site-token": siteTokenFor("admin", "testsite"),
+    };
     const merged = mockRes();
     await entities(req({}, signedIn, headers), merged);
     assert.equal(merged.statusCode, 200);
@@ -342,7 +374,7 @@ describe("/x/api/v1/entities listing scope (#3220)", () => {
     assert.deepEqual(types, ["site", "skeleton", "system", "theme"]);
   });
 
-  test("the site spec lets anonymous callers in and names the user token", () => {
+  test("the site spec lets anonymous callers in and names the site token", () => {
     const fs = require("node:fs");
     const path = require("node:path");
     const YAML = require("yaml");
@@ -354,13 +386,15 @@ describe("/x/api/v1/entities listing scope (#3220)", () => {
     );
     const op = spec.paths["/x/api/v1/entities"].get;
     assert.deepEqual(op.security, [
-      { bearerAuth: [], userTokenHeader: [] },
+      { bearerAuth: [], siteTokenHeader: [] },
       {},
     ]);
     assert.equal(
-      spec.components.securitySchemes.userTokenHeader.name,
-      "X-HAXCMS-User-Token",
+      spec.components.securitySchemes.siteTokenHeader.name,
+      "X-HAXCMS-Site-Token",
     );
+    // the site spec uses the site token throughout; no user-token scheme
+    assert.equal(spec.components.securitySchemes.userTokenHeader, undefined);
     assert.ok(op.responses["403"]);
   });
 });

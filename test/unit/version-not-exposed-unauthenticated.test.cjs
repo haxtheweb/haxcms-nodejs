@@ -357,7 +357,13 @@ test("a JWT with a wrong X-HAXCMS-User-Token on system/version and status is ref
 });
 
 // issues#3220: through the real route gate, the site entity listing shows
-// system-scope entities only to a JWT + X-HAXCMS-User-Token caller
+// system-scope entities only to a JWT + this site's X-HAXCMS-Site-Token
+function siteTokenForTestSite() {
+  return HAXCMS.getRequestToken(TEST_USER_NAME + ":" + SITE_NAME);
+}
+
+// a 200 here also shows the route stays public at the gate even though the
+// bearer + site token requirement is listed before {}
 test("site entities: anonymous callers get site scope only, whatever ?scope= asks", async () => {
   const base = runtime.baseUrl + "/_sites/" + SITE_NAME + "/x/api/v1/entities";
   const urls = [base, base + "?scope=system", base + "?scope=site"];
@@ -374,43 +380,52 @@ test("site entities: anonymous callers get site scope only, whatever ?scope= ask
   }
 });
 
-test("site entities: JWT only and a wrong user token get the existing 403s", async () => {
+test("site entities: JWT only, a wrong site token or the user token get the existing 403s", async () => {
   const url =
     runtime.baseUrl +
     "/_sites/" +
     SITE_NAME +
     "/x/api/v1/entities?scope=system";
-  const jwtOnly = await request("GET", url, {
-    headers: {
-      accept: "application/json",
-      authorization: "Bearer " + runtime.jwt,
-    },
-  });
-  assert.equal(jwtOnly.status, 403, jwtOnly.bodyText);
-  assert.equal(
-    JSON.parse(jwtOnly.bodyText).data.message,
-    "X-HAXCMS-User-Token header is required for this endpoint",
-  );
-  const wrong = await request("GET", url, {
-    headers: {
-      accept: "application/json",
-      authorization: "Bearer " + runtime.jwt,
-      "x-haxcms-user-token": "not-" + runtime.userToken,
-    },
-  });
-  assert.equal(wrong.status, 403, wrong.bodyText);
-  assert.equal(
-    JSON.parse(wrong.bodyText).data.message,
-    "Invalid X-HAXCMS-User-Token header",
-  );
+  const cases = [
+    [{}, "X-HAXCMS-Site-Token header is required for this endpoint"],
+    [
+      { "x-haxcms-user-token": runtime.userToken },
+      "X-HAXCMS-Site-Token header is required for this endpoint",
+    ],
+    [
+      { "x-haxcms-site-token": "not-" + siteTokenForTestSite() },
+      "Invalid X-HAXCMS-Site-Token header",
+    ],
+    [
+      {
+        "x-haxcms-site-token": HAXCMS.getRequestToken(
+          TEST_USER_NAME + ":some-other-site",
+        ),
+      },
+      "Invalid X-HAXCMS-Site-Token header",
+    ],
+  ];
+  for (let i = 0; i < cases.length; i++) {
+    const result = await request("GET", url, {
+      headers: Object.assign(
+        {
+          accept: "application/json",
+          authorization: "Bearer " + runtime.jwt,
+        },
+        cases[i][0],
+      ),
+    });
+    assert.equal(result.status, 403, result.bodyText);
+    assert.equal(JSON.parse(result.bodyText).data.message, cases[i][1]);
+  }
 });
 
-test("site entities: JWT + user token keeps the merged listing and ?scope=system", async () => {
+test("site entities: JWT + site token keeps the merged listing and ?scope=system", async () => {
   const base = runtime.baseUrl + "/_sites/" + SITE_NAME + "/x/api/v1/entities";
   const headers = {
     accept: "application/json",
     authorization: "Bearer " + runtime.jwt,
-    "x-haxcms-user-token": runtime.userToken,
+    "x-haxcms-site-token": siteTokenForTestSite(),
   };
   const merged = await request("GET", base, { headers: headers });
   assert.equal(merged.status, 200, merged.bodyText);
