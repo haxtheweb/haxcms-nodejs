@@ -379,6 +379,14 @@ function isURLLikeAttribute(attributeName) {
 // made with createHTMLDocument has no browsing context, so its <iframe>s get
 // no frame windows and there is nothing to close. Parsing is the same:
 // body.innerHTML in a fresh HTML document.
+//
+// Invariant: heap stays flat across calls once the event loop turns. Inside a
+// single synchronous run, each call's documents stay reachable until the run
+// ends, because jsdom tracks NodeIterators (DOMPurify makes one per sanitize)
+// through WeakRefs, and JavaScript keeps a WeakRef's target alive for the rest
+// of the current job. Callers that sanitize many pages should await between
+// pages (every current caller awaits a file write per page), so that memory
+// is released as they go. test/unit/sanitize-heap.test.cjs guards both.
 let scratchWindow = null;
 function newScratchDocument() {
   if (scratchWindow === null) {
