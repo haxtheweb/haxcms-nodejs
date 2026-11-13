@@ -5101,6 +5101,15 @@ class HAXCMSClass {
     if (typeof this.config.mcp.readOnly === "undefined") {
       this.config.mcp.readOnly = true;
     }
+    // update awareness: the status report checks GitHub for a newer release and
+    // published security advisories. Never on a host-managed (HAXiam) install;
+    // set updates.check to false in config.json to turn the check off.
+    if (!this.config.updates || typeof this.config.updates !== "object") {
+      this.config.updates = {};
+    }
+    if (typeof this.config.updates.check === "undefined") {
+      this.config.updates.check = true;
+    }
     if (!this.config.appJWTConnectionSettings) {
       this.config.appJWTConnectionSettings = {};
     }
