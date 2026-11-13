@@ -122,7 +122,7 @@ The suite currently validates:
 - Theme/report/view/analytics endpoints:
   - `listThemes`, `getActiveTheme`, `getThemeByName`, `listReports`, `getReportByName`, `getAnalyticsCapabilities`, `listViews`, `getViewById`, `getViewResults`, `listDisplaysAlias`, `getDisplayResultsAlias`
 - Secured file and revision endpoints:
-  - `listFiles`, `createFile`, `getFileByUuid`, `updateFileByUuid`, `deleteFileByUuid`, `listItemRevisions`
+  - `listFiles`, `createFile`, `getFileByUuid`, `updateFileByUuid`, `replaceFileContent`, `deleteFileByUuid`, `listItemRevisions`
 
 Behavior coverage in the same suite includes:
 - OpenAPI response/schema conformance checks

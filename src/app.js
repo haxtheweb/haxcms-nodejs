@@ -380,7 +380,11 @@ function parseConversionActionBody(req, res, next) {
 function getSiteApiRouteParser(method = "get", route = "") {
   const normalizedMethod = String(method || "get").toLowerCase();
   const normalizedRoute = String(route || "");
-  if (normalizedMethod === "post" && normalizedRoute === "v1/files") {
+  if (
+    normalizedMethod === "post" &&
+    (normalizedRoute === "v1/files" ||
+      normalizedRoute === "v1/files/:fileUuid/content")
+  ) {
     return uploadAnyParser;
   }
   if (

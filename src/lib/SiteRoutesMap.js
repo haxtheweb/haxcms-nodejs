@@ -168,6 +168,13 @@ for (let i = 0; i < V1_ENTITY_ROUTE_DEFINITIONS.length; i++) {
   }
 }
 
+// haxtheweb/issues#1149: replace an image's contents with a browser-made one
+addRouteHandler(
+  SiteRoutesMap,
+  'post',
+  'v1/files/:fileUuid/content',
+  require('../siteRoutes/v1/files.js').replaceFileContent,
+);
 addRouteHandler(
   SiteRoutesMap,
   'patch',
