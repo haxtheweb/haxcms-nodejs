@@ -3,11 +3,11 @@ const path = require("path");
 const expressPackage = require("express/package.json");
 const childProcess = require("child_process");
 const v8 = require("v8");
-const { safeFetch } = require("./safeFetch.js");
+const {
+  buildPlatformUpdateInfo,
+  fetchLatestRelease,
+} = require("./platformUpdates.js");
 
-const GITHUB_RELEASES_LATEST_URL =
-  "https://api.github.com/repos/haxtheweb/haxcms-nodejs/releases/latest";
-const RELEASE_CACHE_TTL_MS = 5 * 60 * 1000;
 const RELEASES_PAGE_URL = "https://github.com/haxtheweb/haxcms-nodejs/releases";
 const RELEASES_LATEST_URL =
   "https://github.com/haxtheweb/haxcms-nodejs/releases/latest";
@@ -17,11 +17,6 @@ const UPLOAD_LIMIT_HELP_URL =
 const HAXTHEWEB_URL = "https://haxtheweb.org";
 const NODE_RELEASES_URL = "https://nodejs.org/en/download/releases";
 const EXPRESS_URL = "https://expressjs.com/";
-
-let latestReleaseCache = {
-  expiresAt: 0,
-  version: "",
-};
 
 function normalizeVersion(value = "") {
   let normalized = typeof value === "string" ? value : `${value || ""}`;
@@ -202,43 +197,86 @@ function buildDirectoryStatusRow(directory = {}, processOwnership = {}) {
   };
 }
 
+/**
+ * Latest published release tag (kept for callers that only need the version).
+ */
 async function fetchLatestReleaseVersion() {
-  const now = Date.now();
-  if (latestReleaseCache.version && latestReleaseCache.expiresAt > now) {
-    return latestReleaseCache.version;
+  const release = await fetchLatestRelease();
+  if (release && typeof release.tag_name === "string") {
+    return normalizeVersion(release.tag_name);
   }
-  let latestVersion = "";
-  const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => {
-    controller.abort();
-  }, 4000);
-  try {
-    // Security (SEC-SSRF): routed through safeFetch (SSRF guard + byte cap); the
-    // 4s abort signal is preserved as the request timeout.
-    const response = await safeFetch(GITHUB_RELEASES_LATEST_URL, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": "haxcms-nodejs-system-status",
-      },
-      signal: controller.signal,
-    });
-    if (response.ok) {
-      const payload = await response.json();
-      if (payload && typeof payload.tag_name === "string") {
-        latestVersion = normalizeVersion(payload.tag_name);
-      }
-    }
-  } catch {
-    latestVersion = "";
-  }
-  clearTimeout(timeoutHandle);
-  if (latestVersion) {
-    latestReleaseCache = {
-      version: latestVersion,
-      expiresAt: now + RELEASE_CACHE_TTL_MS,
+  return "";
+}
+
+/**
+ * The haxcms-version status row. `update` (from platformUpdates.js) adds the
+ * host-managed and checks-off states and flags a missing security fix.
+ */
+function buildVersionRow(
+  currentVersion,
+  latestVersion,
+  releasePageUrl,
+  update,
+) {
+  if (update && update.managed) {
+    return {
+      key: "haxcms-version",
+      tone: "info",
+      title: "HAXcms version",
+      value: currentVersion,
+      description: "Updates for this install are managed by your host.",
     };
   }
-  return latestVersion;
+  if (update && !update.checkEnabled) {
+    return {
+      key: "haxcms-version",
+      tone: "info",
+      title: "HAXcms version",
+      value: currentVersion,
+      description: `Current: ${currentVersion} · Update checks are turned off (updates.check in config.json).`,
+      valueLink: RELEASES_LATEST_URL,
+    };
+  }
+  let versionDescription = `Current: ${currentVersion} · Latest: ${latestVersion}`;
+  if (
+    currentVersion !== "unknown" &&
+    latestVersion !== "unknown" &&
+    currentVersion !== latestVersion
+  ) {
+    versionDescription += ` · Update: ${releasePageUrl}`;
+  }
+  const row = {
+    key: "haxcms-version",
+    tone:
+      currentVersion !== "unknown" &&
+      latestVersion !== "unknown" &&
+      currentVersion === latestVersion
+        ? "ok"
+        : "warning",
+    title: "HAXcms version",
+    value: currentVersion,
+    description: versionDescription,
+    valueLink: RELEASES_LATEST_URL,
+  };
+  if (update && update.security) {
+    const ids = [];
+    const links = [];
+    for (let i = 0; i < update.advisories.length; i++) {
+      const advisory = update.advisories[i];
+      const label = advisory.cve || advisory.id;
+      ids.push(label);
+      if (advisory.url) {
+        links.push({
+          url: advisory.url,
+          label: advisory.severity ? `${label} (${advisory.severity})` : label,
+        });
+      }
+    }
+    row.tone = "error";
+    row.description += ` · Security update available: ${ids.join(", ")}`;
+    row.links = links;
+  }
+  return row;
 }
 
 function buildStatusRows(options = {}) {
@@ -345,30 +383,14 @@ function buildStatusRows(options = {}) {
       ? "JWT validation is required for authenticated API routes."
       : "JWT validation is disabled for local development mode.",
   });
-  const currentVersion = options.haxcmsVersionCurrent || "unknown";
-  const latestVersion = options.haxcmsVersionLatest || "unknown";
-  const releasePageUrl = options.releasePageUrl || RELEASES_PAGE_URL;
-  let versionDescription = `Current: ${currentVersion} · Latest: ${latestVersion}`;
-  if (
-    currentVersion !== "unknown" &&
-    latestVersion !== "unknown" &&
-    currentVersion !== latestVersion
-  ) {
-    versionDescription += ` · Update: ${releasePageUrl}`;
-  }
-  rows.push({
-    key: "haxcms-version",
-    tone:
-      currentVersion !== "unknown" &&
-      latestVersion !== "unknown" &&
-      currentVersion === latestVersion
-        ? "ok"
-        : "warning",
-    title: "HAXcms version",
-    value: currentVersion,
-    description: versionDescription,
-    valueLink: RELEASES_LATEST_URL,
-  });
+  rows.push(
+    buildVersionRow(
+      options.haxcmsVersionCurrent || "unknown",
+      options.haxcmsVersionLatest || "unknown",
+      options.releasePageUrl || RELEASES_PAGE_URL,
+      options.update,
+    ),
+  );
   rows.push({
     key: "community-support",
     tone: "info",
@@ -394,8 +416,9 @@ async function buildNodeSystemStatusReport(haxcms, req) {
     haxcms && typeof haxcms.getHAXCMSVersion === "function"
       ? normalizeVersion(await haxcms.getHAXCMSVersion())
       : "";
+  const update = await buildPlatformUpdateInfo(haxcms, currentVersion);
   const latestVersion =
-    normalizeVersion(await fetchLatestReleaseVersion()) ||
+    (update.latest !== "unknown" ? update.latest : "") ||
     currentVersion ||
     "unknown";
   const rootPath =
@@ -470,6 +493,7 @@ async function buildNodeSystemStatusReport(haxcms, req) {
       haxcms.refreshPrivateKey
     ),
     jwtChecksEnabled: !(haxcms && haxcms.HAXCMS_DISABLE_JWT_CHECKS),
+    update,
   });
   return {
     summary: {
@@ -480,10 +504,13 @@ async function buildNodeSystemStatusReport(haxcms, req) {
       configDirectory,
     },
     rows,
+    update,
   };
 }
 
 module.exports = {
+  buildStatusRows,
+  buildVersionRow,
   buildNodeSystemStatusReport,
   fetchLatestReleaseVersion,
 };
