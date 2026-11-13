@@ -1009,6 +1009,26 @@ function buildMultipartBody(options = {}) {
   };
 }
 
+/** a multipart body whose file part is binary (a Buffer) */
+function buildBinaryMultipartBody(options = {}) {
+  const boundary = `----haxcms-conformance-${Date.now()}-bin`;
+  const head = Buffer.from(
+    [
+      `--${boundary}`,
+      `Content-Disposition: form-data; name="${options.fieldName}"; filename="${options.fileName}"`,
+      `Content-Type: ${options.mimeType}`,
+      "",
+      "",
+    ].join("\r\n"),
+  );
+  const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+  return {
+    body: Buffer.concat([head, options.fileContents, tail]),
+    boundary,
+    fileName: options.fileName,
+  };
+}
+
 async function assertSecuredOperationAuthMatrix(
   runtime,
   operationId,
@@ -2453,6 +2473,151 @@ test("site API conformance against site-spec", async (t) => {
         404,
         deletedLookupResult,
       );
+    },
+  );
+
+  await t.test(
+    "replaceFileContent swaps an image's bytes in place, in its own format",
+    async () => {
+      const sharp = require("sharp");
+      const sourcePng = await sharp({
+        create: {
+          width: 200,
+          height: 100,
+          channels: 3,
+          background: { r: 51, g: 102, b: 153 },
+        },
+      })
+        .png()
+        .toBuffer();
+      const cropJpeg = await sharp({
+        create: {
+          width: 100,
+          height: 100,
+          channels: 3,
+          background: { r: 204, g: 0, b: 102 },
+        },
+      })
+        .jpeg()
+        .toBuffer();
+      const sourceName = `api-conformance-crop-${runtime.testStartTimestamp}.png`;
+      const sourceUpload = buildBinaryMultipartBody({
+        fieldName: "file-upload",
+        fileName: sourceName,
+        mimeType: "image/png",
+        fileContents: sourcePng,
+      });
+      const createResult = await invokeOperation(runtime, "createFile", {
+        headers: Object.assign(
+          {
+            "content-type": `multipart/form-data; boundary=${sourceUpload.boundary}`,
+          },
+          getSiteAuthHeaders(runtime),
+        ),
+        body: sourceUpload.body,
+      });
+      assert.equal(createResult.status, 200, createResult.bodyText);
+      const lookup = await invokeOperation(runtime, "listFiles", {
+        headers: getSiteAuthHeaders(runtime),
+        query: { "filter.nameContains": sourceName.replace(/\.png$/, "") },
+      });
+      assert.equal(lookup.status, 200, lookup.bodyText);
+      const created = lookup.bodyJson.data.files[0];
+      assert.ok(created && created.uuid, "Expected the uploaded image's uuid");
+
+      const crop = buildBinaryMultipartBody({
+        fieldName: "upload",
+        fileName: "crop.jpg",
+        mimeType: "image/jpeg",
+        fileContents: cropJpeg,
+      });
+      const replaceBaseOptions = {
+        pathParams: { fileUuid: created.uuid },
+        headers: {
+          "content-type": `multipart/form-data; boundary=${crop.boundary}`,
+        },
+        body: crop.body,
+      };
+      await assertSecuredOperationAuthMatrix(
+        runtime,
+        "replaceFileContent",
+        replaceBaseOptions,
+      );
+
+      const replaceResult = await invokeOperation(
+        runtime,
+        "replaceFileContent",
+        mergeInvocationOptions(replaceBaseOptions, {
+          headers: getSiteAuthHeaders(runtime),
+        }),
+      );
+      assert.equal(replaceResult.status, 200, replaceResult.bodyText);
+      assertSchemaConformance(
+        runtime,
+        "replaceFileContent",
+        200,
+        replaceResult,
+      );
+      const replaced = replaceResult.bodyJson.data.file;
+      assert.equal(replaced.uuid, created.uuid);
+      assert.equal(replaced.path, created.path);
+      // HAXCMS_ROOT is set without a trailing slash, so the app keeps
+      // sites beside it ("runtime_sites"); accept either layout
+      const sitePath = [
+        SITE_DIRECTORY_NAME,
+        runtime.createdSiteName,
+        created.path,
+      ];
+      const onDisk = [
+        path.join(runtime.runtimeRoot, ...sitePath),
+        path.join(
+          runtime.runtimeRoot + SITE_DIRECTORY_NAME,
+          ...sitePath.slice(1),
+        ),
+      ].find((candidate) => fs.pathExistsSync(candidate));
+      assert.ok(onDisk, "Expected the replaced file on disk");
+      const meta = await sharp(onDisk).metadata();
+      assert.equal(meta.format, "png", "kept the original file's format");
+      assert.equal(meta.width, 100);
+      assert.equal(meta.height, 100);
+
+      // a file that is not an image is refused and the original stays
+      const notImage = buildMultipartBody({
+        fieldName: "upload",
+        fileName: "notes.txt",
+        fileContents: "not an image",
+      });
+      const refused = await invokeOperation(runtime, "replaceFileContent", {
+        pathParams: { fileUuid: created.uuid },
+        headers: Object.assign(
+          {
+            "content-type": `multipart/form-data; boundary=${notImage.boundary}`,
+          },
+          getSiteAuthHeaders(runtime),
+        ),
+        body: notImage.body,
+      });
+      assert.equal(refused.status, 400, refused.bodyText);
+      assertSchemaConformance(runtime, "replaceFileContent", 400, refused);
+      assert.equal((await sharp(onDisk).metadata()).width, 100);
+
+      const missing = await invokeOperation(runtime, "replaceFileContent", {
+        pathParams: { fileUuid: "00000000-0000-4000-8000-000000000000" },
+        headers: Object.assign(
+          {
+            "content-type": `multipart/form-data; boundary=${crop.boundary}`,
+          },
+          getSiteAuthHeaders(runtime),
+        ),
+        body: crop.body,
+      });
+      assert.equal(missing.status, 404, missing.bodyText);
+      assertSchemaConformance(runtime, "replaceFileContent", 404, missing);
+
+      await invokeOperation(runtime, "deleteFileByUuid", {
+        pathParams: { fileUuid: created.uuid },
+        headers: getSiteAuthHeaders(runtime),
+      });
     },
   );
 });

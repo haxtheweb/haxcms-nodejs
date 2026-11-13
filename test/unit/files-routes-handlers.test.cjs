@@ -30,6 +30,7 @@ const {
   fileDetail,
   createFile,
   updateFile,
+  replaceFileContent,
   deleteFile,
   performFileOperation,
 } = require('../../src/siteRoutes/v1/files.js')
@@ -1377,5 +1378,126 @@ describe('files routes — updateFile (convert-pptx-deck)', () => {
     )
     assert.equal(res.statusCode, 400)
     assert.equal(res.body.data.message, 'File must have a .pptx extension')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// replaceFileContent (POST /x/api/v1/files/{fileUuid}/content), haxtheweb/issues#1149
+// ---------------------------------------------------------------------------
+
+describe('replaceFileContent', () => {
+  // an upload as multer leaves it: a temp file outside files/
+  async function makeUpload(t, width, height, format) {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'files-replace-upload-'))
+    t.after(() => fs.removeSync(tmpDir))
+    const uploadPath = path.join(tmpDir, 'crop')
+    let pipeline = sharp({
+      create: { width: width, height: height, channels: 3, background: 'green' },
+    })
+    pipeline = format === 'png' ? pipeline.png() : pipeline.jpeg()
+    await pipeline.toFile(uploadPath)
+    return { fieldname: 'upload', originalname: 'crop.' + format, path: uploadPath }
+  }
+
+  test('replaces a JPG in place, keeping uuid, path and format', async (t) => {
+    useTempConfigDirectory(t)
+    const site = await makeTempSite(t)
+    const filePath = path.join(site.siteDirectory, 'files', 'banner.jpg')
+    await sharp({ create: { width: 240, height: 160, channels: 3, background: 'red' } })
+      .jpeg()
+      .toFile(filePath)
+    const record = await indexSiteFile(site, 'banner.jpg')
+    mockSite(t, site)
+    // a PNG upload still lands as a JPG: the server re-encodes into the file's format
+    const upload = await makeUpload(t, 160, 90, 'png')
+    const res = stubRes()
+    await replaceFileContent(
+      makeReq({ params: { fileUuid: record.uuid }, files: [upload] }),
+      res,
+    )
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body.data.operation, 'replace-content')
+    assert.equal(res.body.data.path, 'files/banner.jpg')
+    assert.equal(res.body.data.file.uuid, record.uuid)
+    const metadata = await sharp(filePath).metadata()
+    assert.equal(metadata.format, 'jpeg')
+    assert.equal(metadata.width, 160)
+    assert.equal(metadata.height, 90)
+    const stored = freshRecord(site, record.uuid)
+    assert.equal(stored.path, 'files/banner.jpg')
+    assert.deepEqual(site.commits, ['File content replaced: files/banner.jpg'])
+  })
+
+  test('requires an authenticated site request', async (t) => {
+    const site = await makeTempSite(t)
+    mockSite(t, site)
+    const res = stubRes()
+    await replaceFileContent(
+      makeReq({
+        params: { fileUuid: '11111111-2222-3333-4444-555555555555' },
+        haxcmsSiteApiAuth: { authenticated: false },
+      }),
+      res,
+    )
+    assert.equal(res.statusCode, 403)
+    assert.deepEqual(site.commits, [])
+  })
+
+  test('rejects a request without an upload', async (t) => {
+    const site = await makeTempSite(t)
+    const record = await indexSiteFile(site, 'a.jpg', 'x')
+    mockSite(t, site)
+    const res = stubRes()
+    await replaceFileContent(makeReq({ params: { fileUuid: record.uuid } }), res)
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.body.data.message, 'Missing file upload')
+  })
+
+  test('rejects formats it cannot round-trip and uploads that are not images', async (t) => {
+    useTempConfigDirectory(t)
+    const site = await makeTempSite(t)
+    const svg = await indexSiteFile(
+      site,
+      'logo.svg',
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>',
+    )
+    const jpgPath = path.join(site.siteDirectory, 'files', 'photo.jpg')
+    await sharp({ create: { width: 30, height: 30, channels: 3, background: 'red' } })
+      .jpeg()
+      .toFile(jpgPath)
+    const jpg = await indexSiteFile(site, 'photo.jpg')
+    mockSite(t, site)
+    const upload = await makeUpload(t, 10, 10, 'png')
+    let res = stubRes()
+    await replaceFileContent(makeReq({ params: { fileUuid: svg.uuid }, files: [upload] }), res)
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.body.data.message, 'Only JPG, PNG and WebP images can be replaced')
+    // a text file posing as an image
+    const fakePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'files-replace-fake-')), 'fake')
+    t.after(() => fs.removeSync(path.dirname(fakePath)))
+    fs.writeFileSync(fakePath, '<script>alert(1)</script>')
+    res = stubRes()
+    await replaceFileContent(
+      makeReq({ params: { fileUuid: jpg.uuid }, files: [{ fieldname: 'upload', path: fakePath }] }),
+      res,
+    )
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.body.data.message, 'The uploaded file must be a JPG, PNG or WebP image')
+    const size = await readImageSize(jpgPath)
+    assert.equal(size.width, 30)
+    assert.deepEqual(site.commits, [])
+  })
+
+  test('returns 404 for an unknown uuid', async (t) => {
+    useTempConfigDirectory(t)
+    const site = await makeTempSite(t)
+    mockSite(t, site)
+    const upload = await makeUpload(t, 10, 10, 'jpg')
+    const res = stubRes()
+    await replaceFileContent(
+      makeReq({ params: { fileUuid: '11111111-2222-3333-4444-555555555555' }, files: [upload] }),
+      res,
+    )
+    assert.equal(res.statusCode, 404)
   })
 })
