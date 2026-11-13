@@ -76,6 +76,7 @@ const PAGE_VARIANT_CONTENT_TYPES = {
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require("./lib/HAXCMS.js");
 const { resolveContainedPath } = require("./lib/pathConfinement.js");
+const { stampDashboardBasePath } = require("./lib/dashboardBasePath.js");
 const { legacySlugMatches } = require("./lib/slugRules.js");
 const {
   createRequestCommitContext,
@@ -996,6 +997,12 @@ function injectNonce(indexFile = "", nonce = "") {
 function sendNonceIndex(res, req, absoluteFilePath) {
   try {
     var indexFile = fs.readFileSync(absoluteFilePath, "utf8");
+    if (
+      path.resolve(absoluteFilePath) ===
+      path.join(__dirname, "public", "index.html")
+    ) {
+      indexFile = stampDashboardBasePath(indexFile, HAXCMS.basePath);
+    }
     indexFile = injectNonce(indexFile, req && req.haxcmsCspNonce);
     setUncachedResponseHeaders(res, req);
     res.send(indexFile);
@@ -1683,6 +1690,7 @@ const appReady = systemStructureContext().then((site) => {
               path.join(publicDir, "index.html"),
               "utf8",
             );
+            indexFile = stampDashboardBasePath(indexFile, HAXCMS.basePath);
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
@@ -2230,6 +2238,7 @@ const appReady = systemStructureContext().then((site) => {
               path.join(__dirname, "public", "index.html"),
               "utf8",
             );
+            indexFile = stampDashboardBasePath(indexFile, HAXCMS.basePath);
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
