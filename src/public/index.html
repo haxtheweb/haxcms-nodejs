@@ -317,29 +317,17 @@
       <h1>Loading...</h1>
     </div>
   </section>
+    <!-- Connection settings for the dashboard. A plain script tag, so the
+         page waits for it: app-hax reads globalThis.appSettings as it starts,
+         and both the module below and the element autoloader (build.js) can
+         start it. When this script was added from JavaScript it ran whenever
+         it arrived, and a fast (cached) app-hax could start first and ask a
+         signed-in user to log in. -->
+    <script
+      data-haxcms-connection-settings="true"
+      src="/system/api/v1/session/connection-settings"
+    ></script>
     <script>
-      // load connection settings for dashboard bootstrap once
-      if (
-        !(
-          globalThis.appSettings &&
-          typeof globalThis.appSettings === "object" &&
-          Object.keys(globalThis.appSettings).length > 0
-        )
-      ) {
-        let connectionSettingsScript = document.querySelector(
-          "script[data-haxcms-connection-settings]",
-        );
-        if (!connectionSettingsScript) {
-          connectionSettingsScript = document.createElement("script");
-          connectionSettingsScript.setAttribute(
-            "data-haxcms-connection-settings",
-            "true",
-          );
-          connectionSettingsScript.src =
-            "/system/api/v1/session/connection-settings";
-          document.documentElement.appendChild(connectionSettingsScript);
-        }
-      }
     // reduce FOUC for dark mode so it starts in dark rapidly if selected
     (function () {
       try {
