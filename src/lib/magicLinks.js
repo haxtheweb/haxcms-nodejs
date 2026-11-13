@@ -230,7 +230,25 @@ function matchSettingsOwner(filePath) {
 
 var LOCK_WAIT_MS = 3000;
 var LOCK_STALE_MS = 10000;
-var sleepCell = new Int32Array(new SharedArrayBuffer(4));
+var sleepCell = null;
+
+// Synchronous ~ms pause between lock attempts. Created on first use, not at
+// load: a browser Worker without cross-origin isolation has no
+// SharedArrayBuffer (haxtheweb/issues#3331), and there the wait falls back
+// to spinning until the time has passed.
+function sleepSync(ms) {
+  if (typeof SharedArrayBuffer === "function" && typeof Atomics === "object") {
+    if (!sleepCell) {
+      sleepCell = new Int32Array(new SharedArrayBuffer(4));
+    }
+    Atomics.wait(sleepCell, 0, 0, ms);
+    return;
+  }
+  var until = Date.now() + ms;
+  while (Date.now() < until) {
+    // spin
+  }
+}
 
 /**
  * Security (SEC-MAGICLINK): run fn() while holding an exclusive lock on the store. The CLI and the
@@ -270,7 +288,7 @@ function withStoreLock(haxcms, fn) {
         busy.code = "MAGIC_LINK_STORE_BUSY";
         throw busy;
       }
-      Atomics.wait(sleepCell, 0, 0, 15);
+      sleepSync(15);
     }
   }
   try {

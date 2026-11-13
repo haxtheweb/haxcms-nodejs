@@ -77,6 +77,11 @@ else {
         }
     }
 }
+// nothing found and nowhere to create one (the home directory does not
+// exist): say so, instead of failing below with a null path
+if (!discoverConfigPath) {
+    throw new Error(`HAXcms could not find or create a config directory: no _config in ${process.cwd()} or its parents, and the home directory ${baseConfigPath} does not exist. Set HOME to an existing directory or create a _config directory.`);
+}
 // ensure tmp is there
 if (!fs.pathExistsSync(path.join(discoverConfigPath, 'tmp/'))) {
     fs.mkdirSync(path.join(discoverConfigPath, 'tmp/'));

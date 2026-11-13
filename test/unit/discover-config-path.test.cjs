@@ -62,3 +62,25 @@ test('an empty pre-created ~/.haxcmsconfig (Docker volume) is initialised in pla
     fs.rmSync(home, { recursive: true, force: true })
   }
 })
+
+// With no _config anywhere up the tree and a home directory that does not
+// exist, loading fails with a message that says what to fix, instead of a
+// TypeError from path.join(null, ...).
+test('a missing home directory fails with a clear message', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'haxcms-discover-nohome-'))
+  const home = path.join(cwd, 'does-not-exist')
+  try {
+    const res = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(DISCOVER)})`], {
+      cwd,
+      env: { ...process.env, HOME: home, USERPROFILE: home, VERCEL_ENV: '' },
+      encoding: 'utf8',
+      timeout: 15000,
+    })
+    assert.notEqual(res.status, 0)
+    assert.match(res.stderr, /could not find or create a config directory/)
+    assert.match(res.stderr, /does not exist/)
+    assert.doesNotMatch(res.stderr, /TypeError/)
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true })
+  }
+})

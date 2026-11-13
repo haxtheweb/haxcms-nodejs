@@ -46,6 +46,14 @@ Visit http://localhost:3000 if it doesn't automatically open
   your LAN set `HAXCMS_HOST=0.0.0.0`; a loud warning is printed because anyone
   who can reach the port can edit every site.
 
+### Embedding (`HAXCMS_EMBEDDED`)
+- `HAXCMS_EMBEDDED=1` is for hosting haxcms-nodejs inside another runtime, such
+  as [haxcms-browser](https://github.com/haxtheweb/haxcms-browser), which runs
+  it in a browser Worker. `src/app.js` builds the Express app and every route as
+  usual but creates no HTTP server, never listens and starts no background
+  timers. The host waits for the exported `appReady` promise and then passes
+  requests to the exported `app`. Unset, nothing changes.
+
 ### First-run admin credentials
 On first start, if the config directory (`_config/` next to your sites, or
 `~/.haxcmsconfig`) has no `.user` file, an `admin` user is created with a

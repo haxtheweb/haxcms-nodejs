@@ -33,7 +33,16 @@ const fs = require("fs-extra");
 const crypto = require("crypto");
 const YAML = require("yaml");
 const sslServer = require("./lib/sslServer.js");
-const server = sslServer.createServer(app);
+// HAXCMS_EMBEDDED=1: another runtime hosts the app (e.g. haxcms-browser runs
+// it in a browser Worker, haxtheweb/issues#3331). The Express app and every
+// route are built exactly as usual, but no HTTP server is created, nothing
+// listens and no background timers start; the host dispatches requests to
+// `app` itself once `appReady` resolves. Unset, nothing changes.
+const embeddedRuntime =
+  require("./lib/staticRequestGuards.js").isEnabledFlagValue(
+    process.env.HAXCMS_EMBEDDED,
+  );
+const server = embeddedRuntime ? null : sslServer.createServer(app);
 const serverProtocol = sslServer.getServerProtocol();
 // Security (SEC-DEPLOY): interface selection for server.listen (loopback when
 // the no-login bypass is active, HAXCMS_HOST always wins).
@@ -1055,7 +1064,8 @@ function injectLinkedDevImportMap(indexFile = "") {
   return `${linkedDevImportMapMarkup}\n${output}`;
 }
 // if in development, live reload
-if (process.env.NODE_ENV === "development") {
+// (needs the HTTP server for the reload websocket, so never when embedded)
+if (process.env.NODE_ENV === "development" && server) {
   const child_process = require("child_process");
   const util = require("util");
   const execFile = util.promisify(child_process.execFile);
@@ -1392,7 +1402,9 @@ function getRuntimePort() {
   }
   return currentPort;
 }
-systemStructureContext().then((site) => {
+// Resolves once every route is registered (single-site or multisite), which
+// is when an embedding host can start dispatching requests to `app`.
+const appReady = systemStructureContext().then((site) => {
   // see if we have a single site context or if we need routes for multisite
   if (site) {
     // we have a site context, need paths to resolve to cwd instead of subsite path
@@ -2246,23 +2258,25 @@ systemStructureContext().then((site) => {
 // keep binding the same interface.
 var listenHost = null;
 var listenHostResolved = false;
-server.on("listening", onServerListening);
-server.on("error", handleServerError);
-// Security (SEC-UPLOAD): sweep stale multer temp files (>1h), abandoned
-// tmp/imports staging entries (>24h) and stale downloadSite archives in
-// _published/ (>15m) at startup and every 15 minutes. The timer is unref'd
-// and stopped when the server closes.
-const stopUploadTempSweeper = uploadSecurity.startUploadTempSweeper(
-  UPLOAD_TEMP_DIRECTORY,
-  {
-    publishedDirectory: path.join(
-      HAXCMS.HAXCMS_ROOT,
-      HAXCMS.publishedDirectory,
-    ),
-  },
-);
-server.on("close", stopUploadTempSweeper);
-startServer(currentPort);
+if (server) {
+  server.on("listening", onServerListening);
+  server.on("error", handleServerError);
+  // Security (SEC-UPLOAD): sweep stale multer temp files (>1h), abandoned
+  // tmp/imports staging entries (>24h) and stale downloadSite archives in
+  // _published/ (>15m) at startup and every 15 minutes. The timer is unref'd
+  // and stopped when the server closes.
+  const stopUploadTempSweeper = uploadSecurity.startUploadTempSweeper(
+    UPLOAD_TEMP_DIRECTORY,
+    {
+      publishedDirectory: path.join(
+        HAXCMS.HAXCMS_ROOT,
+        HAXCMS.publishedDirectory,
+      ),
+    },
+  );
+  server.on("close", stopUploadTempSweeper);
+  startServer(currentPort);
+}
 
 function startServer(portToTry) {
   currentPort = Number(portToTry);
@@ -2389,7 +2403,11 @@ function handleServerError(e) {
 }
 module.exports = {
   app,
+  appReady,
+  embeddedRuntime,
+  // null when embedded (HAXCMS_EMBEDDED)
   server,
+  // never resolves when embedded: there is no port
   serverReady,
   serverProtocol,
   getListenHost: () => listenHost,
@@ -3368,6 +3386,11 @@ async function validateSiteApiRouteAccess(req, route = "", method = "get") {
   if (HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
     authContext.authenticated = true;
     authContext.securityLevel = policy === "public" ? "authenticated" : policy;
+    // Local mode / CLI: every request acts as the active user (the same
+    // identity login revalidation uses here). Site writes such as saveOutline
+    // and saveNode bind their site token to this user name, so leaving it
+    // blank refused every save with "Authentication required".
+    authContext.userName = HAXCMS.getActiveUserName() || "";
     setSiteApiAuthContext(req, authContext);
     return {
       allowed: true,
