@@ -2046,3 +2046,35 @@ test("addPage still returns the page when the generated-files rebuild fails", as
     ),
   );
 });
+
+// haxtheweb/issues#3337: theme/ left the boilerplate. New sites are created
+// without it, and a site that already has the folder keeps every file in it.
+test("a new site has no theme/ folder and still has its custom build", async () => {
+  const site = await HAXCMS.createSite("unit-no-theme-folder");
+  const dir = site.siteDirectory;
+  assert.equal(fs.pathExistsSync(path.join(dir, "theme")), false);
+  assert.ok(
+    fs.pathExistsSync(path.join(dir, "custom", "build", "custom.es6.js")),
+  );
+  const agents = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  assert.equal(agents.indexOf("theme/theme."), -1);
+});
+
+test("rebuildManagedFiles leaves an existing site's theme/ files alone", async () => {
+  const site = await HAXCMS.createSite("unit-keeps-theme-folder");
+  const dir = site.siteDirectory;
+  const css = "site-top-menu { --site-top-menu-bg: #37474f; }\n";
+  const html = "<site-top-menu></site-top-menu>\n";
+  fs.ensureDirSync(path.join(dir, "theme"));
+  fs.writeFileSync(path.join(dir, "theme", "theme.css"), css);
+  fs.writeFileSync(path.join(dir, "theme", "theme.html"), html);
+  await site.rebuildManagedFiles();
+  assert.equal(
+    fs.readFileSync(path.join(dir, "theme", "theme.css"), "utf8"),
+    css,
+  );
+  assert.equal(
+    fs.readFileSync(path.join(dir, "theme", "theme.html"), "utf8"),
+    html,
+  );
+});
