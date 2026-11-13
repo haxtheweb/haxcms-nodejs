@@ -1482,7 +1482,7 @@ describe('replaceFileContent', () => {
       res,
     )
     assert.equal(res.statusCode, 400)
-    assert.equal(res.body.data.message, 'The uploaded file is not a raster image')
+    assert.equal(res.body.data.message, 'The uploaded file must be a JPG, PNG or WebP image')
     const size = await readImageSize(jpgPath)
     assert.equal(size.width, 30)
     assert.deepEqual(site.commits, [])

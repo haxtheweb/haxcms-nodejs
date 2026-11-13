@@ -1002,9 +1002,10 @@ async function transformImageInPlace(
   }
 }
 
-// Formats whose contents can be replaced in place by replaceFileContent.
-// Animated and vector formats (gif, svg) are left out: a browser canvas can
-// not round-trip them, so replacing would drop frames or vectors.
+// Formats replaceFileContent accepts, both for the file being replaced and
+// for the upload (what a browser canvas encodes). Animated and vector formats
+// (gif, svg) are left out: a canvas can not round-trip them, so replacing
+// would drop frames or vectors. Mirrors haxcms-php.
 const REPLACEABLE_IMAGE_FORMATS = ["jpeg", "png", "webp"];
 
 /**
@@ -1041,17 +1042,18 @@ async function replaceImageContentInPlace(
   } catch {
     uploadMetadata = null;
   }
+  // the same formats a browser canvas encodes; one still frame only
   if (
     !uploadMetadata ||
-    !uploadMetadata.format ||
-    String(uploadMetadata.format).indexOf("svg") === 0 ||
+    !REPLACEABLE_IMAGE_FORMATS.includes(String(uploadMetadata.format || "")) ||
     !uploadMetadata.width ||
-    !uploadMetadata.height
+    !uploadMetadata.height ||
+    (uploadMetadata.pages && uploadMetadata.pages > 1)
   ) {
-    throw createStatusError("The uploaded file is not a raster image", 400);
-  }
-  if (uploadMetadata.pages && uploadMetadata.pages > 1) {
-    throw createStatusError("Animated images cannot be used here", 400);
+    throw createStatusError(
+      "The uploaded file must be a JPG, PNG or WebP image",
+      400,
+    );
   }
   const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
   const outputQuality =
