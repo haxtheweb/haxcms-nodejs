@@ -64,3 +64,29 @@ test("the shipped dashboard page still has the element this stamps", () => {
   );
   assert.equal(page.split(ROOT_MARKER).length - 1, 1);
 });
+
+test("the dashboard page loads its connection settings before anything can start app-hax", () => {
+  // app-hax reads globalThis.appSettings as it starts, and it can be started
+  // by the page's module or by the element autoloader (build.js). The
+  // settings script is therefore a plain parser-blocking tag placed before
+  // both: added from JavaScript it could arrive after a cached app-hax, and a
+  // signed-in user was then shown the login form.
+  const page = fs.readFileSync(
+    path.join(__dirname, "..", "..", "src", "public", "index.html"),
+    "utf8",
+  );
+  const tag = page.match(
+    /<script\b[^>]*\bsrc="\/system\/api\/v1\/session\/connection-settings"[^>]*>/,
+  );
+  assert.ok(tag, "the settings script is a tag in the page");
+  assert.equal(/\b(async|defer)\b/.test(tag[0]), false, "it blocks the parser");
+  assert.equal(/type="module"/.test(tag[0]), false);
+  const settingsAt = page.indexOf(tag[0]);
+  const appHaxAt = page.indexOf("@haxtheweb/app-hax/app-hax.js'");
+  const autoloadAt = page.indexOf('<script src="./build.js">');
+  assert.ok(appHaxAt !== -1 && autoloadAt !== -1);
+  assert.ok(settingsAt < appHaxAt, "before the app-hax module");
+  assert.ok(settingsAt < autoloadAt, "before the element autoloader");
+  // and it is not also added from JavaScript
+  assert.equal(page.indexOf("connectionSettingsScript"), -1);
+});
