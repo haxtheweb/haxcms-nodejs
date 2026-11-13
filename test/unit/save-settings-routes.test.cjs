@@ -701,25 +701,6 @@ describe("saveNode", () => {
     assert.equal(res.body.data.message, "Authentication required");
   });
 
-  test("style guide id delegates to site.handleStyleGuideSave", async (t) => {
-    const site = makeFakeSite();
-    let styleGuidePayload = null;
-    site.handleStyleGuideSave = async (bodyParams) => {
-      styleGuidePayload = bodyParams;
-      return { saved: true };
-    };
-    mockNodeExtras(t, site);
-    mockSiteAuth(t, site);
-    const res = stubRes();
-    const req = siteReq({
-      site: { name: "demo" },
-      node: { id: "x/theme/style-guide", body: "<p>guide</p>" },
-    });
-    await saveNode(req, res);
-    assert.equal(res.body.saved, true);
-    assert.equal(styleGuidePayload, req.body);
-  });
-
   test("unknown node id answers 500 Server error", async (t) => {
     const site = makeFakeSite();
     site.loadNode = () => null;

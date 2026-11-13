@@ -29,7 +29,6 @@ const {
   trimTrailingSlashes,
   trimSlashes,
   stripAngleTags,
-  hasAngleTag,
   removeBackslashesBeforeQuote,
   closingCustomElementNames,
   findPageBreakSections,
@@ -4140,106 +4139,6 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       }
     }
     return rSlug;
-  }
-
-  /**
-   * Handle style guide save operation through saveNode endpoint
-   * @param object bodyParams The request body parameters
-   * @return object Response object with status and data
-   */
-  async handleStyleGuideSave(bodyParams) {
-    const styleGuideFile = path.join(
-      this.siteDirectory,
-      "theme",
-      "style-guide.html",
-    );
-
-    // Extract content from node body (saveNode endpoint)
-    let content = null;
-    if (bodyParams["node"] && bodyParams["node"]["body"]) {
-      content = bodyParams["node"]["body"];
-    }
-
-    // validate that we have content to save
-    if (!content) {
-      return {
-        status: 400,
-        data: { message: "Content parameter is required" },
-      };
-    }
-
-    // validate content is a string and has some actual content
-    if (typeof content !== "string") {
-      return { status: 400, data: { message: "Content must be a string" } };
-    }
-
-    // basic validation - ensure we have some HTML-like content
-    const cleanContent = content.trim();
-    if (!cleanContent) {
-      return { status: 400, data: { message: "Content cannot be empty" } };
-    }
-
-    // validate that content appears to be HTML by checking for basic HTML patterns
-    // this follows similar pattern to how saveNode validates content structure
-    if (!hasAngleTag(cleanContent)) {
-      return { status: 400, data: { message: "Content must be valid HTML" } };
-    }
-
-    // check if the theme directory exists, if not create it
-    const themeDirectory = path.join(this.siteDirectory, "theme");
-    if (!fs.existsSync(themeDirectory)) {
-      try {
-        await fs.ensureDir(themeDirectory);
-      } catch {
-        return {
-          status: 500,
-          data: { message: "Failed to create theme directory" },
-        };
-      }
-    }
-
-    // ensure the site's style guide setting allows writing to the default location
-    // only allow writing to the default location (theme/style-guide.html)
-    // if user has changed the styleGuide setting to an external URL, block writes
-    if (
-      this.manifest.metadata.theme &&
-      this.manifest.metadata.theme.styleGuide &&
-      this.manifest.metadata.theme.styleGuide !== null &&
-      this.manifest.metadata.theme.styleGuide !== ""
-    ) {
-      return {
-        status: 403,
-        data: {
-          message:
-            "Style guide is configured to use external source. Cannot edit through HAXcms.",
-        },
-      };
-    }
-
-    // write the content to the style guide file
-    // Security (SEC-SANITIZE): sanitize the style-guide HTML before writing,
-    // matching saveNode and PHP, so an editor cannot inject <script>
-    // into theme/style-guide.html (served to every site visitor).
-    const sanitizedContent = sanitizeHTMLForStorage(cleanContent);
-    try {
-      await fs.writeFile(styleGuideFile, sanitizedContent);
-    } catch {
-      return {
-        status: 500,
-        data: { message: "Failed to write style guide file" },
-      };
-    }
-
-    // commit to git
-    await this.gitCommit("Style guide updated");
-
-    return {
-      status: 200,
-      data: {
-        message: "Style guide saved successfully",
-        file: "theme/style-guide.html",
-      },
-    };
   }
 }
 // HAXcms core

@@ -60,15 +60,6 @@ async function saveNode(req, res) {
   ) {
     let bodyParams = req.body;
     let site = await HAXCMS.loadSite(req.body["site"]["name"]);
-
-    // Special handling for style guide endpoint through saveNode
-    if (
-      bodyParams["node"]["id"] &&
-      bodyParams["node"]["id"] === "x/theme/style-guide"
-    ) {
-      const result = await site.handleStyleGuideSave(bodyParams);
-      return res.send(result);
-    }
     let schema = [];
     let body;
     if (bodyParams["node"]["body"]) {

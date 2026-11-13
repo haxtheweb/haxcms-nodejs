@@ -72,7 +72,6 @@ async function savePlatformSettings(req, res) {
       "saveAndEdit",
       "deletePage",
       "outlineDesigner",
-      "styleGuide",
       "insights",
       "siteManifest",
       "themeManifest",
