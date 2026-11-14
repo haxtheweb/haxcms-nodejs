@@ -1075,3 +1075,68 @@ test("malformed JSON bodies reach the error middleware as a 400 JSON envelope", 
     message: "Malformed request body",
   });
 });
+
+// ---------------------------------------------------------------------------
+// page addresses that look like folders, or hold Unicode letters
+// ---------------------------------------------------------------------------
+test("a page whose slug has a pages/ or files/ segment, or Unicode letters, is served as a page", async () => {
+  const siteDir = path.join(sitesRoot, SITE_NAME);
+  const manifestPath = path.join(siteDir, "site.json");
+  const original = fs.readFileSync(manifestPath, "utf8");
+  const manifest = JSON.parse(original);
+  const first = manifest.items[0];
+  const addItem = function (id, title, slug, parent) {
+    manifest.items.push(
+      Object.assign({}, first, {
+        id: id,
+        title: title,
+        slug: slug,
+        parent: parent,
+        order: manifest.items.length,
+      }),
+    );
+  };
+  addItem("item-slug-pages", "pages", "pages", null);
+  addItem(
+    "item-slug-inside",
+    "Inside pages",
+    "pages/inside-pages",
+    "item-slug-pages",
+  );
+  addItem("item-slug-files", "In files", "guide/files/notes", null);
+  addItem("item-slug-unicode", "日本語", "日本語", null);
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  try {
+    const base = runtime.baseUrl + "/_sites/" + SITE_NAME;
+    const pagePaths = [
+      "/pages/inside-pages",
+      "/guide/files/notes",
+      "/" + encodeURIComponent("日本語"),
+    ];
+    for (let i = 0; i < pagePaths.length; i++) {
+      const page = await request("GET", base + pagePaths[i], {
+        headers: { accept: "text/html" },
+      });
+      assert.equal(page.status, 200, pagePaths[i]);
+      assert.ok(
+        String(page.headers["content-type"] || "").indexOf("text/html") !== -1,
+        pagePaths[i],
+      );
+    }
+    // the real folders still answer as folders: a stored page file is served,
+    // and a file that is not there is a 404, not a rendered page
+    const stored = await request("GET", base + "/" + first.location, {});
+    assert.equal(stored.status, 200);
+    const missing = await request("GET", base + "/files/not-there.png", {});
+    assert.equal(missing.status, 404);
+    // a slug nobody has is still a miss
+    const miss = await request(
+      "GET",
+      base + "/" + encodeURIComponent("存在しない"),
+      { headers: { accept: "text/html" } },
+    );
+    assert.equal(miss.status, 404);
+  } finally {
+    fs.writeFileSync(manifestPath, original);
+  }
+});

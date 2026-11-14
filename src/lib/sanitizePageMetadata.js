@@ -27,7 +27,37 @@ function toPlainText(value) {
   if (value === null || value === undefined) {
     return '';
   }
-  return strip_tags(html_entity_decode(String(value)));
+  return strip_tags(decodeEntities(String(value)));
+}
+
+/**
+ * Decode named and numeric character references in one pass, the way PHP's
+ * html_entity_decode does. locutus' html_entity_decode only knows named
+ * entities, so a title sent as `It&#x27;s` (how serializers escape an
+ * apostrophe inside an attribute) used to be stored still encoded.
+ * One pass, so `&amp;#x27;` decodes to the text `&#x27;` and no further.
+ */
+function decodeEntities(text) {
+  return text.replace(
+    /&(#[xX][0-9a-fA-F]{1,6}|#[0-9]{1,7}|[a-zA-Z][a-zA-Z0-9]{1,31});/g,
+    (match, entity) => {
+      if (entity.charAt(0) !== '#') {
+        return html_entity_decode(match);
+      }
+      const hex = entity.charAt(1) === 'x' || entity.charAt(1) === 'X';
+      const codePoint = hex
+        ? parseInt(entity.slice(2), 16)
+        : parseInt(entity.slice(1), 10);
+      // not a character: NUL, a surrogate half, or past the Unicode range
+      if (
+        !(codePoint > 0 && codePoint <= 0x10ffff) ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        return match;
+      }
+      return String.fromCodePoint(codePoint);
+    },
+  );
 }
 
 // longest auto-generated page description, in characters (code points)
