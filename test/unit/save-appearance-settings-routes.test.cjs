@@ -505,6 +505,52 @@ describe("saveAppearanceSettings — theme fields", () => {
     assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
   });
 
+  test("announcement is stored, kept across a theme change, and cleared", async (t) => {
+    const site = makeFakeSite();
+    mockSiteAuth(t, site);
+    mockThemes(t);
+    const res = stubRes();
+    await saveAppearanceSettings(
+      appearanceReq({
+        "manifest-metadata-theme-announcement-title": "Spring sections open",
+        "manifest-metadata-theme-announcement-variant": "success",
+      }),
+      res,
+    );
+    assert.equal(res.sent.status, 200);
+    assert.equal(
+      site.manifest.metadata.theme.announcement.title,
+      "Spring sections open",
+    );
+    assert.equal(site.manifest.metadata.theme.announcement.variant, "success");
+    const resTheme = stubRes();
+    await saveAppearanceSettings(
+      appearanceReq({ "manifest-metadata-theme-element": "my-theme" }),
+      resTheme,
+    );
+    assert.equal(resTheme.sent.status, 200);
+    assert.equal(
+      site.manifest.metadata.theme.announcement.title,
+      "Spring sections open",
+    );
+    const resBad = stubRes();
+    await saveAppearanceSettings(
+      appearanceReq({ "manifest-metadata-theme-announcement-ends": "soon" }),
+      resBad,
+    );
+    assert.equal(resBad.statusCode, 400);
+    const resClear = stubRes();
+    await saveAppearanceSettings(
+      appearanceReq({
+        "manifest-metadata-theme-announcement-title": "",
+        "manifest-metadata-theme-announcement-text": "",
+      }),
+      resClear,
+    );
+    assert.equal(resClear.sent.status, 200);
+    assert.equal("announcement" in site.manifest.metadata.theme, false);
+  });
+
   test("icon stores strings and rejects other types", async (t) => {
     const site = makeFakeSite();
     mockSiteAuth(t, site);

@@ -595,6 +595,34 @@ describe("saveManifest", () => {
     assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
   });
 
+  test("the announcement survives a theme change", async (t) => {
+    const site = makeFakeSite();
+    site.manifest.metadata.theme = {
+      element: "old-theme",
+      variables: {},
+      announcement: { title: "Hi", variant: "brand" },
+    };
+    mockManifestExtras(t, site);
+    mockSiteAuthWithForm(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        haxcms_form_id: "form-1",
+        haxcms_form_token: "token",
+        manifest: {
+          site: { "manifest-title": "P", "manifest-description": "D" },
+          theme: { "manifest-metadata-theme-element": "my-theme" },
+          author: {},
+          seo: {},
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal(site.manifest.metadata.theme.announcement.title, "Hi");
+  });
+
   test("the design system survives a theme change", async (t) => {
     const site = makeFakeSite();
     site.manifest.metadata.theme = {

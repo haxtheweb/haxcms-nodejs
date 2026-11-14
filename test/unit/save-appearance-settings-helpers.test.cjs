@@ -105,3 +105,92 @@ describe("saveAppearanceSettings.normalizeDesignSystem", () => {
     assert.equal(normalizeDesignSystem({ name: "carbon" }), null);
   });
 });
+
+describe("saveAppearanceSettings.normalizeAnnouncement", () => {
+  const { normalizeAnnouncement } = saveAppearanceSettings;
+  const f = (key) => "manifest-metadata-theme-announcement-" + key;
+
+  test("builds a full announcement with defaults", () => {
+    assert.deepEqual(
+      normalizeAnnouncement(
+        {
+          [f("title")]: "Spring sections open Monday.",
+          [f("text")]: "Registration closes January 9.",
+          [f("link")]: "https://example.com/dates",
+          [f("linkText")]: "See dates",
+          [f("ends")]: "2027-01-09",
+        },
+        null,
+      ),
+      {
+        title: "Spring sections open Monday.",
+        text: "Registration closes January 9.",
+        link: "https://example.com/dates",
+        linkText: "See dates",
+        variant: "brand",
+        ends: "2027-01-09",
+      },
+    );
+  });
+
+  test("keeps text plain: no angle brackets or control characters", () => {
+    const a = normalizeAnnouncement(
+      { [f("title")]: "<b>Open</b>\nnow", [f("text")]: "Q&A" },
+      null,
+    );
+    assert.equal(a.title, "b Open /b now");
+    assert.equal(a.text, "Q&A");
+  });
+
+  test("caps text lengths", () => {
+    const a = normalizeAnnouncement({ [f("text")]: "x".repeat(900) }, null);
+    assert.equal(a.text.length, 500);
+  });
+
+  test("drops unsafe links", () => {
+    const a = normalizeAnnouncement(
+      { [f("title")]: "Hi", [f("link")]: "javascript:alert(1)" },
+      null,
+    );
+    assert.equal(a.link, "");
+  });
+
+  test("updates only the fields sent", () => {
+    const a = normalizeAnnouncement(
+      { [f("variant")]: "warning" },
+      {
+        title: "Hi",
+        text: "",
+        link: "",
+        linkText: "",
+        variant: "brand",
+        ends: "",
+      },
+    );
+    assert.equal(a.title, "Hi");
+    assert.equal(a.variant, "warning");
+  });
+
+  test("no title and no text means no announcement", () => {
+    assert.equal(
+      normalizeAnnouncement(
+        { [f("title")]: "", [f("text")]: "" },
+        { title: "Hi" },
+      ),
+      null,
+    );
+  });
+
+  test("refuses bad variants, dates and types", () => {
+    assert.equal(
+      normalizeAnnouncement({ [f("variant")]: "pink" }, null),
+      false,
+    );
+    assert.equal(
+      normalizeAnnouncement({ [f("ends")]: "next week" }, null),
+      false,
+    );
+    assert.equal(normalizeAnnouncement({ [f("title")]: 42 }, null), false);
+    assert.equal(normalizeAnnouncement({ [f("link")]: {} }, null), false);
+  });
+});

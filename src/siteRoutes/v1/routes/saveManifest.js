@@ -169,6 +169,13 @@ async function saveManifest(req, res) {
           typeof site.manifest.metadata.theme.designSystem === "string"
             ? site.manifest.metadata.theme.designSystem
             : "";
+        // so is the announcement (set in Appearance)
+        const keptAnnouncement =
+          site.manifest.metadata.theme &&
+          site.manifest.metadata.theme.announcement &&
+          typeof site.manifest.metadata.theme.announcement === "object"
+            ? site.manifest.metadata.theme.announcement
+            : null;
         // look for a match so we can set the correct data
         for (var key in hThemes) {
           let theme = hThemes[key];
@@ -186,6 +193,9 @@ async function saveManifest(req, res) {
         }
         if (keptDesignSystem) {
           site.manifest.metadata.theme.designSystem = keptDesignSystem;
+        }
+        if (keptAnnouncement) {
+          site.manifest.metadata.theme.announcement = keptAnnouncement;
         }
         if (
           typeof req.body["manifest"]["theme"][

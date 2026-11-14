@@ -26,6 +26,24 @@ const REGION_FIELD_MAP = {
   "manifest-metadata-theme-regions-footerPrimary": "footerPrimary",
   "manifest-metadata-theme-regions-footerSecondary": "footerSecondary",
 };
+// the site-wide announcement every theme shows at the top of the site
+// (metadata.theme.announcement); set in Appearance, never a block
+const ANNOUNCEMENT_FIELD_MAP = {
+  "manifest-metadata-theme-announcement-title": "title",
+  "manifest-metadata-theme-announcement-text": "text",
+  "manifest-metadata-theme-announcement-link": "link",
+  "manifest-metadata-theme-announcement-linkText": "linkText",
+  "manifest-metadata-theme-announcement-variant": "variant",
+  "manifest-metadata-theme-announcement-ends": "ends",
+};
+const ANNOUNCEMENT_TEXT_LIMITS = { title: 120, text: 500, linkText: 80 };
+const ANNOUNCEMENT_VARIANTS = new Set([
+  "brand",
+  "neutral",
+  "success",
+  "warning",
+  "danger",
+]);
 const ALLOWED_THEME_KEYS = new Set([
   "manifest-metadata-theme-element",
   "manifest-metadata-theme-variables-image",
@@ -36,7 +54,89 @@ const ALLOWED_THEME_KEYS = new Set([
   "manifest-metadata-theme-variables-icon",
   "manifest-metadata-theme-designSystem",
   ...Object.keys(REGION_FIELD_MAP),
+  ...Object.keys(ANNOUNCEMENT_FIELD_MAP),
 ]);
+
+/**
+ * One announcement text field. Plain text only: angle brackets and control
+ * characters are removed, so the stored value can never form markup, then
+ * it is trimmed and capped.
+ * @returns {string|null} the clean text, or null when not a string
+ */
+function cleanAnnouncementText(value, limit) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const clean = value
+    .replace(/[<>\u0000-\u001f\u007f]/g, " ")
+    .replace(/ +/g, " ")
+    .trim();
+  // the limit counts characters (code points), as haxcms-php's mb_substr does
+  return Array.from(clean).slice(0, limit).join("").trim();
+}
+
+/**
+ * The announcement after applying the fields present in a payload to the
+ * current one. Text fields are plain text; the link goes through the URL
+ * sanitizer; variant is one of the DDD variant words (brand when unset);
+ * ends is "" or a YYYY-MM-DD date. With no title and no text left, there
+ * is no announcement.
+ * @returns {object|null|false} the announcement, null for none, false when
+ *   a field is invalid
+ */
+function normalizeAnnouncement(payload, current) {
+  const next = Object.assign(
+    { title: "", text: "", link: "", linkText: "", variant: "brand", ends: "" },
+    isPlainObject(current) ? current : {},
+  );
+  for (const field of Object.keys(ANNOUNCEMENT_FIELD_MAP)) {
+    if (!Object.prototype.hasOwnProperty.call(payload, field)) {
+      continue;
+    }
+    const key = ANNOUNCEMENT_FIELD_MAP[field];
+    const value = payload[field];
+    if (key === "link") {
+      if (value !== null && typeof value !== "string") {
+        return false;
+      }
+      next.link = sanitizeURLValue(value, "");
+    } else if (key === "variant") {
+      const variant =
+        value === null || value === "" ? "brand" : String(value).trim();
+      if (typeof value !== "string" && value !== null) {
+        return false;
+      }
+      if (!ANNOUNCEMENT_VARIANTS.has(variant)) {
+        return false;
+      }
+      next.variant = variant;
+    } else if (key === "ends") {
+      if (value === null || value === "") {
+        next.ends = "";
+      } else if (
+        typeof value === "string" &&
+        /^\d{4}-\d{2}-\d{2}$/.test(value.trim())
+      ) {
+        next.ends = value.trim();
+      } else {
+        return false;
+      }
+    } else {
+      const clean = cleanAnnouncementText(value, ANNOUNCEMENT_TEXT_LIMITS[key]);
+      if (clean === null) {
+        return false;
+      }
+      next[key] = clean;
+    }
+  }
+  if (next.title === "" && next.text === "") {
+    return null;
+  }
+  return next;
+}
 
 /**
  * The site's design system (metadata.theme.designSystem): a lowercase name
@@ -215,9 +315,10 @@ async function saveAppearanceSettings(req, res) {
         .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
-    // the design system is the site's choice, not the theme's: keep it
-    // when the theme changes
+    // the design system and the announcement are the site's, not the
+    // theme's: keep them when the theme changes
     const designSystem = site.manifest.metadata.theme.designSystem;
+    const announcement = site.manifest.metadata.theme.announcement;
     // a copy: the site's theme is edited below and must never change the
     // shared HAXCMS.config.themes entry (later sites would inherit regions)
     site.manifest.metadata.theme = JSON.parse(
@@ -225,6 +326,9 @@ async function saveAppearanceSettings(req, res) {
     );
     if (typeof designSystem === "string" && designSystem !== "") {
       site.manifest.metadata.theme.designSystem = designSystem;
+    }
+    if (isPlainObject(announcement)) {
+      site.manifest.metadata.theme.announcement = announcement;
     }
   }
 
@@ -396,6 +500,28 @@ async function saveAppearanceSettings(req, res) {
     }
   }
 
+  if (
+    Object.keys(ANNOUNCEMENT_FIELD_MAP).some((field) =>
+      Object.prototype.hasOwnProperty.call(themePayload, field),
+    )
+  ) {
+    const announcement = normalizeAnnouncement(
+      themePayload,
+      site.manifest.metadata.theme.announcement,
+    );
+    if (announcement === false) {
+      res
+        .status(400)
+        .json({ status: 400, data: { message: "Invalid request" } });
+      return;
+    }
+    if (announcement === null) {
+      delete site.manifest.metadata.theme.announcement;
+    } else {
+      site.manifest.metadata.theme.announcement = announcement;
+    }
+  }
+
   for (const regionField of Object.keys(REGION_FIELD_MAP)) {
     if (Object.prototype.hasOwnProperty.call(themePayload, regionField)) {
       const cleanRegionIds = sanitizeRegionIds(themePayload[regionField]);
@@ -431,4 +557,5 @@ async function saveAppearanceSettings(req, res) {
 saveAppearanceSettings.normalizeCssVariable = normalizeCssVariable;
 saveAppearanceSettings.sanitizeRegionIds = sanitizeRegionIds;
 saveAppearanceSettings.normalizeDesignSystem = normalizeDesignSystem;
+saveAppearanceSettings.normalizeAnnouncement = normalizeAnnouncement;
 module.exports = saveAppearanceSettings;
