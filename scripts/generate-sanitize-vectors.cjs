@@ -7,12 +7,19 @@
 // usage: node scripts/generate-sanitize-vectors.cjs [--php <haxcms-php dir>] [page.html ...]
 //        npx prettier --write test/fixtures/sanitize-vectors.json
 // With --php, cases where PHP 8.3 (libxml) builds a different tree from
-// malformed markup are marked libxmlDiffers; PHP 8.4 must match them all.
+// malformed markup are marked libxmlDiffers (marks already in the file are
+// kept, since libxml versions differ); PHP 8.4 must match them all.
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 const { sanitizeHTMLForStorage } = require("../src/lib/sanitizeContent.js");
+
+const VECTORS_FILE = path.join(
+  __dirname,
+  "..",
+  "test/fixtures/sanitize-vectors.json",
+);
 
 const args = process.argv.slice(2);
 let phpDir = null;
@@ -549,10 +556,20 @@ if (phpDir) {
     execFileSync("php", ["-r", script, tmp], { maxBuffer: 1 << 28 }).toString(),
   );
   fs.unlinkSync(tmp);
+  // libxml versions do not agree on malformed markup: a case one of them
+  // builds differently stays marked even when the libxml here matches it
+  const marked = new Set();
+  if (fs.existsSync(VECTORS_FILE)) {
+    JSON.parse(fs.readFileSync(VECTORS_FILE, "utf8")).cases.forEach((c) => {
+      if (c.libxmlDiffers) {
+        marked.add(c.name);
+      }
+    });
+  }
   let differs = 0;
   all.forEach((c, i) => {
     const want = typeof c.expect === "string" ? c.expect : c.expect.sha256;
-    if (phpOut[i] !== want) {
+    if (phpOut[i] !== want || marked.has(c.name)) {
       c.libxmlDiffers = true;
       differs++;
     }
@@ -561,7 +578,7 @@ if (phpDir) {
 }
 
 fs.writeFileSync(
-  path.join(__dirname, "..", "test/fixtures/sanitize-vectors.json"),
+  VECTORS_FILE,
   JSON.stringify(
     {
       $comment:
