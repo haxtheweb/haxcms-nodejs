@@ -15,6 +15,9 @@
 //     contract's managed entries
 //   - a site this backend just made has every required path at every level,
 //     no retired path, and no file the contract does not know
+//   - files/ exists in the boilerplate and in a new site, even when empty
+//   - rebuildManagedFiles() really rewrites every file the contract calls
+//     managed (ghpages.html, index.php and config.php included)
 //
 // The full validator (schema checks on site.json, level reporting) lives in
 // json-outline-schema as `jos-validate --site`; the matcher below is only
@@ -47,6 +50,10 @@ const CONTRACT = JSON.parse(
 const MANAGED_OUTSIDE_TEMPLATE_LIST = [
   // HAXCMSSite.rebuildAgentSkills() copies the skills and their index
   ".well-known/agent-skills/index.json",
+  // HAXCMSSite.rebuildManagedFiles() adds the PHP entry point and its
+  // settings to the template list on every full rebuild
+  "index.php",
+  "config.php",
 ];
 
 // ---------------------------------------------------------------------------
@@ -55,6 +62,11 @@ const MANAGED_OUTSIDE_TEMPLATE_LIST = [
 // ---------------------------------------------------------------------------
 function hasWildcard(pattern) {
   return pattern.indexOf("*") !== -1;
+}
+
+// a folder entry is about the folder existing; it never classifies a file
+function isFolderEntry(entry) {
+  return entry.kind === "folder";
 }
 
 function patternToRegExp(pattern) {
@@ -73,6 +85,9 @@ function patternToRegExp(pattern) {
 const LITERALS = new Map();
 const PATTERNS = [];
 CONTRACT.entries.forEach((entry) => {
+  if (isFolderEntry(entry)) {
+    return;
+  }
   if (hasWildcard(entry.path)) {
     PATTERNS.push({ entry: entry, test: patternToRegExp(entry.path) });
   } else if (!LITERALS.has(entry.path)) {
@@ -114,9 +129,26 @@ function listFolder(root) {
 
 function contractPaths(filter) {
   return CONTRACT.entries
-    .filter((entry) => !hasWildcard(entry.path) && filter(entry))
+    .filter(
+      (entry) =>
+        !hasWildcard(entry.path) && !isFolderEntry(entry) && filter(entry),
+    )
     .map((entry) => entry.path)
     .sort();
+}
+
+// required folders (they must exist even when empty) missing under root
+function missingFolders(root) {
+  return CONTRACT.entries
+    .filter((entry) => isFolderEntry(entry) && entry.status === "required")
+    .map((entry) => entry.path)
+    .filter((folder) => {
+      try {
+        return !fs.statSync(path.join(root, folder)).isDirectory();
+      } catch {
+        return true;
+      }
+    });
 }
 
 function isManaged(entry) {
@@ -239,6 +271,10 @@ test("boilerplate: ships exactly the contract's boilerplate entries", () => {
     "the boilerplate ships files no boilerplate entry covers; add them to src/boilerplate/site-contract.json (and the json-outline-schema and haxcms-php copies)",
   );
   assert.deepEqual(retired, [], "the boilerplate still ships a retired path");
+  // files/ must exist in every site, so the boilerplate carries it (kept in
+  // git by files/.gitkeep)
+  assert.deepEqual(missingFolders(BOILERPLATE_SITE), []);
+  assert.ok(present.has("files/.gitkeep"));
 });
 
 // ---------------------------------------------------------------------------
@@ -298,6 +334,11 @@ test("new site: meets every level, holds nothing retired and nothing unknown", a
     (file) => !present.has(file),
   );
   assert.deepEqual(missing, [], "required by the contract, not in a new site");
+  assert.deepEqual(
+    missingFolders(siteDir),
+    [],
+    "a new site lacks a folder the contract requires",
+  );
 
   const unknown = [];
   const retired = [];
@@ -325,4 +366,55 @@ test("new site: meets every level, holds nothing retired and nothing unknown", a
     assert.equal(item.location, "pages/" + item.id + "/index.html");
     assert.ok(present.has(item.location), item.location + " is missing");
   });
+});
+
+// ---------------------------------------------------------------------------
+// the contract says "managed"; the rebuild has to agree
+// ---------------------------------------------------------------------------
+test("rebuild: every file the contract calls managed is rewritten by rebuildManagedFiles()", async () => {
+  const site = await HAXCMS.createSite("contract-rebuild");
+  assert.ok(site);
+  const siteDir = path.join(sitesRoot, "contract-rebuild");
+  // whole-file managed entries, except the skills index (covered by
+  // agent-skills-integrity.test.cjs: it is copied with its skill files)
+  const managed = contractPaths(
+    (entry) => entry.owner === "managed" && entry.policy === "replace",
+  ).filter((file) => file !== ".well-known/agent-skills/index.json");
+  assert.ok(managed.indexOf("ghpages.html") !== -1);
+  assert.ok(managed.indexOf("index.php") !== -1);
+  assert.ok(managed.indexOf("config.php") !== -1);
+  const DAMAGE = "damaged by site-contract.test.cjs";
+  const before = {};
+  managed.forEach((file) => {
+    before[file] = fs.readFileSync(path.join(siteDir, file), "utf8");
+    fs.writeFileSync(path.join(siteDir, file), DAMAGE);
+  });
+  await site.rebuildManagedFiles();
+  const notRewritten = managed.filter(
+    (file) => fs.readFileSync(path.join(siteDir, file), "utf8") === DAMAGE,
+  );
+  assert.deepEqual(
+    notRewritten,
+    [],
+    "managed in the contract but left alone by rebuildManagedFiles()",
+  );
+  // and the rebuild gives back what site creation wrote (security.txt
+  // carries an expiry date that a rebuild may refresh)
+  managed
+    .filter((file) => file !== ".well-known/security.txt")
+    .forEach((file) => {
+      assert.equal(
+        fs.readFileSync(path.join(siteDir, file), "utf8"),
+        before[file],
+        file + " differs after a rebuild",
+      );
+    });
+
+  // partly managed files: the owner's part survives, HAXcms's part returns
+  const robots = path.join(siteDir, "robots.txt");
+  fs.appendFileSync(robots, "\nUser-agent: contract-test\nDisallow: /x\n");
+  await site.rebuildManagedFiles();
+  const robotsText = fs.readFileSync(robots, "utf8");
+  assert.ok(robotsText.indexOf("User-agent: contract-test") !== -1);
+  assert.ok(robotsText.indexOf("# BEGIN HAXcms managed") !== -1);
 });
