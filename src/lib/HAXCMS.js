@@ -4820,11 +4820,16 @@ class HAXCMSClass {
   // terminal (a human running `npx`/`npm start`), never when stderr is piped to
   // a container runtime, systemd journal, CI log, etc.
   // options.isTTY overrides process.stderr.isTTY (tests); options.log
-  // overrides console.error. Returns the password file path (or null if it
-  // could not be written).
+  // overrides the default, a line on process.stderr (what console.error
+  // writes, written directly so an embedding runtime, like haxcms-browser,
+  // decides through its process.stderr where server notes go). Returns the
+  // password file path (or null if it could not be written).
   announceSeededCredentials(userName, password, options) {
     const opts = options || {};
-    const log = typeof opts.log === "function" ? opts.log : console.error;
+    const log =
+      typeof opts.log === "function"
+        ? opts.log
+        : (line) => process.stderr.write(String(line) + "\n");
     const isTTY =
       typeof opts.isTTY === "boolean"
         ? opts.isTTY
