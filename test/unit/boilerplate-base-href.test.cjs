@@ -86,6 +86,27 @@ for (const file of ["ghpages.html", "index.html"]) {
       assert.equal(baseFor(file, "https://org.github.io/?p=/page"), "/");
     });
 
+    // haxtheweb/issues#3341: GitLab Pages and Codeberg Pages serve project
+    // sites under a folder the same way
+    test("GitLab Pages and Codeberg Pages project sites get their folder", () => {
+      assert.equal(
+        baseFor(file, "https://ada.gitlab.io/my-site/"),
+        "/my-site/",
+      );
+      assert.equal(
+        baseFor(file, "https://ada.gitlab.io/my-site/?p=/page"),
+        "/my-site/",
+      );
+      assert.equal(
+        baseFor(file, "https://ada.codeberg.page/my-site/"),
+        "/my-site/",
+      );
+      assert.equal(baseFor(file, "https://ada.codeberg.page/"), "/");
+      // look-alikes are not those hosts
+      assert.equal(baseFor(file, "https://gitlab.io.example.test/a/b/"), "/");
+      assert.equal(baseFor(file, "https://evilcodeberg.page.test/a/"), "/");
+    });
+
     test("other hosts are unchanged", () => {
       assert.equal(baseFor(file, "https://example.test/"), "/");
       assert.equal(
