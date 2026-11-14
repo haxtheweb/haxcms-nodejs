@@ -1,0 +1,47 @@
+name: haxcms-browser deploy
+# The hosted in-browser demo (https://browser.hax.cloud/, built from
+# haxtheweb/haxcms-browser on Vercel) bundles this repo's main: the Worker is
+# built from src/ and the editor is the ubiquity build in src/public/build.
+# Vercel only rebuilds it when haxcms-browser itself gets a push, so without
+# this the demo keeps whatever editor and backend were on main at that
+# moment. Every push to main that changes what the demo bundles (a ubiquity
+# build, a backend change) asks Vercel to rebuild it.
+#
+# One-time setup: in the haxcms-browser Vercel project, Settings -> Git ->
+# Deploy Hooks, create a hook for the main branch, then save its URL in this
+# repo as the Actions secret HAXCMS_BROWSER_DEPLOY_HOOK. Without the secret
+# the job says so and passes; forks are skipped the same way.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "package.json"
+      - "yarn.lock"
+  workflow_dispatch:
+permissions: {}
+# a burst of pushes (ubiquity often lands with a merge) needs only the last
+concurrency:
+  group: haxcms-browser-deploy
+  cancel-in-progress: true
+jobs:
+  deploy-hook:
+    name: Rebuild browser.hax.cloud
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the Vercel deploy hook
+        env:
+          DEPLOY_HOOK: ${{ secrets.HAXCMS_BROWSER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "::notice::HAXCMS_BROWSER_DEPLOY_HOOK is not set; browser.hax.cloud was not asked to rebuild"
+            exit 0
+          fi
+          curl --fail --silent --show-error --retry 3 --retry-all-errors \
+            --max-time 30 -X POST "$DEPLOY_HOOK" > /dev/null
+          {
+            echo "### browser.hax.cloud"
+            echo
+            echo "Rebuild requested for ${GITHUB_SHA::8}."
+          } >> "$GITHUB_STEP_SUMMARY"
