@@ -392,13 +392,25 @@ function siteGitScope(dir) {
  *  - json: escaped as JSON string contents (JSON.stringify(v).slice(1, -1))
  *  - xml:  escapeXMLValue (&, <, >, ", ')
  *  - text: no escaping (control-char/backslash rule only)
+ *  - html: escapeHTMLAttribute (&, <, >, ", '), the same output as PHP Twig's
+ *          html autoescape; index.html also escapes the other values it
+ *          prints (see MANAGED_HTML_TEMPLATE_KEYS)
  */
 const MANAGED_TEMPLATE_TEXT_FORMATS = {
   "manifest.json": "json",
   "package.json": "json",
   "imsmanifest.xml": "xml",
   "llms.txt": "text",
+  "index.html": "html",
+  "ghpages.html": "html",
 };
+// Security (SEC-SANITIZE): every value an html managed template prints is
+// escaped, matching PHP where Twig's html autoescape covers all of them
+const MANAGED_HTML_TEMPLATE_KEYS = [
+  "hexCode",
+  "metaDescription",
+  "socialImage",
+];
 /**
  * Security (SEC-SANITIZE): parity contract with PHP: before rendering managed
  * JSON/XML, title/description have CR, LF and TAB replaced by a space and every
@@ -428,6 +440,9 @@ function escapeManagedTemplateText(value, format) {
   if (format === "xml") {
     return escapeXMLValue(text);
   }
+  if (format === "html") {
+    return escapeHTMLAttribute(text);
+  }
   return text;
 }
 /**
@@ -444,10 +459,16 @@ function managedTemplateVarsFor(fileName, templateVars) {
   if (!format) {
     return templateVars;
   }
-  return Object.assign({}, templateVars, {
+  const vars = Object.assign({}, templateVars, {
     title: escapeManagedTemplateText(templateVars.title, format),
     description: escapeManagedTemplateText(templateVars.description, format),
   });
+  if (format === "html") {
+    MANAGED_HTML_TEMPLATE_KEYS.forEach((key) => {
+      vars[key] = escapeManagedTemplateText(templateVars[key], format);
+    });
+  }
+  return vars;
 }
 // a site object
 // The boilerplate ships assets/icon-<n>x<n>.png at 48 to 512; the 16 and
@@ -1154,6 +1175,14 @@ class HAXCMSSite {
           : false,
       reservedSite: isAllRightsReserved(this.manifest.license),
       description: sanitizeManagedTemplateText(this.manifest.description),
+      // static index.html (haxtheweb/issues#3327): the site description,
+      // else the site title, so a static publish always has one
+      metaDescription: sanitizeManagedTemplateText(
+        this.manifest.description || this.manifest.title || "",
+      ),
+      socialImage: this.getSiteSocialShareImage(
+        await this.getLogoSize("512", "512"),
+      ),
       forceUpgrade: this.getForceUpgrade(),
       swhash: [],
       ghPagesURLParamCount: 0,
@@ -1186,7 +1215,14 @@ class HAXCMSSite {
       "offline.html",
       await this.getLogoSize("192", "192"),
     ];
+    // haxtheweb/issues#3322: one precache entry per location, so a logo size
+    // that resolves to a file already listed is not added again
+    const hashedLocations = new Set();
     for (const location of shellFiles) {
+      if (hashedLocations.has(location)) {
+        continue;
+      }
+      hashedLocations.add(location);
       // managed files are hashed from the boilerplate source, matching the
       // old copy-then-render flow (the site copy may be one rebuild behind)
       let filePath = managedSourcePaths[location];
@@ -2501,6 +2537,30 @@ class HAXCMSSite {
         : "";
     if (logo && logo !== "null") {
       return (await this.getLogoSize("512", "512")) || "";
+    }
+    return "";
+  }
+  /**
+   * Site-level social image for the static index.html / ghpages.html (no page
+   * context): the theme banner image, else the site's own logo (a logo under
+   * files/) at its 512 size, else "" (never the generic HAX icon). Same rule
+   * as PHP getSiteSocialShareImage.
+   * @param {string} sizedLogo the getLogoSize("512", "512") result
+   * @return string sanitized URL or ""
+   */
+  getSiteSocialShareImage(sizedLogo = "") {
+    const site =
+      this.manifest && this.manifest.metadata ? this.manifest.metadata : {};
+    const image =
+      site.theme && site.theme.variables && site.theme.variables.image
+        ? String(site.theme.variables.image).trim()
+        : "";
+    if (image !== "") {
+      return sanitizeURLValue(image, "");
+    }
+    const logo = site.site ? site.site.logo : "";
+    if (typeof logo === "string" && logo.startsWith("files/") && sizedLogo) {
+      return sanitizeURLValue(sizedLogo, "");
     }
     return "";
   }
