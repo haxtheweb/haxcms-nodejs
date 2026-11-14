@@ -1239,6 +1239,10 @@ test("generateMachineName mirrors the hardened PHP behavior", () => {
   assert.equal(HAXCMS.generateMachineName("  spaced   out  "), "spaced-out");
   assert.equal(HAXCMS.generateMachineName("..%2F..%2Fetc"), "etc");
   assert.equal(HAXCMS.generateMachineName("a//b\\c"), "abc");
+  // leading and trailing separators go, however many there were
+  assert.equal(HAXCMS.generateMachineName("__--name--__"), "name");
+  assert.equal(HAXCMS.generateMachineName("_name_"), "name");
+  assert.equal(HAXCMS.generateMachineName("-_-a_b-_-"), "a_b");
   assert.equal(HAXCMS.generateMachineName("___---"), "default");
   assert.equal(HAXCMS.generateMachineName(null), "default");
   assert.equal(HAXCMS.generateMachineName(undefined), "default");

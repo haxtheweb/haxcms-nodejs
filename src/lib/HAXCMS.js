@@ -5383,8 +5383,9 @@ class HAXCMSClass {
     n = n.replace(/[^a-zA-Z0-9_-]+/g, "-");
     // Clean up multiple consecutive hyphens/underscores
     n = n.replace(/[-_]{2,}/g, "-");
-    // Remove leading/trailing hyphens/underscores
-    n = n.replace(/^[-_]+|[-_]+$/g, "");
+    // Remove a leading/trailing hyphen or underscore (runs were collapsed to
+    // one character above, so one is all there can be)
+    n = n.replace(/^[-_]|[-_]$/g, "");
     // Convert to lowercase
     n = n.toLowerCase();
     // Fallback for empty result
