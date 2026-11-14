@@ -160,6 +160,13 @@ async function saveManifest(req, res) {
             fs.writeFileSync(site.siteDirectory + "/CNAME", domain);
           }
         }
+        // the design system is the site's choice, not the theme's: keep it
+        // when the theme entry is copied in below (haxtheweb/issues#3350)
+        const keptDesignSystem =
+          site.manifest.metadata.theme &&
+          typeof site.manifest.metadata.theme.designSystem === "string"
+            ? site.manifest.metadata.theme.designSystem
+            : "";
         let hThemes = await HAXCMS.getThemes();
         // look for a match so we can set the correct data
         for (var key in hThemes) {
@@ -175,6 +182,9 @@ async function saveManifest(req, res) {
             // would inherit those edits, e.g. regions)
             site.manifest.metadata.theme = JSON.parse(JSON.stringify(theme));
           }
+        }
+        if (keptDesignSystem !== "") {
+          site.manifest.metadata.theme.designSystem = keptDesignSystem;
         }
         if (!site.manifest.metadata.theme.variables) {
           site.manifest.metadata.theme.variables = {};

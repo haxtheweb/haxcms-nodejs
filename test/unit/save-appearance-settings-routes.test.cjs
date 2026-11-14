@@ -457,6 +457,54 @@ describe("saveAppearanceSettings — theme fields", () => {
     assert.equal(site.manifest.metadata.theme.variables.palette, "new-palette");
   });
 
+  test("designSystem stores a system name, clears on ddd / empty / null, rejects invalid (haxtheweb/issues#3350)", async (t) => {
+    const site = makeFakeSite();
+    mockSiteAuth(t, site);
+    const resValid = stubRes();
+    await saveAppearanceSettings(
+      appearanceReq({ "manifest-metadata-theme-designSystem": " Carbon " }),
+      resValid,
+    );
+    assert.equal(resValid.sent.status, 200);
+    assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
+    for (const cleared of ["ddd", "", null]) {
+      site.manifest.metadata.theme.designSystem = "carbon";
+      const res = stubRes();
+      await saveAppearanceSettings(
+        appearanceReq({ "manifest-metadata-theme-designSystem": cleared }),
+        res,
+      );
+      assert.equal(res.sent.status, 200);
+      assert.equal("designSystem" in site.manifest.metadata.theme, false);
+    }
+    for (const invalid of ["has spaces", "../carbon", 42, ["carbon"]]) {
+      const res = stubRes();
+      await saveAppearanceSettings(
+        appearanceReq({ "manifest-metadata-theme-designSystem": invalid }),
+        res,
+      );
+      assert.equal(res.statusCode, 400, String(invalid));
+    }
+  });
+
+  test("designSystem stays when the theme changes and the request does not send it", async (t) => {
+    const site = makeFakeSite();
+    mockSiteAuth(t, site);
+    mockThemes(t);
+    site.manifest.metadata.theme = {
+      element: "old-theme",
+      designSystem: "patternfly",
+    };
+    const res = stubRes();
+    await saveAppearanceSettings(
+      appearanceReq({ "manifest-metadata-theme-element": "my-theme" }),
+      res,
+    );
+    assert.equal(res.sent.status, 200);
+    assert.equal(site.manifest.metadata.theme.element, "my-theme");
+    assert.equal(site.manifest.metadata.theme.designSystem, "patternfly");
+  });
+
   test("icon stores strings and rejects other types", async (t) => {
     const site = makeFakeSite();
     mockSiteAuth(t, site);

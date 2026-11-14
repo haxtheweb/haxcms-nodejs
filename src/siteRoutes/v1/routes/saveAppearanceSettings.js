@@ -34,6 +34,7 @@ const ALLOWED_THEME_KEYS = new Set([
   "manifest-metadata-theme-variables-cssVariable",
   "manifest-metadata-theme-variables-palette",
   "manifest-metadata-theme-variables-icon",
+  "manifest-metadata-theme-designSystem",
   ...Object.keys(REGION_FIELD_MAP),
 ]);
 
@@ -190,11 +191,51 @@ async function saveAppearanceSettings(req, res) {
         .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
+    // the design system is the site's choice, not the theme's: keep it
+    // when the theme changes (haxtheweb/issues#3350)
+    const keptDesignSystem = site.manifest.metadata.theme.designSystem;
     // a copy: the site's theme is edited below and must never change the
     // shared HAXCMS.config.themes entry (later sites would inherit regions)
     site.manifest.metadata.theme = JSON.parse(
       JSON.stringify(themes[themeElement]),
     );
+    if (typeof keptDesignSystem === "string" && keptDesignSystem !== "") {
+      site.manifest.metadata.theme.designSystem = keptDesignSystem;
+    }
+  }
+  // haxtheweb/issues#3350: the design system (color, type, corners,
+  // density) chosen separately from the theme (layout). "" / null / "ddd"
+  // mean plain DDD, which is the default, so nothing is stored.
+  if (
+    Object.prototype.hasOwnProperty.call(
+      themePayload,
+      "manifest-metadata-theme-designSystem",
+    )
+  ) {
+    const designSystemValue =
+      themePayload["manifest-metadata-theme-designSystem"];
+    if (designSystemValue !== null && typeof designSystemValue !== "string") {
+      res
+        .status(400)
+        .json({ status: 400, data: { message: "Invalid request" } });
+      return;
+    }
+    const designSystem =
+      designSystemValue === null
+        ? ""
+        : filter_var(designSystemValue, "FILTER_SANITIZE_STRING")
+            .trim()
+            .toLowerCase();
+    if (designSystem === "" || designSystem === "ddd") {
+      delete site.manifest.metadata.theme.designSystem;
+    } else if (/^[a-z0-9-]+$/.test(designSystem)) {
+      site.manifest.metadata.theme.designSystem = designSystem;
+    } else {
+      res
+        .status(400)
+        .json({ status: 400, data: { message: "Invalid request" } });
+      return;
+    }
   }
 
   if (
