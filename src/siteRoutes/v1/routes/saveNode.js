@@ -1,3 +1,4 @@
+const { isLocked } = require("../../../lib/outlineUpkeep.js");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const filter_var = require("../../../lib/filter_var.js");
 const path = require("path");
@@ -95,6 +96,14 @@ async function saveNode(req, res) {
     // determines to be the correct page
     // @todo review this step by step
     let page = site.loadNode(bodyParams["node"]["id"]);
+    // a locked page is changed by nothing but unlocking it (the setLocked
+    // item operation); the lock a save carries applies to an unlocked page
+    if (isLocked(page)) {
+      return res.status(423).json({
+        status: 423,
+        data: { message: "Page is locked", reason: "locked" },
+      });
+    }
     if (page) {
       // convert web location for loading into file location for writing
       if (body) {

@@ -1,3 +1,9 @@
+const {
+  isLocked,
+  healSiblingOrder,
+  syncIndentToDepth,
+} = require("../../../lib/outlineUpkeep.js");
+const { reslugPageAndBranch } = require("../../../lib/nodeDetailOperations.js");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const {
   getRequestHeaderValue,
@@ -57,12 +63,20 @@ async function deleteNode(req, res) {
     // determines to be the correct page
     let page;
     if ((page = site.loadNode(req.body["node"]["id"]))) {
+      // a locked page is changed by nothing but unlocking it
+      if (isLocked(page)) {
+        return res.status(423).json({
+          status: 423,
+          data: { message: "Page is locked", reason: "locked" },
+        });
+      }
       if ((await site.deleteNode(page)) === false) {
         res
           .status(500)
           .json({ status: 500, data: { message: "Server error" } });
       } else {
         // now, we need to look for orphans if we deleted anything
+        const orphans = [];
         for (var key in site.manifest.items) {
           // just to be safe..
           let pageUpdate;
@@ -76,9 +90,22 @@ async function deleteNode(req, res) {
               // force to bottom of things while still being in old order if lots of things got axed
               pageUpdate.order =
                 parseInt(pageUpdate.order) + site.manifest.items.length - 1;
-              site.updateNode(pageUpdate);
+              orphans.push(pageUpdate);
             }
           }
+        }
+        // the rescued pages now live at the top level: their addresses (and
+        // their branches') drop the deleted parent's slug, no two top level
+        // pages share an order, and indent follows the new depth
+        if (orphans.length > 0) {
+          const items = site.manifest.items;
+          for (let i = 0; i < orphans.length; i++) {
+            reslugPageAndBranch(site, orphans[i], items);
+          }
+          healSiblingOrder(items, null);
+          syncIndentToDepth(items);
+          await site.manifest.save(false);
+          await site.updateAlternateFormats();
         }
         await site.gitCommit(
           "Page deleted: " + page.title + " (" + page.id + ")",
