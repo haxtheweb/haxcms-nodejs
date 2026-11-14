@@ -1087,6 +1087,9 @@ class HAXCMSSite {
     // want to update this when we are refreshing the managed files directly
     // not the case w/ non php backends but still fine for consistency
     templates["indexphp"] = "index.php";
+    // config.php is what index.php loads on a PHP host; haxcms-php rebuilds
+    // the pair together, so a site kept by this backend must not fall behind
+    templates["configphp"] = "config.php";
     // haxtheweb/issues#3186: files are no longer copied over the site's copy
     // up front. Each one is rendered in memory below, merged with the site's
     // copy per its policy (see managedFiles.js) and written only if changed.
