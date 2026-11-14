@@ -4335,7 +4335,7 @@ function replaceManagedHeadMarkup(
     // Mirrors the PHP index.php template where getBaseTag() + the importmap
     // are separate parts ahead of the metadata.
     const matched = output.match(managedHeadPattern)[0];
-    const scriptBlockPattern = /<script[\s\S]*?<\/script>/gi;
+    const scriptBlockPattern = /<script\b[\s\S]*?<\/script\b[^>]*>/gi;
     const preservedScripts = [];
     let scriptMatch;
     while ((scriptMatch = scriptBlockPattern.exec(matched)) !== null) {
