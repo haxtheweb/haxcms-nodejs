@@ -6,9 +6,11 @@
 //
 // usage: node scripts/generate-sanitize-vectors.cjs [--php <haxcms-php dir>] [page.html ...]
 //        npx prettier --write test/fixtures/sanitize-vectors.json
-// With --php, cases where PHP 8.3 (libxml) builds a different tree from
-// malformed markup are marked libxmlDiffers (marks already in the file are
-// kept, since libxml versions differ); PHP 8.4 must match them all.
+// Without page arguments the pages already in the file are kept.
+// With --php, cases where PHP 8.3 builds a different tree from malformed
+// markup are marked php83Differs. PHP 8.3 parses with the parser
+// haxcms-php ships (masterminds/html5), so the marks are the same on every
+// host; PHP 8.4 (Dom\HTMLDocument) must match them all.
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -32,6 +34,9 @@ for (let i = 0; i < args.length; i++) {
     pages[path.basename(path.dirname(file)) + "/" + path.basename(file)] =
       fs.readFileSync(file, "utf8");
   }
+}
+if (Object.keys(pages).length === 0 && fs.existsSync(VECTORS_FILE)) {
+  Object.assign(pages, JSON.parse(fs.readFileSync(VECTORS_FILE, "utf8")).pages);
 }
 
 const TAGS = [
@@ -436,6 +441,26 @@ add(
   '<video controls><source src="/v.mp4" type="video/mp4"><track src="/t.vtt" kind="captions">fallback</video><p>a<wbr>b</p>',
 );
 add("image becomes img", '<p><image src="/a.png" alt="a">after</p>');
+// what an HTML5 parser does with markup authors and imports really produce
+add("less than sign in text", "<p>1 < 2 and 3 <= 4</p><p>x &amp;< y</p>");
+add("less than sign at the end", "a <");
+add(
+  "raw text end tag with space or case",
+  "<p>a</p><script>x</SCRIPT ><p>b</p><style>y</style\n><p>c</p>",
+);
+add(
+  "raw text end tag needs the whole name",
+  '<script>z</scriptx><p>hidden</p></script foo="1"><p>f</p>',
+);
+add(
+  "textarea end tag",
+  "<textarea>t</textareas> 1 < 2</TEXTAREA ><p>d</p><textarea>unclosed <b>",
+);
+add("end tag with a slash", "<title>q</title/><div>x</div/><p>y</p>");
+add(
+  "stray end paragraph",
+  "<div></p>x</div><p>a<p>b</p></p>c<a11y-collapse><p ><p></p><p >text</p></p></a11y-collapse>",
+);
 add(
   "svg and math removed",
   '<svg><a href="javascript:alert(1)">x</a></svg><math><mi>x</mi></math><p>ok</p>',
@@ -533,10 +558,37 @@ for (const name of Object.keys(pages)) {
     },
   });
 }
-const all = out.concat(pageCases);
+// after the pages, so the cases above keep their place in the file
+const tail = [
+  [
+    "youtube https",
+    '<iframe src="https://www.youtube.com/embed/abc"></iframe>',
+  ],
+  [
+    "vimeo uppercase scheme",
+    '<iframe src="HTTP://player.vimeo.com/video/1"></iframe>',
+  ],
+  ["protocol-relative", '<iframe src="//example.org/embed"></iframe>'],
+  ["leading space https", '<iframe src=" https://ok.example/x"></iframe>'],
+  ["root-relative", '<iframe src="/files/x.html"></iframe>'],
+  ["relative", '<iframe src="files/x.html"></iframe>'],
+  ["about blank", '<iframe src="about:blank"></iframe>'],
+  ["data url", '<iframe src="data:text/html,hi"></iframe>'],
+  ["javascript url", '<iframe src="javascript:alert(1)"></iframe>'],
+  ["blob url", '<iframe src="blob:https://a.example/b"></iframe>'],
+  [
+    "explicit author sandbox kept",
+    '<iframe src="https://a.example/x" sandbox="allow-scripts"></iframe>',
+  ],
+].map(([name, html]) => ({
+  name: `iframe default sandbox: ${name}`,
+  html,
+  expect: sanitizeHTMLForStorage(html),
+}));
+const all = out.concat(pageCases, tail);
 
 if (phpDir) {
-  // run haxcms-php on every case to mark where libxml (PHP 8.3) differs
+  // run haxcms-php on every case to mark where PHP 8.3 differs
   const tmp = path.join(
     require("os").tmpdir(),
     `sanitize-vectors-${process.pid}.json`,
@@ -556,25 +608,15 @@ if (phpDir) {
     execFileSync("php", ["-r", script, tmp], { maxBuffer: 1 << 28 }).toString(),
   );
   fs.unlinkSync(tmp);
-  // libxml versions do not agree on malformed markup: a case one of them
-  // builds differently stays marked even when the libxml here matches it
-  const marked = new Set();
-  if (fs.existsSync(VECTORS_FILE)) {
-    JSON.parse(fs.readFileSync(VECTORS_FILE, "utf8")).cases.forEach((c) => {
-      if (c.libxmlDiffers) {
-        marked.add(c.name);
-      }
-    });
-  }
   let differs = 0;
   all.forEach((c, i) => {
     const want = typeof c.expect === "string" ? c.expect : c.expect.sha256;
-    if (phpOut[i] !== want || marked.has(c.name)) {
-      c.libxmlDiffers = true;
+    if (phpOut[i] !== want) {
+      c.php83Differs = true;
       differs++;
     }
   });
-  console.log(`PHP 8.3 (libxml) differs on ${differs} of ${all.length} cases`);
+  console.log(`PHP 8.3 differs on ${differs} of ${all.length} cases`);
 }
 
 fs.writeFileSync(
@@ -582,7 +624,7 @@ fs.writeFileSync(
   JSON.stringify(
     {
       $comment:
-        "Storage sanitizer vectors shared by haxcms-nodejs and haxcms-php (haxtheweb/issues#3273). expect is the exact stored HTML (or its sha256 for whole pages). libxmlDiffers marks malformed markup PHP 8.3's libxml parser builds differently; PHP 8.4 (Dom\\HTMLDocument) must match every case. Generated by haxcms-nodejs scripts/generate-sanitize-vectors.cjs.",
+        "Storage sanitizer vectors shared by haxcms-nodejs and haxcms-php (haxtheweb/issues#3273). expect is the exact stored HTML (or its sha256 for whole pages). php83Differs marks malformed markup PHP 8.3 (masterminds/html5, shipped with haxcms-php) builds differently; PHP 8.4 (Dom\\HTMLDocument) must match every case. Generated by haxcms-nodejs scripts/generate-sanitize-vectors.cjs.",
       version: 1,
       pages,
       cases: all,
