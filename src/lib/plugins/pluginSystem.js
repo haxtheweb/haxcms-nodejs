@@ -10,7 +10,7 @@
 // Where plugins come from (spec/03 tiers, simplified for the draft):
 //   - core plugins shipped with HAXcms: the spec package's core-plugins/ folder; required ones are always on,
 //     the rest only when listed in `enabled` (spec decision: no defaultEnabled flag)
-//   - system tier: <HAXCMS_ROOT>/_config/plugins/<id>/
+//   - system tier (system-contrib): <HAXCMS_ROOT>/_config/plugins/<id>/
 //   - site tier:   <site>/_config/plugins/<id>/
 //   - extra folders: HAXCMS_PLUGIN_DIRS (path-list), for development and tests
 // Deployment config: <HAXCMS_ROOT>/_config/plugins/plugins.json { "enabled": [ids], "disabled": [ids], "blocked": [ids] }
@@ -81,16 +81,16 @@ function pluginDirsFor(site, root) {
     }
   }
   for (const d of listPluginDirs(path.join(root, "_config", "plugins"))) {
-    out.push({ path: d, tier: "system" });
+    out.push({ path: d, tier: "system-contrib" });
   }
   for (const d of String(process.env.HAXCMS_PLUGIN_DIRS || "")
     .split(path.delimiter)
     .filter(Boolean)) {
     if (fs.existsSync(path.join(d, "plugin.yaml"))) {
-      out.push({ path: d, tier: "system" });
+      out.push({ path: d, tier: "system-contrib" });
     } else {
       for (const x of listPluginDirs(d)) {
-        out.push({ path: x, tier: "system" });
+        out.push({ path: x, tier: "system-contrib" });
       }
     }
   }

@@ -96,6 +96,27 @@ function freshSite() {
   return HAXCMS.loadSite("plugin-demo");
 }
 
+describe("plugin discovery", () => {
+  // the tier names are the spec's (spec/03); an unknown tier name sorted as NaN and broke tier precedence
+  test("HAXCMS_PLUGIN_DIRS plugins load in the system-contrib tier", async () => {
+    pluginSystem.reset();
+    const h = await pluginSystem.host(await freshSite(), { user: null });
+    assert.equal(h.get("fx-vetoer").tier, "system-contrib");
+    const { dirs } = pluginSystem.pluginDirsFor(null, testRoot);
+    for (const d of dirs)
+      assert.ok(
+        [
+          "haxiam-core",
+          "haxiam-contrib",
+          "system-core",
+          "system-contrib",
+          "site",
+        ].includes(d.tier),
+        `${d.path}: ${d.tier}`,
+      );
+  });
+});
+
 describe("core save points fire plugin hooks", () => {
   test("page.before.save: reading-time adds its declared fields; they land in site.json", async (t) => {
     t.mock.method(HAXCMS, "validateRequestToken", () => true);

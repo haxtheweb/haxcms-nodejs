@@ -24,6 +24,7 @@ import { URL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const JSONOutlineSchemaItem = require("../JSONOutlineSchemaItem.js");
+const JSONOutlineSchema = require("../JSONOutlineSchema.js");
 const { safeFetch } = require("../safeFetch.js");
 
 const clone = (v) =>
@@ -92,6 +93,34 @@ export class HaxcmsPluginHost extends MemoryBackend {
     for (const it of m.items || [])
       this.records.page[it.id] = { ...clone(it), content: this.readPage(it) };
   }
+  // re-read site.json and the page files: records are what is on disk, not what was last held in memory
+  // (conformance `reload` step, spec/13 section 9)
+  async reload() {
+    const fresh = new JSONOutlineSchema();
+    if (await fresh.load(this.haxSite.manifest.file))
+      this.haxSite.manifest = fresh;
+    this.hydrate();
+  }
+  // an atomic transaction that fails puts back what it wrote to disk too (the engine restores the files it was told
+  // about through rememberFile); site.json is then read again so the next save does not write the rolled-back pages
+  async transaction(fn, opts = {}) {
+    try {
+      return await super.transaction(fn, opts);
+    } catch (e) {
+      if (e && e.rolledBack) await this.reload();
+      throw e;
+    }
+  }
+  writeFile(full, content) {
+    this.rememberFile(full);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, content);
+  }
+  async saveManifest() {
+    if (this.haxSite.manifest.file)
+      this.rememberFile(this.haxSite.manifest.file);
+    await this.haxSite.manifest.save(false);
+  }
   readPage(item) {
     try {
       const full = this.haxSite.resolvePageLocationRealPath(item.location);
@@ -129,19 +158,20 @@ export class HaxcmsPluginHost extends MemoryBackend {
         if (record[k] !== undefined) item[k] = record[k];
       if (!item.slug) item.slug = slugify(record.title || record.id);
       item.metadata = { ...(clone(record.metadata) || {}) };
-      const full = join(this.site.path, item.location);
-      mkdirSync(dirname(full), { recursive: true });
-      writeFileSync(full, String(record.content ?? ""));
+      this.writeFile(
+        join(this.site.path, item.location),
+        String(record.content ?? ""),
+      );
       this.records.page[record.id] = {
         ...clone(item),
         content: String(record.content ?? ""),
       };
-      m.save(false);
+      return this.saveManifest();
     } else if (type === "site") {
       if (record.title !== undefined) m.title = record.title;
       if (record.description !== undefined) m.description = record.description;
       if (record.metadata) m.metadata = clone(record.metadata);
-      m.save(false);
+      return this.saveManifest();
     }
   }
   async deleteEntity(type, id) {
@@ -151,6 +181,8 @@ export class HaxcmsPluginHost extends MemoryBackend {
       const item = (m.items || []).find((x) => x.id === id);
       m.items = (m.items || []).filter((x) => x.id !== id);
       if (item && item.location) {
+        const full = join(this.site.path, item.location);
+        this.rememberFile(full);
         try {
           rmSync(join(this.site.path, dirname(item.location)), {
             recursive: true,
@@ -160,7 +192,7 @@ export class HaxcmsPluginHost extends MemoryBackend {
           /* already gone */
         }
       }
-      await m.save(false);
+      await this.saveManifest();
     }
     return r;
   }
@@ -193,10 +225,9 @@ export class HaxcmsPluginHost extends MemoryBackend {
         "config",
         `${id}.json`,
       );
-      mkdirSync(dirname(file), { recursive: true });
       const saved = {};
       for (const k of p.explicit) saved[k] = p.settings[k];
-      writeFileSync(file, JSON.stringify(saved, null, 2) + "\n");
+      this.writeFile(file, JSON.stringify(saved, null, 2) + "\n");
     }
     return r;
   }
@@ -248,16 +279,13 @@ export class HaxcmsPluginHost extends MemoryBackend {
     const file = s ? this.storeFile(p, s) : null;
     if (!file) return super.writeStore(p, id, value);
     if (p.storeOverrides) delete p.storeOverrides[id];
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify(value, null, 2) + "\n");
+    this.writeFile(file, JSON.stringify(value, null, 2) + "\n");
   }
 
   // ---- managed files land in the site folder ----
   writeManaged(p, path, content) {
     const r = super.writeManaged(p, path, content);
-    const full = join(this.site.path, path);
-    mkdirSync(dirname(full), { recursive: true });
-    writeFileSync(full, String(content));
+    this.writeFile(join(this.site.path, path), String(content));
     return r;
   }
 
