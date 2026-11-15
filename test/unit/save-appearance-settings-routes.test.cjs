@@ -535,3 +535,51 @@ describe("saveAppearanceSettings — theme fields", () => {
     });
   });
 });
+
+describe("saveAppearanceSettings — generated files rebuild", () => {
+  test("generated files finish rebuilding before the managed-files commit", async (t) => {
+    const order = [];
+    const site = makeFakeSite({
+      async gitCommit(message) {
+        order.push("commit:" + message);
+      },
+      async updateAlternateFormats() {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        order.push("alternate formats written");
+      },
+    });
+    mockSiteAuth(t, site);
+    mockThemes(t);
+    const res = stubRes();
+    await saveAppearanceSettings(appearanceReq({}), res);
+    assert.equal(res.sent.status, 200);
+    assert.deepEqual(order, [
+      "commit:Appearance settings updated",
+      "alternate formats written",
+      "commit:Managed files updated",
+    ]);
+  });
+
+  test("a failed generated-files rebuild is logged and the save still answers 200", async (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
+    const site = makeFakeSite({
+      async updateAlternateFormats() {
+        throw new Error("search index exploded");
+      },
+    });
+    mockSiteAuth(t, site);
+    mockThemes(t);
+    const res = stubRes();
+    await saveAppearanceSettings(appearanceReq({}), res);
+    assert.equal(res.sent.status, 200);
+    assert.deepEqual(site.calls.gitCommits, [
+      "Appearance settings updated",
+      "Managed files updated",
+    ]);
+    assert.ok(
+      warn.mock.calls.some((c) =>
+        String(c.arguments[0]).includes("search index exploded"),
+      ),
+    );
+  });
+});

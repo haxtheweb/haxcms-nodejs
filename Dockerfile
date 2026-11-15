@@ -6,6 +6,28 @@
 # '_sites' relative to cwd / HAXCMS_ROOT.
 # Pinned by digest (scorecard Pinned-Dependencies); Renovate's docker manager
 # keeps the tag + digest current.
+# --- Build stage: full install (devDependencies hold @babel/*) + transpile ---
+FROM node:22-slim@sha256:9f0dde62d10e7ff7a310ecaebd66225f6b46c17e6cb778449a77b05d3541bea2 AS build
+
+WORKDIR /app
+RUN chown node:node /app
+USER node
+
+# .dockerignore keeps node_modules / dist / _sites / .git out of this COPY.
+# `yarn run build` runs `babel src --out-dir dist --copy-files
+# --include-dotfiles` and chmods the CLI entrypoints (dist/local.js,
+# dist/app.js, dist/cli.js).
+COPY --chown=node:node package.json yarn.lock ./
+RUN yarn install --frozen-lockfile
+COPY --chown=node:node . .
+RUN yarn run build
+
+# --- Runtime stage: production dependencies only, no build toolchain ---
+# Security (SEC-DEPLOY): the shipped image installs runtime dependencies only
+# (--production), from the exact lockfile (--frozen-lockfile) and without
+# running package lifecycle scripts (--ignore-scripts), so devDependencies and
+# any install-time script never reach the running container. `husky install`
+# (the `prepare` script) is build-time tooling and is skipped on purpose.
 FROM node:22-slim@sha256:9f0dde62d10e7ff7a310ecaebd66225f6b46c17e6cb778449a77b05d3541bea2
 
 WORKDIR /app
@@ -19,21 +41,14 @@ RUN chown node:node /app \
     && mkdir -p /home/node/.haxcmsconfig \
     && chown node:node /home/node/.haxcmsconfig
 
-# --- Dependencies layer (cached independently of source changes) ---
-# No --production flag: devDependencies (@babel/cli, @babel/core,
-# @babel/preset-env, etc.) are required by the `yarn run build` step below.
-# The final image only executes dist/, so devDeps are build-time only.
 COPY --chown=node:node package.json yarn.lock ./
 USER node
-RUN yarn install --frozen-lockfile
+RUN yarn install --production --frozen-lockfile --ignore-scripts \
+    && yarn cache clean
 
-# --- Source + build layer ---
-# .dockerignore keeps node_modules / dist / _sites / .git out of this COPY so
-# the freshly-installed node_modules layer is preserved. `yarn run build` runs
-# `babel src --out-dir dist --copy-files --include-dotfiles` and chmods the CLI
-# entrypoints (dist/local.js, dist/app.js, dist/cli.js).
-COPY --chown=node:node . .
-RUN yarn run build
+# Only the transpiled server lands in the runtime image. dist/ already carries
+# the copied boilerplate / public assets (babel --copy-files).
+COPY --from=build --chown=node:node /app/dist ./dist
 
 EXPOSE 3000
 ENV PORT=3000

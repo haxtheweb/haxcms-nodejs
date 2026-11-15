@@ -1,117 +1,116 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
-const fs = require('fs-extra');
-const path = require('path');
-const archiverModule = require('archiver');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const fs = require("fs-extra");
+const path = require("path");
+const crypto = require("crypto");
+const archiverModule = require("archiver");
+// Security: published download archives get an unguessable name
+// (<site>-<32 hex>.zip) so a third party who knows a site name cannot fetch
+// its full export (pages, files, site.json) from the static _published/
+// mount. The sweeper in lib/uploadSecurity.js removes them after
+// PUBLISHED_ARCHIVE_MAX_AGE_MS.
+function buildPublishedArchiveName(siteName = "") {
+  return `${siteName}-${crypto.randomBytes(16).toString("hex")}.zip`;
+}
 function createArchiver(format, options = {}) {
-  const normalizedFormat = String(format || '').trim().toLowerCase();
-  if (typeof archiverModule === 'function') {
+  const normalizedFormat = String(format || "")
+    .trim()
+    .toLowerCase();
+  if (typeof archiverModule === "function") {
     return archiverModule(format, options);
   }
-  if (
-    archiverModule &&
-    typeof archiverModule.default === 'function'
-  ) {
+  if (archiverModule && typeof archiverModule.default === "function") {
     return archiverModule.default(format, options);
   }
-  if (
-    archiverModule &&
-    typeof archiverModule.create === 'function'
-  ) {
+  if (archiverModule && typeof archiverModule.create === "function") {
     return archiverModule.create(format, options);
   }
   if (
     archiverModule &&
-    typeof archiverModule === 'object' &&
-    normalizedFormat === 'zip' &&
-    typeof archiverModule.ZipArchive === 'function'
+    typeof archiverModule === "object" &&
+    normalizedFormat === "zip" &&
+    typeof archiverModule.ZipArchive === "function"
   ) {
     return new archiverModule.ZipArchive(options);
   }
   if (
     archiverModule &&
-    typeof archiverModule === 'object' &&
-    normalizedFormat === 'tar' &&
-    typeof archiverModule.TarArchive === 'function'
+    typeof archiverModule === "object" &&
+    normalizedFormat === "tar" &&
+    typeof archiverModule.TarArchive === "function"
   ) {
     return new archiverModule.TarArchive(options);
   }
   if (
     archiverModule &&
-    typeof archiverModule === 'object' &&
-    normalizedFormat === 'json' &&
-    typeof archiverModule.JsonArchive === 'function'
+    typeof archiverModule === "object" &&
+    normalizedFormat === "json" &&
+    typeof archiverModule.JsonArchive === "function"
   ) {
     return new archiverModule.JsonArchive(options);
   }
-  throw new Error('archiver module does not expose a compatible factory');
+  throw new Error("archiver module does not expose a compatible factory");
 }
 /**
-   * @OA\Post(
-   *    path="/downloadSite",
-   *    tags={"cms","authenticated","site","meta"},
-   *    @OA\Parameter(
-   *         name="jwt",
-   *         description="JSON Web token, obtain by using  /login",
-   *         in="query",
-   *         required=true,
-   *         @OA\Schema(type="string")
-   *    ),
-   *    @OA\RequestBody(
-   *        @OA\MediaType(
-   *             mediaType="application/json",
-   *             @OA\Schema(
-   *                 @OA\Property(
-   *                     property="site",
-   *                     type="object"
-   *                 ),
-   *                 required={"site"},
-   *                 example={
-   *                    "site": {
-   *                      "name": "mynewsite"
-   *                    },
-   *                 }
-   *             )
-   *         )
-   *    ),
-   *    @OA\Response(
-   *        response="200",
-   *        description="Download the site folder as a zip file"
-   *   )
-   * )
-   */
-  async function downloadSite(req, res) {
-    // load site
-      let site = await HAXCMS.loadSite(req.body['site']['name']);
-      // create archived directory in this tree if it doesn't exist already
-      if (!fs.existsSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory)) {
-        fs.mkdirSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory);
-      }
-      // helpful boilerplate https://stackoverflow.com/questions/29873248/how-to-zip-a-whole-directory-and-download-using-php
-      let dir = HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + '/' + site.name;
-      // form a basic name
-      let zip_file =
-        HAXCMS.HAXCMS_ROOT +
-        HAXCMS.publishedDirectory +
-        '/' +
-        site.name +
-        '.zip';
-      // Get real path for our folder
-      let rootPath = await fs.realpath(dir);
-      // Initialize archive object
-      await zipDirectory(rootPath, zip_file);
-      res.send({
-        status: 200,
-        data: {
-        'link':
-          HAXCMS.basePath +
-          HAXCMS.publishedDirectory +
-          '/' + site.name +
-          '.zip',
-        'name': site.name + '.zip'
-        }
-      });
+ * @OA\Post(
+ *    path="/downloadSite",
+ *    tags={"cms","authenticated","site","meta"},
+ *    @OA\Parameter(
+ *         name="jwt",
+ *         description="JSON Web token, obtain by using  /login",
+ *         in="query",
+ *         required=true,
+ *         @OA\Schema(type="string")
+ *    ),
+ *    @OA\RequestBody(
+ *        @OA\MediaType(
+ *             mediaType="application/json",
+ *             @OA\Schema(
+ *                 @OA\Property(
+ *                     property="site",
+ *                     type="object"
+ *                 ),
+ *                 required={"site"},
+ *                 example={
+ *                    "site": {
+ *                      "name": "mynewsite"
+ *                    },
+ *                 }
+ *             )
+ *         )
+ *    ),
+ *    @OA\Response(
+ *        response="200",
+ *        description="Download the site folder as a zip file"
+ *   )
+ * )
+ */
+async function downloadSite(req, res) {
+  // load site
+  let site = await HAXCMS.loadSite(req.body["site"]["name"]);
+  // create archived directory in this tree if it doesn't exist already
+  if (!fs.existsSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory)) {
+    fs.mkdirSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory);
   }
-
+  // helpful boilerplate https://stackoverflow.com/questions/29873248/how-to-zip-a-whole-directory-and-download-using-php
+  let dir = HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + "/" + site.name;
+  // Security: random, single-use archive file name (see
+  // buildPublishedArchiveName); the download name the browser sees stays
+  // <site>.zip so the UI is unchanged.
+  const archiveFileName = buildPublishedArchiveName(site.name);
+  let zip_file =
+    HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory + "/" + archiveFileName;
+  // Get real path for our folder
+  let rootPath = await fs.realpath(dir);
+  // Initialize archive object
+  await zipDirectory(rootPath, zip_file);
+  res.send({
+    status: 200,
+    data: {
+      link: HAXCMS.basePath + HAXCMS.publishedDirectory + "/" + archiveFileName,
+      name: site.name + ".zip",
+    },
+  });
+}
 
 /**
  * Relative paths (forward slashes) of every symlink under sourceDir. Links
@@ -121,22 +120,26 @@ function createArchiver(format, options = {}) {
  * @param {String} relDir: sub folder being scanned, relative to sourceDir
  * @returns {Promise<String[]>}
  */
-async function findSymlinks(sourceDir, relDir = '') {
+async function findSymlinks(sourceDir, relDir = "") {
   const found = [];
   let entries = [];
   try {
-    entries = await fs.readdir(path.join(sourceDir, relDir), { withFileTypes: true });
-  }
-  catch {
+    entries = await fs.readdir(path.join(sourceDir, relDir), {
+      withFileTypes: true,
+    });
+  } catch {
     return found;
   }
   for (const entry of entries) {
-    const relPath = relDir ? relDir + '/' + entry.name : entry.name;
+    const relPath = relDir ? relDir + "/" + entry.name : entry.name;
     if (entry.isSymbolicLink()) {
       found.push(relPath);
-    }
-    else if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
-      found.push(...await findSymlinks(sourceDir, relPath));
+    } else if (
+      entry.isDirectory() &&
+      entry.name !== "node_modules" &&
+      entry.name !== ".git"
+    ) {
+      found.push(...(await findSymlinks(sourceDir, relPath)));
     }
   }
   return found;
@@ -144,7 +147,7 @@ async function findSymlinks(sourceDir, relDir = '') {
 
 // a name with glob characters in it still has to match literally in `ignore`
 function escapeGlob(value) {
-  return value.replace(/[\\*?[\]{}()!+@|]/g, '\\$&');
+  return value.replace(/[\\*?[\]{}()!+@|]/g, "\\$&");
 }
 
 /**
@@ -159,27 +162,28 @@ function escapeGlob(value) {
  */
 async function zipDirectory(sourceDir, outPath) {
   const symlinks = await findSymlinks(sourceDir);
-  const archive = createArchiver('zip', { zlib: { level: 9 }});
+  const archive = createArchiver("zip", { zlib: { level: 9 } });
   const stream = fs.createWriteStream(outPath);
 
   return new Promise((resolve, reject) => {
     archive
-      .glob('**/*', {
+      .glob("**/*", {
         cwd: sourceDir,
         ignore: [
-          'node_modules/**',
-          'node_modules',
-          '.git/**',
-          '.git',
+          "node_modules/**",
+          "node_modules",
+          ".git/**",
+          ".git",
           ...symlinks.map(escapeGlob),
         ],
       })
-      .on('error', err => reject(err))
-      .pipe(stream)
-    ;
+      .on("error", (err) => reject(err))
+      .pipe(stream);
 
-    stream.on('close', () => resolve());
+    stream.on("close", () => resolve());
     archive.finalize();
   });
 }
-  module.exports = downloadSite;
+module.exports = downloadSite;
+module.exports.buildPublishedArchiveName = buildPublishedArchiveName;
+module.exports.zipDirectory = zipDirectory;

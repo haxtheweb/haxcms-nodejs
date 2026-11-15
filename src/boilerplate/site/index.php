@@ -5,6 +5,13 @@
 if (file_exists('config.php')) {
   include_once 'config.php';
   $HAXSiteConfig = $GLOBALS["HAXSiteConfig"];
+  // page HTML is revalidated on every load (never no-store, so back/forward
+  // navigation can reuse it) and never stored when the request carries
+  // credentials; the same rule as haxcms-nodejs. A single-site deploy without
+  // the HAXCMS class keeps the .htaccess default (public, max-age=0).
+  if (class_exists('HAXCMS') && method_exists('HAXCMS', 'sendUncachedResponseHeaders')) {
+    HAXCMS::sendUncachedResponseHeaders(HAXCMS::requestCarriesCredentials());
+  }
 }
 else {
   print file_get_contents('index.html');
@@ -36,8 +43,15 @@ else {
       min-height: 98vh;
     }
     haxcms-site-builder {
-      display: block;
+      display: flow-root; /* children's margins stay inside, so swapping content can't move it */
       min-height: 100svh;
+    }
+    /* Images in the content the server rendered into the page fit the screen
+       and keep their shape from width/height, so they don't push the text
+       below them down when they finish loading. */
+    haxcms-site-builder:not(:defined) img {
+      max-width: 100%;
+      height: auto;
     }
     .haxcms-theme-element:not(:defined) {
       display: block;
@@ -51,7 +65,7 @@ else {
   </style>
   <style id="loadingstyles">
     haxcms-site-builder {
-      display: block;
+      display: flow-root;
     }
     /* The loading screen: a page that builds itself (blocks drop onto a sheet,
        a caret blinks once), looping until the site is ready, then finishing
@@ -89,7 +103,7 @@ else {
       top: 50%;
       transform: translateY(-54%);
     }
-    #loading div.messaging h1 {
+    #loading div.messaging .ld-label {
       color: var(--ld-ink);
       font-family: "Roboto", system-ui, -apple-system, "Segoe UI", Helvetica, sans-serif !important;
       font-size: 14px !important;
@@ -233,44 +247,8 @@ else {
   <script id="loadingscript">
     (function () {
       var loadingDismissed = false;
-      // The loading figure is a page that builds itself, on a 3600ms loop of CSS
-      // animations (the ld* keyframes in #loadingstyles). Once the site is
-      // ready, the build wraps up (played faster if it has far to go), rests a
-      // moment on the built page, and the screen dissolves.
-      var LOOP_MS = 3600; // one loop of the figure
-      var BUILT_MS = 2850; // when, in a loop, the page is fully built
-      var FINISH_MS = 400; // ready: the build wraps up in at most this long...
-      var MAX_RATE = 8; // ...by playing faster, but never more than this
-      var HOLD_MS = 100; // then rests on the built page this long
-      var FAST_MS = 1200; // ready this soon after navigation: skip the show, fade quickly
-      function finishFigure(figure, done) {
-        var anims = figure.getAnimations({ subtree: true });
-        if (!anims.length) {
-          done();
-          return;
-        }
-        var now = Number(anims[0].currentTime) || 0;
-        var phase = now % LOOP_MS;
-        // already built (resting or fading): go straight to the built page
-        var left = phase >= BUILT_MS ? 0 : BUILT_MS - phase;
-        var rate = Math.min(Math.max(left / FINISH_MS, 1), MAX_RATE);
-        if (rate > 1) {
-          anims.forEach(function (a) {
-            if (a.updatePlaybackRate) {
-              a.updatePlaybackRate(rate);
-            } else {
-              a.playbackRate = rate;
-            }
-          });
-        }
-        setTimeout(function () {
-          anims.forEach(function (a) {
-            a.currentTime = now - phase + BUILT_MS;
-            a.pause();
-          });
-          setTimeout(done, HOLD_MS);
-        }, left / rate);
-      }
+      // The loading figure is a page that builds itself, on a loop of CSS
+      // animations (the ld* keyframes in #loadingstyles) while the site loads.
       function dissolveLoading(loadingEl, quick) {
         // .loaded is still how HAX says "ready" to themes; .ld-out is the fade
         loadingEl.classList.add('loaded', 'ld-out');
@@ -283,20 +261,10 @@ else {
         }, quick ? 200 : 350);
       }
       function revealSite(loadingEl) {
-        var figure = loadingEl.querySelector('.ld-fig');
-        var quick =
-          !figure ||
-          !figure.getAnimations ||
-          document.visibilityState === 'hidden' ||
-          (globalThis.performance && globalThis.performance.now() < FAST_MS) ||
-          !!(globalThis.matchMedia && globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches);
-        if (quick) {
-          dissolveLoading(loadingEl, true);
-        } else {
-          finishFigure(figure, function () {
-            dissolveLoading(loadingEl, false);
-          });
-        }
+        // The site is ready, so get out of the way at once. Waiting for the
+        // build animation to finish first kept rendered content hidden for up
+        // to ~900ms more on slow devices.
+        dissolveLoading(loadingEl, true);
       }
       function hideLoading() {
         if (loadingDismissed) {
@@ -333,7 +301,7 @@ else {
   </script>
 </head>
 <body <?php print $HAXSiteConfig->getSitePageAttributes();?>>
-  <section role="alert" id="loading" aria-busy="true">
+  <section role="status" id="loading" aria-busy="true">
     <div class="messaging">
       <div class="ld-fig" aria-hidden="true">
         <span class="ld-back" style="--x:78;--y:0;--w:168;--h:192"></span>
@@ -349,7 +317,7 @@ else {
         <span class="ld-l ld9" style="--x:132;--y:182;--w:60;--h:5"></span>
         <span class="ld-caret" style="--x:196;--y:179;--w:2;--h:11"></span>
       </div>
-      <h1>Loading <?php print $HAXSiteConfig->name; ?>...</h1>
+      <p class="ld-label">Loading <?php print $HAXSiteConfig->name; ?>...</p>
     </div>
   </section>
   <haxcms-site-builder id="site" file="site.json<?php print $HAXSiteConfig->cacheBusterHash();?>">
@@ -366,6 +334,24 @@ else {
       }
     ?>
   </haxcms-site-builder>
+  <script data-haxcms-site-json-preload>
+    // haxcms-site-builder fetches this file first; start the download now so
+    // it is not queued behind the JavaScript that boots the builder
+    (function () {
+      var builder = document.getElementById('site');
+      var file = builder ? builder.getAttribute('file') : '';
+      // a JSON blob instead of a path needs no download
+      if (file && file.charAt(0) !== '{' && document.head) {
+        var link = document.createElement('link');
+        link.rel = 'preload';
+        link.as = 'fetch';
+        link.href = file;
+        link.crossOrigin = 'anonymous';
+        link.setAttribute('fetchpriority', 'high');
+        document.head.appendChild(link);
+      }
+    })();
+  </script>
   <script>
     <?php 
       // support for local dev overrides of where microservices / other JS comes from

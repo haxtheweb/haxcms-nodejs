@@ -23,6 +23,9 @@ module.exports = [
       "node_modules/**",
       "dist/**",
       "coverage/**",
+      // Stryker sandbox copies and reports (yarn test:mutation)
+      ".stryker-tmp/**",
+      "reports/**",
       "_sites/**",
       "_archived/**",
       "_published/**",

@@ -46,6 +46,14 @@ Visit http://localhost:3000 if it doesn't automatically open
   your LAN set `HAXCMS_HOST=0.0.0.0`; a loud warning is printed because anyone
   who can reach the port can edit every site.
 
+### Embedding (`HAXCMS_EMBEDDED`)
+- `HAXCMS_EMBEDDED=1` is for hosting haxcms-nodejs inside another runtime, such
+  as [haxcms-browser](https://github.com/haxtheweb/haxcms-browser), which runs
+  it in a browser Worker. `src/app.js` builds the Express app and every route as
+  usual but creates no HTTP server, never listens and starts no background
+  timers. The host waits for the exported `appReady` promise and then passes
+  requests to the exported `app`. Unset, nothing changes.
+
 ### First-run admin credentials
 On first start, if the config directory (`_config/` next to your sites, or
 `~/.haxcmsconfig`) has no `.user` file, an `admin` user is created with a
@@ -114,7 +122,7 @@ The suite currently validates:
 - Theme/report/view/analytics endpoints:
   - `listThemes`, `getActiveTheme`, `getThemeByName`, `listReports`, `getReportByName`, `getAnalyticsCapabilities`, `listViews`, `getViewById`, `getViewResults`, `listDisplaysAlias`, `getDisplayResultsAlias`
 - Secured file and revision endpoints:
-  - `listFiles`, `createFile`, `getFileByUuid`, `updateFileByUuid`, `deleteFileByUuid`, `listItemRevisions`
+  - `listFiles`, `createFile`, `getFileByUuid`, `updateFileByUuid`, `replaceFileContent`, `deleteFileByUuid`, `listItemRevisions`
 
 Behavior coverage in the same suite includes:
 - OpenAPI response/schema conformance checks
@@ -126,6 +134,39 @@ Behavior coverage in the same suite includes:
 Temporary known skip in the suite:
 - `getApiCatalog returns linkset payload`
   - Reason: runtime `/.well-known/api-catalog` fixture behavior is still being finalized
+
+## Fault injection testing
+
+The critical write paths (the outline designer's bulk save `PATCH /x/api/v1/site/outline`, page content save, page create/delete, site settings save, file upload) are tested with faults injected at the filesystem boundary: `fs-extra` methods are mocked with `node:test` mocks so a write, copy or move throws `ENOSPC`, `EACCES` or `EXDEV`, or writes half a file and then fails. Malformed outline payloads (not an array, partial outline, missing ids, duplicate ids, missing parent, parent cycles) are covered too. No production code seam is used.
+
+- `test/unit/fault-injection-save-outline.test.cjs`: the saveOutline handler against a real site on disk
+- `test/unit/fault-injection-critical-writes-http.test.cjs`: the real server in-process, over HTTP
+
+Both run in `npm test` (blocking). To run only these:
+
+```bash
+node --test test/unit/fault-injection-*.test.cjs
+```
+
+The invariants they protect, for every fault:
+
+- the client gets a non-2xx response with the OpenAPI `ApiError` envelope (`{ status, data: { message } }`) the UI can show
+- what was on disk before (`site.json`, the page file) is unchanged, and nothing is left on disk that `site.json` does not list
+- the server keeps answering requests
+
+The write invariants behind them, kept the same in haxcms-php:
+
+- every `site.json` write is atomic: a temp file in the same directory is written, flushed and renamed over it (`JSONOutlineSchema.writeFileAtomic`), so a failed write leaves the previous `site.json` as it was
+- an outline that cannot be encoded as JSON is an error, never a silent no-op: `JSONOutlineSchema.save()` throws and `site.json` is left as it was
+- a `site.json` that does not parse to an outline is refused on load, never treated as an empty outline that a save could write over it
+- an invalid outline payload (items that are not objects, an item without an id, a new page id sent twice, a parent cycle) is rejected with a 400 before anything is written
+- a page folder exists only for a page `site.json` lists: a request that created page folders removes them again when the `site.json` write that would list them fails
+- an error thrown inside any API route answers the 500 `ApiError` envelope (`src/lib/routeHandlerError.js`); it never leaves the request hanging or stops the server
+
+saveOutline is checkpointed, not atomic as a whole: the new structure is written to `site.json` once after the structure pass, so a failure in the later content or delete phase leaves that structure saved.
+
+Each scenario has an id (`FI-OUT-*`, `FI-PAY-*`, `FI-NODE-*`, `FI-SITE-*`, `FI-UP-*`, `FI-HTTP-*`) shared with haxcms-php, which mirrors these tests; keep both backends' scenarios in step. A scenario whose invariant does not hold yet is a `test.todo` whose name says what is wrong. When the product fix lands, turn it into a plain `test` in the same PR. To add a scenario, inject the fault with `t.mock.method(fs, ...)` (restore with `t.mock.restoreAll()` before checking the server still serves), give it the next free id, and add the same id to the PHP suite.
+
 ## MCP and deployment profiles
 - MCP policy defaults are controlled via `_config/config.json`.
 - New installs include:
@@ -156,4 +197,4 @@ Temporary known skip in the suite:
 - [HAX + 11ty](https://github.com/haxtheweb/hax11ty)
 
 
-![HAX Traveler: World Changer](https://raw.githubusercontent.com/haxtheweb/art/refs/heads/main/haxtheweb/hax-traveler-world-changer.jpg)
+![HAX Future Traveler](https://raw.githubusercontent.com/haxtheweb/art/refs/heads/main/haxtheweb/hax-future-traveler.jpg)

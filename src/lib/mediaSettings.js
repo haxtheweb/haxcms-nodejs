@@ -1,13 +1,16 @@
-const fs = require('fs-extra');
-const path = require('path');
+const fs = require("fs-extra");
+const path = require("path");
 
 const MIN_JPEG_QUALITY = 1;
 const MAX_JPEG_QUALITY = 100;
 const MIN_UPLOAD_SIZE_MB = 1;
 const MAX_UPLOAD_SIZE_MB = 10240;
 const DEFAULT_JPEG_QUALITY = 80;
-const DEFAULT_MAX_UPLOAD_SIZE_MB = 1024;
-const DEFAULT_ACCEPTED_FORMATS = 'jpg,jpeg,png,gif,webp,svg';
+// Security: 256 MB default upload cap (was 1 GB). Operators can raise it via
+// settings/media.json (maxUploadSizeMb, up to MAX_UPLOAD_SIZE_MB) when a
+// deployment really needs larger media files.
+const DEFAULT_MAX_UPLOAD_SIZE_MB = 256;
+const DEFAULT_ACCEPTED_FORMATS = "jpg,jpeg,png,gif,webp,svg";
 const DEFAULT_MEDIA_SETTINGS = {
   jpegQuality: DEFAULT_JPEG_QUALITY,
   maxUploadSizeMb: DEFAULT_MAX_UPLOAD_SIZE_MB,
@@ -15,16 +18,17 @@ const DEFAULT_MEDIA_SETTINGS = {
 };
 
 function getMediaSettingsFilePath(haxcms) {
-  const configDirectory = (
+  const configDirectory =
     haxcms &&
-    typeof haxcms.configDirectory === 'string' &&
+    typeof haxcms.configDirectory === "string" &&
     haxcms.configDirectory
-  ) ? haxcms.configDirectory : path.join(process.cwd(), '_config');
-  return path.join(configDirectory, 'settings', 'media.json');
+      ? haxcms.configDirectory
+      : path.join(process.cwd(), "_config");
+  return path.join(configDirectory, "settings", "media.json");
 }
 
 function normalizeJpegQuality(value) {
-  if (value === null || typeof value === 'undefined' || value === '') {
+  if (value === null || typeof value === "undefined" || value === "") {
     return null;
   }
   const parsedValue = parseInt(value, 10);
@@ -40,7 +44,7 @@ function normalizeJpegQuality(value) {
   return parsedValue;
 }
 function normalizeMaxUploadSizeMb(value) {
-  if (value === null || typeof value === 'undefined' || value === '') {
+  if (value === null || typeof value === "undefined" || value === "") {
     return null;
   }
   const parsedValue = parseInt(value, 10);
@@ -56,26 +60,24 @@ function normalizeMaxUploadSizeMb(value) {
   return parsedValue;
 }
 function normalizeAcceptedFormats(value) {
-  if (value === null || typeof value === 'undefined') {
+  if (value === null || typeof value === "undefined") {
     return null;
   }
   let candidates = [];
   if (Array.isArray(value)) {
     candidates = value;
-  }
-  else if (typeof value === 'string') {
-    candidates = value.split(',');
-  }
-  else {
+  } else if (typeof value === "string") {
+    candidates = value.split(",");
+  } else {
     return null;
   }
   const seen = {};
   const normalized = [];
   for (let i = 0; i < candidates.length; i++) {
-    const format = `${candidates[i] || ''}`
+    const format = `${candidates[i] || ""}`
       .trim()
       .toLowerCase()
-      .replace(/^\.+/, '');
+      .replace(/^\.+/, "");
     if (!format || !/^[a-z0-9]+$/.test(format) || seen[format]) {
       continue;
     }
@@ -85,15 +87,12 @@ function normalizeAcceptedFormats(value) {
   if (normalized.length === 0) {
     return null;
   }
-  return normalized.join(',');
+  return normalized.join(",");
 }
 
 function normalizeMediaSettings(input = {}) {
-  const source = (
-    input &&
-    typeof input === 'object' &&
-    !Array.isArray(input)
-  ) ? input : {};
+  const source =
+    input && typeof input === "object" && !Array.isArray(input) ? input : {};
   return {
     jpegQuality: normalizeJpegQuality(source.jpegQuality),
     maxUploadSizeMb: normalizeMaxUploadSizeMb(source.maxUploadSizeMb),
@@ -102,28 +101,31 @@ function normalizeMediaSettings(input = {}) {
 }
 
 function getEffectiveMediaSettings(settings = {}) {
-  const source = (
-    settings &&
-    typeof settings === 'object' &&
-    !Array.isArray(settings)
-  ) ? settings : {};
+  const source =
+    settings && typeof settings === "object" && !Array.isArray(settings)
+      ? settings
+      : {};
   return {
-    jpegQuality: source.jpegQuality == null ? DEFAULT_JPEG_QUALITY : source.jpegQuality,
-    maxUploadSizeMb: source.maxUploadSizeMb == null ? DEFAULT_MAX_UPLOAD_SIZE_MB : source.maxUploadSizeMb,
-    acceptedFormats: source.acceptedFormats == null ? DEFAULT_ACCEPTED_FORMATS : source.acceptedFormats,
+    jpegQuality:
+      source.jpegQuality == null ? DEFAULT_JPEG_QUALITY : source.jpegQuality,
+    maxUploadSizeMb:
+      source.maxUploadSizeMb == null
+        ? DEFAULT_MAX_UPLOAD_SIZE_MB
+        : source.maxUploadSizeMb,
+    acceptedFormats:
+      source.acceptedFormats == null
+        ? DEFAULT_ACCEPTED_FORMATS
+        : source.acceptedFormats,
   };
 }
 
 function hasSupportedMediaSettingsPayload(input = {}) {
-  const source = (
-    input &&
-    typeof input === 'object' &&
-    !Array.isArray(input)
-  ) ? input : {};
+  const source =
+    input && typeof input === "object" && !Array.isArray(input) ? input : {};
   return (
-    Object.prototype.hasOwnProperty.call(source, 'jpegQuality') ||
-    Object.prototype.hasOwnProperty.call(source, 'maxUploadSizeMb') ||
-    Object.prototype.hasOwnProperty.call(source, 'acceptedFormats')
+    Object.prototype.hasOwnProperty.call(source, "jpegQuality") ||
+    Object.prototype.hasOwnProperty.call(source, "maxUploadSizeMb") ||
+    Object.prototype.hasOwnProperty.call(source, "acceptedFormats")
   );
 }
 
@@ -132,9 +134,8 @@ async function readMediaSettings(haxcms) {
   let existing = {};
   if (await fs.pathExists(filePath)) {
     try {
-      existing = JSON.parse(await fs.readFile(filePath, 'utf8'));
-    }
-    catch {
+      existing = JSON.parse(await fs.readFile(filePath, "utf8"));
+    } catch {
       existing = {};
     }
   }
@@ -143,21 +144,20 @@ async function readMediaSettings(haxcms) {
 
 async function writeMediaSettings(haxcms, settings = {}) {
   const filePath = getMediaSettingsFilePath(haxcms);
-  const source = (
-    settings &&
-    typeof settings === 'object' &&
-    !Array.isArray(settings)
-  ) ? settings : {};
+  const source =
+    settings && typeof settings === "object" && !Array.isArray(settings)
+      ? settings
+      : {};
   const nextSettings = await readMediaSettings(haxcms);
-  if (Object.prototype.hasOwnProperty.call(source, 'jpegQuality')) {
+  if (Object.prototype.hasOwnProperty.call(source, "jpegQuality")) {
     nextSettings.jpegQuality = normalizeJpegQuality(source.jpegQuality);
   }
-  if (Object.prototype.hasOwnProperty.call(source, 'maxUploadSizeMb')) {
+  if (Object.prototype.hasOwnProperty.call(source, "maxUploadSizeMb")) {
     nextSettings.maxUploadSizeMb = normalizeMaxUploadSizeMb(
       source.maxUploadSizeMb,
     );
   }
-  if (Object.prototype.hasOwnProperty.call(source, 'acceptedFormats')) {
+  if (Object.prototype.hasOwnProperty.call(source, "acceptedFormats")) {
     nextSettings.acceptedFormats = normalizeAcceptedFormats(
       source.acceptedFormats,
     );
@@ -166,7 +166,7 @@ async function writeMediaSettings(haxcms, settings = {}) {
   await fs.writeFile(
     filePath,
     `${JSON.stringify(nextSettings, null, 2)}\n`,
-    'utf8',
+    "utf8",
   );
   return nextSettings;
 }

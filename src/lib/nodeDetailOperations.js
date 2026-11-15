@@ -1,6 +1,7 @@
 const stripTagsImport = require('locutus/php/strings/strip_tags');
 const strip_tags = stripTagsImport.strip_tags || stripTagsImport;
 const { HAXCMS } = require('./HAXCMS.js');
+const { reserveSlugRoutes } = require('./slugRules.js');
 const {
   sanitizeURLValue,
   sanitizeMetadataValue
@@ -101,6 +102,13 @@ function isOverridePathauto(page) {
   return page && page.metadata && page.metadata.overridePathauto === true;
 }
 
+/**
+ * Re-slug every descendant of the pages in changedIds from its own title,
+ * so a parent's new slug segment reaches the whole branch. A descendant with
+ * overridePathauto keeps its slug, and so does its own branch. Shared by
+ * saveNodeDetails (setTitle / setParent) and saveNode; mirrors the
+ * $changedIds loop in haxcms-php saveNode.php / saveNodeDetails.php.
+ */
 function cascadeSlugUpdates(site, items, changedIds) {
   let keepGoing = true;
   while (keepGoing) {
@@ -230,14 +238,8 @@ function applyMetadataMutation(page, details = {}, operation = null, site = null
         Object.prototype.hasOwnProperty.call(details, 'slug') &&
         details.slug !== ''
       ) {
-        let newSlug = details.slug;
-        if (newSlug === 'x') {
-          newSlug = 'x-x';
-        }
-        if (newSlug.substring(0, 2) === 'x/') {
-          newSlug = newSlug.replace('x/', 'x-x/');
-        }
-        page.slug = HAXCMS.generateSlugName(newSlug);
+        // no segment may be the reserved "x" route
+        page.slug = reserveSlugRoutes(HAXCMS.generateSlugName(details.slug));
         // When user manually sets a slug, mark it as overridden so pathauto won't overwrite it
         ensureMetadataObject(page);
         page.metadata.overridePathauto = true;
@@ -444,4 +446,5 @@ module.exports = {
   PAGE_DETAIL_OPERATIONS,
   createStatusError,
   isPathautoEnabled,
+  cascadeSlugUpdates,
 };

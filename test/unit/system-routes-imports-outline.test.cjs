@@ -789,9 +789,11 @@ describe("saveOutline route", () => {
             order: 2,
             delete: true,
           },
-          // duplicate of the rewritten first page
+          // duplicate of the rewritten first page (its own client id, as
+          // outline-designer sends it: the same new id twice is a 400,
+          // FI-PAY-05)
           {
-            id: "client-new",
+            id: "client-dup",
             title: "Fresh Page",
             parent: "item-1",
             order: 1,

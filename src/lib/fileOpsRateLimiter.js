@@ -2,8 +2,8 @@
 // (createFile / updateFile / deleteFile). Throttles a single authenticated
 // principal keyed by userName:siteName so a compromised account or stolen
 // site token cannot drive unbounded upload (disk-fill) or image-op (CPU)
-// traffic. Matches the threat model in the file-operations security report
-// (F3): every operation is already auth-gated to a validated user:site token,
+// traffic. Security (SEC-RATELIMIT):
+// every operation is already auth-gated to a validated user:site token,
 // so the principal is authoritative (not spoofable); IP is a weak key here
 // (127.0.0.1 on local/DDEV installs, shared behind NAT), hence userName:site.
 //

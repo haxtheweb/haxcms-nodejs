@@ -1,39 +1,40 @@
-const { HAXCMS, systemStructureContext } = require('../../lib/HAXCMS.js');
-const EntityRegistry = require('../../lib/EntityRegistry.js');
-const FileStorage = require('../../lib/FileStorage.js');
+const { HAXCMS, systemStructureContext } = require("../../lib/HAXCMS.js");
+const EntityRegistry = require("../../lib/EntityRegistry.js");
+const FileStorage = require("../../lib/FileStorage.js");
+const { getRequestHeaderValue } = require("./siteRouteUtils.js");
 
 function getRequestPath(req) {
-  if (req && typeof req.originalUrl === 'string' && req.originalUrl !== '') {
-    return req.originalUrl.split('?')[0];
+  if (req && typeof req.originalUrl === "string" && req.originalUrl !== "") {
+    return req.originalUrl.split("?")[0];
   }
-  if (req && typeof req.url === 'string' && req.url !== '') {
-    return req.url.split('?')[0];
+  if (req && typeof req.url === "string" && req.url !== "") {
+    return req.url.split("?")[0];
   }
-  return '';
+  return "";
 }
 
-function getMultisiteSiteNameFromPath(requestPath = '') {
-  const parts = String(requestPath || '')
-    .split('/')
-    .filter((part) => part !== '');
+function getMultisiteSiteNameFromPath(requestPath = "") {
+  const parts = String(requestPath || "")
+    .split("/")
+    .filter((part) => part !== "");
   for (let i = 0; i < parts.length; i++) {
     if (parts[i] === HAXCMS.sitesDirectory && parts[i + 1]) {
       return decodeURIComponent(parts[i + 1]);
     }
   }
-  return '';
+  return "";
 }
 
 function getApiBasePath(req) {
   const requestPath = getRequestPath(req);
-  const matched = String(requestPath || '').match(/^(.*\/x\/api)(?:\/.*)?$/);
+  const matched = String(requestPath || "").match(/^(.*\/x\/api)(?:\/.*)?$/);
   if (matched && matched[1]) {
     return matched[1];
   }
-  return '/x/api';
+  return "/x/api";
 }
 
-function buildDiscoveryLinks(apiBasePath = '/x/api') {
+function buildDiscoveryLinks(apiBasePath = "/x/api") {
   return {
     self: `${apiBasePath}/v1/entities`,
     site: `${apiBasePath}/v1/site`,
@@ -57,10 +58,72 @@ function buildEntityDescriptorsFromRegistry(registry, scope) {
   return entities;
 }
 
+// Security (entity listing scope): the system-scope part of the entity
+// registry (and the endpoints it names) is only listed to a caller that is
+// signed in and sends the X-HAXCMS-Site-Token for this site, the same
+// credential every other signed-in site API route uses (bearer JWT + site
+// token, bound to user and site). Everyone else gets the site scope only,
+// whatever ?scope= asks for, so an unauthenticated request can not
+// fingerprint the build from the system entities. A signed-in caller
+// without a valid site token for this site gets the same 403 envelopes as
+// the authenticated-site routes. CLI and disabled-JWT modes are trusted, as
+// the route gate already treats them. Kept identical in haxcms-php.
+function getSiteNameForListing(req, site) {
+  const fromPath = getMultisiteSiteNameFromPath(getRequestPath(req));
+  if (fromPath !== "") {
+    return fromPath;
+  }
+  if (
+    site &&
+    site.manifest &&
+    site.manifest.metadata &&
+    site.manifest.metadata.site &&
+    site.manifest.metadata.site.name
+  ) {
+    return String(site.manifest.metadata.site.name);
+  }
+  return "";
+}
+
+function resolveEntityListingAccess(req, site) {
+  const auth = req && req.haxcmsSiteApiAuth;
+  if (!auth || typeof auth !== "object" || auth.authenticated !== true) {
+    return { full: false };
+  }
+  if (HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
+    return { full: true };
+  }
+  const siteToken = getRequestHeaderValue(req, "x-haxcms-site-token");
+  if (siteToken === "") {
+    return {
+      full: false,
+      status: 403,
+      message: "X-HAXCMS-Site-Token header is required for this endpoint",
+    };
+  }
+  const userName = String(auth.userName || "");
+  const siteName = getSiteNameForListing(req, site);
+  if (userName === "" || siteName === "") {
+    return {
+      full: false,
+      status: 403,
+      message: "Unable to resolve site token context",
+    };
+  }
+  if (!HAXCMS.validateRequestToken(siteToken, `${userName}:${siteName}`)) {
+    return {
+      full: false,
+      status: 403,
+      message: "Invalid X-HAXCMS-Site-Token header",
+    };
+  }
+  return { full: true };
+}
+
 async function resolveSiteForRequest(req) {
   const requestPath = getRequestPath(req);
   const siteName = getMultisiteSiteNameFromPath(requestPath);
-  if (siteName !== '') {
+  if (siteName !== "") {
     return await HAXCMS.loadSite(siteName);
   }
   return await systemStructureContext();
@@ -72,7 +135,7 @@ async function entities(req, res) {
     return res.status(404).json({
       status: 404,
       data: {
-        message: 'Unable to resolve site context for /x/api/v1/entities',
+        message: "Unable to resolve site context for /x/api/v1/entities",
       },
     });
   }
@@ -86,9 +149,18 @@ async function entities(req, res) {
   if (site && site.siteDirectory) {
     FileStorage.registerOn(registry);
   }
-  const scope = req && req.query && typeof req.query.scope === 'string'
-    ? req.query.scope.trim()
-    : '';
+  const access = resolveEntityListingAccess(req, site);
+  if (access.status) {
+    return res.status(access.status).json({
+      status: access.status,
+      data: { message: access.message },
+    });
+  }
+  const requestedScope =
+    req && req.query && typeof req.query.scope === "string"
+      ? req.query.scope.trim()
+      : "";
+  const scope = access.full ? requestedScope : "site";
   const descriptors = buildEntityDescriptorsFromRegistry(registry, scope);
   return res.json({
     status: 200,

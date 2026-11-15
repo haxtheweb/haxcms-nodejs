@@ -20,10 +20,15 @@ const {
 } = require("./managedFiles.js");
 const { resolveContainedPath, hasTraversal } = require("./pathConfinement.js");
 const {
+  cleanTitleRule,
+  generateSlugRule,
+  joinSlugSegments,
+  reserveSlugRoutes,
+} = require("./slugRules.js");
+const {
   trimTrailingSlashes,
   trimSlashes,
   stripAngleTags,
-  hasAngleTag,
   removeBackslashesBeforeQuote,
   closingCustomElementNames,
   findPageBreakSections,
@@ -54,6 +59,32 @@ const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskil
   ForceType text/plain
 </FilesMatch>
 `;
+/**
+ * The site-relative location of a page's HTML when it is safe to emit as a
+ * preload hint, else "". Only plain relative paths are allowed: no scheme,
+ * no leading slash or backslash, no parent-directory segments, no query.
+ * Mirrors HAXCMSSite::getPreloadablePageLocation in haxcms-php.
+ */
+function getPreloadablePageLocation(page) {
+  if (!page || typeof page.location !== "string") {
+    return "";
+  }
+  const location = page.location.trim();
+  if (
+    location === "" ||
+    location === "hax-internal-route.html" ||
+    location.indexOf("://") !== -1 ||
+    location.charAt(0) === "/" ||
+    location.indexOf("\\") !== -1 ||
+    location.indexOf("?") !== -1 ||
+    location.indexOf("#") !== -1 ||
+    hasTraversal(location) ||
+    !/\.html$/i.test(location)
+  ) {
+    return "";
+  }
+  return location;
+}
 // Full HAX agent skill catalog (agentskills.io index) maintained in PRAW.
 // Linked from every site's llms.txt for skills the site does not ship.
 const HAX_SKILL_CATALOG_URL =
@@ -87,7 +118,7 @@ function decodeLLMSEntities(text = "") {
   );
 }
 const SITE_FILE_NAME = "site.json";
-// Security (H1 rotation): grace window in seconds during which the immediately
+// Security (SEC-SESSION): grace window in seconds during which the immediately
 // previous refresh-token jti is still accepted, so concurrent multi-tab
 // refreshes don't mutually invalidate. Mirrors PHP HAXCMS_REFRESH_GRACE_SECONDS.
 const HAXCMS_REFRESH_GRACE_SECONDS = 30;
@@ -156,6 +187,9 @@ function loadConfigJson(configDirectory) {
 }
 // HAXCMSSite which overlaps heavily and is referenced here often
 const utf8 = require("utf8");
+const {
+  rebuildAlternateFormatsLogged,
+} = require("./rebuildAlternateFormatsLogged.js");
 const JSONOutlineSchemaItem = require("./JSONOutlineSchemaItem.js");
 const FeedMe = require("./RSS.js");
 const TurndownService = require("turndown");
@@ -163,7 +197,6 @@ const jsyaml = require("js-yaml");
 const arraySearchImport = require("locutus/php/array/array_search");
 const arrayUnshiftImport = require("locutus/php/array/array_unshift");
 const implodeImport = require("locutus/php/strings/implode");
-const arrayUniqueImport = require("locutus/php/array/array_unique");
 const jsonEncodeImport = require("locutus/php/json/json_encode");
 const strtrImport = require("locutus/php/strings/strtr");
 const usortImport = require("locutus/php/array/usort");
@@ -171,7 +204,6 @@ const explode = explodeImport.explode || explodeImport;
 const array_search = arraySearchImport.array_search || arraySearchImport;
 const array_unshift = arrayUnshiftImport.array_unshift || arrayUnshiftImport;
 const implode = implodeImport.implode || implodeImport;
-const array_unique = arrayUniqueImport.array_unique || arrayUniqueImport;
 const json_encode = jsonEncodeImport.json_encode || jsonEncodeImport;
 const strtr = strtrImport.strtr || strtrImport;
 const usort = usortImport.usort || usortImport;
@@ -187,8 +219,16 @@ const {
 const { materializeInlineImages } = require("./materializeInlineImages.js");
 const { applyPageMetadata, toPlainText } = require("./sanitizePageMetadata.js");
 const exec = util.promisify(child_process.exec);
-// Security (I3, 2026-10-19 audit): argument-array git calls (no shell string)
+// Security (SEC-EXEC): argument-array git calls (no shell string)
 const execFile = util.promisify(child_process.execFile);
+// scrypt parameters for stored password hashes (hashPassword / verify*)
+const SCRYPT_PASSWORD_OPTIONS = {
+  N: 16384,
+  r: 8,
+  p: 1,
+  maxmem: 32 * 1024 * 1024,
+};
+const scryptAsync = util.promisify(crypto.scrypt);
 const turndownService = new TurndownService();
 turndownService.keep(function (node) {
   return node && node.nodeName && String(node.nodeName).indexOf("-") !== -1;
@@ -223,7 +263,7 @@ Twig.extendFunction("constant", function constantLookup(name) {
   return null;
 });
 /**
- * Security (HAX-SEC-006 / PR8-3): sanitize a git commit message to a
+ * Security (SEC-EXEC): sanitize a git commit message to a
  * conservative form before it reaches git-interface, which string-splits the
  * command and only escapes single quotes. Shared by gitCommit() and the
  * initial newSite() commit so site titles cannot inject git arguments.
@@ -241,11 +281,11 @@ function sanitizeGitCommitMessage(msg) {
   }
   return safeMsg;
 }
-// Security (PR8-3): branch names must start alphanumeric (no leading `-` so
+// Security (SEC-EXEC): branch names must start alphanumeric (no leading `-` so
 // they can never be read as a git option) and use only safe characters.
 const GIT_BRANCH_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._\-/]*$/;
 /**
- * Security (PR8-3): a git remote URL is only accepted when it is https:// or
+ * Security (SEC-EXEC): a git remote URL is only accepted when it is https:// or
  * scp-style git@host:path, contains no whitespace / quotes / backslashes /
  * control characters (git-interface splits commands on whitespace), and does
  * not use the ext:: transport (arbitrary command execution) anywhere.
@@ -264,6 +304,56 @@ function isSafeGitRemoteUrl(url) {
     return false;
   }
   return true;
+}
+/**
+ * Process-wide cache of parsed JSON build artifacts (wc-registry.json,
+ * wc-registry-graph.json) keyed by absolute path. An entry is reused only
+ * while the file's mtime and size are unchanged, so a rebuilt registry is
+ * picked up on the next request. Page views look the registry up once per
+ * custom tag, so this replaces a read + JSON.parse per lookup with one stat.
+ * Callers must treat the returned object as read-only (all current ones do).
+ * Parse errors are not cached; they throw so the caller's fallback applies.
+ */
+const parsedJsonFileCache = new Map();
+function readJsonFileCached(filePath) {
+  const stat = fs.statSync(filePath);
+  const cached = parsedJsonFileCache.get(filePath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+    return cached.data;
+  }
+  const data = JSON.parse(
+    fs.readFileSync(filePath, { encoding: "utf8", flag: "r" }),
+  );
+  parsedJsonFileCache.set(filePath, {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    data: data,
+  });
+  return data;
+}
+/**
+ * index.html files already checked by maybeUpgradeLegacyBootstrap() and found
+ * to be modern, keyed by path, with the mtime and size seen at the check. A
+ * changed file is read again, so a legacy bootstrap copied in later is still
+ * upgraded. Only the "not legacy" answer is remembered.
+ */
+const modernBootstrapIndexCache = new Map();
+/**
+ * `git --version` output, looked up once per process instead of once per
+ * commit. Failures are not cached, so git installed later is still found.
+ */
+let cachedGitVersion = null;
+async function gitVersionCached() {
+  if (cachedGitVersion !== null) {
+    return cachedGitVersion;
+  }
+  try {
+    const { stdout } = await exec("git --version");
+    cachedGitVersion = stdout;
+    return stdout;
+  } catch {
+    return null;
+  }
 }
 /**
  * haxtheweb/issues#3201: where a site's version control lives, from its folder.
@@ -295,8 +385,8 @@ function siteGitScope(dir) {
   return "none";
 }
 /**
- * Security (PR8-6): managed templates that embed the site title/description,
- * and the per-format escaping applied to those two values (same in PHP PR2).
+ * Security (SEC-SANITIZE): managed templates that embed the site title/description,
+ * and the per-format escaping applied to those two values (same in PHP).
  * Twig autoescape stays off for all of them; the values are pre-escaped for
  * their context instead, so `Tom's R&D` stays literal in JSON/markdown:
  *  - json: escaped as JSON string contents (JSON.stringify(v).slice(1, -1))
@@ -310,7 +400,7 @@ const MANAGED_TEMPLATE_TEXT_FORMATS = {
   "llms.txt": "text",
 };
 /**
- * Security (PR8-6) parity contract with PHP (PR2): before rendering managed
+ * Security (SEC-SANITIZE): parity contract with PHP: before rendering managed
  * JSON/XML, title/description have CR, LF and TAB replaced by a space and every
  * other control character (U+0000-U+001F, U+007F) and every backslash
  * dropped. html autoescape does not touch these, and a raw newline or `\`
@@ -324,7 +414,7 @@ function sanitizeManagedTemplateText(value) {
   return value.replace(/[\r\n\t]/g, " ").replace(/[\x00-\x1f\x7f\\]/g, "");
 }
 /**
- * Security (PR8-6): escape an already rule-sanitized title/description for
+ * Security (SEC-SANITIZE): escape an already rule-sanitized title/description for
  * the managed template format ('json' | 'xml' | 'text').
  */
 function escapeManagedTemplateText(value, format) {
@@ -341,7 +431,7 @@ function escapeManagedTemplateText(value, format) {
   return text;
 }
 /**
- * Security (PR8-6): template variables for one managed file: title and
+ * Security (SEC-SANITIZE): template variables for one managed file: title and
  * description escaped for that file's format, everything else unchanged.
  */
 function managedTemplateVarsFor(fileName, templateVars) {
@@ -360,6 +450,16 @@ function managedTemplateVarsFor(fileName, templateVars) {
   });
 }
 // a site object
+// The boilerplate ships assets/icon-<n>x<n>.png at 48 to 512; the 16 and
+// 32 pixel sizes (favicon) are the 32x32 assets/favicon.png, so pages never
+// link an icon that does not exist.
+function defaultIconPath(height, width) {
+  if (String(height) === "16" || String(height) === "32") {
+    return "assets/favicon.png";
+  }
+  return "assets/icon-" + height + "x" + width + ".png";
+}
+
 class HAXCMSSite {
   constructor() {
     this.name;
@@ -378,7 +478,7 @@ class HAXCMSSite {
     tmpname = HAXCMS.cleanTitle(tmpname, false);
     this.basePath = siteBasePath;
     this.directory = directory;
-    // Security (code-scanning js/path-injection): the site name comes from
+    // Security (SEC-PATH): the site name comes from
     // the request; prove the site folder resolves strictly inside the sites
     // directory before any file system access (cleanTitle already strips
     // "..", this makes the containment explicit and verifiable)
@@ -438,7 +538,7 @@ class HAXCMSSite {
       }
     }
     tmpname = newName;
-    // Security (code-scanning js/path-injection): the new site folder must
+    // Security (SEC-PATH): the new site folder must
     // resolve strictly inside the sites directory (see load())
     const sitesRoot = path.resolve(directory);
     // join (not resolve) first so a leading "/" stays relative, as before
@@ -449,7 +549,7 @@ class HAXCMSSite {
     // siteDirectory set so we can discover this and work with it while it's being built
     this.siteDirectory = siteRoot;
     // attempt to shift it on the file system
-    // Security (N1/N5 parity): recurseCopy refuses traversal / escaping
+    // Security (SEC-PATH), PHP parity: recurseCopy refuses traversal / escaping
     // destinations; treat a refusal as a failed site creation (createSite
     // already returns false when newSite does). The sites directory is the
     // containment base, so make sure it exists (copySync used to create it
@@ -741,7 +841,7 @@ class HAXCMSSite {
         directory + "/" + tmpname,
       );
       try {
-        // Security (PR8-3): the site title is user input; run it through the
+        // Security (SEC-EXEC): the site title is user input; run it through the
         // same sanitizer gitCommit() uses before it reaches git-interface.
         // haxtheweb/issues#3191: op-code prefix; a request that creates the
         // site (createSite, an importer) keeps its own op, otherwise siteCreate
@@ -809,12 +909,7 @@ class HAXCMSSite {
     return false;
   }
   async gitTest() {
-    try {
-      const { stdout } = await exec("git --version");
-      return stdout;
-    } catch {
-      return null;
-    }
+    return await gitVersionCached();
   }
   /**
    * When no git identity is configured (config or env), supply a placeholder
@@ -825,7 +920,7 @@ class HAXCMSSite {
   async gitFallbackIdentity(dir) {
     const gitConfigValue = async (key) => {
       try {
-        // Security (I3): execFile with an argument array, matching
+        // Security (SEC-EXEC): execFile with an argument array, matching
         // revisions.js, so no shell ever parses the key.
         const { stdout } = await execFile("git", ["config", key], { cwd: dir });
         return stdout.trim();
@@ -956,8 +1051,21 @@ class HAXCMSSite {
       if (!fs.pathExistsSync(indexPath)) {
         return;
       }
+      const indexStat = fs.statSync(indexPath);
+      const seen = modernBootstrapIndexCache.get(indexPath);
+      if (
+        seen &&
+        seen.mtimeMs === indexStat.mtimeMs &&
+        seen.size === indexStat.size
+      ) {
+        return;
+      }
       const indexHtml = fs.readFileSync(indexPath, "utf8");
       if (!indexHtml || indexHtml.indexOf("@lrnwebcomponents") === -1) {
+        modernBootstrapIndexCache.set(indexPath, {
+          mtimeMs: indexStat.mtimeMs,
+          size: indexStat.size,
+        });
         return;
       }
       await this.rebuildManagedFiles();
@@ -979,6 +1087,9 @@ class HAXCMSSite {
     // want to update this when we are refreshing the managed files directly
     // not the case w/ non php backends but still fine for consistency
     templates["indexphp"] = "index.php";
+    // config.php is what index.php loads on a PHP host; haxcms-php rebuilds
+    // the pair together, so a site kept by this backend must not fall behind
+    templates["configphp"] = "config.php";
     // haxtheweb/issues#3186: files are no longer copied over the site's copy
     // up front. Each one is rendered in memory below, merged with the site's
     // copy per its policy (see managedFiles.js) and written only if changed.
@@ -1033,7 +1144,7 @@ class HAXCMSSite {
       hexCode: HAXCMS.HAXCMS_FALLBACK_HEX,
       basePath: this.getPWAScopePath(),
       domain: domain,
-      // Security (PR8-6): see sanitizeManagedTemplateText
+      // Security (SEC-SANITIZE): see sanitizeManagedTemplateText
       title: sanitizeManagedTemplateText(this.manifest.title),
       short: this.manifest.metadata.site.name,
       privateSite:
@@ -1064,88 +1175,46 @@ class HAXCMSSite {
       logo48x48: await this.getLogoSize("48", "48"),
       favicon: await this.getLogoSize("32", "32"),
     };
-    let swItems = [...this.manifest.items];
-    // the core files you need in every SW manifest
-    let coreFiles = [
+    // the service worker precaches only this small shell; pages, uploads and
+    // build modules are cached as visitors use them (service-worker.js). Each
+    // entry is versioned by a hash of its content, so any edit (not just one
+    // that changes the file size) gives visitors a fresh shell.
+    const shellFiles = [
       "index.html",
-      await this.getLogoSize("512", "512"),
-      await this.getLogoSize("256", "256"),
-      await this.getLogoSize("192", "192"),
-      await this.getLogoSize("144", "144"),
-      await this.getLogoSize("96", "96"),
-      await this.getLogoSize("72", "72"),
-      await this.getLogoSize("48", "48"),
-      "manifest.json",
       "site.json",
-      "404.html",
+      "manifest.json",
+      "offline.html",
+      await this.getLogoSize("192", "192"),
     ];
-    let handle;
-    // loop through files directory so we can cache those things too
-    if ((handle = fs.readdirSync(this.siteDirectory + "/files"))) {
-      handle.forEach((file) => {
-        if (
-          file != "." &&
-          file != ".." &&
-          file != ".gitkeep" &&
-          file != ".DS_Store" &&
-          file != ".htaccess"
-        ) {
-          // ensure this is a file
-          if (fs.lstatSync(this.siteDirectory + "/files/" + file).isFile()) {
-            coreFiles.push("files/" + file);
-          } else {
-            // @todo maybe step into directories?
-          }
-        }
-      });
-    }
-    for (let key in coreFiles) {
-      let coreItem = {};
-      coreItem.location = coreFiles[key];
-      swItems.push(coreItem);
-    }
-    // generate a legit hash value that's the same for each file name + file size
-    for (let key in swItems) {
-      let filesize;
-      let item = swItems[key];
-      // managed files are sized from the boilerplate source, matching the
+    for (const location of shellFiles) {
+      // managed files are hashed from the boilerplate source, matching the
       // old copy-then-render flow (the site copy may be one rebuild behind)
-      const managedSource =
-        item.location === "" || item.location === templateVars["basePath"]
-          ? managedSourcePaths["index.html"]
-          : typeof item.location === "string"
-            ? managedSourcePaths[item.location]
-            : undefined;
-      if (managedSource) {
-        filesize = fs.statSync(managedSource).size;
-      } else if (
-        item.location === "" ||
-        item.location === templateVars["basePath"]
+      let filePath = managedSourcePaths[location];
+      if (
+        !filePath &&
+        // Security (SEC-PATH), PHP parity: only read locations contained in the site
+        this.validatePageLocation(location) &&
+        fs.pathExistsSync(this.resolvePageLocationRealPath(location)) &&
+        fs.lstatSync(this.resolvePageLocationRealPath(location)).isFile()
       ) {
-        filesize = await fs.statSync(this.siteDirectory + "/index.html").size;
-      } else if (
-        // Security (N1/N5 parity): only stat locations contained in the site
-        this.validatePageLocation(item.location) &&
-        fs.lstatSync(this.resolvePageLocationRealPath(item.location)).isFile()
-      ) {
-        filesize = await fs.statSync(
-          this.resolvePageLocationRealPath(item.location),
-        ).size;
-      } else {
-        // ?? file referenced but doesn't exist
-        filesize = 0;
+        filePath = this.resolvePageLocationRealPath(location);
       }
-      if (filesize !== 0) {
-        templateVars["swhash"].push([
-          item.location,
-          strtr(HAXCMS.hmacBase64(item.location + filesize, "haxcmsswhash"), {
-            "+": "",
-            "/": "",
-            "=": "",
-            "-": "",
-          }),
-        ]);
+      if (!filePath) {
+        continue;
       }
+      const contentHash = crypto
+        .createHash("sha256")
+        .update(fs.readFileSync(filePath))
+        .digest("hex");
+      templateVars["swhash"].push([
+        location,
+        strtr(HAXCMS.hmacBase64(location + contentHash, "haxcmsswhash"), {
+          "+": "",
+          "/": "",
+          "=": "",
+          "-": "",
+        }),
+      ]);
     }
     if (
       this.manifest.metadata.theme &&
@@ -1169,7 +1238,7 @@ class HAXCMSSite {
         let output = fs.readFileSync(sourcePath, "utf8");
         if (policy.render) {
           let template = Twig.twig({ data: output, async: false });
-          // Security (PR8-6): title/description pre-escaped per format
+          // Security (SEC-SANITIZE): title/description pre-escaped per format
           // (JSON string / XML / plain text) for the managed files that
           // embed them; see MANAGED_TEMPLATE_TEXT_FORMATS.
           output = template.render(
@@ -1389,7 +1458,7 @@ class HAXCMSSite {
    */
   async gitCommit(msg = "Committed changes", op = "") {
     try {
-      // Security (HAX-SEC-006): sanitize the commit message to a conservative
+      // Security (SEC-EXEC): sanitize the commit message to a conservative
       // allowlist before it reaches git-interface, which string-splits the
       // command (git-interface/dist/index.js:26) and only escapes single
       // quotes. A message containing a quote/control char could break the
@@ -1419,10 +1488,10 @@ class HAXCMSSite {
         this.manifest.metadata.site.git.autoPush &&
         this.manifest.metadata.site.git.branch
       ) {
-        // Security (HAX-SEC-006): validate the branch name against a strict
+        // Security (SEC-EXEC): validate the branch name against a strict
         // pattern before checkout to prevent git argument injection via a
         // configured branch name containing shell/arg metacharacters.
-        // Security (PR8-3): must start alphanumeric so a leading `-` can
+        // Security (SEC-EXEC): must start alphanumeric so a leading `-` can
         // never be parsed as a git option.
         var branch = String(this.manifest.metadata.site.git.branch);
         if (GIT_BRANCH_PATTERN.test(branch)) {
@@ -1487,8 +1556,7 @@ class HAXCMSSite {
    * @var git a stdClass containing repo details
    */
   async gitSetRemote(gitDetails) {
-    // Security (PR8-3): previously referenced an undefined `repo` and always
-    // threw (silently swallowed). Validate the URL before it reaches
+    // Security (SEC-EXEC): validate the URL before it reaches
     // git-interface (which splits the command on whitespace) and use the
     // GitPlus instance. Mirrors PHP set_remote (`git remote add origin`),
     // falling back to `remote set-url` when origin already exists.
@@ -1544,12 +1612,22 @@ class HAXCMSSite {
     html = "<p></p>",
     order = null,
     metadata = null,
+    bulk = null,
   ) {
+    // bulk: { createdFolders: [] } when the caller adds many pages in one
+    // request. site.json is then written, and the generated files rebuilt,
+    // once by the caller (finishBulkAddPages) instead of once per page,
+    // which made building an N-page site cost O(N^2). The caller removes
+    // the folders listed in createdFolders if that one write fails.
     // draft an outline schema item
     let page = new JSONOutlineSchemaItem();
+    // ids are strings: an import / skeleton item with integer ids (id 7,
+    // parent 7) keeps its parent link, the same as a site.json load
+    id = JSONOutlineSchema.normalizeOutlineId(id);
+    parent = JSONOutlineSchema.normalizeOutlineId(parent);
     // support direct ID setting, useful for parent associations calculated ahead of time
     if (id) {
-      // Security (N1/N5 parity): sanitize caller-supplied id before it is
+      // Security (SEC-PATH), PHP parity: sanitize caller-supplied id before it is
       // used to build the on-disk page location (same defense as
       // itemFromParams / PHP HAXCMSSite::addPage), so a crafted id such as
       // `../../othersite` cannot escape the site pages directory.
@@ -1599,6 +1677,7 @@ class HAXCMSSite {
     page.metadata.created = Math.floor(Date.now() / 1000);
     page.metadata.updated = Math.floor(Date.now() / 1000);
     let location = path.join(this.siteDirectory, "pages", page.id);
+    const folderExisted = fs.existsSync(location);
     // copy the page we use for simplicity (or later complexity if we want)
     switch (template) {
       case "course":
@@ -1626,7 +1705,21 @@ class HAXCMSSite {
     }
     this.manifest.addItem(page);
     this.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
-    await this.manifest.save();
+    if (bulk) {
+      if (!folderExisted) {
+        bulk.createdFolders.push(location);
+      }
+    } else {
+      try {
+        await this.manifest.save();
+      } catch (e) {
+        // no page folder without its outline entry
+        if (!folderExisted) {
+          this.removeCreatedPageFolder(location);
+        }
+        throw e;
+      }
+    }
     // support direct HTML setting
     let alternateContent = "";
     if (template == "html") {
@@ -1652,13 +1745,32 @@ class HAXCMSSite {
         page.metadata = {};
       }
       page.metadata.files = uuids;
-      if (uuids.length > 0) {
+      if (uuids.length > 0 && !bulk) {
         await this.manifest.save();
       }
     }
     this.writePageAlternateFormats(page, alternateContent);
-    this.updateAlternateFormats();
+    if (!bulk) {
+      await rebuildAlternateFormatsLogged(this, "addPage");
+    }
     return page;
+  }
+  /**
+   * End a bulk add (see addPage's bulk argument): write site.json once and
+   * rebuild the generated files once. If the write fails, the page folders
+   * this bulk created are removed (no page folder without its outline
+   * entry) and the error is thrown.
+   */
+  async finishBulkAddPages(bulk) {
+    try {
+      await this.manifest.save();
+    } catch (e) {
+      for (let i = 0; i < bulk.createdFolders.length; i++) {
+        this.removeCreatedPageFolder(bulk.createdFolders[i]);
+      }
+      throw e;
+    }
+    await rebuildAlternateFormatsLogged(this, "addPage");
   }
   /**
    * Save the site, though this basically is just a mapping to the manifest site.json saving
@@ -1993,7 +2105,7 @@ class HAXCMSSite {
       this.siteDirectory
     ) {
       try {
-        // Security (N1/N5 parity): containment-checked read
+        // Security (SEC-PATH), PHP parity: containment-checked read
         const resolvedLocation = this.resolvePageLocationRealPath(
           item.location,
         );
@@ -2148,7 +2260,7 @@ class HAXCMSSite {
       }
       textData = "";
       try {
-        // Security (N1/N5 parity): read via containment-checked resolver
+        // Security (SEC-PATH), PHP parity: read via containment-checked resolver
         const resolvedLocation = this.resolvePageLocationRealPath(
           item.location,
         );
@@ -2193,8 +2305,10 @@ class HAXCMSSite {
     text = text.replace("~\b[a-z]{1,4}\bs*~", "");
     // all excess white space
     text = text.replace("/s+/", " ");
-    // crush string to array and back to make an unique index
-    text = implode(" ", array_unique(explode(" ", text)));
+    // crush string to array and back to make an unique index. A Set keeps
+    // first occurrences in order, which is exactly what locutus
+    // array_unique + implode produced, but in O(n) instead of O(n^2).
+    text = Array.from(new Set(explode(" ", text))).join(" ");
     return text;
   }
   /**
@@ -2481,10 +2595,10 @@ class HAXCMSSite {
             if (navigator.serviceWorker.controller) {
               navigator.serviceWorker.controller.onstatechange = function(event) {
                 if (event.target.state === 'redundant') {
-                  var b = document.createElement('paper-button');
+                  var b = document.createElement('button');
+                  b.type = 'button';
                   b.appendChild(document.createTextNode('Reload'));
-                  b.raised = true;
-                  b.addEventListener('click', function(e){ window.location.reload(true); });
+                  b.addEventListener('click', function(e){ window.location.reload(); });
                   window.dispatchEvent(new CustomEvent('haxcms-toast-show', {
                     bubbles: true,
                     cancelable: false,
@@ -2509,7 +2623,7 @@ class HAXCMSSite {
    */
   async getPageContent(page) {
     if (page.location && page.location != "") {
-      // Security (N1/N5 parity): read via the containment-checked resolver
+      // Security (SEC-PATH), PHP parity: read via the containment-checked resolver
       // so a poisoned site.json location cannot read outside the site dir.
       const resolved = this.resolvePageLocationRealPath(page.location);
       if (resolved === false) {
@@ -2529,7 +2643,7 @@ class HAXCMSSite {
     }
   }
   /**
-   * Security (N1/N5 parity): resolve a page location to its real path and
+   * Security (SEC-PATH), PHP parity: resolve a page location to its real path and
    * prove it stays inside this site's directory. Returns false for NUL
    * bytes, `..` segments, missing files, or anything (incl. symlinks) that
    * resolves outside the site. Port of PHP
@@ -2560,7 +2674,7 @@ class HAXCMSSite {
     if (!page || !page.location || page.location == "" || !this.siteDirectory) {
       return false;
     }
-    // Security (N1/N5 parity): sidecars are written beside the page file,
+    // Security (SEC-PATH), PHP parity: sidecars are written beside the page file,
     // so refuse when the page location itself escapes the site directory.
     if (this.resolvePageLocationRealPath(page.location) === false) {
       return false;
@@ -2789,13 +2903,17 @@ class HAXCMSSite {
     let item = HAXCMS.outlineSchema.newItem();
     let cleanTitle = "";
     // set the title
-    item.title = params["node"]["title"].replace("\n", "");
+    // Security (SEC-SANITIZE): titles are plain text, same as addPage /
+    // saveOutline / saveNode; a title that is nothing but markup gets the
+    // same default as addPage (mirrors PHP HAXCMSSite::itemFromParams)
+    const plainTitle = toPlainText(params["node"]["title"]).replace(/\n/g, "");
+    item.title = plainTitle === "" ? "New page" : plainTitle;
     if (
       params["node"]["id"] &&
       params["node"]["id"] != "" &&
       params["node"]["id"] != null
     ) {
-      // Security (N1/N5 parity): sanitize a client-supplied id before
+      // Security (SEC-PATH), PHP parity: sanitize a client-supplied id before
       // composing the on-disk location. generateMachineName strips '..',
       // slashes and NUL bytes (mirrors PHP HAXCMSSite::itemFromParams), so
       // an id such as `../../othertenant` cannot escape the pages dir when
@@ -2835,7 +2953,7 @@ class HAXCMSSite {
       params["metadata"] != "" &&
       params["metadata"] != null
     ) {
-      // Security (SEC-SANITIZE, PHP parity with haxcms-php#704): metadata comes
+      // Security (SEC-SANITIZE), PHP parity: metadata comes
       // straight from the createNode/saveNode request body. Merge it through
       // the same per-field rules addPage() and saveOutline use instead of
       // assigning the request object verbatim (which also aliased the caller's
@@ -2942,9 +3060,14 @@ class HAXCMSSite {
       canonicalBase = sanitizeUrl(this.manifest.metadata.site.domain);
     }
     let canonicalUrl = canonicalBase;
+    // on unless the site turned it off: sites made before createSite stored
+    // the flag have none, and a page without a canonical splits its ranking
+    // across every URL that reaches it (?query, trailing slash, aliases)
+    const siteSettings = this.manifest.metadata.site.settings || {};
     if (
-      this.manifest.metadata.site.settings &&
-      this.manifest.metadata.site.settings.canonical
+      siteSettings.canonical === undefined ||
+      siteSettings.canonical === null ||
+      siteSettings.canonical
     ) {
       if (canonicalPath && canonicalPath != "") {
         const normalizedCanonicalPath =
@@ -3041,6 +3164,12 @@ class HAXCMSSite {
     }
     const safeSocialShareImage = escapeHtml(socialImageUrl);
     const safeHexCode = escapeHtml(hexCode);
+    // the front page describes the site; every other page is an article
+    const ogType =
+      // getItemKeyById returns the key as a string ("0")
+      !page.id || String(this.manifest.getItemKeyById(page.id)) === "0"
+        ? "website"
+        : "article";
     const joinUrl = (baseValue = "", segmentValue = "") => {
       const normalizedBase = String(baseValue || "");
       const normalizedSegment = String(segmentValue || "");
@@ -3315,30 +3444,21 @@ class HAXCMSSite {
         continue;
       }
       contentSeen[tagPathStr] = true;
+      // modulepreload only: a preload as=script for the same URL is a
+      // separate classic-script request the module loader never reuses
       contentPreload +=
-        '\n  <link rel="preload" href="' +
-        base +
-        "build/es6/node_modules/" +
-        tagPathStr +
-        '" as="script" crossorigin="anonymous" />' +
         '\n  <link rel="modulepreload" href="' +
         base +
         "build/es6/node_modules/" +
         tagPathStr +
-        '" />';
+        '" crossorigin="anonymous" />';
     }
     let themePreload = "";
     if (themePath) {
       if (themePath.charAt(0) === "@") {
-        // registry theme: modulepreload is already in the shell set above;
-        // keep only the preload-as-script hint so the theme fetch is
-        // prioritized early.
-        themePreload =
-          '  <link rel="preload" href="' +
-          base +
-          "build/es6/node_modules/" +
-          themePath +
-          '" as="script" crossorigin="anonymous" />';
+        // registry theme: its modulepreload is already in the shell set
+        // above; a preload as=script would be a second, unused request
+        themePreload = "";
       } else {
         // custom theme: site-relative path (e.g. ./custom/build/custom.es6.js)
         // loaded directly by build-haxcms.js. Emit the hrefs verbatim so they
@@ -3348,23 +3468,29 @@ class HAXCMSSite {
         themePreload =
           '  <link rel="modulepreload" href="' +
           safeCustomThemePath +
-          '" crossorigin="anonymous" />\n' +
-          '  <link rel="preload" href="' +
-          safeCustomThemePath +
-          '" as="script" crossorigin="anonymous" />';
+          '" crossorigin="anonymous" />';
       }
+    }
+    // haxcms-site-builder fetches the active page's HTML right after
+    // site.json; preload it so that request is not queued behind the boot
+    // JavaScript. Site-relative (never the CDN base) to match the builder.
+    let pageDataPreload = "";
+    const pageLocation = getPreloadablePageLocation(page);
+    if (pageLocation !== "") {
+      pageDataPreload =
+        '\n  <link rel="preload" href="./' +
+        escapeHtml(pageLocation) +
+        '" as="fetch" crossorigin="anonymous" fetchpriority="high" />';
     }
     let metadata = `<meta charset="utf-8" />
   ${preconnect}
-  <link rel="preconnect" crossorigin href="https://fonts.googleapis.com">
-  <link rel="preconnect" crossorigin href="https://cdnjs.cloudflare.com">
-  <link rel="preconnect" crossorigin href="https://i.creativecommons.org">
-  <link rel="preconnect" crossorigin href="https://licensebuttons.net">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" crossorigin href="https://fonts.gstatic.com">
   <link rel="preload" href="${base}build.js" as="script" />
   <link rel="preload" href="${base}build-haxcms.js" as="script" />
   <link rel="preload" href="${base}wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
 ${shellModulepreload}
-${themePreload}${contentPreload}
+${themePreload}${contentPreload}${pageDataPreload}
   <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
   <link rel="llms" href="llms.txt" title="LLM Content Map" />
   <link rel="alternate" type="text/markdown" href="llms.txt" title="Markdown Summary" />
@@ -3398,7 +3524,7 @@ ${themePreload}${contentPreload}
   <meta name="description" content="${safeDescription}" />
   <meta name="og:site_name" property="og:site_name" content="${safeManifestTitle}" />
   <meta name="og:title" property="og:title" content="${safeTitle}" />
-  <meta name="og:type" property="og:type" content="article" />
+  <meta name="og:type" property="og:type" content="${ogType}" />
   <meta name="og:url" property="og:url" content="${safeDomain}" />
   <meta name="og:description" property="og:description" content="${safeDescription}" />
 ${
@@ -3407,7 +3533,6 @@ ${
 `
     : ""
 }  <meta name="twitter:card" property="twitter:card" content="summary_large_image" />
-  <meta name="twitter:site" property="twitter:site" content="${safeDomain}" />
   <meta name="twitter:title" property="twitter:title" content="${safeTitle}" />
   <meta name="twitter:description" property="twitter:description" content="${safeDescription}" />
 ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" content="${safeSocialShareImage}" />` : ""}`;
@@ -3673,11 +3798,11 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
             this.manifest.metadata.site.logo == null ||
             this.manifest.metadata.site.logo == "null"))
       ) {
-        fileName = "assets/icon-" + height + "x" + width + ".png";
+        fileName = defaultIconPath(height, width);
       } else {
         // ensure this path exists otherwise let's create it on the fly
         const logo = this.manifest.metadata.site.logo;
-        const fallback = "assets/icon-" + height + "x" + width + ".png";
+        const fallback = defaultIconPath(height, width);
         const sizedName =
           typeof logo === "string" && logo.startsWith("files/")
             ? logo.replace(
@@ -3912,6 +4037,45 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
    * Delete a page from the manifest
    * @return JSONOutlineSchemaItem or false
    */
+  /**
+   * Invariant: a page folder exists only for a page site.json lists. A
+   * request that creates a page folder and then fails to write the
+   * site.json that would list it removes the folder again with this.
+   * Only a folder under this site's pages/ directory is removed, and
+   * callers pass only folders the same request created (never one that
+   * existed before it). Mirrors HAXCMSSite::removeCreatedPageFolder in
+   * haxcms-php.
+   * @return boolean whether a folder was removed
+   */
+  removeCreatedPageFolder(folder) {
+    if (typeof folder !== "string" || folder === "") {
+      return false;
+    }
+    // Security (SEC-PATH): only a folder strictly inside this site's pages/
+    // directory (real path, not a symlink) is ever removed
+    const pagesDirectory = path.join(this.siteDirectory, "pages");
+    const relative = path.relative(pagesDirectory, path.resolve(folder));
+    if (
+      relative === "" ||
+      path.isAbsolute(relative) ||
+      relative.split(path.sep)[0] === ".."
+    ) {
+      return false;
+    }
+    try {
+      if (fs.lstatSync(folder).isSymbolicLink()) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+    const contained = resolveContainedPath(pagesDirectory, relative);
+    if (!contained) {
+      return false;
+    }
+    fs.removeSync(contained);
+    return !fs.existsSync(contained);
+  }
   async deleteNode(page) {
     for (var key in this.manifest.items) {
       let item = this.manifest.items[key];
@@ -3948,17 +4112,26 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       let item = { ...page };
       let pieces = [slug];
       let tmp = "";
+      // a parent cycle already on disk must not loop forever: each
+      // ancestor is visited once (saveOutline rejects new cycles)
+      const visited = new Set([String(page.id)]);
       while ((item = this.manifest.getItemById(item.parent))) {
+        if (visited.has(String(item.id))) {
+          break;
+        }
+        visited.add(String(item.id));
         tmp = explode("/", item.slug);
         array_unshift(pieces, tmp.pop());
       }
       slug = implode("/", pieces);
-      rSlug = slug;
     }
-    // trap for a / as 1st character if we had empty pieces
-    while (rSlug.substring(0, 1) == "/") {
-      rSlug = rSlug.substring(1);
-    }
+    // an ancestor with an empty slug adds no segment: the slug, and every
+    // numbered variant of it, never starts with "/" or holds "//"
+    slug = joinSlugSegments(slug);
+    rSlug = slug;
+    // reserved front-end route segments ("x" -> "x-x")
+    slug = reserveSlugRoutes(slug);
+    rSlug = reserveSlugRoutes(rSlug);
     let loop = 0;
     let ready = false;
     // while not ready, keep checking
@@ -3985,106 +4158,6 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     }
     return rSlug;
   }
-
-  /**
-   * Handle style guide save operation through saveNode endpoint
-   * @param object bodyParams The request body parameters
-   * @return object Response object with status and data
-   */
-  async handleStyleGuideSave(bodyParams) {
-    const styleGuideFile = path.join(
-      this.siteDirectory,
-      "theme",
-      "style-guide.html",
-    );
-
-    // Extract content from node body (saveNode endpoint)
-    let content = null;
-    if (bodyParams["node"] && bodyParams["node"]["body"]) {
-      content = bodyParams["node"]["body"];
-    }
-
-    // validate that we have content to save
-    if (!content) {
-      return {
-        status: 400,
-        data: { message: "Content parameter is required" },
-      };
-    }
-
-    // validate content is a string and has some actual content
-    if (typeof content !== "string") {
-      return { status: 400, data: { message: "Content must be a string" } };
-    }
-
-    // basic validation - ensure we have some HTML-like content
-    const cleanContent = content.trim();
-    if (!cleanContent) {
-      return { status: 400, data: { message: "Content cannot be empty" } };
-    }
-
-    // validate that content appears to be HTML by checking for basic HTML patterns
-    // this follows similar pattern to how saveNode validates content structure
-    if (!hasAngleTag(cleanContent)) {
-      return { status: 400, data: { message: "Content must be valid HTML" } };
-    }
-
-    // check if the theme directory exists, if not create it
-    const themeDirectory = path.join(this.siteDirectory, "theme");
-    if (!fs.existsSync(themeDirectory)) {
-      try {
-        await fs.ensureDir(themeDirectory);
-      } catch {
-        return {
-          status: 500,
-          data: { message: "Failed to create theme directory" },
-        };
-      }
-    }
-
-    // ensure the site's style guide setting allows writing to the default location
-    // only allow writing to the default location (theme/style-guide.html)
-    // if user has changed the styleGuide setting to an external URL, block writes
-    if (
-      this.manifest.metadata.theme &&
-      this.manifest.metadata.theme.styleGuide &&
-      this.manifest.metadata.theme.styleGuide !== null &&
-      this.manifest.metadata.theme.styleGuide !== ""
-    ) {
-      return {
-        status: 403,
-        data: {
-          message:
-            "Style guide is configured to use external source. Cannot edit through HAXcms.",
-        },
-      };
-    }
-
-    // write the content to the style guide file
-    // Security (SEC-SANITIZE): sanitize the style-guide HTML before writing,
-    // matching saveNode and PHP (SEC-08), so an editor cannot inject <script>
-    // into theme/style-guide.html (served to every site visitor).
-    const sanitizedContent = sanitizeHTMLForStorage(cleanContent);
-    try {
-      await fs.writeFile(styleGuideFile, sanitizedContent);
-    } catch {
-      return {
-        status: 500,
-        data: { message: "Failed to write style guide file" },
-      };
-    }
-
-    // commit to git
-    await this.gitCommit("Style guide updated");
-
-    return {
-      status: 200,
-      data: {
-        message: "Style guide saved successfully",
-        file: "theme/style-guide.html",
-      },
-    };
-  }
 }
 // HAXcms core
 class HAXCMSClass {
@@ -4103,7 +4176,7 @@ class HAXCMSClass {
     if (!this.user || this.user.name !== "admin") {
       return false;
     }
-    // Security (HAX-SEC-001): a hashed password is never the default 'admin'
+    // Security (SEC-INSTALL): a hashed password is never the default 'admin'
     // credential. Only an unhashed plaintext 'admin' password qualifies.
     if (this.isPasswordHashed(this.user.password)) {
       return false;
@@ -4211,7 +4284,7 @@ class HAXCMSClass {
       name: runtimeCredentialOverride.name,
       password: runtimeCredentialOverride.password,
     };
-    // Security (HAX-SEC-001): do not mutate .user on disk for runtime overrides
+    // Security (SEC-INSTALL): do not mutate .user on disk for runtime overrides
     // (testing/orchestration). The in-memory plaintext is still verified
     // correctly by verifyStoredPassword's legacy plaintext path.
     this.credentialsLoadedFromDisk = false;
@@ -4221,7 +4294,7 @@ class HAXCMSClass {
     return crypto.randomBytes(16).toString("hex");
   }
   /**
-   * Security (HAX-SEC-001): hash a plaintext password with scrypt (NIST-approved
+   * Security (SEC-INSTALL): hash a plaintext password with scrypt (NIST-approved
    * KDF, Node built-in — no new dependency). Stored format:
    *   scrypt$<saltHex>$<hashHex>
    * The salt and hash hex alphabet contains no shell/regex metacharacters.
@@ -4247,7 +4320,7 @@ class HAXCMSClass {
     return "scrypt$" + salt.toString("hex") + "$" + hash.toString("hex");
   }
   /**
-   * Security (HAX-SEC-001): return true if a stored credential is a scrypt hash
+   * Security (SEC-INSTALL): return true if a stored credential is a scrypt hash
    * (vs legacy plaintext). Used by verifyStoredPassword to pick the verify
    * path and by hasDefaultCredentials to skip hashed values.
    */
@@ -4255,54 +4328,94 @@ class HAXCMSClass {
     return typeof stored === "string" && stored.indexOf("scrypt$") === 0;
   }
   /**
-   * Security (HAX-SEC-001): verify a submitted password against a stored
+   * Security (SEC-SESSION): verify a submitted password against a stored
    * credential, transparently supporting both hashed (scrypt$) and legacy
    * plaintext storage. A stored value is treated as a hash when it starts with
    * 'scrypt$'; otherwise it is compared in constant time as plaintext. Mirrors
    * PHP's verifyStoredPassword (HAXCMS.php:1672-1684) which uses
    * password_get_info + password_verify for the same detect-and-verify pattern.
    */
-  verifyStoredPassword(stored, submitted) {
+  /**
+   * Shared input checks and parsing for verifyStoredPassword and
+   * verifyStoredPasswordAsync. Returns { kind: "invalid" }, { kind: "plain" }
+   * or { kind: "scrypt", salt, expected }.
+   */
+  parseStoredPassword(stored, submitted) {
     if (
       typeof stored !== "string" ||
       stored === "" ||
       typeof submitted !== "string" ||
       submitted === ""
     ) {
+      return { kind: "invalid" };
+    }
+    if (!this.isPasswordHashed(stored)) {
+      return { kind: "plain" };
+    }
+    var parts = stored.split("$");
+    if (parts.length !== 3) {
+      return { kind: "invalid" };
+    }
+    var salt;
+    var expected;
+    try {
+      salt = Buffer.from(parts[1], "hex");
+      expected = Buffer.from(parts[2], "hex");
+    } catch {
+      return { kind: "invalid" };
+    }
+    if (salt.length === 0 || expected.length === 0) {
+      return { kind: "invalid" };
+    }
+    return { kind: "scrypt", salt: salt, expected: expected };
+  }
+  verifyStoredPassword(stored, submitted) {
+    var parsed = this.parseStoredPassword(stored, submitted);
+    if (parsed.kind === "invalid") {
       return false;
     }
-    if (this.isPasswordHashed(stored)) {
-      var parts = stored.split("$");
-      if (parts.length !== 3) {
+    if (parsed.kind === "scrypt") {
+      var computed = crypto.scryptSync(
+        submitted,
+        parsed.salt,
+        parsed.expected.length,
+        SCRYPT_PASSWORD_OPTIONS,
+      );
+      if (computed.length !== parsed.expected.length) {
         return false;
       }
-      var salt;
-      var expected;
-      try {
-        salt = Buffer.from(parts[1], "hex");
-        expected = Buffer.from(parts[2], "hex");
-      } catch {
-        return false;
-      }
-      if (salt.length === 0 || expected.length === 0) {
-        return false;
-      }
-      var computed = crypto.scryptSync(submitted, salt, expected.length, {
-        N: 16384,
-        r: 8,
-        p: 1,
-        maxmem: 32 * 1024 * 1024,
-      });
-      if (computed.length !== expected.length) {
-        return false;
-      }
-      return crypto.timingSafeEqual(computed, expected);
+      return crypto.timingSafeEqual(computed, parsed.expected);
     }
     // legacy plaintext -> constant-time compare
     return this.safeStringCompare(stored, submitted);
   }
   /**
-   * Security (HAX-SEC-001 / migration): opportunistically re-hash and persist a
+   * Same result as verifyStoredPassword, but scrypt runs on the libuv thread
+   * pool instead of blocking the event loop (~40ms per check at N=16384).
+   * Used on per-request paths (Basic auth, the login route).
+   */
+  async verifyStoredPasswordAsync(stored, submitted) {
+    var parsed = this.parseStoredPassword(stored, submitted);
+    if (parsed.kind === "invalid") {
+      return false;
+    }
+    if (parsed.kind === "scrypt") {
+      var computed = await scryptAsync(
+        submitted,
+        parsed.salt,
+        parsed.expected.length,
+        SCRYPT_PASSWORD_OPTIONS,
+      );
+      if (computed.length !== parsed.expected.length) {
+        return false;
+      }
+      return crypto.timingSafeEqual(computed, parsed.expected);
+    }
+    // legacy plaintext -> constant-time compare
+    return this.safeStringCompare(stored, submitted);
+  }
+  /**
+   * Security (SEC-SESSION, SEC-INSTALL): opportunistically re-hash and persist a
    * legacy plaintext password from .user as a scrypt hash on the first
    * successful plaintext login. Best-effort and non-fatal: if .user is
    * read-only the login still succeeds and the value remains plaintext until it
@@ -4394,7 +4507,7 @@ class HAXCMSClass {
       ),
     };
   }
-  // Security (F3): rate-limit settings for authenticated file-mutation
+  // Security (SEC-RATELIMIT): rate-limit settings for authenticated file-mutation
   // operations (createFile/updateFile/deleteFile). Mirrors
   // getLoginRateLimitSettings shape but uses `max` (count window) instead of
   // `maxAttempts` (failed-credit block). Defaults (500 ops / 5 min, 5-min
@@ -4437,6 +4550,65 @@ class HAXCMSClass {
       ),
     };
   }
+  // Budget of outside link checks (POST x/api/v1/site/check-links) per
+  // user and site: `max` network checks per `windowMs`; cached answers do not
+  // count. Defaults (1000 per 15 min) cover one full check of a large site
+  // while keeping the server from being used to hammer other sites.
+  // Config: config.security.linkCheckRateLimit { enabled, windowMs, max }.
+  // Block changes per site per window (x/api/v1/content/:idOrSlug/blocks),
+  // so a script or an AI agent driving the API cannot flood a site with
+  // commits. Parity: haxcms-php HAXCMS::getBlockOperationsRateLimitSettings.
+  getBlockOperationsRateLimitSettings() {
+    const defaults = { enabled: true, windowMs: 60 * 1000, max: 1000 };
+    let cfg = {};
+    if (
+      this.config &&
+      this.config.security &&
+      this.config.security.blockOperationsRateLimit
+    ) {
+      cfg = this.config.security.blockOperationsRateLimit;
+    }
+    let enabled = defaults.enabled;
+    if (typeof cfg.enabled !== "undefined") {
+      enabled = cfg.enabled === true;
+    }
+    return {
+      enabled: enabled,
+      windowMs: this.getIntConfigValue(
+        cfg.windowMs,
+        defaults.windowMs,
+        1000,
+        24 * 60 * 60 * 1000,
+      ),
+      max: this.getIntConfigValue(cfg.max, defaults.max, 1, 100000),
+    };
+  }
+  // Parity: haxcms-php HAXCMS::getLinkCheckRateLimitSettings.
+  getLinkCheckRateLimitSettings() {
+    const defaults = { enabled: true, windowMs: 15 * 60 * 1000, max: 1000 };
+    let cfg = {};
+    if (
+      this.config &&
+      this.config.security &&
+      this.config.security.linkCheckRateLimit
+    ) {
+      cfg = this.config.security.linkCheckRateLimit;
+    }
+    let enabled = defaults.enabled;
+    if (typeof cfg.enabled !== "undefined") {
+      enabled = cfg.enabled === true;
+    }
+    return {
+      enabled: enabled,
+      windowMs: this.getIntConfigValue(
+        cfg.windowMs,
+        defaults.windowMs,
+        60 * 1000,
+        24 * 60 * 60 * 1000,
+      ),
+      max: this.getIntConfigValue(cfg.max, defaults.max, 1, 100000),
+    };
+  }
   // Per-IP request ceiling for the whole HTTP surface (static files, site
   // assets, catch-all handlers) that touches the filesystem. Defaults are
   // deliberately generous (10000 req/min) because HAXcms ships unbundled: a
@@ -4477,7 +4649,7 @@ class HAXCMSClass {
       if (typeof this.config.security.trustProxy !== "undefined") {
         return this.normalizeTrustProxyValue(this.config.security.trustProxy);
       }
-      // PHP parity (M2): honor config.security.trustedProxies (array of proxy
+      // Security (SEC-HEADERS), PHP parity: honor config.security.trustedProxies (array of proxy
       // IPs). When set, Express trusts forwarded headers only from those peers,
       // matching PHP's resolveClientIP trusted-proxy allowlist. This keeps
       // config.json portable across both backends.
@@ -4545,7 +4717,7 @@ class HAXCMSClass {
     );
     return false;
   }
-  // PHP parity (M4): read the allowed-host allowlist from
+  // Security (SEC-HEADERS), PHP parity: read the allowed-host allowlist from
   // config.security.allowedHosts (array of host strings, may include port).
   // When empty, host-header validation is not applied (existing behavior
   // preserved). Used by getRequestAbsoluteUrl to validate Host /
@@ -4573,7 +4745,7 @@ class HAXCMSClass {
     }
     return hosts;
   }
-  // PHP parity (M4): resolve the request protocol, trusting X-Forwarded-Proto
+  // Security (SEC-HEADERS), PHP parity: resolve the request protocol, trusting X-Forwarded-Proto
   // only when behind a configured trusted proxy. Shared by getRequestAbsoluteUrl
   // (app.js) and both discovery API endpoints so all response-URL construction
   // uses one trust-proxy-aware implementation and cannot drift apart. Mirrors
@@ -4596,7 +4768,7 @@ class HAXCMSClass {
     }
     return "http";
   }
-  // PHP parity (M4): resolve the request Host, trusting X-Forwarded-Host only
+  // Security (SEC-HEADERS), PHP parity: resolve the request Host, trusting X-Forwarded-Host only
   // when behind a configured trusted proxy, and validating against
   // config.security.allowedHosts when set (falling back to the first allowed
   // host on mismatch). When no allowlist is configured, the header value is
@@ -4646,11 +4818,11 @@ class HAXCMSClass {
     }
     return defaultOrigin;
   }
-  // Security (HAX-SEC-011): write a secret file with mode 0o600 on POSIX
+  // Security (SEC-INSTALL): write a secret file with mode 0o600 on POSIX
   // systems so the JWT signing key, refresh key, salt, and hashed admin
   // password are not group/world-readable. On Windows, POSIX modes are ignored
-  // so the mode option is omitted (the file is still created). Since 1b (API
-  // key encryption) is deferred for parity, this is the primary at-rest
+  // so the mode option is omitted (the file is still created). API keys are not
+  // encrypted at rest (PHP parity), so this is the primary at-rest
   // protection for the shared apiKeys.json alongside the web-serving block.
   writeSecretFile(filePath, data) {
     if (process.platform === "win32") {
@@ -4666,11 +4838,16 @@ class HAXCMSClass {
   // terminal (a human running `npx`/`npm start`), never when stderr is piped to
   // a container runtime, systemd journal, CI log, etc.
   // options.isTTY overrides process.stderr.isTTY (tests); options.log
-  // overrides console.error. Returns the password file path (or null if it
-  // could not be written).
+  // overrides the default, a line on process.stderr (what console.error
+  // writes, written directly so an embedding runtime, like haxcms-browser,
+  // decides through its process.stderr where server notes go). Returns the
+  // password file path (or null if it could not be written).
   announceSeededCredentials(userName, password, options) {
     const opts = options || {};
-    const log = typeof opts.log === "function" ? opts.log : console.error;
+    const log =
+      typeof opts.log === "function"
+        ? opts.log
+        : (line) => process.stderr.write(String(line) + "\n");
     const isTTY =
       typeof opts.isTTY === "boolean"
         ? opts.isTTY
@@ -4714,7 +4891,7 @@ class HAXCMSClass {
     log("\n***************************************************************");
     return wroteFile ? passwordFile : null;
   }
-  // Security (HAX-SEC-011): best-effort chmod of an existing secret file to
+  // Security (SEC-INSTALL): best-effort chmod of an existing secret file to
   // 0o600. Covers files created by a previous version that used the default
   // umask. Non-fatal: failures (read-only fs, locked-down env) are swallowed.
   // Skipped on Windows where POSIX modes are ignored.
@@ -4729,20 +4906,14 @@ class HAXCMSClass {
     }
   }
   async gitTest() {
-    try {
-      const { stdout } = await exec("git --version");
-      return stdout;
-    } catch {
-      return null;
-    }
+    return await gitVersionCached();
   }
   constructor() {
     this.developerMode = false;
     this.developerModeAdminOnly = false;
     this.cliWritePath = null;
     this.cdn = "./";
-    this.sessionJwt = null;
-    // Security (HAX-SEC-001): tracks whether credentials came from .user on disk
+    // Security (SEC-INSTALL): tracks whether credentials came from .user on disk
     // (true) or were seeded/runtime-overridden (false). Controls whether
     // maybeUpgradePlaintextPassword is allowed to rewrite .user on next login.
     this.credentialsLoadedFromDisk = false;
@@ -4851,6 +5022,15 @@ class HAXCMSClass {
     }
     if (typeof this.config.mcp.readOnly === "undefined") {
       this.config.mcp.readOnly = true;
+    }
+    // update awareness: the status report checks GitHub for a newer release and
+    // published security advisories. Never on a host-managed (HAXiam) install;
+    // set updates.check to false in config.json to turn the check off.
+    if (!this.config.updates || typeof this.config.updates !== "object") {
+      this.config.updates = {};
+    }
+    if (typeof this.config.updates.check === "undefined") {
+      this.config.updates.check = true;
     }
     if (!this.config.appJWTConnectionSettings) {
       this.config.appJWTConnectionSettings = {};
@@ -5004,13 +5184,13 @@ class HAXCMSClass {
         "utf8",
       );
       this.superUser = { ...this.user };
-      // Security (HAX-SEC-001): credentials loaded from disk — allow lazy
+      // Security (SEC-INSTALL): credentials loaded from disk — allow lazy
       // plaintext-to-hash migration on next successful login.
       this.credentialsLoadedFromDisk = true;
     } catch {
       // create a default user with secure random password
       const seededPassword = this.generateSecurePassword();
-      // Security (HAX-SEC-001): store a scrypt hash, never the plaintext. The
+      // Security (SEC-INSTALL): store a scrypt hash, never the plaintext. The
       // plaintext is handed off once below (SEC-DEPLOY: 0600 file, stderr only
       // on a TTY) so the admin can capture it; only the hash is persisted to
       // .user. Mirrors PHP install.php:360.
@@ -5040,7 +5220,7 @@ class HAXCMSClass {
         }
       }
     }
-    // Security (HAX-SEC-011): tighten permissions on existing secret files to
+    // Security (SEC-INSTALL): tighten permissions on existing secret files to
     // 0o600 (best-effort, POSIX only). Covers files created by a previous
     // version that used the default umask, so a deploy upgrading to this version
     // gets the restricted mode without a manual chmod.
@@ -5226,8 +5406,9 @@ class HAXCMSClass {
     n = n.replace(/[^a-zA-Z0-9_-]+/g, "-");
     // Clean up multiple consecutive hyphens/underscores
     n = n.replace(/[-_]{2,}/g, "-");
-    // Remove leading/trailing hyphens/underscores
-    n = n.replace(/^[-_]+|[-_]+$/g, "");
+    // Remove a leading/trailing hyphen or underscore (runs were collapsed to
+    // one character above, so one is all there can be)
+    n = n.replace(/^[-_]|[-_]$/g, "");
     // Convert to lowercase
     n = n.toLowerCase();
     // Fallback for empty result
@@ -5241,40 +5422,11 @@ class HAXCMSClass {
    * Generate slug name
    */
   generateSlugName(name) {
-    if (name === undefined || name === null) {
-      return "";
-    }
-    let n = String(name);
-    // Remove null bytes
-    n = n.replace(/\0/g, "");
-    // URL decode to catch encoded traversal attempts
-    try {
-      n = decodeURIComponent(n);
-    } catch {
-      // ignore decode errors, keep original string
-    }
-    // Remove path traversal sequences while preserving forward slashes for URLs
-    n = n.replace(/\.{2,}[\\/]*?/g, ""); // remove ../ and .. sequences
-    n = n.replace(/\\/g, ""); // remove backslashes
-    // Convert to lowercase first
-    let slug = n.toLowerCase();
-    // Allow word chars, hyphens, and forward slashes; normalize others to '-'
-    slug = slug.replace(/[^\w\-/]+/g, "-");
-    // Clean up multiple consecutive hyphens
-    slug = slug.replace(/-{2,}/g, "-");
-    // Clean up multiple consecutive slashes
-    slug = slug.replace(/\/{2,}/g, "/");
-    // Remove leading/trailing hyphens and slashes
-    slug = slug.replace(/^[-/]+|[-/]+$/g, "");
-    // Ensure no path traversal sequences remain after processing
-    if (slug.indexOf("..") !== -1) {
-      slug = slug.replace(/\.+/g, "");
-    }
-    // slugs CAN NOT start with / but otherwise it should be allowed
-    while (slug.substring(0, 1) === "/") {
-      slug = slug.substring(1);
-    }
-    return slug;
+    // Security (path traversal): null bytes, backslashes and dot segments
+    // never survive (raw or %-encoded); only Unicode letters, digits, "_",
+    // "-" and "/" remain, never at either end; empty becomes "blank".
+    // Same rule as HAXCMS::generateSlugName in haxcms-php (see slugRules.js)
+    return generateSlugRule(name);
   }
   /**
    * Generate UUID
@@ -5308,19 +5460,11 @@ class HAXCMSClass {
    * Clean up a title / sanitize the input string for file system usage
    */
   cleanTitle(value, stripPage = true) {
-    let cleanTitle = value.trim();
-    // strips off the identifies for a page on the file system
-    if (stripPage) {
-      cleanTitle = cleanTitle.replace("pages/", "").replace("/index.html", "");
-    }
-    cleanTitle = cleanTitle.replace(/ /g, "-").toLowerCase();
-    cleanTitle = cleanTitle.replace(/[^\w\-/]+/gu, "-");
-    cleanTitle = cleanTitle.replace(/--+/gu, "-");
-    // ensure we don't return an empty title or it could break downstream things
-    if (cleanTitle == "") {
-      cleanTitle = "blank";
-    }
-    return cleanTitle;
+    // Security (path traversal): "./", "../" and "." never survive; only
+    // Unicode letters, digits, "_", "-" and "/" remain, never at either end;
+    // empty becomes "blank". Same rule as HAXCMS::cleanTitle in haxcms-php
+    // (see slugRules.js)
+    return cleanTitleRule(value, stripPage);
   }
   /**
    * Validate that a request token is accurate
@@ -5446,7 +5590,7 @@ class HAXCMSClass {
     return allow;
   }
   /**
-   * Security (SEC-SESSION, PHP F2/IDOR-001 parity): object-level
+   * Security (SEC-ROUTE), PHP parity: object-level
    * authorization on a named site. Port of PHP userCanAccessSite.
    * - Non-IAM: any authenticated user can access any existing site.
    * - HAXiam: the site must exist within the authenticated user's sites
@@ -5509,7 +5653,7 @@ class HAXCMSClass {
     return false;
   }
   getRequestToken(value = "") {
-    // Security (L-3, PHP parity): domain-separated key. JWTs are signed with
+    // Security (SEC-SESSION), PHP parity: domain-separated key. JWTs are signed with
     // privateKey + salt directly; request tokens use a key derived from it
     // (hex HMAC-SHA256 of 'haxcms-request-token') so the same secret never
     // MACs two different kinds of message. Mirrors PHP getRequestToken.
@@ -5586,44 +5730,6 @@ class HAXCMSClass {
   async siteSettingsForm(context) {
     await this.loadSite(context["site"]["name"]);
     return this.config.site.fields;
-  }
-  /**
-   * Build a selectorList for the front-end that has all values
-   * for selection keyed by item id: title, ordered based on
-   * hierarchy with -- for each level down
-   */
-  // strict-mode fix: `site` used to be read from an undeclared PHP-port global
-  // and itemValues/itemBuilder/distance were implicit globals; the site is now
-  // passed in and the working variables are locals.
-  itemSelectorList(site) {
-    let items = site.manifest.orderTree(site.manifest.items);
-    let itemBuilder;
-    let distance;
-    let itemValues = [
-      {
-        text: "-- No page --",
-        value: null,
-      },
-    ];
-    for (var key in items) {
-      let item = items[key];
-      // calculate -- depth so it looks like a tree
-      itemBuilder = item;
-      // walk back through parent tree
-      distance = "- ";
-      while (itemBuilder && itemBuilder.parent != null) {
-        itemBuilder = this.findParent(items, itemBuilder);
-        // double check structure is sound
-        if (itemBuilder) {
-          distance = "--" + distance;
-        }
-      }
-      itemValues.push({
-        text: distance + item.title,
-        value: item.id,
-      });
-    }
-    return itemValues;
   }
   /**
    * Return the form for the siteSettings
@@ -6146,9 +6252,7 @@ class HAXCMSClass {
     // support private IP space which will block this ever going through
     if (!process.env.IAM_PRIVATE_ADDRESS_SPACE && wcPath) {
       try {
-        wcMap = JSON.parse(
-          fs.readFileSync(wcPath, { encoding: "utf8", flag: "r" }),
-        );
+        wcMap = readJsonFileCached(wcPath);
       } catch {
         wcMap = {};
       }
@@ -6192,9 +6296,7 @@ class HAXCMSClass {
     }
     if (!process.env.IAM_PRIVATE_ADDRESS_SPACE && gPath) {
       try {
-        graph = JSON.parse(
-          fs.readFileSync(gPath, { encoding: "utf8", flag: "r" }),
-        );
+        graph = readJsonFileCached(gPath);
       } catch {
         graph = {};
       }
@@ -6322,11 +6424,7 @@ class HAXCMSClass {
       return true;
     }
     var request = false;
-    if (this.sessionJwt && this.sessionJwt != null) {
-      request = this.decodeJWT(this.sessionJwt);
-    }
     if (
-      request == false &&
       req &&
       req.headers &&
       typeof req.headers.authorization === "string" &&
@@ -6341,7 +6439,7 @@ class HAXCMSClass {
     if (
       request != false &&
       request.id &&
-      // Security (L-7, PHP parity): constant-time, type-strict compare.
+      // Security (SEC-SESSION), PHP parity: constant-time, type-strict compare.
       typeof request.id === "string" &&
       this.safeStringCompare(this.getRequestToken("user"), request.id) &&
       request.user &&
@@ -6374,7 +6472,7 @@ class HAXCMSClass {
   decodeJWT(key) {
     // if it can decode, it'll be an object, otherwise it's false
     try {
-      // Security (PHP parity): clockTolerance gives 60s leeway on exp/nbf
+      // Security (SEC-SESSION), PHP parity: clockTolerance gives 60s leeway on exp/nbf
       // so tokens issued near a boundary still validate. jsonwebtoken
       // validates exp/nbf automatically; the iat-in-future check below mirrors
       // PHP's validateAccessTokenClaims (HAXCMS.php:1793-1820).
@@ -6395,7 +6493,7 @@ class HAXCMSClass {
   }
   /**
    * Get user's Refresh Token.
-   * Security (H1 rotation): when storeRefreshSession=true the token is given a
+   * Security (SEC-SESSION): when storeRefreshSession=true the token is given a
    * `family` (per login session) and `jti` (per issuance) and the jti hash is
    * recorded server-side so a stolen old refresh token can be invalidated by
    * the next rotation / logout. Mirrors PHP getRefreshToken/createRefreshSession.
@@ -6499,7 +6597,7 @@ class HAXCMSClass {
     return false;
   }
   /**
-   * Security (L-2, PHP parity): Secure flag decision for the refresh cookie.
+   * Security (SEC-SESSION), PHP parity: Secure flag decision for the refresh cookie.
    * TRUE when NODE_ENV=production, when the request is HTTPS (via
    * resolveTrustedProtocol, which only honours X-Forwarded-Proto behind a
    * configured trusted proxy), or when config.security.forceSecureCookie is
@@ -6520,7 +6618,7 @@ class HAXCMSClass {
     );
   }
   /**
-   * PHP parity (M3): centralized refresh-token cookie helper so Secure /
+   * Security (SEC-SESSION), PHP parity: centralized refresh-token cookie helper so Secure /
    * SameSite / HttpOnly / path flags are consistent across every set and
    * clear site (login, logout, refresh, validateRefreshToken clears).
    * Secure follows refreshCookieShouldBeSecure (production, HTTPS request,
@@ -6544,7 +6642,7 @@ class HAXCMSClass {
     res.cookie("haxcms_refresh_token", value, options);
   }
   /**
-   * Security (H1 rotation + SEC-SESSION): refresh-session store. A
+   * Security (SEC-SESSION): refresh-session store. A
    * file-backed JSON under the protected _config/settings directory. Only
    * SHA-256 hashes of jti are stored, never raw token ids. This lets refresh
    * rotate the token (a stolen old copy dies on the legitimate user's next
@@ -6947,6 +7045,47 @@ class HAXCMSClass {
     this._saveRefreshSessions(store);
   }
   /**
+   * Security (SEC-SESSION): revoke EVERY refresh session of a user (sign out
+   * everywhere). Every family currently in the store is tombstoned and a
+   * legacy tombstone is written, so no refresh token issued up to now (with
+   * or without a family claim) can mint another access token. Tokens issued
+   * afterwards start new families and are unaffected. For callers that know
+   * the user but not which family to revoke (e.g. a HAXiam logout running on
+   * another host than the one holding the refresh cookie). Same store shape
+   * as revokeRefreshSession (parity with PHP revokeAllRefreshSessions).
+   * Best-effort.
+   */
+  revokeAllRefreshSessions(user) {
+    if (!user) {
+      return;
+    }
+    const store = this._loadRefreshSessions();
+    const userEntry = this._getRefreshUserEntry(store, user, true);
+    if (!userEntry) {
+      return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    if (!userEntry.families || typeof userEntry.families !== "object") {
+      userEntry.families = {};
+    }
+    for (const familyKey of Object.keys(userEntry.families)) {
+      const existing = userEntry.families[familyKey];
+      if (existing && existing.revoked === true) {
+        continue;
+      }
+      userEntry.families[familyKey] = {
+        revoked: true,
+        revokedAt: now,
+        exp: this._refreshTombstoneExp(existing && existing.exp),
+      };
+    }
+    userEntry.legacyRevokedAt = now;
+    userEntry.legacyRevokedExp = this._refreshTombstoneExp(
+      userEntry.legacyRevokedExp,
+    );
+    this._saveRefreshSessions(store);
+  }
+  /**
    * Validate a refresh token's family/jti against the store WITHOUT rotating.
    * Used by connectionTest recovery and request authentication.
    * Security (SEC-SESSION): only legacy tokens with NO family claim are
@@ -7036,7 +7175,7 @@ class HAXCMSClass {
    * Security (SEC-SESSION): config.security.requireSessionForRequestTokens,
    * overridable by env HAXCMS_REQUIRE_SESSION_FOR_REQUEST_TOKENS (truthy:
    * 1/true/yes; any other non-empty value means false).
-   * Security (L-3, PHP parity): default TRUE now that the front-end
+   * Security (SEC-SESSION), PHP parity: default TRUE now that the front-end
    * (jwt-login / session-request-tokens.js) picks up the tokens returned by
    * login, refresh and connection-test, so anonymous connection-settings
    * callers no longer receive request tokens. Opt out with config false or a
@@ -7073,7 +7212,7 @@ class HAXCMSClass {
    *      JS payload).
    *   2. caller authenticated (valid bearer, or a refresh cookie that passes
    *      the session store check) -> include.
-   *   3. requireSessionForRequestTokens is true (the default, L-3) -> omit;
+   *   3. requireSessionForRequestTokens is true (the default) -> omit;
    *      the front-end picks tokens up from login/refresh/connection-test.
    *   4. otherwise (explicit opt-out) -> include (legacy behaviour).
    * Returns { include, authenticatedUser, reason }.
@@ -7239,7 +7378,7 @@ class HAXCMSClass {
     return tokens;
   }
   /**
-   * Security (EXPRESS-CSRF-001 / M1 + SEC-SESSION): same-origin gate for the
+   * Security (SEC-SESSION): same-origin gate for the
    * cookie-authenticated, state-changing session endpoints (session/refresh
    * and session/connection-test, which both rotate the refresh cookie).
    * - Sec-Fetch-Site: 'cross-site' is always rejected when the browser sends it.
@@ -7294,6 +7433,25 @@ class HAXCMSClass {
     return true;
   }
   /**
+   * Security: the identity a request token (X-HAXCMS-User-Token /
+   * X-HAXCMS-Site-Token) must be validated against for THIS request: the
+   * per-request authenticated user (bearer JWT / refresh cookie, see
+   * getRequestAuthenticatedUserName) when one resolves, otherwise the
+   * process-level active user (single-user deployments and the
+   * site-token-only app-store fetch, which carries no bearer). Node port of
+   * PHP getRequestTokenUserName so tokens minted for one authenticated user
+   * never validate under another user's request.
+   */
+  getRequestTokenUserName(req = null) {
+    const authenticatedUser = req
+      ? this.getRequestAuthenticatedUserName(req)
+      : "";
+    if (typeof authenticatedUser === "string" && authenticatedUser !== "") {
+      return authenticatedUser;
+    }
+    return this.getActiveUserName();
+  }
+  /**
    * Security (SEC-SESSION): resolve the authenticated user for a request
    * WITHOUT ending it: a valid Bearer access JWT and/or a refresh cookie that
    * passes both signature/exp validation and the refresh-session store check
@@ -7313,15 +7471,12 @@ class HAXCMSClass {
         jwtToken = authorizationHeader.substring(7).trim();
       }
     }
-    if (jwtToken === "" && this.sessionJwt) {
-      jwtToken = this.sessionJwt;
-    }
     if (jwtToken !== "") {
       const decoded = this.decodeJWT(jwtToken);
       if (
         decoded &&
         decoded.id &&
-        // Security (L-7, PHP parity): constant-time, type-strict compare.
+        // Security (SEC-SESSION), PHP parity: constant-time, type-strict compare.
         typeof decoded.id === "string" &&
         this.safeStringCompare(this.getRequestToken("user"), decoded.id) &&
         decoded.user &&
@@ -7376,12 +7531,34 @@ class HAXCMSClass {
   /**
    * test the active user login based on session.
    */
+  /**
+   * testLogin with the password checks off the event loop
+   * (verifyStoredPasswordAsync). Same candidates in the same order, same
+   * plaintext upgrade, same result. Per-request paths (Basic auth, the login
+   * route) use this; testLogin stays synchronous for other callers.
+   */
+  async testLoginAsync(name, pass, adminFallback = false) {
+    if (
+      this.safeStringCompare(this.user.name, name) &&
+      (await this.verifyStoredPasswordAsync(this.user.password, pass))
+    ) {
+      this.maybeUpgradePlaintextPassword("user", pass);
+      return true;
+    } else if (
+      adminFallback &&
+      this.safeStringCompare(this.superUser.name, name) &&
+      (await this.verifyStoredPasswordAsync(this.superUser.password, pass))
+    ) {
+      return true;
+    }
+    return false;
+  }
   testLogin(name, pass, adminFallback = false) {
     if (
       this.safeStringCompare(this.user.name, name) &&
       this.verifyStoredPassword(this.user.password, pass)
     ) {
-      // Security (HAX-SEC-001): migrate legacy plaintext to a scrypt hash
+      // Security (SEC-SESSION, SEC-INSTALL): migrate legacy plaintext to a scrypt hash
       // on the first successful plaintext login (best-effort, skips
       // runtime overrides). Mirrors PHP testLogin (HAXCMS.php:1754-1787).
       this.maybeUpgradePlaintextPassword("user", pass);
@@ -7409,7 +7586,7 @@ class HAXCMSClass {
    * Recursive copy to rename high level but copy all files
    */
   async recurseCopy(src, dst, _skip = [], base) {
-    // Security (N1/N5 parity): reject traversal in the destination before
+    // Security (SEC-PATH), PHP parity: reject traversal in the destination before
     // creating anything (mirrors PHP HAXCMSSite::recurseCopy). NUL bytes
     // and any `..` segment are refused; when the caller supplies the
     // directory the copy must land in (e.g. the site directory) the
@@ -7468,4 +7645,5 @@ module.exports = {
   escapeManagedTemplateText,
   managedTemplateVarsFor,
   MANAGED_TEMPLATE_TEXT_FORMATS,
+  getPreloadablePageLocation,
 };

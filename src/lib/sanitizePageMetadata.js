@@ -30,6 +30,100 @@ function toPlainText(value) {
   return strip_tags(html_entity_decode(String(value)));
 }
 
+// longest auto-generated page description, in characters (code points)
+const AUTO_DESCRIPTION_MAX_CHARS = 200;
+
+// elements whose text is never page prose (raw text / inert content)
+const NON_TEXT_ELEMENTS = ['script', 'style', 'noscript', 'template'];
+
+function isTagNameEnd(ch) {
+  return (
+    ch === undefined ||
+    ch === '>' ||
+    ch === '/' ||
+    ch === ' ' ||
+    ch === '\t' ||
+    ch === '\n' ||
+    ch === '\r' ||
+    ch === '\f'
+  );
+}
+
+/**
+ * Drop script / style / noscript / template elements with everything inside
+ * them. A single linear scan (no regex) over an ASCII-lowercased copy, so
+ * offsets line up with the original. An element that is never closed is
+ * dropped to the end of the input. Mirrors
+ * SanitizeContent::removeNonTextElements in haxcms-php.
+ */
+function removeNonTextElements(html) {
+  const lower = html.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  let out = '';
+  let i = 0;
+  while (i < html.length) {
+    const open = lower.indexOf('<', i);
+    if (open === -1) {
+      out += html.substring(i);
+      break;
+    }
+    out += html.substring(i, open);
+    let name = null;
+    for (const candidate of NON_TEXT_ELEMENTS) {
+      if (
+        lower.startsWith(candidate, open + 1) &&
+        isTagNameEnd(lower[open + 1 + candidate.length])
+      ) {
+        name = candidate;
+        break;
+      }
+    }
+    if (name === null) {
+      out += '<';
+      i = open + 1;
+      continue;
+    }
+    // find the matching end tag: "</name" followed by whitespace, "/" or ">"
+    let search = open + 1 + name.length;
+    let end = html.length;
+    for (;;) {
+      const close = lower.indexOf('</' + name, search);
+      if (close === -1) {
+        break;
+      }
+      const after = close + 2 + name.length;
+      if (isTagNameEnd(lower[after])) {
+        const gt = lower.indexOf('>', after);
+        end = gt === -1 ? html.length : gt + 1;
+        break;
+      }
+      search = after;
+    }
+    i = end;
+  }
+  return out;
+}
+
+/**
+ * Security (SEC-SANITIZE): an auto page description is plain text derived
+ * from the page body only, as saved. The caller passes the sanitized page
+ * content (never the <page-break> element or its attributes). The text of
+ * script / style / noscript / template elements is dropped, tags are
+ * stripped, entities decoded, then tags stripped again so decoded markup
+ * cannot survive; every CR / LF is removed and the result is cut at 200
+ * characters (code points, not UTF-16 units or bytes). Mirrors
+ * SanitizeContent::pageDescription in haxcms-php.
+ */
+function pageDescriptionFromBody(body) {
+  if (body === null || body === undefined) {
+    return '';
+  }
+  const text = toPlainText(strip_tags(removeNonTextElements(String(body)))).replace(
+    /[\r\n]/g,
+    '',
+  );
+  return Array.from(text).slice(0, AUTO_DESCRIPTION_MAX_CHARS).join('');
+}
+
 function sanitizeMetadataString(value) {
   return sanitizeMetadataValue(value, false);
 }
@@ -202,6 +296,9 @@ function applyPageMetadata(page, incoming, options = {}) {
 
 module.exports = {
   toPlainText,
+  pageDescriptionFromBody,
+  removeNonTextElements,
+  AUTO_DESCRIPTION_MAX_CHARS,
   sanitizePageMetadata,
   applyPageMetadata,
   FORBIDDEN_METADATA_KEYS,

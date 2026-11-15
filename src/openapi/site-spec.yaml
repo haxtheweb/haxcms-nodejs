@@ -246,6 +246,53 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /x/api/v1/site/check-links:
+    post:
+      tags:
+        - reports
+      operationId: checkSiteLinks
+      summary: Check whether outside links in the site's pages still resolve
+      description: >-
+        Checks up to 25 outside http(s) links per request. Only links that
+        appear in this site's own page HTML are fetched; any other link is
+        answered with state "skipped" and reason "not-in-site". Each link is
+        requested server side with HEAD (GET when HEAD is refused) through the
+        SSRF guard: private, loopback, link-local and metadata addresses are
+        never contacted, the body is never read and only the status and final
+        URL come back. Answers are cached for a while, and network checks are
+        limited per user and site (config.security.linkCheckRateLimit);
+        cached answers do not count against the limit.
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkCheckRequest"
+      responses:
+        "200":
+          description: Link check results, in the order requested
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/LinkCheckCollection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /x/api/v1/site/appearance:
     patch:
       tags:
@@ -421,7 +468,27 @@ paths:
       tags:
         - site
       operationId: updateSiteOutline
-      summary: Update site outline structure as a single atomic operation
+      summary: Update site outline structure, page contents and deletions in one request
+      description: |
+        The whole payload is validated before anything is written. `items`
+        must be an array of objects, each with an `id` that is a non-blank
+        string (a new page sends a client id; idMap maps it to the id the
+        server gives the page). Ids are opaque and kept exactly as sent (never
+        trimmed); a number is not an id. Page ids in the site's own site.json
+        are strings too: a site.json written with integer ids is read as
+        their strings (7 becomes "7"). A new page's id may appear only once,
+        and no page may become its own ancestor (the site's parents with the
+        sent ones applied); an invalid payload answers 400 and changes
+        nothing. An existing id sent twice is one page (the last entry wins);
+        a parent that does not exist puts the page at the top level.
+
+        The save is checkpointed, not atomic as a whole: the new structure
+        (titles, parents, order, new pages) is written to site.json in one
+        write, then page contents, duplicates and deletions are applied. A
+        failure after that write answers an error and leaves the new
+        structure saved. Every site.json write is atomic (a temp file renamed
+        over it), so a failed write leaves the previous site.json as it was,
+        and a failed save leaves no page folder that site.json does not list.
       security:
         - bearerAuth: []
           siteTokenHeader: []
@@ -471,6 +538,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /x/api/v1/site/normalize-slugs:
     post:
       tags:
@@ -607,6 +676,14 @@ paths:
         Optional ?scope=site|system filters the merged set by scope. Each
         descriptor mirrors the extended EntityDescriptor schema, including the
         storage block that declares how the entity is (or will be) persisted.
+        The merged set and ?scope= filtering are for a signed-in caller that
+        also sends this site's X-HAXCMS-Site-Token. Any other caller gets the
+        site-scope descriptors only, whatever ?scope= asks for. A bearer token
+        without a valid X-HAXCMS-Site-Token for this site is refused with 403.
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+        - {}
       parameters:
         - name: scope
           in: query
@@ -614,7 +691,10 @@ paths:
           schema:
             type: string
             enum: [site, system]
-          description: Filter the merged descriptor set by scope.
+          description: >
+            Filter the merged descriptor set by scope (signed-in callers with
+            this site's X-HAXCMS-Site-Token only; other callers always get
+            site scope).
       responses:
         "200":
           description: Entity descriptor collection
@@ -627,6 +707,8 @@ paths:
                     properties:
                       data:
                         $ref: "#/components/schemas/EntityCollection"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
   /x/api/v1/schemas:
@@ -726,7 +808,10 @@ paths:
                 The back-end requires either a non-empty items array (bulk
                 create, e.g. docx import) or a node object (single page
                 create); site.name is injected by the v1 wrapper from the
-                request path when omitted.
+                request path when omitted. An empty items array is not a bulk
+                payload (the node is created instead), and an items array
+                whose entries are all marked delete creates nothing and
+                answers 400.
               properties:
                 site:
                   $ref: "#/components/schemas/SiteReference"
@@ -1562,6 +1647,118 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /x/api/v1/content/{idOrSlug}/blocks:
+    get:
+      tags:
+        - content
+      operationId: listContentBlocks
+      summary: List the elements on a page that block operations can change
+      description: >-
+        Elements in the page's stored HTML whose tag is in the block allowlist
+        and that have an exact end in the source, each with the tag, index and
+        before a block operation sends back, and its allowlisted attributes
+        decoded as a browser reads them. index counts elements of that tag in
+        the stored source, which can differ from a browser DOM.
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+        - name: tag
+          in: query
+          required: false
+          description: Only list elements with this tag.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Blocks on the page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ContentBlockCollection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags:
+        - content
+      operationId: updateContentBlocks
+      summary: Change single elements in a page without re-saving the page
+      description: >-
+        Applies block operations to one page, all or nothing, as one git
+        commit. Each op names its target by tag, index and before (the
+        element's exact stored HTML); if the stored bytes do not match, nothing
+        is written (409). setAttributes may only set attributes in the per-tag
+        allowlist, normalized by kind (text, url); replaceBlock replaces the
+        element with one complete element of the same tag. The change must
+        pass the storage sanitizer unchanged, and parsing the page before and
+        after must show no difference other than the targets. The rest of the
+        page is left exactly as stored. Locked pages are refused (423). Each
+        site has a budget of block changes per window (default 1000 per
+        minute, security.blockOperationsRateLimit), charged only for changes
+        about to be written; over it nothing is written (429, Retry-After).
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      parameters:
+        - $ref: "#/components/parameters/IdOrSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentBlockOperationsRequest"
+      responses:
+        "200":
+          description: The ops were applied
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ContentBlockOperationsResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: An op's before no longer matches the stored page (reason stale), or matches more than one element (reason ambiguous)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentBlockOperationError"
+        "423":
+          description: The page is locked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentBlockOperationError"
+        "429":
+          description: The site's block change budget for this window is spent (reason rate-limited); retry after the Retry-After header's seconds
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentBlockOperationError"
   /x/api/v1/files:
     get:
       tags:
@@ -1827,6 +2024,55 @@ paths:
                       data:
                         type: object
                         additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /x/api/v1/files/{fileUuid}/content:
+    post:
+      tags:
+        - files
+      operationId: replaceFileContent
+      summary: Replace an image's contents, keeping its uuid, path and name
+      description: >-
+        Replaces a JPG, PNG or WebP image with an uploaded raster image (for
+        example a crop made in the browser). The server re-encodes the upload
+        into the existing file's own format, so every page that uses the file
+        shows the new image. Animated and vector images are not accepted.
+      security:
+        - bearerAuth: []
+          siteTokenHeader: []
+      parameters:
+        - $ref: "#/components/parameters/FileUuid"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                upload:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Replaced file result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        additionalProperties: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2769,6 +3015,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ApiError"
+    ServerError:
+      description: The request failed on the server (for example a write that could not be completed); nothing was saved past the last completed write
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
     TooManyRequests:
       description: Too many file-mutation operations; rate limit exceeded.
       headers:
@@ -3186,6 +3438,160 @@ components:
           type: object
           additionalProperties:
             type: string
+    ContentBlockRef:
+      type: object
+      required:
+        - tag
+        - index
+        - before
+      properties:
+        tag:
+          type: string
+          description: Element name.
+        index:
+          type: integer
+          minimum: 0
+          description: Position among elements with this tag in the stored source.
+        before:
+          type: string
+          description: The element's exact stored HTML, start tag to end tag.
+    ContentBlock:
+      allOf:
+        - $ref: "#/components/schemas/ContentBlockRef"
+        - type: object
+          properties:
+            attributes:
+              type: object
+              description: Allowlisted attributes present on the element, decoded.
+              additionalProperties:
+                type: string
+    ContentBlockCollection:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        count:
+          type: integer
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentBlock"
+        links:
+          type: object
+          additionalProperties:
+            type: string
+    ContentBlockOperation:
+      allOf:
+        - $ref: "#/components/schemas/ContentBlockRef"
+        - type: object
+          required:
+            - op
+          properties:
+            op:
+              type: string
+              enum:
+                - setAttributes
+                - replaceBlock
+            set:
+              type: object
+              description: >-
+                setAttributes only. Attribute name to new value; null removes
+                the attribute. Values are trimmed and CR LF is stored as LF. text
+                values are at most 4000 characters; url values are an http(s)
+                URL or a site path, stored as sent, at most 2048 characters. A
+                value holding "-->", "]>" or a closing tag such as "</title" is
+                refused.
+              additionalProperties:
+                type: string
+                nullable: true
+            after:
+              type: string
+              description: replaceBlock only. One complete element with the same tag.
+    ContentBlockOperationsRequest:
+      type: object
+      required:
+        - ops
+      properties:
+        site:
+          $ref: "#/components/schemas/SiteReference"
+        ops:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/ContentBlockOperation"
+        note:
+          type: string
+          maxLength: 120
+          description: Added to the git commit message.
+    ContentBlockOperationsResult:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        title:
+          type: string
+        count:
+          type: integer
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              op:
+                type: integer
+              tag:
+                type: string
+              index:
+                type: integer
+              relocated:
+                type: boolean
+                description: True when index pointed elsewhere and the element was found by before.
+              before:
+                type: string
+                description: The element's stored HTML now, for chaining further ops.
+        links:
+          type: object
+          additionalProperties:
+            type: string
+    ContentBlockOperationError:
+      type: object
+      properties:
+        status:
+          type: integer
+        data:
+          type: object
+          properties:
+            message:
+              type: string
+            reason:
+              type: string
+              enum:
+                - stale
+                - ambiguous
+                - locked
+                - invalid
+                - not-allowed
+                - not-addressable
+                - overlap
+                - sanitizer-rejected
+                - structure-changed
+                - rate-limited
+            detail:
+              type: string
+            op:
+              type: integer
+              description: Index of the op that failed.
+            retryAfter:
+              type: integer
+              description: Seconds until the block change budget resets (429).
+            remaining:
+              type: integer
+              description: Block changes left in this window (429).
     ContentRecord:
       type: object
       properties:
@@ -3661,6 +4067,112 @@ components:
           type: object
           additionalProperties:
             type: string
+    LinkCheckRequest:
+      type: object
+      required:
+        - links
+      properties:
+        site:
+          $ref: "#/components/schemas/SiteReference"
+        links:
+          type: array
+          minItems: 1
+          maxItems: 25
+          description: Outside link hrefs as written in the page HTML.
+          items:
+            type: string
+            maxLength: 2048
+      additionalProperties: true
+    LinkCheckResult:
+      type: object
+      properties:
+        href:
+          type: string
+          description: The href as requested.
+        state:
+          type: string
+          enum:
+            - ok
+            - redirected
+            - broken
+            - check
+            - skipped
+          description: >-
+            ok = answered 2xx/3xx; redirected = answered after redirecting to
+            finalUrl; broken = 4xx/5xx, no such host, refused connection, bad
+            certificate or a redirect loop; check = answered but refused an
+            automated check (401, 403, 407, 429, 451, 999) or timed out, so a
+            person should open it; skipped = not checked.
+        reason:
+          type: string
+          enum:
+            - ""
+            - http
+            - refused
+            - timeout
+            - dns
+            - connection
+            - tls
+            - redirects
+            - invalid
+            - private
+            - not-in-site
+            - deferred
+          description: >-
+            Why a link is broken, check or skipped (empty for ok and
+            redirected). private = the host resolves to a private or reserved
+            address and is never contacted; not-in-site = the link is not in
+            this site's pages; deferred = the request ran out of time before
+            this link, so send it again (not cached, not counted).
+        status:
+          type: integer
+          nullable: true
+          description: Final HTTP status, or null when no response came back.
+        finalUrl:
+          type: string
+          description: Where a redirected link ends up (empty otherwise).
+        cached:
+          type: boolean
+          description: True when the answer came from the result cache.
+        checkedAt:
+          type: string
+          format: date-time
+          nullable: true
+    LinkCheckCollection:
+      type: object
+      properties:
+        count:
+          type: integer
+        checked:
+          type: integer
+          description: Links fetched over the network for this request.
+        cached:
+          type: integer
+          description: Links answered from the result cache.
+        deferred:
+          type: integer
+          description: Links not reached in this request's time budget.
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/LinkCheckResult"
+        limits:
+          type: object
+          properties:
+            maxLinks:
+              type: integer
+            windowSeconds:
+              type: integer
+            maxChecksPerWindow:
+              type: integer
+            remaining:
+              type: integer
+            cacheSeconds:
+              type: integer
+        links:
+          type: object
+          additionalProperties:
+            type: string
     RevisionCollection:
       type: object
       properties:
@@ -3747,7 +4259,17 @@ components:
       properties:
         field:
           type: string
-          enum: ["title", "description", "slug", "parent", "order", "published", "hideInMenu", "locked"]
+          enum:
+            [
+              "title",
+              "description",
+              "slug",
+              "parent",
+              "order",
+              "published",
+              "hideInMenu",
+              "locked",
+            ]
           description: description only appears in compareItemRevisions results
         from:
           type: string

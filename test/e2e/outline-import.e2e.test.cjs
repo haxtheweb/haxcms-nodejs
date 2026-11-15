@@ -6,7 +6,7 @@
 // HAXSITEAUTOMATEDTESTING -> navigate into the site editor ->
 //
 // PART A — Import From File:
-//   Open the outline editor dialog (#outlinebutton) -> request an import from
+//   Open the outline editor dialog (Structure) -> request an import from
 //   file. Structure no longer has an Import button (documents come in through
 //   Content's add area), so the test does what that button did: close the
 //   dialog and dispatch haxcms-outline-import-request (Merlin's path) ->
@@ -61,7 +61,7 @@ const {
   relocateCreatedSite,
   ensureOutlineOpen,
   safeCompareBaseline,
-  clickEditorButtonById,
+  openStructure,
 } = require("./helpers");
 
 const SITE_NAME_LOWER = FIXED_SITE_NAME.toLowerCase();
@@ -207,10 +207,8 @@ async function navigateToEditor(page, runtime, t) {
 // --- helper: open outline editor dialog ------------------------------------
 
 async function openOutlineDialog(page, t) {
-  const outlineOpen = await clickEditorButtonById(page, "#outlinebutton");
-  t.diagnostic(
-    "[outline] #outlinebutton clicked: " + JSON.stringify(outlineOpen),
-  );
+  const outlineOpen = await openStructure(page, t);
+  t.diagnostic("[outline] Structure opener: " + JSON.stringify(outlineOpen));
   const ready = await ensureOutlineOpen(page, t);
   t.diagnostic("[outline] dialog ready: " + ready);
   assert.ok(ready, "haxcms-outline-editor-dialog rendered");

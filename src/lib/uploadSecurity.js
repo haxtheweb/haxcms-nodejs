@@ -1,4 +1,4 @@
-'use strict';
+"use strict";
 
 // Security (SEC-UPLOAD): upload temp-file lifecycle + HTML-in-files guard.
 //
@@ -14,8 +14,8 @@
 //   - the decoded-path decision for forcing a download of active content
 //     (HTML/XHTML/XML/SVG) served from a site files/ directory.
 
-const fs = require('fs-extra');
-const path = require('path');
+const fs = require("fs-extra");
+const path = require("path");
 
 // multer's DiskStorage default filename is crypto.randomBytes(16).toString('hex')
 // (32 lowercase hex chars, no extension). Other HAXcms code writes transient
@@ -30,9 +30,15 @@ const UPLOAD_TEMP_MAX_AGE_MS = 60 * 60 * 1000;
 // tmp/imports is the bulk-import staging root (stageRemoteFile, importers).
 // Staged entries are moved into a site during the same request, so anything
 // older than a day is abandoned.
-const IMPORT_STAGING_DIRNAME = 'imports';
+const IMPORT_STAGING_DIRNAME = "imports";
 const IMPORT_STAGING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const UPLOAD_TEMP_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+// Security: downloadSite writes <site>-<32 hex>.zip into the _published/
+// directory, which is served statically. The archive only needs to live long
+// enough for the browser to follow the returned link, so anything older than
+// 15 minutes is removed. Only files matching this exact shape are touched.
+const PUBLISHED_ARCHIVE_NAME_PATTERN = /^.+-[0-9a-f]{32}\.zip$/;
+const PUBLISHED_ARCHIVE_MAX_AGE_MS = 15 * 60 * 1000;
 
 // Security (SEC-UPLOAD): conversion actions/* routes only ever accept a single
 // office/PDF/HTML document, so they get a much lower cap than the general
@@ -44,14 +50,14 @@ const MAX_CONVERSION_MAX_UPLOAD_MB = 1024;
 // Security (SEC-UPLOAD): extensions forced to download (Content-Disposition:
 // attachment) when served from any site files/ directory. Parity contract with
 // the PHP backend (.htaccess / nginx): html, htm, xhtml, xml, svg.
-const FORCE_DOWNLOAD_FILES_EXTENSIONS = ['html', 'htm', 'xhtml', 'xml', 'svg'];
+const FORCE_DOWNLOAD_FILES_EXTENSIONS = ["html", "htm", "xhtml", "xml", "svg"];
 const FORCE_DOWNLOAD_FILES_EXTENSION_PATTERN = new RegExp(
-  '\\.(' + FORCE_DOWNLOAD_FILES_EXTENSIONS.join('|') + ')$',
-  'i',
+  "\\.(" + FORCE_DOWNLOAD_FILES_EXTENSIONS.join("|") + ")$",
+  "i",
 );
 
-function isUploadTempFileName(name = '') {
-  const value = String(name || '');
+function isUploadTempFileName(name = "") {
+  const value = String(name || "");
   for (let i = 0; i < UPLOAD_TEMP_NAME_PATTERNS.length; i++) {
     if (UPLOAD_TEMP_NAME_PATTERNS[i].test(value)) {
       return true;
@@ -62,18 +68,27 @@ function isUploadTempFileName(name = '') {
 
 function isPathInside(parentPath, targetPath) {
   const relative = path.relative(parentPath, targetPath);
-  return relative !== '' && relative.indexOf('..') !== 0 && !path.isAbsolute(relative);
+  return (
+    relative !== "" &&
+    relative.indexOf("..") !== 0 &&
+    !path.isAbsolute(relative)
+  );
 }
 
 // Collect the on-disk temp paths multer recorded on the request. Handles
 // upload.any() (array), upload.fields() (object of arrays) and upload.single().
 function collectUploadedTempPaths(req) {
   const paths = [];
-  if (!req || typeof req !== 'object') {
+  if (!req || typeof req !== "object") {
     return paths;
   }
   const pushFile = (file) => {
-    if (file && typeof file === 'object' && typeof file.path === 'string' && file.path !== '') {
+    if (
+      file &&
+      typeof file === "object" &&
+      typeof file.path === "string" &&
+      file.path !== ""
+    ) {
       paths.push(file.path);
     }
   };
@@ -82,8 +97,7 @@ function collectUploadedTempPaths(req) {
     for (let i = 0; i < req.files.length; i++) {
       pushFile(req.files[i]);
     }
-  }
-  else if (req.files && typeof req.files === 'object') {
+  } else if (req.files && typeof req.files === "object") {
     const keys = Object.keys(req.files);
     for (let k = 0; k < keys.length; k++) {
       const group = req.files[keys[k]];
@@ -106,7 +120,7 @@ function removeUploadedTempFiles(req, uploadTempDirectory) {
   if (tempPaths.length === 0) {
     return 0;
   }
-  const root = path.resolve(String(uploadTempDirectory || ''));
+  const root = path.resolve(String(uploadTempDirectory || ""));
   let removed = 0;
   for (let i = 0; i < tempPaths.length; i++) {
     const tempPath = path.resolve(tempPaths[i]);
@@ -116,8 +130,7 @@ function removeUploadedTempFiles(req, uploadTempDirectory) {
     try {
       fs.unlinkSync(tempPath);
       removed++;
-    }
-    catch {
+    } catch {
       // ENOENT (moved/already removed) or anything else: never break the response
     }
   }
@@ -139,8 +152,8 @@ function createUploadTempCleanupMiddleware(uploadTempDirectory) {
         cleaned = true;
         removeUploadedTempFiles(req, uploadTempDirectory);
       };
-      res.once('finish', cleanup);
-      res.once('close', cleanup);
+      res.once("finish", cleanup);
+      res.once("close", cleanup);
     }
     next();
   };
@@ -157,17 +170,20 @@ function getEntryAgeMs(entryPath, now) {
 // touched. Returns the list of removed absolute paths.
 function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
   const removed = [];
-  const root = path.resolve(String(uploadTempDirectory || ''));
-  const now = typeof options.now === 'number' ? options.now : Date.now();
-  const maxAgeMs = typeof options.maxAgeMs === 'number' ? options.maxAgeMs : UPLOAD_TEMP_MAX_AGE_MS;
-  const importMaxAgeMs = typeof options.importMaxAgeMs === 'number'
-    ? options.importMaxAgeMs
-    : IMPORT_STAGING_MAX_AGE_MS;
+  const root = path.resolve(String(uploadTempDirectory || ""));
+  const now = typeof options.now === "number" ? options.now : Date.now();
+  const maxAgeMs =
+    typeof options.maxAgeMs === "number"
+      ? options.maxAgeMs
+      : UPLOAD_TEMP_MAX_AGE_MS;
+  const importMaxAgeMs =
+    typeof options.importMaxAgeMs === "number"
+      ? options.importMaxAgeMs
+      : IMPORT_STAGING_MAX_AGE_MS;
   let entries = [];
   try {
     entries = fs.readdirSync(root);
-  }
-  catch {
+  } catch {
     return removed;
   }
   for (let i = 0; i < entries.length; i++) {
@@ -183,8 +199,7 @@ function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
       }
       fs.unlinkSync(entryPath);
       removed.push(entryPath);
-    }
-    catch {
+    } catch {
       // intentionally ignored
     }
   }
@@ -194,8 +209,7 @@ function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
     if (fs.lstatSync(importsRoot).isDirectory()) {
       importEntries = fs.readdirSync(importsRoot);
     }
-  }
-  catch {
+  } catch {
     importEntries = [];
   }
   for (let i = 0; i < importEntries.length; i++) {
@@ -207,8 +221,48 @@ function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
       }
       fs.removeSync(entryPath);
       removed.push(entryPath);
+    } catch {
+      // intentionally ignored
     }
-    catch {
+  }
+  return removed;
+}
+
+function isPublishedArchiveFileName(name = "") {
+  return PUBLISHED_ARCHIVE_NAME_PATTERN.test(String(name || ""));
+}
+
+// Delete stale downloadSite archives (<site>-<32 hex>.zip, older than
+// maxAgeMs, default 15 min) directly in publishedDirectory. Nothing else in
+// the directory is touched. Returns the list of removed absolute paths.
+function sweepPublishedArchives(publishedDirectory, options = {}) {
+  const removed = [];
+  const root = path.resolve(String(publishedDirectory || ""));
+  const now = typeof options.now === "number" ? options.now : Date.now();
+  const maxAgeMs =
+    typeof options.maxAgeMs === "number"
+      ? options.maxAgeMs
+      : PUBLISHED_ARCHIVE_MAX_AGE_MS;
+  let entries = [];
+  try {
+    entries = fs.readdirSync(root);
+  } catch {
+    return removed;
+  }
+  for (let i = 0; i < entries.length; i++) {
+    const name = entries[i];
+    if (!isPublishedArchiveFileName(name)) {
+      continue;
+    }
+    const entryPath = path.join(root, name);
+    try {
+      const info = getEntryAgeMs(entryPath, now);
+      if (!info.stats.isFile() || info.ageMs <= maxAgeMs) {
+        continue;
+      }
+      fs.unlinkSync(entryPath);
+      removed.push(entryPath);
+    } catch {
       // intentionally ignored
     }
   }
@@ -216,22 +270,34 @@ function sweepUploadTempDirectory(uploadTempDirectory, options = {}) {
 }
 
 // Run the sweeper now and every intervalMs. The timer is unref'd so it never
-// keeps the process alive; the returned function stops it.
+// keeps the process alive; the returned function stops it. When
+// options.publishedDirectory is set, stale downloadSite archives in it are
+// swept on the same schedule (see sweepPublishedArchives).
 function startUploadTempSweeper(uploadTempDirectory, options = {}) {
-  const intervalMs = typeof options.intervalMs === 'number'
-    ? options.intervalMs
-    : UPLOAD_TEMP_SWEEP_INTERVAL_MS;
+  const intervalMs =
+    typeof options.intervalMs === "number"
+      ? options.intervalMs
+      : UPLOAD_TEMP_SWEEP_INTERVAL_MS;
   const run = () => {
     try {
       sweepUploadTempDirectory(uploadTempDirectory, options);
-    }
-    catch {
+    } catch {
       // intentionally ignored
+    }
+    if (options.publishedDirectory) {
+      try {
+        sweepPublishedArchives(options.publishedDirectory, {
+          now: options.now,
+          maxAgeMs: options.publishedMaxAgeMs,
+        });
+      } catch {
+        // intentionally ignored
+      }
     }
   };
   run();
   const timer = setInterval(run, intervalMs);
-  if (timer && typeof timer.unref === 'function') {
+  if (timer && typeof timer.unref === "function") {
     timer.unref();
   }
   return function stopUploadTempSweeper() {
@@ -242,10 +308,18 @@ function startUploadTempSweeper(uploadTempDirectory, options = {}) {
 function getConversionUploadMaxBytes(config = null, env = process.env) {
   let mb = DEFAULT_CONVERSION_MAX_UPLOAD_MB;
   let candidate = null;
-  if (config && config.security && typeof config.security.conversionMaxUploadMb !== 'undefined') {
+  if (
+    config &&
+    config.security &&
+    typeof config.security.conversionMaxUploadMb !== "undefined"
+  ) {
     candidate = config.security.conversionMaxUploadMb;
   }
-  if (env && typeof env.HAXCMS_CONVERSION_MAX_UPLOAD_MB === 'string' && env.HAXCMS_CONVERSION_MAX_UPLOAD_MB.trim() !== '') {
+  if (
+    env &&
+    typeof env.HAXCMS_CONVERSION_MAX_UPLOAD_MB === "string" &&
+    env.HAXCMS_CONVERSION_MAX_UPLOAD_MB.trim() !== ""
+  ) {
     candidate = env.HAXCMS_CONVERSION_MAX_UPLOAD_MB.trim();
   }
   if (candidate !== null) {
@@ -263,17 +337,18 @@ function getConversionUploadMaxBytes(config = null, env = process.env) {
 // ".." segments and repeated slashes via path.join/normalize, so
 // /files/x.html/. and /files//x.html reach the same file as /files/x.html and
 // must be judged as that path (the last raw segment of the former is ".").
-function decodeRequestPathForFilesGuard(url = '') {
-  const rawPath = String(url || '').split('?')[0].split('#')[0];
+function decodeRequestPathForFilesGuard(url = "") {
+  const rawPath = String(url || "")
+    .split("?")[0]
+    .split("#")[0];
   let decoded = rawPath;
   try {
     decoded = decodeURIComponent(rawPath);
-  }
-  catch {
+  } catch {
     decoded = rawPath;
   }
-  decoded = decoded.replace(/\\/g, '/');
-  return decoded === '' ? decoded : path.posix.normalize(decoded);
+  decoded = decoded.replace(/\\/g, "/");
+  return decoded === "" ? decoded : path.posix.normalize(decoded);
 }
 
 // True when the (decoded) path is somewhere below a files/ directory. 'files'
@@ -281,20 +356,24 @@ function decodeRequestPathForFilesGuard(url = '') {
 // /files is not treated as an upload. Compared case-insensitively because
 // case-insensitive filesystems (macOS, Windows, so the desktop app) resolve
 // /FILES/x.html to the same upload directory.
-function isFilesDirectoryRequestPath(decodedPath = '') {
-  return String(decodedPath || '').toLowerCase().indexOf('/files/') !== -1;
+function isFilesDirectoryRequestPath(decodedPath = "") {
+  return (
+    String(decodedPath || "")
+      .toLowerCase()
+      .indexOf("/files/") !== -1
+  );
 }
 
 // True when the request targets active content (see
 // FORCE_DOWNLOAD_FILES_EXTENSIONS) somewhere under a files/ directory,
 // evaluated on the decoded path.
-function shouldForceDownloadFilesRequest(url = '') {
+function shouldForceDownloadFilesRequest(url = "") {
   const decodedPath = decodeRequestPathForFilesGuard(url);
   if (!isFilesDirectoryRequestPath(decodedPath)) {
     return false;
   }
-  const segments = decodedPath.split('/');
-  const lastSegment = segments[segments.length - 1] || '';
+  const segments = decodedPath.split("/");
+  const lastSegment = segments[segments.length - 1] || "";
   return FORCE_DOWNLOAD_FILES_EXTENSION_PATTERN.test(lastSegment);
 }
 
@@ -304,25 +383,25 @@ function shouldForceDownloadFilesRequest(url = '') {
 // file name, so no URL spelling can change the outcome. The path is judged
 // relative to rootDir so a parent directory that happens to be named "files"
 // (e.g. /srv/files/haxcms) does not force every html page to download.
-function shouldForceDownloadResolvedFile(rootDir = '', filePath = '') {
+function shouldForceDownloadResolvedFile(rootDir = "", filePath = "") {
   if (!rootDir || !filePath) {
     return false;
   }
   const relative = path.relative(String(rootDir), String(filePath));
   if (
-    relative === ''
-    || relative === '..'
-    || relative.indexOf('..' + path.sep) === 0
-    || path.isAbsolute(relative)
+    relative === "" ||
+    relative === ".." ||
+    relative.indexOf(".." + path.sep) === 0 ||
+    path.isAbsolute(relative)
   ) {
     return false;
   }
-  const relativePosix = '/' + relative.split(path.sep).join('/');
+  const relativePosix = "/" + relative.split(path.sep).join("/");
   if (!isFilesDirectoryRequestPath(relativePosix)) {
     return false;
   }
-  const segments = relativePosix.split('/');
-  const lastSegment = segments[segments.length - 1] || '';
+  const segments = relativePosix.split("/");
+  const lastSegment = segments[segments.length - 1] || "";
   return FORCE_DOWNLOAD_FILES_EXTENSION_PATTERN.test(lastSegment);
 }
 
@@ -330,6 +409,7 @@ module.exports = {
   UPLOAD_TEMP_MAX_AGE_MS,
   IMPORT_STAGING_MAX_AGE_MS,
   UPLOAD_TEMP_SWEEP_INTERVAL_MS,
+  PUBLISHED_ARCHIVE_MAX_AGE_MS,
   DEFAULT_CONVERSION_MAX_UPLOAD_MB,
   FORCE_DOWNLOAD_FILES_EXTENSIONS,
   isUploadTempFileName,
@@ -337,6 +417,8 @@ module.exports = {
   removeUploadedTempFiles,
   createUploadTempCleanupMiddleware,
   sweepUploadTempDirectory,
+  isPublishedArchiveFileName,
+  sweepPublishedArchives,
   startUploadTempSweeper,
   getConversionUploadMaxBytes,
   decodeRequestPathForFilesGuard,

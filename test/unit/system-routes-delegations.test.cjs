@@ -508,7 +508,7 @@ describe("lifecycle routes — archive collision resolution", () => {
     );
   });
 
-  // Security (L3, 2026-10-19 audit): the collision fallback must normalize
+  // Security (SEC-PATH): the collision fallback must normalize
   // and contain the request-supplied name before it reaches fs.rename
   test("a collision fallback never moves anything outside the sites root", async (t) => {
     const tmpRoot = useTempRoots(t);

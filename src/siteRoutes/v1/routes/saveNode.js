@@ -1,8 +1,12 @@
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const filter_var = require("../../../lib/filter_var.js");
 const path = require("path");
+const { reserveSlugRoutes } = require("../../../lib/slugRules.js");
 const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
-const { toPlainText } = require("../../../lib/sanitizePageMetadata.js");
+const {
+  toPlainText,
+  pageDescriptionFromBody,
+} = require("../../../lib/sanitizePageMetadata.js");
 const {
   sanitizeHTMLForStorage,
   sanitizeURLValue,
@@ -12,7 +16,10 @@ const {
   getRequestHeaderValue,
   assertSiteFeature,
 } = require("../siteRouteUtils.js");
-const { isPathautoEnabled } = require("../../../lib/nodeDetailOperations.js");
+const {
+  isPathautoEnabled,
+  cascadeSlugUpdates,
+} = require("../../../lib/nodeDetailOperations.js");
 const FileContentScanner = require("../../../lib/FileContentScanner.js");
 // DRAFT plugin platform: page.before.save / page.after.save around the write
 const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
@@ -56,15 +63,6 @@ async function saveNode(req, res) {
   ) {
     let bodyParams = req.body;
     let site = await HAXCMS.loadSite(req.body["site"]["name"]);
-
-    // Special handling for style guide endpoint through saveNode
-    if (
-      bodyParams["node"]["id"] &&
-      bodyParams["node"]["id"] === "x/theme/style-guide"
-    ) {
-      const result = await site.handleStyleGuideSave(bodyParams);
-      return res.send(result);
-    }
     let schema = [];
     let body;
     if (bodyParams["node"]["body"]) {
@@ -162,7 +160,7 @@ async function saveNode(req, res) {
             // shared global across concurrent requests in src/
             const item = site.itemFromParams(nodeParams);
             // generate the boilerplate to fill this page
-            // Security (N1/N5 parity): the copy must land inside this site's
+            // Security (SEC-PATH), PHP parity: the copy must land inside this site's
             // directory; refuse rather than writing anywhere else.
             const copied = await HAXCMS.recurseCopy(
               HAXCMS.boilerplatePath + "page/default",
@@ -181,7 +179,7 @@ async function saveNode(req, res) {
             }
             // add the item back into the outline schema
             site.manifest.addItem(item);
-            site.manifest.save();
+            await site.manifest.save();
             await site.gitCommit(
               "Page added:" + item.title + " (" + item.id + ")",
             );
@@ -277,20 +275,12 @@ async function saveNode(req, res) {
               page.metadata.overridePathauto = false;
             }
             if (data["attributes"]["slug"]) {
-              // account for x being the only front end reserved route
-              if (data["attributes"]["slug"] == "x") {
-                data["attributes"]["slug"] = "x-x";
-              }
-              // same but trying to force a sub-route; paths cannot conflict with front end
-              if (data["attributes"]["slug"].substring(0, 2) == "x/") {
-                data["attributes"]["slug"] = data["attributes"]["slug"].replace(
-                  "x/",
-                  "x-x/",
-                );
-              }
-              // machine name should more aggressively scrub the slug than clean title
+              // machine name should more aggressively scrub the slug than
+              // clean title; no segment may be the reserved "x" route
               // @todo need to verify this doesn't already exist
-              page.slug = HAXCMS.generateSlugName(data["attributes"]["slug"]);
+              page.slug = reserveSlugRoutes(
+                HAXCMS.generateSlugName(data["attributes"]["slug"]),
+              );
             }
             if (data["attributes"]["parent"]) {
               page.parent = data["attributes"]["parent"];
@@ -318,7 +308,9 @@ async function saveNode(req, res) {
               }
               // ensure it exists
               else if (themes[value]) {
-                page.metadata.theme = themes[value];
+                // a copy: setting key must not change the shared
+                // HAXCMS.config.themes entry
+                page.metadata.theme = JSON.parse(JSON.stringify(themes[value]));
                 page.metadata.theme.key = value;
               }
             } else if (page.metadata.theme) {
@@ -335,6 +327,11 @@ async function saveNode(req, res) {
             if (pathautoEnabled && !page.metadata.overridePathauto) {
               const cleanTitle = HAXCMS.cleanTitle(page.title);
               page.slug = site.getUniqueSlugName(cleanTitle, page, true);
+              // descendants carry the parent's segment; re-slug the branch
+              // (overridePathauto children keep theirs), as haxcms-php does
+              if (Array.isArray(site.manifest.items)) {
+                cascadeSlugUpdates(site, site.manifest.items, [page.id]);
+              }
             }
             // boolean so these are either there or not
             // historically we are published if this value is not set
@@ -486,11 +483,10 @@ async function saveNode(req, res) {
               // Security (SEC-SANITIZE): decode then strip (see title)
               page.description = toPlainText(data["attributes"]["description"]);
             } else {
-              // Security (SEC-SANITIZE): decode then strip (see title)
-              const decodedClean = toPlainText(body);
-              page.description = decodedClean
-                .substring(0, 200)
-                .replace("\n", "");
+              // Security (SEC-SANITIZE): description is plain text derived
+              // from this page's body as saved (sanitized content, never the
+              // <page-break> element or its attributes)
+              page.description = pageDescriptionFromBody(sanitizedContent);
             }
             let readtime = Math.round(countWords(clean) / 200);
             // account for uber small body
@@ -562,6 +558,9 @@ async function saveNode(req, res) {
             }
             await site.updateNode(page);
             await site.writePageAlternateFormats(page, sanitizedContent);
+            // stamp the site as updated and save site.json in tree order
+            // (orderTree), the same order every reordering save writes;
+            // mirrors saveNode in haxcms-php
             site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
             await site.manifest.save();
             await site.gitCommit(

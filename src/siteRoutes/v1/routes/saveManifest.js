@@ -6,6 +6,9 @@ const fs = require("fs-extra");
 const { sanitizeURLValue } = require("../../../lib/sanitizeContent.js");
 const { isUnsafeRelativePath } = require("../../../lib/pathConfinement.js");
 const {
+  rebuildAlternateFormatsLogged,
+} = require("../../../lib/rebuildAlternateFormatsLogged.js");
+const {
   getRequestHeaderValue,
   ensureSiteMetadataContainers,
   assertSiteFeature,
@@ -169,7 +172,10 @@ async function saveManifest(req, res) {
               "FILTER_SANITIZE_STRING",
             ) == key
           ) {
-            site.manifest.metadata.theme = theme;
+            // a copy: the site's theme is edited below and must never
+            // change the shared HAXCMS.config.themes entry (later sites
+            // would inherit those edits, e.g. regions)
+            site.manifest.metadata.theme = JSON.parse(JSON.stringify(theme));
           }
         }
         if (!site.manifest.metadata.theme.variables) {
@@ -542,7 +548,7 @@ async function saveManifest(req, res) {
       }
       // rebuild the files that twig processes
       await site.rebuildManagedFiles();
-      site.updateAlternateFormats();
+      await rebuildAlternateFormatsLogged(site, "saveManifest");
       await site.gitCommit("Managed files updated");
       res.json({ status: 200, data: site.manifest });
     } else {

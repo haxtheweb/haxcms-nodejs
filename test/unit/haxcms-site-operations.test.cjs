@@ -1039,6 +1039,56 @@ test("getSiteMetadata renders head tags, structured data, and social metadata", 
   assert.ok(metadata.indexOf("robots") !== -1);
 });
 
+test("getSiteMetadata preloads the active page's HTML, site-relative", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const page = site.manifest.items[0];
+  const metadata = await site.getSiteMetadata(page, "https://unit.example");
+  const expected =
+    '<link rel="preload" href="./' +
+    page.location +
+    '" as="fetch" crossorigin="anonymous" fetchpriority="high" />';
+  assert.ok(metadata.indexOf(expected) !== -1, metadata);
+  // the CDN base is for build assets only; page data stays on the site
+  const viaCdn = await site.getSiteMetadata(
+    page,
+    "https://unit.example",
+    "https://cdn.example/",
+  );
+  assert.ok(viaCdn.indexOf(expected) !== -1);
+  // no page, no page preload
+  const none = await site.getSiteMetadata(null, "https://unit.example");
+  assert.equal(
+    none.indexOf(
+      'as="fetch" crossorigin="anonymous" fetchpriority="high" />\n  <link rel="preload" href="./build',
+    ),
+    -1,
+  );
+  assert.equal(/href="\.\/pages\//.test(none), false);
+});
+
+test("getPreloadablePageLocation only allows plain relative page paths", () => {
+  const { getPreloadablePageLocation } = require("../../src/lib/HAXCMS.js");
+  assert.equal(
+    getPreloadablePageLocation({ location: "pages/a/index.html" }),
+    "pages/a/index.html",
+  );
+  for (const bad of [
+    "",
+    "hax-internal-route.html",
+    "/pages/a/index.html",
+    "https://evil.example/x.html",
+    "pages/../../x.html",
+    "pages\\a\\index.html",
+    "pages/a/index.html?x=1",
+    "pages/a/index.html#x",
+    "pages/a/data.json",
+  ]) {
+    assert.equal(getPreloadablePageLocation({ location: bad }), "", bad);
+  }
+  assert.equal(getPreloadablePageLocation(null), "");
+  assert.equal(getPreloadablePageLocation({ location: 5 }), "");
+});
+
 test("getSiteMetadata renders prev/next links for a middle page", async () => {
   const site = await HAXCMS.loadSite("unit-blog");
   const middle = site.manifest.items[1];
@@ -1174,7 +1224,7 @@ test("getSiteMetadata honors theme hex codes and cdn preconnect", async () => {
 test("getSiteMetadata emits verbatim hints for custom themes and registry-prefixed hints for registry themes", async () => {
   const site = await HAXCMS.loadSite("unit-website");
   const originalThemePath = site.manifest.metadata.theme.path;
-  // registry theme keeps the base + build/es6/node_modules/ prefix on both hints
+  // registry theme keeps the base + build/es6/node_modules/ prefix
   site.manifest.metadata.theme.path = "@haxtheweb/clean-two/clean-two.js";
   const registryMeta = await site.getSiteMetadata(null, "https://unit.example");
   assert.ok(
@@ -1182,10 +1232,19 @@ test("getSiteMetadata emits verbatim hints for custom themes and registry-prefix
       '<link rel="modulepreload" href="./build/es6/node_modules/@haxtheweb/clean-two/clean-two.js"',
     ) !== -1,
   );
-  assert.ok(
+  // one module hint per URL: a preload as=script beside the modulepreload
+  // is a second request the module loader never reuses
+  assert.equal(
     registryMeta.indexOf(
       '<link rel="preload" href="./build/es6/node_modules/@haxtheweb/clean-two/clean-two.js"',
-    ) !== -1,
+    ),
+    -1,
+  );
+  assert.equal(
+    registryMeta.split(
+      'href="./build/es6/node_modules/@haxtheweb/clean-two/clean-two.js"',
+    ).length - 1,
+    1,
   );
   // custom theme: site-relative path is emitted verbatim, never mangled
   site.manifest.metadata.theme.path = "./custom/build/custom.es6.js";
@@ -1195,10 +1254,11 @@ test("getSiteMetadata emits verbatim hints for custom themes and registry-prefix
       '<link rel="modulepreload" href="./custom/build/custom.es6.js"',
     ) !== -1,
   );
-  assert.ok(
+  assert.equal(
     customMeta.indexOf(
       '<link rel="preload" href="./custom/build/custom.es6.js"',
-    ) !== -1,
+    ),
+    -1,
   );
   assert.equal(customMeta.indexOf("build/es6/node_modules/./custom"), -1);
   assert.equal(customMeta.indexOf("build/es6/node_modules/custom/"), -1);
@@ -1219,6 +1279,68 @@ test("getSiteMetadata emits verbatim hints for custom themes and registry-prefix
     ).indexOf("@haxtheweb/clean-two/clean-two.js") !== -1,
   );
   site.manifest.metadata.theme.path = originalThemePath;
+});
+
+test("getSiteMetadata social cards, preconnects and the canonical default", async () => {
+  const site = await HAXCMS.loadSite("unit-training");
+  const settings = site.manifest.metadata.site.settings;
+  const originalCanonical = settings.canonical;
+  try {
+    const home = site.manifest.items[0];
+    const deep = site.manifest.items[site.manifest.items.length - 1];
+    const homeMeta = await site.getSiteMetadata(home, "https://unit.example");
+    const deepMeta = await site.getSiteMetadata(deep, "https://unit.example");
+    // the front page describes the site; other pages are articles
+    assert.ok(homeMeta.indexOf('property="og:type" content="website"') !== -1);
+    if (site.manifest.items.length > 1) {
+      assert.ok(
+        deepMeta.indexOf('property="og:type" content="article"') !== -1,
+      );
+    }
+    // twitter:site is an @handle, never a URL; HAXcms has none to give
+    assert.equal(homeMeta.indexOf("twitter:site"), -1);
+    // the font CSS host (no CORS) and the font file host (CORS) only
+    assert.ok(
+      homeMeta.indexOf(
+        '<link rel="preconnect" href="https://fonts.googleapis.com">',
+      ) !== -1,
+    );
+    assert.ok(
+      homeMeta.indexOf(
+        '<link rel="preconnect" crossorigin href="https://fonts.gstatic.com">',
+      ) !== -1,
+    );
+    for (const host of [
+      "cdnjs.cloudflare.com",
+      "i.creativecommons.org",
+      "licensebuttons.net",
+    ]) {
+      assert.equal(
+        homeMeta.indexOf('preconnect" crossorigin href="https://' + host),
+        -1,
+        host,
+      );
+    }
+    // sites made before createSite stored the flag still get a canonical
+    delete settings.canonical;
+    const legacyMeta = await site.getSiteMetadata(
+      home,
+      "https://unit.example",
+      "",
+      "/home",
+    );
+    assert.ok(legacyMeta.indexOf('rel="canonical"') !== -1);
+    settings.canonical = false;
+    const offMeta = await site.getSiteMetadata(
+      home,
+      "https://unit.example",
+      "",
+      "/home",
+    );
+    assert.equal(offMeta.indexOf('rel="canonical"'), -1);
+  } finally {
+    settings.canonical = originalCanonical;
+  }
 });
 
 test("getSiteMetadata uses the site domain for canonical and og urls", async () => {
@@ -1287,7 +1409,27 @@ test("getSocialShareImage resolves legacy file shapes and the theme banner", asy
 
 test("getLogoSize falls back to the default icon and resizes a configured logo", async () => {
   const site = await HAXCMS.loadSite("unit-website");
-  assert.equal(await site.getLogoSize("16", "16"), "assets/icon-16x16.png");
+  // the boilerplate has no 16/32 icon; those sizes are the 32x32 favicon
+  assert.equal(await site.getLogoSize("16", "16"), "assets/favicon.png");
+  assert.equal(await site.getLogoSize("32", "32"), "assets/favicon.png");
+  assert.equal(await site.getLogoSize("48", "48"), "assets/icon-48x48.png");
+  for (const size of [
+    "16",
+    "32",
+    "48",
+    "72",
+    "96",
+    "144",
+    "192",
+    "256",
+    "512",
+  ]) {
+    const icon = await site.getLogoSize(size, size);
+    assert.ok(
+      fs.existsSync(path.join(HAXCMS.boilerplatePath, "site", icon)),
+      size + " -> " + icon + " ships in the boilerplate",
+    );
+  }
   const logoPath = path.join(site.siteDirectory, "files", "unit-logo.png");
   await sharp({
     create: { width: 64, height: 64, channels: 3, background: "#ff0000" },
@@ -1315,7 +1457,54 @@ test("rebuildManagedFiles re-renders the managed template set", async () => {
   assert.ok(indexHtml.indexOf("<") !== -1);
 });
 
-// Security (PR8-6): a malicious site title/description must not break the
+function renderedShellFiles(site) {
+  const sw = fs.readFileSync(
+    path.join(site.siteDirectory, "service-worker.js"),
+    "utf8",
+  );
+  const match = sw.match(/var shellFiles = ([\s\S]*?);\n/);
+  assert.ok(match, "shellFiles rendered");
+  return JSON.parse(match[1]);
+}
+
+test("service worker precaches only the shell, never pages or uploads", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  fs.writeFileSync(
+    path.join(site.siteDirectory, "files", "unit-lecture.pdf"),
+    Buffer.alloc(1024, 65),
+  );
+  await site.rebuildManagedFiles();
+  const locations = renderedShellFiles(site).map((item) => item[0]);
+  for (const location of locations) {
+    assert.ok(!location.startsWith("files/"), location);
+    assert.ok(!location.startsWith("pages/"), location);
+  }
+  assert.ok(locations.indexOf("site.json") !== -1);
+  assert.ok(locations.indexOf("offline.html") !== -1);
+});
+
+test("service worker version follows content, not file size", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  const siteJson = path.join(site.siteDirectory, "site.json");
+  const json = fs.readFileSync(siteJson, "utf8");
+  try {
+    await site.rebuildManagedFiles();
+    const before = JSON.stringify(renderedShellFiles(site));
+    // a same-size edit (a typo fix) must still give visitors a new shell
+    const edited = json.replace(/("title":\s*")(.)/, function (m, prefix, c) {
+      return prefix + (c === "Z" ? "Y" : "Z");
+    });
+    assert.equal(edited.length, json.length);
+    assert.notEqual(edited, json);
+    fs.writeFileSync(siteJson, edited);
+    await site.rebuildManagedFiles();
+    assert.notEqual(JSON.stringify(renderedShellFiles(site)), before);
+  } finally {
+    fs.writeFileSync(siteJson, json);
+  }
+});
+
+// Security (SEC-SANITIZE): a malicious site title/description must not break the
 // managed JSON/XML files or inject keys/elements, and ordinary punctuation
 // must stay literal (no HTML entities in JSON / llms.txt).
 test("rebuildManagedFiles keeps manifest.json / package.json / imsmanifest.xml well-formed with a malicious title", async () => {
@@ -1538,6 +1727,93 @@ test("maybeUpgradeLegacyBootstrap is a no-op without the legacy tell", async () 
   assert.ok(fs.statSync(path.join(site.siteDirectory, "index.html")).isFile());
 });
 
+test("maybeUpgradeLegacyBootstrap still upgrades an index.html replaced after a modern check", async () => {
+  const site = await HAXCMS.loadSite("unit-legacy");
+  const indexPath = path.join(site.siteDirectory, "index.html");
+  // first call sees the modern bootstrap and remembers that answer
+  await site.maybeUpgradeLegacyBootstrap();
+  await site.maybeUpgradeLegacyBootstrap();
+  // a legacy bootstrap copied in later (new mtime/size) is still detected
+  fs.writeFileSync(
+    indexPath,
+    "<html><head>@lrnwebcomponents copied back in</head><body></body></html>",
+  );
+  const later = new Date(Date.now() + 5000);
+  fs.utimesSync(indexPath, later, later);
+  const reloaded = await HAXCMS.loadSite("unit-legacy");
+  await reloaded.maybeUpgradeLegacyBootstrap();
+  assert.ok(
+    fs.readFileSync(indexPath, "utf8").indexOf("@lrnwebcomponents") === -1,
+  );
+});
+
+test("cleanSearchData dedupes words exactly like the previous array_unique + implode", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const utf8 = require("utf8");
+  const { stripAngleTags } = require("../../src/lib/linearText.js");
+  const arrayUniqueImport = require("locutus/php/array/array_unique");
+  const implodeImport = require("locutus/php/strings/implode");
+  const explodeImport = require("locutus/php/strings/explode");
+  const array_unique = arrayUniqueImport.array_unique || arrayUniqueImport;
+  const implode = implodeImport.implode || implodeImport;
+  const explode = explodeImport.explode || explodeImport;
+  // the pre-change implementation, verbatim apart from the helper imports
+  const previousCleanSearchData = (text) => {
+    if (text == "" || text == null || !text) {
+      return "";
+    }
+    text = utf8.encode(
+      stripAngleTags(text, "").replace(/\n/g, " ").toLowerCase().trim(),
+    );
+    text = text.replace("/[^a-z0-9']/", " ");
+    text = text.replace(/'/g, "");
+    text = text.replace("~\b[a-z]{1,4}\bs*~", "");
+    text = text.replace("/s+/", " ");
+    text = implode(" ", array_unique(explode(" ", text)));
+    return text;
+  };
+  const words = [
+    "alpha",
+    "Beta",
+    "gamma",
+    "delta",
+    "0",
+    "00",
+    "1",
+    "it's",
+    "naïve",
+    "",
+    "  ",
+    "<b>bold</b>",
+    "toString",
+    "constructor",
+    "__proto__",
+  ];
+  let seed = 7;
+  const next = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed;
+  };
+  for (let run = 0; run < 500; run++) {
+    const count = next() % 60;
+    const parts = [];
+    for (let i = 0; i < count; i++) {
+      parts.push(words[next() % words.length]);
+    }
+    const input = "<p>" + parts.join(next() % 2 ? " " : "\n") + "</p>";
+    assert.equal(
+      site.cleanSearchData(input),
+      previousCleanSearchData(input),
+      input,
+    );
+  }
+  // order is first-occurrence order and duplicates are dropped
+  assert.equal(
+    site.cleanSearchData("zulu alpha zulu bravo alpha"),
+    "zulu alpha bravo",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // node field schema cascade + settings forms
 // ---------------------------------------------------------------------------
@@ -1619,73 +1895,6 @@ test("siteSettingsForm and siteSettingsValue resolve the settings form and value
 });
 
 // ---------------------------------------------------------------------------
-// style guide save
-// ---------------------------------------------------------------------------
-test("handleStyleGuideSave validates body content and persists a valid style guide", async () => {
-  const site = await HAXCMS.loadSite("unit-blog");
-  const missing = await site.handleStyleGuideSave({});
-  assert.equal(missing.status, 400);
-  assert.equal(missing.data.message, "Content parameter is required");
-  const notString = await site.handleStyleGuideSave({ node: { body: 42 } });
-  assert.equal(notString.status, 400);
-  assert.equal(notString.data.message, "Content must be a string");
-  const empty = await site.handleStyleGuideSave({ node: { body: "   " } });
-  assert.equal(empty.status, 400);
-  assert.equal(empty.data.message, "Content cannot be empty");
-  const notHtml = await site.handleStyleGuideSave({
-    node: { body: "no tags here" },
-  });
-  assert.equal(notHtml.status, 400);
-  assert.equal(notHtml.data.message, "Content must be valid HTML");
-  const saved = await site.handleStyleGuideSave({
-    node: { body: "<div>style guide</div>" },
-  });
-  assert.equal(saved.status, 200);
-  assert.equal(saved.data.file, "theme/style-guide.html");
-  assert.ok(
-    fs
-      .readFileSync(
-        path.join(site.siteDirectory, "theme", "style-guide.html"),
-        "utf8",
-      )
-      .indexOf("style guide") !== -1,
-  );
-});
-
-test("handleStyleGuideSave sanitizes the HTML before writing (SEC-SANITIZE)", async () => {
-  const site = await HAXCMS.loadSite("unit-blog");
-  const saved = await site.handleStyleGuideSave({
-    node: {
-      body:
-        '<div onclick="alert(1)">guide</div><script>alert(2)</script>' +
-        '<simple-cta link="javascript:alert(3)" label="go"></simple-cta>',
-    },
-  });
-  assert.equal(saved.status, 200);
-  const written = fs.readFileSync(
-    path.join(site.siteDirectory, "theme", "style-guide.html"),
-    "utf8",
-  );
-  assert.ok(written.indexOf("guide") !== -1);
-  assert.ok(written.indexOf('label="go"') !== -1);
-  assert.ok(!/onclick|<script|javascript:/i.test(written), written);
-});
-
-test("handleStyleGuideSave rejects an externally configured style guide", async () => {
-  const site = await HAXCMS.loadSite("unit-blog");
-  site.manifest.metadata.theme.styleGuide =
-    "https://external.example/guide.html";
-  const blocked = await site.handleStyleGuideSave({
-    node: { body: "<div>blocked</div>" },
-  });
-  assert.equal(blocked.status, 403);
-  assert.equal(
-    blocked.data.message,
-    "Style guide is configured to use external source. Cannot edit through HAXcms.",
-  );
-});
-
-// ---------------------------------------------------------------------------
 // itemFromParams + save
 // ---------------------------------------------------------------------------
 test("itemFromParams slugs from the title when no location was supplied", async () => {
@@ -1698,6 +1907,42 @@ test("itemFromParams slugs from the title when no location was supplied", async 
   });
   assert.equal(item.parent, null);
   assert.ok(item.slug.indexOf("title-only-page") === 0);
+});
+
+// Security (SEC-SANITIZE): the single-page create path stores plain text
+// titles, like addPage / saveOutline / saveNode (haxtheweb/issues#3251).
+// Same cases as PHP HAXCMSSiteMutationsTest::testItemFromParams*Title*.
+test("itemFromParams stores the title as plain text", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  const cases = [
+    ["<img src=x onerror=alert(1)><b>Hello</b>", "Hello"],
+    ["&lt;img src=x onerror=alert(1)&gt;Hi", "Hi"],
+    ["<script>alert(1)</script>Safe", "alert(1)Safe"],
+    ["Line\nOne\nTwo", "LineOneTwo"],
+    ["Plain & simple", "Plain & simple"],
+  ];
+  for (const [raw, expected] of cases) {
+    const item = site.itemFromParams({ node: { title: raw } });
+    assert.equal(item.title, expected, raw);
+    assert.equal(item.title.includes("<"), false, raw);
+  }
+});
+
+test("itemFromParams slugs from the plain title", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  const item = site.itemFromParams({
+    node: { title: "<b>Bold</b> <i>Move</i>" },
+  });
+  assert.equal(item.title, "Bold Move");
+  assert.ok(item.slug.indexOf("bold-move") === 0, item.slug);
+});
+
+test("itemFromParams falls back to the addPage default for a markup-only title", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  for (const raw of ["<img src=x onerror=alert(1)>", "", null, undefined]) {
+    const item = site.itemFromParams({ node: { title: raw } });
+    assert.equal(item.title, "New page", String(raw));
+  }
 });
 
 test("itemFromParams merges request metadata through the page sanitiser", async () => {
@@ -1757,4 +2002,79 @@ test("getManagedTemplateFiles lists the managed file map", async () => {
   assert.equal(templates["sw"], "service-worker.js");
   assert.equal(templates["404"], "404.html");
   assert.equal(templates["fileshtaccess"], "files/.htaccess");
+});
+
+test("addPage resolves only after the search index and feeds include the new page", async () => {
+  const site = await HAXCMS.loadSite("unit-site");
+  const title = "Indexed On Return " + Date.now();
+  const page = await site.addPage(null, title, "default", "indexed-on-return");
+  // no waiting: the rebuild must already be on disk when addPage returns
+  const index = JSON.parse(
+    fs.readFileSync(
+      path.join(site.siteDirectory, "lunrSearchIndex.json"),
+      "utf8",
+    ),
+  );
+  assert.ok(
+    index.some((entry) => entry.title === title),
+    "new page missing from lunrSearchIndex.json",
+  );
+  assert.ok(page && page.id);
+  const llms = fs.readFileSync(
+    path.join(site.siteDirectory, "llms.txt"),
+    "utf8",
+  );
+  assert.ok(llms.indexOf(title) !== -1, "new page missing from llms.txt");
+});
+
+test("addPage still returns the page when the generated-files rebuild fails", async (t) => {
+  const site = await HAXCMS.loadSite("unit-site");
+  const warn = t.mock.method(console, "warn", () => {});
+  t.mock.method(site, "lunrSearchIndex", async () => {
+    throw new Error("index build failed");
+  });
+  const page = await site.addPage(
+    null,
+    "Rebuild Fails",
+    "default",
+    "rebuild-fails",
+  );
+  assert.ok(page && page.id);
+  assert.ok(
+    warn.mock.calls.some((c) =>
+      String(c.arguments[0]).includes("index build failed"),
+    ),
+  );
+});
+
+// haxtheweb/issues#3337: theme/ left the boilerplate. New sites are created
+// without it, and a site that already has the folder keeps every file in it.
+test("a new site has no theme/ folder and still has its custom build", async () => {
+  const site = await HAXCMS.createSite("unit-no-theme-folder");
+  const dir = site.siteDirectory;
+  assert.equal(fs.pathExistsSync(path.join(dir, "theme")), false);
+  assert.ok(
+    fs.pathExistsSync(path.join(dir, "custom", "build", "custom.es6.js")),
+  );
+  const agents = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  assert.equal(agents.indexOf("theme/theme."), -1);
+});
+
+test("rebuildManagedFiles leaves an existing site's theme/ files alone", async () => {
+  const site = await HAXCMS.createSite("unit-keeps-theme-folder");
+  const dir = site.siteDirectory;
+  const css = "site-top-menu { --site-top-menu-bg: #37474f; }\n";
+  const html = "<site-top-menu></site-top-menu>\n";
+  fs.ensureDirSync(path.join(dir, "theme"));
+  fs.writeFileSync(path.join(dir, "theme", "theme.css"), css);
+  fs.writeFileSync(path.join(dir, "theme", "theme.html"), html);
+  await site.rebuildManagedFiles();
+  assert.equal(
+    fs.readFileSync(path.join(dir, "theme", "theme.css"), "utf8"),
+    css,
+  );
+  assert.equal(
+    fs.readFileSync(path.join(dir, "theme", "theme.html"), "utf8"),
+    html,
+  );
 });

@@ -23,7 +23,7 @@ const CORS_ALLOWED_HEADERS = [
 const compression = require("compression");
 const helmet = require("helmet");
 const app = express();
-// Security (EXPRESS-FINGERPRINT-001 / I3): disable X-Powered-By explicitly
+// Security (SEC-HEADERS): disable X-Powered-By explicitly
 // at the Express layer so the header is never set, independent of helmet's
 // default middleware. Defense-in-depth that survives any future helmet config.
 app.disable("x-powered-by");
@@ -33,7 +33,16 @@ const fs = require("fs-extra");
 const crypto = require("crypto");
 const YAML = require("yaml");
 const sslServer = require("./lib/sslServer.js");
-const server = sslServer.createServer(app);
+// HAXCMS_EMBEDDED=1: another runtime hosts the app (e.g. haxcms-browser runs
+// it in a browser Worker, haxtheweb/issues#3331). The Express app and every
+// route are built exactly as usual, but no HTTP server is created, nothing
+// listens and no background timers start; the host dispatches requests to
+// `app` itself once `appReady` resolves. Unset, nothing changes.
+const embeddedRuntime =
+  require("./lib/staticRequestGuards.js").isEnabledFlagValue(
+    process.env.HAXCMS_EMBEDDED,
+  );
+const server = embeddedRuntime ? null : sslServer.createServer(app);
 const serverProtocol = sslServer.getServerProtocol();
 // Security (SEC-DEPLOY): interface selection for server.listen (loopback when
 // the no-login bypass is active, HAXCMS_HOST always wins).
@@ -48,6 +57,14 @@ const {
   requestUrlGuard,
   getBuildAssetRequestPath,
 } = require("./lib/requestUrlGuards.js");
+// Security (SEC-STATIC-DOTFILES, SEC-LOCAL-ORIGIN): decoded-path
+// dotfile/traversal decisions and the local-mode cross-site write guard.
+const {
+  hasParentDirectorySegment,
+  shouldAllowWellKnownDotfiles,
+  isEnabledFlagValue,
+  isCrossSiteLocalModeWrite,
+} = require("./lib/staticRequestGuards.js");
 const PAGE_VARIANT_CONTENT_TYPES = {
   html: "text/html; charset=utf-8",
   md: "text/markdown; charset=utf-8",
@@ -58,7 +75,14 @@ const PAGE_VARIANT_CONTENT_TYPES = {
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require("./lib/HAXCMS.js");
+const {
+  INLINE_SCRIPT_OPEN_TAG_PATTERN,
+  replaceManagedHeadMarkup,
+  replaceSiteBuilderContent,
+} = require("./lib/indexMarkup.js");
 const { resolveContainedPath } = require("./lib/pathConfinement.js");
+const { stampDashboardBasePath } = require("./lib/dashboardBasePath.js");
+const { legacySlugMatches } = require("./lib/slugRules.js");
 const {
   createRequestCommitContext,
   runWithCommitContext,
@@ -67,7 +91,13 @@ const {
 const loginRateLimiter = require("./lib/loginRateLimiter.js");
 const { createRequestRateLimiter } = require("./lib/requestRateLimiter.js");
 const { haxcmsErrorHandler } = require("./lib/requestErrorHandler.js");
+const {
+  sendRouteHandlerError,
+  guardApiRouteHandler,
+} = require("./lib/routeHandlerError.js");
+const { registryMethod } = require("./lib/routeMethod.js");
 const { apiMessageCodesMiddleware } = require("./lib/apiMessageCodes.js");
+const { setUncachedResponseHeaders } = require("./lib/responseCache.js");
 // Shared CLI theme: replaces the bare `open: <url>` line with a unified,
 // colorized "server is up" banner (issue haxtheweb/issues#2973). Falls back to
 // the plain `open: <url>` line when color is disabled (CI / non-TTY / NO_COLOR).
@@ -118,9 +148,19 @@ var cspBaseDirectives = {
   defaultSrc: ["'self'", "data:", "https:"],
   objectSrc: ["'none'"],
   fontSrc: ["'self'", "data:", "fonts.gstatic.com"],
-  frameAncestors: ["'self'"],
+  // Security: no frame-ancestors by default. HAX sites are built to be
+  // embedded (Canvas and other LMS / portal tools iframe published material
+  // routinely), so a restriction here breaks the primary use case. Operators
+  // who need one set config.security.frameAncestors (array of CSP sources,
+  // e.g. ["'self'", "https://*.instructure.com"]); see configuredFrameAncestors.
+  // Mirrors haxcms-php HAXSiteConfig::configuredFrameAncestors.
+  // Security: an injected <base href> would re-root every relative script /
+  // form URL on the page, and form-action keeps credential forms from being
+  // posted to a third-party origin.
+  baseUri: ["'self'"],
+  formAction: ["'self'"],
 };
-// Security (EXPRESS-HEADERS-001 / M2): mint a per-request nonce and set a
+// Security (SEC-HEADERS): mint a per-request nonce and set a
 // Content-Security-Policy header with script-src 'nonce-<n>' (no
 // 'unsafe-inline' for scripts) so inline <script> blocks in the served
 // index.html can only execute when the server stamped them with the same
@@ -131,7 +171,7 @@ var cspBaseDirectives = {
 // out here so the nonce can vary per response.
 var cspNonceEnabled = true;
 function cspNonceMiddleware(req, res, next) {
-  // Security (M2): when the local-dev/webcontainer bypass disabled CSP
+  // Security (SEC-HEADERS): when the local-dev/webcontainer bypass disabled CSP
   // (HAXCMS_DISABLE_JWT_CHECKS, non-production), skip the nonce header so the
   // playground/CDN module loads are not blocked. Otherwise mint a per-request
   // nonce and set script-src 'nonce-<n>' (no 'unsafe-inline' for scripts).
@@ -152,11 +192,40 @@ function cspNonceMiddleware(req, res, next) {
       directives[key] = baseValue.slice();
     }
   }
+  var frameAncestors = configuredFrameAncestors();
+  if (frameAncestors.length > 0) {
+    directives.frameAncestors = frameAncestors;
+  }
   res.setHeader("Content-Security-Policy", formatCspDirectives(directives));
   next();
 }
 
-// Security (M2): format a CSP directives object into the header string shape
+// config.security.frameAncestors as a clean list of CSP source expressions,
+// or [] (the default: embeddable anywhere). Only [A-Za-z0-9.:*'/_-] survive so
+// a config value can never inject a second directive or break the header.
+// PHP parity: HAXSiteConfig::configuredFrameAncestors().
+function configuredFrameAncestors() {
+  var raw =
+    HAXCMS.config && HAXCMS.config.security
+      ? HAXCMS.config.security.frameAncestors
+      : undefined;
+  if (typeof raw === "string") {
+    raw = raw.trim().split(/\s+/);
+  }
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  var out = [];
+  for (var i = 0; i < raw.length; i++) {
+    var entry = String(raw[i] || "").trim();
+    if (entry !== "" && /^[A-Za-z0-9.:*'/_-]+$/.test(entry)) {
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
+// Security (SEC-HEADERS): format a CSP directives object into the header string shape
 // "directive-a v1 v2; directive-b v1; ...". Replaces helmet's
 // contentSecurityPolicy.formatDirectives, which is not exposed in helmet 7.x.
 // Directive keys are camelCase here; CSP header keys are kebab-case, so
@@ -180,8 +249,10 @@ function formatCspDirectives(directives) {
 
 // flag in local development that disables security
 // this way you launch from local and don't need a U/P relationship
+// Security (SEC-LOCAL-ORIGIN): only "1"/"true" enable the bypass. Any other
+// value, including HAXCMS_DISABLE_JWT_CHECKS=false, leaves login on.
 if (
-  process.env.HAXCMS_DISABLE_JWT_CHECKS ||
+  isEnabledFlagValue(process.env.HAXCMS_DISABLE_JWT_CHECKS) ||
   argv._.includes("HAXCMS_DISABLE_JWT_CHECKS")
 ) {
   if (HAXCMS.isProductionRuntime()) {
@@ -194,7 +265,7 @@ if (
     // disable security policies that would otherwise block local development
     // also enables webcontainer environments which is what our playground runs
     helmetPolicies.contentSecurityPolicy = false;
-    // Security (M2): skip the per-request CSP nonce middleware in local dev /
+    // Security (SEC-HEADERS): skip the per-request CSP nonce middleware in local dev /
     // webcontainer mode so the playground and CDN module loads (which omit
     // nonces) are not blocked. CSP is re-enabled for production automatically
     // because this branch only runs when not isProductionRuntime().
@@ -221,7 +292,7 @@ const {
 } = require("./lib/allRoutes.js");
 // app settings
 const multer = require("multer");
-// Security (HAX-SEC-004): hard cap on upload size (1 GB per file, max 10
+// Security (SEC-UPLOAD, SEC-DOS): hard cap on upload size (1 GB per file, max 10
 // files) prevents unbounded DoS uploads. The site's configured
 // maxUploadSizeMb (if smaller) is additionally enforced at the app layer in
 // HAXCMSFile.save(). Parity with PHP php.ini upload_max_filesize as a safety
@@ -270,7 +341,7 @@ const jsonRequestParser = express.json({
   type: ["application/json", "application/*+json"],
   limit: "10mb",
 });
-// Security (HAX-SEC-012): urlencoded parser is scoped to routes that need it
+// Security (SEC-DOS): urlencoded parser is scoped to routes that need it
 // (via formBodyParser below) rather than running globally on every request
 // including static/GET. Lower limit/parameterLimit than the previous global
 // 50mb/50000 to reduce the DoS surface.
@@ -315,7 +386,11 @@ function parseConversionActionBody(req, res, next) {
 function getSiteApiRouteParser(method = "get", route = "") {
   const normalizedMethod = String(method || "get").toLowerCase();
   const normalizedRoute = String(route || "");
-  if (normalizedMethod === "post" && normalizedRoute === "v1/files") {
+  if (
+    normalizedMethod === "post" &&
+    (normalizedRoute === "v1/files" ||
+      normalizedRoute === "v1/files/:fileUuid/content")
+  ) {
     return uploadAnyParser;
   }
   if (
@@ -500,6 +575,37 @@ function resolveLinkedDevAssetPath(cleanFilePath = "") {
   return null;
 }
 
+// Browser cache policy for front-end build modules (build/es6/...). They are
+// only replaced by a HAXcms upgrade, so an hour of reuse removes the
+// per-page-load revalidation of hundreds of modules while keeping an upgrade
+// visible quickly. ETag/Last-Modified still go out, so a stale entry costs a
+// 304, not a full download. Excluded: development mode, the registry files
+// that name what to load, a site's own custom/build output, and anything
+// under files/ (user uploads). The paths carry no version, so the lifetime
+// must stay short: anything longer lets a page mix old and new modules after
+// an upgrade. haxcms-php sends the same header.
+const BUILD_ASSET_CACHE_CONTROL = "public, max-age=3600";
+function isCacheableBuildAssetPath(filePath = "") {
+  if (process.env.NODE_ENV === "development") {
+    return false;
+  }
+  const normalized = String(filePath || "").replace(/\\/g, "/");
+  return (
+    /(^|\/)build\//.test(normalized) &&
+    normalized.indexOf("/files/") === -1 &&
+    normalized.indexOf("files/") !== 0 &&
+    normalized.indexOf("custom/build") === -1 &&
+    !/wc-registry(-graph)?\.json$/.test(normalized)
+  );
+}
+// Set the build-asset Cache-Control before send/express.static run; both keep
+// a Cache-Control header that is already present instead of their default.
+function setBuildAssetCacheHeader(res, filePath = "") {
+  if (isCacheableBuildAssetPath(filePath)) {
+    res.setHeader("Cache-Control", BUILD_ASSET_CACHE_CONTROL);
+  }
+}
+
 function serveBuildAssetFile(req, res, fallbackRoot = "") {
   const cleanFilePath = getBuildAssetRequestPath(req.url);
   const linkedAssetPath = resolveLinkedDevAssetPath(cleanFilePath);
@@ -507,6 +613,7 @@ function serveBuildAssetFile(req, res, fallbackRoot = "") {
     res.sendFile(linkedAssetPath);
     return;
   }
+  setBuildAssetCacheHeader(res, cleanFilePath);
   res.sendFile(cleanFilePath, { root: fallbackRoot });
 }
 
@@ -797,33 +904,7 @@ function mergeImportMapMarkup(existingMarkup = "", linkedDevMarkup = "") {
   return `<script type="importmap" data-haxcms-linked-dev-importmap>${JSON.stringify(merged)}</script>`;
 }
 
-// Security (M1, 2026-10-19 audit): the ONE pattern used both to stamp the
-// per-request nonce (injectNonce) and to pre-mark untrusted page-content
-// scripts (neutralizeUntrustedScriptNonces). Sharing it guarantees every tag
-// injectNonce could stamp was already marked when it came from page content.
-var INLINE_SCRIPT_OPEN_TAG_PATTERN = /<script((?:\s[^>]*)?)>/gi;
-
-// Security (M1, 2026-10-19 audit): page HTML is read from disk and spliced
-// into the served index BEFORE injectNonce runs. Without this, any literal
-// <script> in a page file (legacy content, git/filesystem-synced sites,
-// another backend's writes) would receive the real nonce and execute, so the
-// nonce CSP would give no stored-XSS protection. Mark every script open tag
-// in untrusted content with an empty nonce: it can never match the real
-// nonce, and injectNonce skips tags that already carry a nonce attribute.
-function neutralizeUntrustedScriptNonces(html = "") {
-  return String(html || "").replace(
-    INLINE_SCRIPT_OPEN_TAG_PATTERN,
-    function (match, attrs) {
-      var attrsStr = String(attrs || "");
-      if (/\snonce\s*=/i.test(attrsStr)) {
-        return match;
-      }
-      return "<script" + attrsStr + ' nonce="">';
-    },
-  );
-}
-
-// Security (EXPRESS-HEADERS-001 / M2): stamp every inline <script> (and
+// Security (SEC-HEADERS): stamp every inline <script> (and
 // inline <script type="importmap">) in the served index.html with nonce="<n>"
 // so the per-request CSP (cspNonceMiddleware) allows them to execute while
 // 'unsafe-inline' is dropped from script-src. Only inline scripts need a
@@ -867,7 +948,7 @@ function injectNonce(indexFile = "", nonce = "") {
   // inline scripts (e.g. speculation rules) can pick it up. Idempotent: if the
   // meta is already present, don't add a second one.
   var nonceMetaTag = '<meta name="csp-nonce" content="' + cleanNonce + '">';
-  // Security (M1): only look for an existing meta in the document head so
+  // Security (SEC-HEADERS): only look for an existing meta in the document head so
   // page content in the body cannot suppress (or pre-empt) the real one.
   var headEndIndex = output.search(/<\/head>/i);
   var headRegion =
@@ -886,7 +967,7 @@ function injectNonce(indexFile = "", nonce = "") {
   return output;
 }
 
-// Security (M2): read an index.html from disk, stamp its inline scripts
+// Security (SEC-HEADERS): read an index.html from disk, stamp its inline scripts
 // with the per-request CSP nonce, and send it. Used for the static index
 // fallback paths (single-site catch, multisite dashboard non-dev, multisite
 // site catch) so their inline <script> blocks are authorized under the nonce
@@ -895,11 +976,17 @@ function injectNonce(indexFile = "", nonce = "") {
 function sendNonceIndex(res, req, absoluteFilePath) {
   try {
     var indexFile = fs.readFileSync(absoluteFilePath, "utf8");
+    if (
+      path.resolve(absoluteFilePath) ===
+      path.join(__dirname, "public", "index.html")
+    ) {
+      indexFile = stampDashboardBasePath(indexFile, HAXCMS.basePath);
+    }
     indexFile = injectNonce(indexFile, req && req.haxcmsCspNonce);
-    setNoStoreResponseHeaders(res);
+    setUncachedResponseHeaders(res, req);
     res.send(indexFile);
   } catch {
-    setNoStoreResponseHeaders(res);
+    setUncachedResponseHeaders(res, req);
     res.sendFile(path.basename(absoluteFilePath), {
       root: path.dirname(absoluteFilePath),
     });
@@ -967,7 +1054,8 @@ function injectLinkedDevImportMap(indexFile = "") {
   return `${linkedDevImportMapMarkup}\n${output}`;
 }
 // if in development, live reload
-if (process.env.NODE_ENV === "development") {
+// (needs the HTTP server for the reload websocket, so never when embedded)
+if (process.env.NODE_ENV === "development" && server) {
   const child_process = require("child_process");
   const util = require("util");
   const execFile = util.promisify(child_process.execFile);
@@ -1023,14 +1111,14 @@ if (process.env.NODE_ENV === "development") {
   watcher.on("add", handleWatchedFileChange);
   watcher.on("unlink", handleWatchedFileChange);
 }
-// Security (HAX-SEC-012): express.urlencoded was previously applied globally
-// (including to static/GET requests). It is now scoped to POST/PUT/PATCH/
+// Security (SEC-DOS): express.urlencoded is never applied globally
+// (including to static/GET requests). It is scoped to POST/PUT/PATCH/
 // DELETE routes via formBodyParser in the per-route parser selectors above.
-// Security (ReDoS, CodeQL #23/#39): oversized request URLs are rejected with
+// Security (SEC-DOS): oversized request URLs are rejected with
 // 414 before any static/asset/route handling (cap documented in
 // src/lib/requestUrlGuards.js).
 app.use(requestUrlGuard);
-// Security (SEC-DEPLOY / DNS rebinding): the no-login bypass binds loopback,
+// Security (SEC-DEPLOY): the no-login bypass binds loopback,
 // but a hostile web page can still reach it via DNS rebinding. Reject any
 // request whose Host header is not a loopback name in that mode. Runs first so
 // nothing else (static files, API routes) is reachable with a foreign Host.
@@ -1047,12 +1135,38 @@ app.use((req, res, next) => {
   }
   next();
 });
+// Security (SEC-LOCAL-ORIGIN): with the no-login bypass every request is
+// the superuser, and browsers send simple cross-site form POSTs without a CORS
+// preflight. Refuse non-safe methods whose Origin is not this server (or the
+// configured security.allowedOrigin) or that the browser marks cross-site.
+// Requests without those headers (CLI tools, curl) are unaffected.
+app.use((req, res, next) => {
+  if (
+    HAXCMS.HAXCMS_DISABLE_JWT_CHECKS &&
+    isCrossSiteLocalModeWrite(req, [HAXCMS.getCorsAllowedOrigin("")])
+  ) {
+    res.status(403).send("Forbidden: cross-site request");
+    return;
+  }
+  next();
+});
+// Security (SEC-STATIC-DOTFILES): clients normalize ".." before sending,
+// so a decoded ".." segment only comes from a crafted request trying to walk
+// out of an allowed directory (e.g. /.well-known/%2e%2e/.git/config). Refuse
+// it before any static or route handling sees the path.
+app.use((req, res, next) => {
+  if (hasParentDirectorySegment(req.url)) {
+    res.status(404).end();
+    return;
+  }
+  next();
+});
 app.use(helmet(helmetPolicies));
-// Security (M2): per-request CSP nonce middleware. Runs after helmet so the
+// Security (SEC-HEADERS): per-request CSP nonce middleware. Runs after helmet so the
 // nonce header is set on every response (alongside helmet's other headers).
 // When cspNonceEnabled is false (local-dev/webcontainer bypass) it is a no-op.
 app.use(cspNonceMiddleware);
-// Security (CodeQL js/missing-rate-limiting): generous per-IP ceiling over every
+// Security (SEC-RATELIMIT): generous per-IP ceiling over every
 // route below (static files, site assets, catch-alls) so filesystem-backed
 // handlers cannot be hammered. Tunable / disableable via
 // config.security.requestRateLimit; keyed on req.ip (honors `trust proxy`).
@@ -1062,11 +1176,25 @@ const requestRateLimiter = createRequestRateLimiter(
 app.use(requestRateLimiter);
 app.use(cookieParser());
 app.use(compression());
+// Page bodies (pages/<id>/index.html) are fragments the front end loads into
+// the site shell. Crawlers may fetch them to render a page, but they are not
+// pages of their own, so they are kept out of search results.
+app.use((req, res, next) => {
+  if (isPageFragmentRequestPath(req.path)) {
+    res.setHeader("X-Robots-Tag", "noindex");
+  }
+  next();
+});
 // translatable API messages: add a `code` next to response messages (issues#3157)
 app.use(apiMessageCodesMiddleware);
 app.use((req, res, next) => {
-  if (isSystemAdminApiRequest(req) || shouldDisableResponseCache(req)) {
+  if (isSystemAdminApiRequest(req) && !isPublicSystemApiDocRequest(req)) {
+    // system API answers (login JWTs, tokens, settings) are never stored
     setNoStoreResponseHeaders(res);
+  } else if (isSystemAdminApiRequest(req) || shouldDisableResponseCache(req)) {
+    // API description docs and cache-busted reads hold nothing user-bound
+    // unless the request is credentialed (issues#3244)
+    setUncachedResponseHeaders(res, req);
   }
   next();
 });
@@ -1098,7 +1226,7 @@ const SENSITIVE_STATIC_BASENAMES = [
   "config.json",
   ".htaccess",
   ".ishaxcmsconfig",
-  // Security (HAX-SEC / PHP [C1] parity): explicit defense-in-depth for
+  // Security (SEC-DEPLOY), PHP parity: explicit defense-in-depth for
   // sensitive config files. These are also covered by the _config segment
   // rule below, but listing them explicitly protects against any future path
   // where they might be served from outside _config.
@@ -1148,12 +1276,30 @@ function setCorsHeaders(res) {
     "GET, POST, OPTIONS, PUT, PATCH, DELETE",
   );
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS);
+  // Security: the allowed origin is configuration-dependent, so shared caches
+  // must key on Origin rather than serve one origin's CORS answer to another.
+  appendVaryHeader(res, "Origin");
+}
+// Security: CORS headers only belong on the JSON API surfaces (/system/api and
+// /x/api). Static site content, the dashboard and page HTML are same-origin
+// documents and never need a cross-origin grant.
+function isCorsEligibleRequestPath(url = "") {
+  const requestPath = getRequestPathWithoutQuery(url);
+  return (
+    /\/system\/api(?:\/|$)/.test(requestPath) ||
+    isSiteApiRequestPath(requestPath)
+  );
+}
+function setApiCorsHeaders(req, res) {
+  if (isCorsEligibleRequestPath(req && req.url ? req.url : "")) {
+    setCorsHeaders(res);
+  }
 }
 //pre-flight requests: answer with the same CORS headers as the real
 // responses, otherwise the browser rejects any cross-origin request that
 // carries Authorization or the X-HAXCMS-* tokens before it is ever sent
 app.options("*", function (req, res, _next) {
-  setCorsHeaders(res);
+  setApiCorsHeaders(req, res);
   res.sendStatus(200);
 });
 if (linkedWebcomponentsRoot) {
@@ -1226,6 +1372,15 @@ try {
 } catch {
   // intentionally ignored
 }
+// mtime + size of a single-site site.json, or null when it can't be read
+function statSingleSiteManifest(siteDirectory) {
+  try {
+    const stat = fs.statSync(path.join(siteDirectory, "site.json"));
+    return { mtimeMs: stat.mtimeMs, size: stat.size };
+  } catch {
+    return null;
+  }
+}
 function getRuntimePort() {
   const address = server.address();
   if (
@@ -1237,7 +1392,9 @@ function getRuntimePort() {
   }
   return currentPort;
 }
-systemStructureContext().then((site) => {
+// Resolves once every route is registered (single-site or multisite), which
+// is when an embedding host can start dispatching requests to `app`.
+const appReady = systemStructureContext().then((site) => {
   // see if we have a single site context or if we need routes for multisite
   if (site) {
     // we have a site context, need paths to resolve to cwd instead of subsite path
@@ -1247,6 +1404,36 @@ systemStructureContext().then((site) => {
     publicDir = site.siteDirectory;
     HAXCMS.runtimeServerMode = "single-site";
     activeSite = site;
+    // Page views reuse one loaded site, but saves (API, CLI, git pull) write
+    // site.json without telling this process. Reload it whenever site.json's
+    // mtime or size changes, so pages added or renamed after boot resolve
+    // (they used to 404 with the page-miss shell until a restart). A failed
+    // reload (missing or half-written site.json) keeps serving the last good
+    // copy and is retried on the next request. Multisite and PHP already load
+    // the site per request.
+    let singleSiteStat = statSingleSiteManifest(publicDir);
+    const currentSingleSite = async () => {
+      const stat = statSingleSiteManifest(publicDir);
+      if (
+        !stat ||
+        (singleSiteStat &&
+          stat.mtimeMs === singleSiteStat.mtimeMs &&
+          stat.size === singleSiteStat.size)
+      ) {
+        return site;
+      }
+      try {
+        const reloaded = await systemStructureContext(publicDir);
+        if (reloaded) {
+          site = reloaded;
+          activeSite = reloaded;
+          singleSiteStat = stat;
+        }
+      } catch {
+        // keep the last good copy; the next request tries again
+      }
+      return site;
+    };
     if (process.env.NODE_ENV === "development") {
       // express.static will only serve the original static index.html file
       // so dev builds need to set this ignore option to inject any edits
@@ -1257,8 +1444,18 @@ systemStructureContext().then((site) => {
         }),
       );
     } else {
+      // Security (SEC-HEADERS): index:false so the site index.html for "/" is served by
+      // the app.use('/') handler below (which renders the site index and
+      // stamps inline scripts with the per-request CSP nonce) rather than by
+      // express.static streaming the raw file. The raw file carries no nonce,
+      // so under the nonce-only script-src its inline scripts would be
+      // blocked. Mirrors the multisite branch. Non-index assets are still
+      // served by express.static.
       app.use(
-        express.static(publicDir, { setHeaders: setManagedStaticHeaders }),
+        express.static(publicDir, {
+          index: false,
+          setHeaders: setManagedStaticHeaders,
+        }),
       );
     }
     if (process.env.NODE_ENV === "development") {
@@ -1277,7 +1474,7 @@ systemStructureContext().then((site) => {
       );
     }
     app.use("/", requestRateLimiter, async (req, res, next) => {
-      setCorsHeaders(res);
+      setApiCorsHeaders(req, res);
       res.setHeader("Content-Type", "application/json");
       if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
         next();
@@ -1290,6 +1487,9 @@ systemStructureContext().then((site) => {
           req.url.includes("build.js") ||
           req.url.includes("build-haxcms.js"))
       ) {
+        if (rejectStaticWriteMethod(req, res)) {
+          return;
+        }
         setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
         serveBuildAssetFile(req, res, path.join(__dirname, "/public"));
       } else if (
@@ -1314,6 +1514,9 @@ systemStructureContext().then((site) => {
           req.url.includes("/browserconfig.xml") ||
           req.url.includes("/push-manifest.json"))
       ) {
+        if (rejectStaticWriteMethod(req, res)) {
+          return;
+        }
         if (!setWellKnownContentType(res, req.url)) {
           setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
         }
@@ -1322,6 +1525,7 @@ systemStructureContext().then((site) => {
           getStaticSendFileOptions(publicDir, req.url),
         );
       } else {
+        const site = await currentSingleSite();
         const requestPath = getRequestPathWithoutQuery(req.url);
         let variantResponse = {
           served: false,
@@ -1368,17 +1572,17 @@ systemStructureContext().then((site) => {
           indexFile = injectLinkedDevDedupingFix(indexFile);
           indexFile = injectLinkedDevImportMap(indexFile);
           indexFile = injectDevReloadScript(indexFile, currentPort);
-          // Security (M2): stamp inline scripts with the per-request CSP nonce
+          // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
           // (last so it covers all injected inline scripts too).
           indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
-          setNoStoreResponseHeaders(res);
+          setUncachedResponseHeaders(res, req);
           res.send(indexFile);
         } catch (e) {
           console.warn(
             "Runtime injection failed for single-site index, falling back to static delivery:",
             e,
           );
-          // Security (M2): stamp the static fallback with the nonce too so its
+          // Security (SEC-HEADERS): stamp the static fallback with the nonce too so its
           // inline scripts still execute under the nonce CSP.
           sendNonceIndex(res, req, path.join(publicDir, "index.html"));
         }
@@ -1394,7 +1598,7 @@ systemStructureContext().then((site) => {
         }),
       );
     } else {
-      // Security (M2): index:false so the dashboard index.html is served by
+      // Security (SEC-HEADERS): index:false so the dashboard index.html is served by
       // the app.use('/') handler below (which stamps inline scripts with the
       // per-request CSP nonce) rather than by express.static streaming the
       // raw file (which would bypass the nonce and break under the nonce CSP).
@@ -1441,7 +1645,7 @@ systemStructureContext().then((site) => {
       },
     );
     app.use("/", requestRateLimiter, (req, res, next) => {
-      setCorsHeaders(res);
+      setApiCorsHeaders(req, res);
       res.setHeader("Content-Type", "application/json");
       // advertise the deployment-root agent skills index to header-parsing agents
       res.setHeader(
@@ -1465,13 +1669,14 @@ systemStructureContext().then((site) => {
               path.join(publicDir, "index.html"),
               "utf8",
             );
+            indexFile = stampDashboardBasePath(indexFile, HAXCMS.basePath);
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
-            // Security (M2): stamp inline scripts with the per-request CSP nonce
+            // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
             // (last so it covers all injected inline scripts too).
             indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
-            setNoStoreResponseHeaders(res);
+            setUncachedResponseHeaders(res, req);
             res.send(indexFile);
             return;
           } catch (e) {
@@ -1481,7 +1686,7 @@ systemStructureContext().then((site) => {
             );
           }
         }
-        // Security (M2): non-dev dashboard index. Read+nonce+send so inline
+        // Security (SEC-HEADERS): non-dev dashboard index. Read+nonce+send so inline
         // scripts are authorized under the nonce CSP (no 'unsafe-inline').
         sendNonceIndex(res, req, path.join(publicDir, "index.html"));
       }
@@ -1524,7 +1729,7 @@ systemStructureContext().then((site) => {
           const queryIndex = req.url.indexOf("?");
           const querySuffix =
             queryIndex !== -1 ? req.url.substring(queryIndex) : "";
-          // Security (code-scanning js/server-side-unvalidated-url-redirection):
+          // Security (SEC-ROUTE): no open redirect;
           // a "./" relative target can only resolve against the current
           // "/<sites>/<segment>" URL, so it always stays on this host and
           // lands on "/<sites>/<segment>/" (same as the old absolute form)
@@ -1545,6 +1750,9 @@ systemStructureContext().then((site) => {
             req.url.includes("build.js") ||
             req.url.includes("build-haxcms.js"))
         ) {
+          if (rejectStaticWriteMethod(req, res)) {
+            return;
+          }
           setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
           serveBuildAssetFile(req, res, publicDir);
         } else if (
@@ -1569,6 +1777,9 @@ systemStructureContext().then((site) => {
             req.url.includes("/browserconfig.xml") ||
             req.url.includes("/push-manifest.json"))
         ) {
+          if (rejectStaticWriteMethod(req, res)) {
+            return;
+          }
           if (!setWellKnownContentType(res, req.url)) {
             setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
           }
@@ -1630,10 +1841,10 @@ systemStructureContext().then((site) => {
               indexFile = injectLinkedDevDedupingFix(indexFile);
               indexFile = injectLinkedDevImportMap(indexFile);
               indexFile = injectDevReloadScript(indexFile, currentPort);
-              // Security (M2): stamp inline scripts with the per-request CSP nonce
+              // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
               // (last so it covers all injected inline scripts too).
               indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
-              setNoStoreResponseHeaders(res);
+              setUncachedResponseHeaders(res, req);
               res.send(indexFile);
               return;
             } catch (e) {
@@ -1643,7 +1854,7 @@ systemStructureContext().then((site) => {
               );
             }
           }
-          // Security (M2): static index fallback — read+nonce+send so inline
+          // Security (SEC-HEADERS): static index fallback — read+nonce+send so inline
           // scripts are authorized under the nonce CSP (no 'unsafe-inline').
           // Mirrors the prior res.sendFile path resolution.
           // Security: derive the site segment via cleanTitle and confine the
@@ -1653,7 +1864,7 @@ systemStructureContext().then((site) => {
             siteName,
           );
           if (fallbackIndexPath === false) {
-            setNoStoreResponseHeaders(res);
+            setUncachedResponseHeaders(res, req);
             res.status(404).send("Not found");
             return;
           }
@@ -1702,19 +1913,20 @@ systemStructureContext().then((site) => {
       );
       const systemRouteHandler = async (req, res, next) => {
         const op = req.route.path.replace(systemApiV1BasePath, "");
-        const rMethod = req.method.toLowerCase();
+        // HEAD is served by the GET route; the registry only has "get"
+        const rMethod = registryMethod(req.method);
         // Security (SEC-UPLOAD): auth decision shared with the multipart
         // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
         // result when it already ran for this request so basic credentials
         // are only checked once.
         const auth =
           getSystemV1PreAuthResult(req, op) ||
-          evaluateSystemV1RouteAuthentication(
+          (await evaluateSystemV1RouteAuthentication(
             req,
             res,
             op,
             systemV1OpenRouteRegistry,
-          );
+          ));
         if (auth.authenticated) {
           const basicAuth = auth.basicAuth;
           if (
@@ -1722,7 +1934,7 @@ systemStructureContext().then((site) => {
           ) {
             return;
           }
-          // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
+          // Security (SEC-ROUTE): enforce site-token policy for 'authenticated-site'
           // system routes (e.g. provider-search) so the router returns a
           // consistent 403 envelope instead of the handler doing the check.
           if (
@@ -1755,19 +1967,20 @@ systemStructureContext().then((site) => {
           `/${HAXCMS.sitesDirectory}/*${systemApiV1BasePath}`,
           "",
         );
-        const rMethod = req.method.toLowerCase();
+        // HEAD is served by the GET route; the registry only has "get"
+        const rMethod = registryMethod(req.method);
         // Security (SEC-UPLOAD): auth decision shared with the multipart
         // pre-auth middleware (evaluateSystemV1RouteAuthentication); reuse its
         // result when it already ran for this request so basic credentials
         // are only checked once.
         const auth =
           getSystemV1PreAuthResult(req, op) ||
-          evaluateSystemV1RouteAuthentication(
+          (await evaluateSystemV1RouteAuthentication(
             req,
             res,
             op,
             systemV1OpenRouteRegistry,
-          );
+          ));
         if (auth.authenticated) {
           const basicAuth = auth.basicAuth;
           if (
@@ -1775,7 +1988,7 @@ systemStructureContext().then((site) => {
           ) {
             return;
           }
-          // F2/Q14+F3: enforce site-token policy for 'authenticated-site'
+          // Security (SEC-ROUTE): enforce site-token policy for 'authenticated-site'
           // system routes (e.g. provider-search) so the router returns a
           // consistent 403 envelope instead of the handler doing the check.
           if (
@@ -1803,6 +2016,18 @@ systemStructureContext().then((site) => {
         }
         return sendSystemV1AuthFailure(res, auth);
       };
+      // a throw before the handler runs (auth / token checks) answers the
+      // ApiError envelope too; Express 4 does not catch async rejections
+      const systemRouteLabel =
+        "system " + systemMethod.toUpperCase() + " " + systemRoute;
+      const guardedSystemRouteHandler = guardApiRouteHandler(
+        systemRouteLabel,
+        systemRouteHandler,
+      );
+      const guardedSiteScopedSystemRouteHandler = guardApiRouteHandler(
+        systemRouteLabel,
+        siteScopedSystemRouteHandler,
+      );
       if (
         systemRouteParser &&
         isMultipartCapableSystemRouteParser(systemRouteParser)
@@ -1818,30 +2043,30 @@ systemStructureContext().then((site) => {
           systemRoutePath,
           systemUploadPreAuth,
           systemRouteParser,
-          systemRouteHandler,
+          guardedSystemRouteHandler,
         );
         app[systemMethod](
           `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
           systemUploadPreAuth,
           systemRouteParser,
-          siteScopedSystemRouteHandler,
+          guardedSiteScopedSystemRouteHandler,
         );
       } else if (systemRouteParser) {
         app[systemMethod](
           systemRoutePath,
           systemRouteParser,
-          systemRouteHandler,
+          guardedSystemRouteHandler,
         );
         app[systemMethod](
           `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
           systemRouteParser,
-          siteScopedSystemRouteHandler,
+          guardedSiteScopedSystemRouteHandler,
         );
       } else {
-        app[systemMethod](systemRoutePath, systemRouteHandler);
+        app[systemMethod](systemRoutePath, guardedSystemRouteHandler);
         app[systemMethod](
           `/${HAXCMS.sitesDirectory}/*${systemRoutePath}`,
-          siteScopedSystemRouteHandler,
+          guardedSiteScopedSystemRouteHandler,
         );
       }
     }
@@ -1871,7 +2096,7 @@ systemStructureContext().then((site) => {
           }
           // haxtheweb/issues#3191: commits made by this request carry its
           // actor + operationId + txn
-          runCommitScopedHandler(
+          return runCommitScopedHandler(
             req,
             "site",
             siteMethod,
@@ -2057,13 +2282,14 @@ systemStructureContext().then((site) => {
               path.join(__dirname, "public", "index.html"),
               "utf8",
             );
+            indexFile = stampDashboardBasePath(indexFile, HAXCMS.basePath);
             indexFile = injectLinkedDevDedupingFix(indexFile);
             indexFile = injectLinkedDevImportMap(indexFile);
             indexFile = injectDevReloadScript(indexFile, currentPort);
-            // Security (M2): stamp inline scripts with the per-request CSP nonce
+            // Security (SEC-HEADERS): stamp inline scripts with the per-request CSP nonce
             // (last so it covers all injected inline scripts too).
             indexFile = injectNonce(indexFile, req.haxcmsCspNonce);
-            setNoStoreResponseHeaders(res);
+            setUncachedResponseHeaders(res, req);
             res.send(indexFile);
             return;
           } catch (e) {
@@ -2073,7 +2299,7 @@ systemStructureContext().then((site) => {
             );
           }
         }
-        // Security (M2): non-dev catch-all fallback — read+nonce+send so inline
+        // Security (SEC-HEADERS): non-dev catch-all fallback — read+nonce+send so inline
         // scripts are authorized under the nonce CSP (no 'unsafe-inline').
         sendNonceIndex(res, req, path.join(__dirname, "public", "index.html"));
       } else {
@@ -2081,7 +2307,7 @@ systemStructureContext().then((site) => {
       }
     });
   }
-  // Security (PR8-4): ENOENT -> 404, multer limits -> 413 (HAX-SEC-004), and
+  // Security (SEC-ROUTE, SEC-UPLOAD): ENOENT -> 404, multer limits -> 413, and
   // body-parser failures -> 400/413/415 JSON without logging err.body.
   app.use(haxcmsErrorHandler);
 });
@@ -2089,16 +2315,25 @@ systemStructureContext().then((site) => {
 // keep binding the same interface.
 var listenHost = null;
 var listenHostResolved = false;
-server.on("listening", onServerListening);
-server.on("error", handleServerError);
-// Security (SEC-UPLOAD): sweep stale multer temp files (>1h) and abandoned
-// tmp/imports staging entries (>24h) at startup and every 15 minutes. The
-// timer is unref'd and stopped when the server closes.
-const stopUploadTempSweeper = uploadSecurity.startUploadTempSweeper(
-  UPLOAD_TEMP_DIRECTORY,
-);
-server.on("close", stopUploadTempSweeper);
-startServer(currentPort);
+if (server) {
+  server.on("listening", onServerListening);
+  server.on("error", handleServerError);
+  // Security (SEC-UPLOAD): sweep stale multer temp files (>1h), abandoned
+  // tmp/imports staging entries (>24h) and stale downloadSite archives in
+  // _published/ (>15m) at startup and every 15 minutes. The timer is unref'd
+  // and stopped when the server closes.
+  const stopUploadTempSweeper = uploadSecurity.startUploadTempSweeper(
+    UPLOAD_TEMP_DIRECTORY,
+    {
+      publishedDirectory: path.join(
+        HAXCMS.HAXCMS_ROOT,
+        HAXCMS.publishedDirectory,
+      ),
+    },
+  );
+  server.on("close", stopUploadTempSweeper);
+  startServer(currentPort);
+}
 
 function startServer(portToTry) {
   currentPort = Number(portToTry);
@@ -2120,10 +2355,51 @@ function startServer(portToTry) {
     server.listen(currentPort);
   }
 }
+// Security: in production, Host-header validation (security.allowedHosts) and
+// forwarded-header trust (security.trustedProxies / trustProxy) are both
+// opt-in. Without them a reverse-proxied deployment builds response URLs
+// from an attacker-controlled Host and rate-limits on the proxy address.
+// Warn once at startup so operators notice; never fatal.
+function getProductionDeploymentWarnings(haxcms = HAXCMS) {
+  const warnings = [];
+  if (!haxcms || typeof haxcms.isProductionRuntime !== "function") {
+    return warnings;
+  }
+  if (!haxcms.isProductionRuntime()) {
+    return warnings;
+  }
+  const allowedHosts =
+    typeof haxcms.getAllowedHosts === "function"
+      ? haxcms.getAllowedHosts()
+      : [];
+  if (!Array.isArray(allowedHosts) || allowedHosts.length === 0) {
+    warnings.push(
+      "SECURITY: config.security.allowedHosts is not set; Host / X-Forwarded-Host are not validated when building response URLs. Set it to your public hostname(s) in production.",
+    );
+  }
+  const trustProxy =
+    typeof haxcms.getTrustProxySetting === "function"
+      ? haxcms.getTrustProxySetting()
+      : false;
+  if (
+    trustProxy === false ||
+    trustProxy === 0 ||
+    (Array.isArray(trustProxy) && trustProxy.length === 0)
+  ) {
+    warnings.push(
+      "SECURITY: config.security.trustedProxies / trustProxy is not set; forwarded client IPs and protocol are ignored. If HAXcms runs behind a reverse proxy, list the proxy addresses so rate limiting and HTTPS detection see the real client.",
+    );
+  }
+  return warnings;
+}
 function onServerListening() {
   const runtimePort = getRuntimePort();
   currentPort = runtimePort;
   process.env.PORT = `${runtimePort}`;
+  const deploymentWarnings = getProductionDeploymentWarnings();
+  for (let w = 0; w < deploymentWarnings.length; w++) {
+    console.warn(deploymentWarnings[w]);
+  }
   if (!serverReadyResolved) {
     resolveServerReady(runtimePort);
     serverReadyResolved = true;
@@ -2184,10 +2460,16 @@ function handleServerError(e) {
 }
 module.exports = {
   app,
+  appReady,
+  embeddedRuntime,
+  // null when embedded (HAXCMS_EMBEDDED)
   server,
+  // never resolves when embedded: there is no port
   serverReady,
   serverProtocol,
   getListenHost: () => listenHost,
+  getProductionDeploymentWarnings,
+  configuredFrameAncestors,
 };
 function isSiteScopedSystemApiRoutePattern(req) {
   if (!req || !req.route || typeof req.route.path !== "string") {
@@ -2254,6 +2536,34 @@ function isSystemAdminApiRequest(req) {
   }
   return requestPath.indexOf(systemRequestBasePath + "/") !== -1;
 }
+// The API description docs (GET /system/api/v1, /openapi, .json, .yaml):
+// static, the same for every caller.
+const PUBLIC_SYSTEM_API_DOC_SUFFIXES = [
+  "v1",
+  "v1/openapi",
+  "v1/openapi.json",
+  "v1/openapi.yaml",
+];
+function isPublicSystemApiDocRequest(req) {
+  if (!req || (req.method !== "GET" && req.method !== "HEAD")) {
+    return false;
+  }
+  const requestPath = normalizePathForCacheMatching(
+    getRequestPathWithoutQuery(req.originalUrl || req.url),
+  );
+  const systemRequestBasePath = normalizePathForCacheMatching(
+    "/" + String(HAXCMS.systemRequestBase || "").replace(/^\/+/, ""),
+  );
+  for (let i = 0; i < PUBLIC_SYSTEM_API_DOC_SUFFIXES.length; i++) {
+    if (
+      requestPath ===
+      systemRequestBasePath + "/" + PUBLIC_SYSTEM_API_DOC_SUFFIXES[i]
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 function shouldDisableResponseCache(req) {
   if (!req) {
     return false;
@@ -2277,7 +2587,7 @@ function validateSystemV1RouteAccess(req, op = "") {
 // from the route handlers so the multipart pre-auth middleware makes exactly
 // the same decision (and returns exactly the same status/envelope) before
 // multer runs. Order and messages are unchanged from the inline handler code.
-function evaluateSystemV1RouteAuthentication(
+async function evaluateSystemV1RouteAuthentication(
   req,
   res,
   op = "",
@@ -2293,7 +2603,7 @@ function evaluateSystemV1RouteAuthentication(
   let isAuthenticated = openRoutes.includes(op) || HAXCMS.validateJWT(req, res);
   let basicAuth = null;
   if (!isAuthenticated) {
-    basicAuth = authenticateBasicAuthorizationRequest(req);
+    basicAuth = await authenticateBasicAuthorizationRequest(req);
     if (basicAuth.blocked) {
       return {
         authenticated: false,
@@ -2359,12 +2669,24 @@ function isMultipartCapableSystemRouteParser(parser) {
 // multer never writes their file parts to disk. Non-multipart requests pass
 // through untouched (the handler performs the check as before).
 function createSystemV1UploadPreAuthMiddleware(op = "", openRoutes = []) {
-  return function systemV1UploadPreAuth(req, res, next) {
+  return async function systemV1UploadPreAuth(req, res, next) {
     if (!isMultipartRequest(req)) {
       next();
       return;
     }
-    const auth = evaluateSystemV1RouteAuthentication(req, res, op, openRoutes);
+    // Express 4 ignores a rejected middleware promise, so errors go to next()
+    let auth;
+    try {
+      auth = await evaluateSystemV1RouteAuthentication(
+        req,
+        res,
+        op,
+        openRoutes,
+      );
+    } catch (e) {
+      next(e);
+      return;
+    }
     if (!auth.authenticated) {
       sendSystemV1AuthFailure(res, auth);
       return;
@@ -2451,6 +2773,21 @@ function normalizeSiteApiSecurityPolicy(securityConfig = null) {
   }
   if (securityConfig.length === 0) {
     return "public";
+  }
+  // An empty requirement ({}) anywhere in the list makes auth optional, as
+  // in OpenAPI: the route is public at the gate, whatever order the
+  // requirements are listed in, and the handler decides what a signed-in
+  // caller gets (e.g. listEntityDescriptors with bearer + site token).
+  for (let i = 0; i < securityConfig.length; i++) {
+    const requirement = securityConfig[i];
+    if (
+      requirement &&
+      typeof requirement === "object" &&
+      !Array.isArray(requirement) &&
+      Object.keys(requirement).length === 0
+    ) {
+      return "public";
+    }
   }
   let requiresBearer = false;
   let requiresUserToken = false;
@@ -2692,7 +3029,7 @@ function enforceSystemApiUserTokenPolicy(req, res, op, method, basicAuth) {
   }
   return true;
 }
-// F2/Q14+F3: site-token enforcement for 'authenticated-site' system routes
+// Security (SEC-ROUTE): site-token enforcement for 'authenticated-site' system routes
 // (e.g. provider-search). Mirrors the site API's 'authenticated-site' policy
 // but runs in the system route handler so the 403 envelope is consistent
 // with the rest of the system API. The handler may still do semantic
@@ -2832,7 +3169,7 @@ function decodeBasicAuthCredentials(authorizationHeader = "") {
     password: decodedCredentials.substring(separatorIndex + 1),
   };
 }
-function authenticateBasicAuthorizationRequest(req) {
+async function authenticateBasicAuthorizationRequest(req) {
   const authorizationHeader = getRequestHeaderValue(req, "authorization");
   const basicAuthCredentials = decodeBasicAuthCredentials(authorizationHeader);
   if (!basicAuthCredentials) {
@@ -2854,19 +3191,16 @@ function authenticateBasicAuthorizationRequest(req) {
   // brute-force throttle shared with the username/password login route
   const rateLimitSettings = HAXCMS.getLoginRateLimitSettings();
   const now = Date.now();
-  const attemptKey = loginRateLimiter.getAttemptKey(req, userName);
-  const attemptEntry = loginRateLimiter.getTrackerEntry(
-    attemptKey,
+  // Security: throttled on ip::username AND on the username alone (shared
+  // store with the login route) so a distributed guess is still limited.
+  const attempt = loginRateLimiter.getLoginAttempt(
+    req,
+    userName,
     now,
     rateLimitSettings,
   );
-  if (
-    rateLimitSettings.enabled &&
-    loginRateLimiter.isBlocked(attemptEntry, now)
-  ) {
-    const retryAfterSeconds = Math.ceil(
-      (attemptEntry.blockedUntil - now) / 1000,
-    );
+  if (rateLimitSettings.enabled && attempt.isBlocked()) {
+    const retryAfterSeconds = Math.ceil((attempt.blockedUntil() - now) / 1000);
     return {
       attempted: true,
       authenticated: false,
@@ -2876,11 +3210,11 @@ function authenticateBasicAuthorizationRequest(req) {
     };
   }
   if (
-    HAXCMS.testLogin(userName, password, true) &&
+    (await HAXCMS.testLoginAsync(userName, password, true)) &&
     HAXCMS.validateUser(userName)
   ) {
     if (rateLimitSettings.enabled) {
-      loginRateLimiter.clearTrackerEntry(attemptKey);
+      attempt.clear();
     }
     return {
       attempted: true,
@@ -2889,11 +3223,7 @@ function authenticateBasicAuthorizationRequest(req) {
     };
   }
   if (rateLimitSettings.enabled) {
-    loginRateLimiter.registerFailedAttempt(
-      attemptEntry,
-      now,
-      rateLimitSettings,
-    );
+    attempt.registerFailure();
   }
   return {
     attempted: true,
@@ -3113,6 +3443,11 @@ async function validateSiteApiRouteAccess(req, route = "", method = "get") {
   if (HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS) {
     authContext.authenticated = true;
     authContext.securityLevel = policy === "public" ? "authenticated" : policy;
+    // Local mode / CLI: every request acts as the active user (the same
+    // identity login revalidation uses here). Site writes such as saveOutline
+    // and saveNode bind their site token to this user name, so leaving it
+    // blank refused every save with "Authentication required".
+    authContext.userName = HAXCMS.getActiveUserName() || "";
     setSiteApiAuthContext(req, authContext);
     return {
       allowed: true,
@@ -3137,7 +3472,7 @@ async function validateSiteApiRouteAccess(req, route = "", method = "get") {
       }
     }
   }
-  const basicAuth = authenticateBasicAuthorizationRequest(req);
+  const basicAuth = await authenticateBasicAuthorizationRequest(req);
   if (basicAuth.authenticated && !authContext.authenticated) {
     authContext.authenticated = true;
     authContext.userName = basicAuth.userName;
@@ -3297,8 +3632,13 @@ function getNormalizedBasePath() {
  * every gitCommit() it makes is prefixed with the caller's actor, the route's
  * OpenAPI operationId and a per-request txn. Read-only (GET) routes make no
  * commits and run as before.
+ *
+ * Invariant: the returned promise never rejects. A handler that throws or
+ * rejects answers the ApiError envelope (sendRouteHandlerError), so a failing
+ * write cannot hang the request or stop the server with an unhandled
+ * rejection.
  */
-function runCommitScopedHandler(
+async function runCommitScopedHandler(
   req,
   scope,
   method,
@@ -3307,14 +3647,23 @@ function runCommitScopedHandler(
   res,
   next,
 ) {
-  if (String(method || "").toLowerCase() === "get") {
-    return handler(req, res, next);
+  try {
+    if (String(method || "").toLowerCase() === "get") {
+      return await handler(req, res, next);
+    }
+    const context = createRequestCommitContext(
+      req,
+      getOperationId(scope, method, routeKey),
+    );
+    return await runWithCommitContext(context, () => handler(req, res, next));
+  } catch (error) {
+    sendRouteHandlerError(
+      req,
+      res,
+      error,
+      scope + " " + String(method || "").toUpperCase() + " " + routeKey,
+    );
   }
-  const context = createRequestCommitContext(
-    req,
-    getOperationId(scope, method, routeKey),
-  );
-  return runWithCommitContext(context, () => handler(req, res, next));
 }
 function getSiteApiBasePath() {
   return getNormalizedBasePath() + "x/api";
@@ -3346,6 +3695,25 @@ function decodeStaticRequestPath(requestPath = "") {
 function isSiteApiRequestPath(url = "") {
   return /\/x\/api(?:\/|$)/.test(getRequestPathWithoutQuery(url));
 }
+// Static files (site files, build assets, .well-known docs) are read-only.
+// These routes are mounted with app.use, so without this check a POST, PUT,
+// PATCH or DELETE got the file back with a 200, as if the write had worked
+// (found by the method x route matrix, haxtheweb/issues#3247). Apache, which
+// serves these files for haxcms-php, refuses such writes the same way.
+// GET, HEAD and OPTIONS behave as before.
+const STATIC_READ_METHODS = ["GET", "HEAD", "OPTIONS"];
+function rejectStaticWriteMethod(req, res) {
+  const method = String((req && req.method) || "GET").toUpperCase();
+  if (STATIC_READ_METHODS.indexOf(method) !== -1) {
+    return false;
+  }
+  res.setHeader("Allow", "GET, HEAD, OPTIONS");
+  res.status(405).json({
+    status: 405,
+    data: { message: "Method not allowed" },
+  });
+  return true;
+}
 function setWellKnownContentType(res, requestPath = "") {
   const cleanRequestPath = getRequestPathWithoutQuery(requestPath);
   if (/\/\.well-known\/api-catalog$/.test(cleanRequestPath)) {
@@ -3361,10 +3729,8 @@ function setWellKnownContentType(res, requestPath = "") {
   }
   return false;
 }
-function shouldAllowWellKnownDotfiles(requestPath = "") {
-  const cleanRequestPath = getRequestPathWithoutQuery(requestPath);
-  return /\/\.well-known(?:\/|$)/.test(cleanRequestPath);
-}
+// shouldAllowWellKnownDotfiles lives in src/lib/staticRequestGuards.js and
+// decides on the decoded path segments (SEC-STATIC-DOTFILES).
 function getStaticSendFileOptions(rootPath = "", requestPath = "") {
   const options = {
     root: rootPath,
@@ -3386,6 +3752,10 @@ const STATIC_CHARSET_EXTENSIONS = /\.(txt|md|json|ya?ml|xml)$/i;
 // type. Pass null as `fallback` to only set a header when mime resolves.
 // Used at call sites that res.sendFile() afterward: send respects a
 // pre-set Content-Type (it does not override), so this header wins.
+function isPageFragmentRequestPath(requestPath = "") {
+  return /(^|\/)pages\/[^/]+\/index\.html$/.test(String(requestPath || ""));
+}
+
 function setStaticContentTypeWithCharset(
   res,
   requestPath = "",
@@ -3451,6 +3821,11 @@ function setManagedFileCharsetHeader(res, filePath = "") {
 // Apache FilesMatch rule in the site files/.htaccess.
 function setManagedStaticHeaders(res, filePath = "") {
   setManagedFileCharsetHeader(res, filePath);
+  // filePath is the resolved disk path; match build/ relative to publicDir so
+  // a parent folder that happens to be named "build" never qualifies
+  if (publicDir && String(filePath).indexOf(publicDir) === 0) {
+    setBuildAssetCacheHeader(res, filePath.substring(publicDir.length));
+  }
   if (uploadSecurity.shouldForceDownloadResolvedFile(publicDir, filePath)) {
     res.setHeader("Content-Disposition", "attachment");
   }
@@ -3641,6 +4016,13 @@ function resolvePageBySlug(site, slug = "") {
       return item;
     }
   }
+  // a slug saved with a leading "/" answers to the path without it
+  for (let i = 0; i < site.manifest.items.length; i++) {
+    const item = site.manifest.items[i];
+    if (item && legacySlugMatches(item.slug, slug)) {
+      return item;
+    }
+  }
   return null;
 }
 
@@ -3712,7 +4094,7 @@ function resolveVariantFilePath(site, item, format = "json") {
   if (!variantLocation || !site || !site.siteDirectory) {
     return null;
   }
-  // Security (N1/N5 parity): the sidecar path derives from the manifest
+  // Security (SEC-PATH), PHP parity: the sidecar path derives from the manifest
   // location, so prove it resolves inside the site before serving it.
   const absolutePath = resolveContainedPath(
     site.siteDirectory,
@@ -3814,10 +4196,10 @@ async function tryServeLlmsFull(req, res, site) {
     return;
   }
   const {
-    buildSiteExportMarkdown,
+    buildSiteExportMarkdownCached,
     sendCacheableText,
   } = require("./siteRoutes/v1/exports.js");
-  const markdown = await buildSiteExportMarkdown(site, "", true);
+  const markdown = await buildSiteExportMarkdownCached(site, "", true);
   sendCacheableText(req, res, markdown, "text/markdown; charset=utf-8", true);
 }
 
@@ -3942,7 +4324,7 @@ function getMultisiteSiteSubPath(requestPath = "") {
 }
 
 function getRequestAbsoluteUrl(req, fallbackPath = "/") {
-  // Security (HAX-SEC / PHP [M4] parity): delegate protocol/host resolution to
+  // Security (SEC-HEADERS), PHP parity: delegate protocol/host resolution to
   // HAXCMS.resolveTrustedProtocol / resolveTrustedHost so this and both
   // discovery API endpoints share one trust-proxy-aware + allowedHosts-validated
   // implementation. An attacker cannot inject a forged Host into canonical/
@@ -3965,82 +4347,6 @@ function getRequestAbsoluteUrl(req, fallbackPath = "/") {
     return requestPath;
   }
   return protocol + "://" + host + requestPath;
-}
-
-function sanitizeManagedHeadMarkup(markup = "") {
-  return String(markup || "").replace(/\\"/g, '"');
-}
-
-function replaceManagedHeadMarkup(
-  indexFile = "",
-  metadata = "",
-  serviceWorkerScript = "",
-) {
-  const cleanMetadata = sanitizeManagedHeadMarkup(metadata);
-  const cleanServiceWorkerScript =
-    sanitizeManagedHeadMarkup(serviceWorkerScript);
-  let managedHeadMarkup = cleanMetadata;
-  if (cleanServiceWorkerScript !== "") {
-    managedHeadMarkup += "\n" + cleanServiceWorkerScript + "\n";
-  }
-  let output = String(indexFile || "");
-  const managedHeadPattern = /<meta charset[\s\S]*?(?=\s*<style[\s>])/i;
-  if (managedHeadPattern.test(output)) {
-    // Preserve <script> blocks (the base-href document.write setter and the
-    // importmap) that sit between <meta charset> and <style>. The managed
-    // metadata does not regenerate these, so without preservation they are
-    // swallowed by the replacement. This regressed when <meta charset> was
-    // moved to the top of <head> in the site boilerplate: the regex then
-    // spans the base/importmap scripts instead of starting below them.
-    // Without the base-href script no <base> tag is written, so relative
-    // asset paths resolve against the document URL on sub-pages and 404.
-    // Mirrors the PHP index.php template where getBaseTag() + the importmap
-    // are separate parts ahead of the metadata.
-    const matched = output.match(managedHeadPattern)[0];
-    const scriptBlockPattern = /<script[\s\S]*?<\/script>/gi;
-    const preservedScripts = [];
-    let scriptMatch;
-    while ((scriptMatch = scriptBlockPattern.exec(matched)) !== null) {
-      preservedScripts.push(scriptMatch[0]);
-    }
-    const preservedScriptsMarkup =
-      preservedScripts.length > 0 ? preservedScripts.join("\n  ") + "\n  " : "";
-    output = output.replace(
-      managedHeadPattern,
-      preservedScriptsMarkup + managedHeadMarkup + "\n",
-    );
-    return output;
-  }
-  if (output.indexOf("</head>") !== -1) {
-    output = output.replace("</head>", managedHeadMarkup + "\n</head>");
-  }
-  return output;
-}
-
-function replaceSiteBuilderContent(indexFile = "", pageContent = "") {
-  const builderPattern =
-    /<haxcms-site-builder([^>]*)>[\s\S]*?<\/haxcms-site-builder>/i;
-  if (!builderPattern.test(indexFile)) {
-    return indexFile;
-  }
-  // Security (M1): page content is untrusted for CSP purposes; pre-mark its
-  // scripts so the later injectNonce pass never authorizes them.
-  const safeContent = neutralizeUntrustedScriptNonces(pageContent);
-  // Replacer function (not a replacement string) so `$&`, `$1`, `` $` `` or
-  // `$'` sequences inside page content are inserted literally instead of
-  // being expanded into other parts of the template.
-  return String(indexFile || "").replace(
-    builderPattern,
-    function (match, builderAttrs) {
-      return (
-        "<haxcms-site-builder" +
-        builderAttrs +
-        ">" +
-        safeContent +
-        "</haxcms-site-builder>"
-      );
-    },
-  );
 }
 
 function injectDevReloadScript(indexFile = "", port = 3000) {
@@ -4103,7 +4409,7 @@ async function renderDynamicSiteIndexResponse(
   );
   indexFile = replaceManagedHeadMarkup(
     indexFile,
-    metadata,
+    pageMiss ? noindexRobotsMeta(metadata) : metadata,
     serviceWorkerScript,
   );
   let pageContent = "";
@@ -4118,6 +4424,15 @@ async function renderDynamicSiteIndexResponse(
   }
   indexFile = replaceSiteBuilderContent(indexFile, pageContent);
   return indexFile;
+}
+// a page miss answers 404 with the site shell; keep it out of search results
+function noindexRobotsMeta(metadata = "") {
+  // private sites already send "none"; only the public value changes, and
+  // any noai directives after it are kept
+  return String(metadata || "").replace(
+    '<meta name="robots" content="index, follow',
+    '<meta name="robots" content="noindex, follow',
+  );
 }
 function getPageMissShellMarkup() {
   return `<style>

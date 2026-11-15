@@ -1,19 +1,19 @@
-const fs = require('fs-extra');
-const path = require('path');
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const fs = require("fs-extra");
+const path = require("path");
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
 
 function getUserTokenFromHeader(req) {
-  if (!req || !req.headers || typeof req.headers !== 'object') {
-    return '';
+  if (!req || !req.headers || typeof req.headers !== "object") {
+    return "";
   }
-  const rawValue = req.headers['x-haxcms-user-token'];
+  const rawValue = req.headers["x-haxcms-user-token"];
   if (Array.isArray(rawValue)) {
-    return rawValue.length > 0 ? String(rawValue[0] || '').trim() : '';
+    return rawValue.length > 0 ? String(rawValue[0] || "").trim() : "";
   }
-  if (typeof rawValue === 'string') {
+  if (typeof rawValue === "string") {
     return rawValue.trim();
   }
-  return '';
+  return "";
 }
 
 function normalizeEnabledBlocks(input = []) {
@@ -22,11 +22,11 @@ function normalizeEnabledBlocks(input = []) {
   }
   const output = [];
   for (let i = 0; i < input.length; i++) {
-    if (typeof input[i] !== 'string') {
+    if (typeof input[i] !== "string") {
       return null;
     }
     const tag = input[i].trim().toLowerCase();
-    if (tag === '') {
+    if (tag === "") {
       return null;
     }
     if (!/^[a-z][a-z0-9-]*$/.test(tag)) {
@@ -41,7 +41,7 @@ function enabledBlocksPayload(req) {
   if (!req || !req.body) {
     return undefined;
   }
-  if (Object.prototype.hasOwnProperty.call(req.body, 'enabledBlocks')) {
+  if (Object.prototype.hasOwnProperty.call(req.body, "enabledBlocks")) {
     return req.body.enabledBlocks;
   }
   return req.body;
@@ -61,21 +61,21 @@ async function saveEnabledBlocks(req, res) {
   const userToken = getUserTokenFromHeader(req);
   if (
     !userToken ||
-    !HAXCMS.validateRequestToken(userToken, HAXCMS.getActiveUserName())
+    !HAXCMS.validateRequestToken(userToken, HAXCMS.getRequestTokenUserName(req))
   ) {
     return res.status(403).json({
       status: 403,
       data: {
-        message: 'invalid request token',
+        message: "invalid request token",
       },
     });
   }
   const payload = enabledBlocksPayload(req);
-  if (typeof payload === 'undefined') {
+  if (typeof payload === "undefined") {
     return res.status(400).json({
       status: 400,
       data: {
-        message: 'Missing enabledBlocks payload',
+        message: "Missing enabledBlocks payload",
       },
     });
   }
@@ -84,13 +84,13 @@ async function saveEnabledBlocks(req, res) {
     return res.status(400).json({
       status: 400,
       data: {
-        message: 'Invalid enabledBlocks payload',
+        message: "Invalid enabledBlocks payload",
       },
     });
   }
 
-  const settingsDir = path.join(HAXCMS.configDirectory, 'settings');
-  const filePath = path.join(settingsDir, 'enabledBlocks.json');
+  const settingsDir = path.join(HAXCMS.configDirectory, "settings");
+  const filePath = path.join(settingsDir, "enabledBlocks.json");
   await fs.ensureDir(settingsDir);
   await fs.writeFile(filePath, JSON.stringify(enabledBlocks, null, 2));
 

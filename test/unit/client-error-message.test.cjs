@@ -1,6 +1,6 @@
 "use strict";
 
-// Security (L1, 2026-10-19 audit) unit tests for src/lib/clientErrorMessage.js:
+// Security (SEC-ROUTE): unit tests for src/lib/clientErrorMessage.js:
 // caught exceptions must never reach API clients with absolute server paths,
 // file:// URLs or multi-line stack internals, while intentional status
 // errors and short library messages stay useful.

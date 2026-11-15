@@ -1,0 +1,53 @@
+name: haxiam nightly
+
+# HAXiam multi-tenant isolation, nightly (haxtheweb/issues#3262). Plain
+# scripting, no AI.
+#
+# Boots throwaway HAXiam-style tenants on localhost (users/alice, users/bob,
+# config.iam on, shared signing keys as in HAXiam's shared _iamConfig, random
+# passwords; nothing live is touched) and checks that one user cannot list,
+# create, read, archive, download, clone or edit another user's sites.
+# haxcms-php runs the same checks with its core inside a real HAXiam
+# (.github/workflows/haxiam-nightly.yml there).
+#
+# Failures turn the run red. With the optional HAX_ISSUES_TOKEN secret
+# (Issues: read and write on haxtheweb/issues) it also opens or comments on a
+# `[nightly] haxiam: haxcms-nodejs <check>` issue there; without it, filing is
+# skipped with a note in the job summary.
+#
+# Logic: scripts/haxiam-nightly.mjs
+on:
+  schedule:
+    - cron: "37 8 * * *" # 3:37 AM America/New_York (EST); 4:37 AM during EDT
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/haxiam-nightly.yml"
+      - "scripts/haxiam-nightly.mjs"
+permissions:
+  contents: read
+concurrency:
+  group: haxiam-nightly-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  isolation:
+    name: HAXiam tenant isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: yarn
+      - name: Install
+        run: yarn install --frozen-lockfile
+      - name: Tenant isolation checks
+        env:
+          # never file issues from pull request runs
+          HAX_ISSUES_TOKEN: ${{ github.event_name != 'pull_request' && secrets.HAX_ISSUES_TOKEN || '' }}
+        run: node scripts/haxiam-nightly.mjs

@@ -1,6 +1,6 @@
 'use strict'
 
-// Security (PR8-4): unit tests for the final express error handler.
+// Security (SEC-ROUTE): unit tests for the final express error handler.
 // Constraints honored: CommonJS (.cjs), require(), NO optional chaining,
 // node:test + node:assert/strict.
 

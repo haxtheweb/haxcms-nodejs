@@ -286,6 +286,37 @@
       ]
     },
     {
+      "code": "PAGE_LOCKED",
+      "en": "This page is locked. Unlock it to change it.",
+      "match": ["page \"(?<idOrSlug>.*)\" is locked"]
+    },
+    {
+      "code": "BLOCK_STALE",
+      "en": "Part of this page changed since it was loaded. Reload it and try again.",
+      "match": ["block (?<op>\\d+) no longer matches the stored page"]
+    },
+    {
+      "code": "BLOCK_REFUSED",
+      "en": "This change can't be applied safely: {detail}",
+      "match": [
+        "block (?<op>\\d+) refused \\((?<reason>[\\w-]+)\\): (?<detail>.+)"
+      ]
+    },
+    {
+      "code": "BLOCK_RATE_LIMITED",
+      "en": "Too many content changes on this site right now. Try again in {retryAfter} seconds.",
+      "match": [
+        "block change limit reached: (?<max>\\d+) changes per (?<window>\\d+) seconds for this site\\. you can retry in (?<retryAfter>\\d+) seconds"
+      ]
+    },
+    {
+      "code": "LINK_CHECK_RATE_LIMITED",
+      "en": "Too many link checks on this site. Try again in {retryAfter}.",
+      "match": [
+        "link check limit reached: (?<max>\\d+) checks per (?<window>.+?) for this site\\. you can retry in (?<retryAfter>.+?)"
+      ]
+    },
+    {
       "code": "SITE_NAME_INVALID",
       "en": "Site names can only use letters, numbers, hyphens and underscores.",
       "match": ["invalid site name", "sitename must be a valid machine name.*"]
@@ -399,7 +430,10 @@
       "en": "The outline is invalid.",
       "match": [
         "outline payload requires an items array",
-        "each outline item requires an id"
+        "each outline item requires an id",
+        "each outline item must be an object",
+        "each new outline item requires its own id",
+        "outline item parents cannot form a cycle"
       ]
     },
     {
@@ -549,7 +583,7 @@
       "en": "The file operation failed.",
       "match": [
         "failed to (?:write|delete|rename file|delete file|save uploaded file|prepare schema directory)",
-        "unable to (?:save file(?: to target location)?|complete file operation|delete file|rename file|duplicate file)",
+        "unable to (?:save file(?: to target location)?|complete file operation|delete file|rename file|duplicate file|replace file content)",
         "unable to generate a unique (?:duplicate|jpg output) file name"
       ]
     },
@@ -583,7 +617,8 @@
         "file must have a (?<expected>\\.\\w+) extension",
         "invalid file type for schema .+; expected (?<expected>\\.\\w+)",
         "detected mime type .+ does not match allowed type for (?<expected>\\.\\w+)",
-        "convert-pptx-deck requires a (?<expected>\\.pptx) file"
+        "convert-pptx-deck requires a (?<expected>\\.pptx) file",
+        "the uploaded file must be a (?<expected>jpg, png or webp) image"
       ]
     },
     {
@@ -654,6 +689,7 @@
       "en": "This image format can't be edited in place.",
       "match": [
         "image format does not support in-place .+",
+        "only jpg, png and webp images can be replaced",
         "unsupported (?:in-place )?transform(?: operation)?(?:: .*)?"
       ]
     },
@@ -668,7 +704,7 @@
       "match": [
         "unable to determine source image size",
         "unable to prepare image .+",
-        "unable to (?:scale|compress|transform|rotate) image",
+        "unable to (?:scale|compress|transform|rotate|replace) image",
         "unable to save (?:scaled|converted|compressed|transformed|rotated) image",
         "unable to replace original image after .+"
       ]

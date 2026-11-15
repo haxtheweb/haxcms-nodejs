@@ -454,6 +454,132 @@ test("testLogin verifies the user account, the super-user fallback, and rejects 
   HAXCMS.superUser = { name: TEST_USER_NAME, password: TEST_USER_PASSWORD };
 });
 
+test("testLoginAsync returns exactly what testLogin returns", async () => {
+  const hashedUser = {
+    name: TEST_USER_NAME,
+    password: HAXCMS.hashPassword("hashed-pass"),
+  };
+  const accounts = [
+    [
+      { name: TEST_USER_NAME, password: TEST_USER_PASSWORD },
+      { name: "super-name", password: "super-pass" },
+    ],
+    [
+      hashedUser,
+      { name: "super-name", password: HAXCMS.hashPassword("super-hashed") },
+    ],
+  ];
+  const attempts = [
+    [TEST_USER_NAME, TEST_USER_PASSWORD, false],
+    [TEST_USER_NAME, "hashed-pass", false],
+    [TEST_USER_NAME, "wrong", true],
+    ["ghost", "nope", true],
+    ["super-name", "super-pass", true],
+    ["super-name", "super-pass", false],
+    ["super-name", "super-hashed", true],
+    ["", "", true],
+  ];
+  const savedUser = HAXCMS.user;
+  const savedSuper = HAXCMS.superUser;
+  try {
+    for (const [user, superUser] of accounts) {
+      HAXCMS.user = user;
+      HAXCMS.superUser = superUser;
+      for (const [name, pass, fallback] of attempts) {
+        assert.equal(
+          await HAXCMS.testLoginAsync(name, pass, fallback),
+          HAXCMS.testLogin(name, pass, fallback),
+          JSON.stringify([user.name, name, pass, fallback]),
+        );
+      }
+    }
+  } finally {
+    HAXCMS.user = savedUser;
+    HAXCMS.superUser = savedSuper;
+  }
+});
+
+test("verifyStoredPasswordAsync returns exactly what verifyStoredPassword returns", async () => {
+  const hashed = HAXCMS.hashPassword("right");
+  const parts = hashed.split("$");
+  const stored = [
+    hashed,
+    "right",
+    "",
+    parts[0] + "$" + parts[1],
+    parts[0] + "$$" + parts[2],
+    parts[0] + "$" + parts[1] + "$",
+    parts[0] + "$zz$" + parts[2],
+    parts[0] + "$" + parts[1] + "$" + parts[2].slice(0, 10),
+    null,
+    42,
+  ];
+  const submitted = ["right", "wrong", "", null, 7];
+  for (const s of stored) {
+    for (const p of submitted) {
+      assert.equal(
+        await HAXCMS.verifyStoredPasswordAsync(s, p),
+        HAXCMS.verifyStoredPassword(s, p),
+        JSON.stringify([s, p]),
+      );
+    }
+  }
+});
+
+test("verifyStoredPasswordAsync lets the event loop run while scrypt works", async () => {
+  const hashed = HAXCMS.hashPassword("loop-pass");
+  let ranDuringCheck = false;
+  setImmediate(() => {
+    ranDuringCheck = true;
+  });
+  // the sync version would finish before the setImmediate callback runs
+  assert.equal(
+    await HAXCMS.verifyStoredPasswordAsync(hashed, "loop-pass"),
+    true,
+  );
+  assert.equal(ranDuringCheck, true);
+});
+
+test("every call to the async auth functions in src is awaited", () => {
+  // a missed await reads .authenticated off a Promise (undefined) and denies,
+  // so this guards against silently breaking Basic auth and login
+  const srcRoot = path.join(__dirname, "..", "..", "src");
+  const files = [
+    path.join(srcRoot, "app.js"),
+    path.join(srcRoot, "systemRoutes", "v1", "routes", "login.js"),
+  ];
+  const names = [
+    "evaluateSystemV1RouteAuthentication",
+    "authenticateBasicAuthorizationRequest",
+    "testLoginAsync",
+    "verifyStoredPasswordAsync",
+  ];
+  let calls = 0;
+  for (const file of files) {
+    const source = fs.readFileSync(file, "utf8");
+    for (const name of names) {
+      let index = source.indexOf(name + "(");
+      while (index !== -1) {
+        const prefix = source.slice(Math.max(0, index - 40), index);
+        // skip the definition itself
+        if (!/function\s+$/.test(prefix)) {
+          calls++;
+          assert.ok(
+            /await\s*\(?\s*(HAXCMS\.)?$/.test(prefix),
+            path.basename(file) +
+              ": " +
+              name +
+              " not awaited after: " +
+              prefix.replace(/\s+/g, " "),
+          );
+        }
+        index = source.indexOf(name + "(", index + name.length);
+      }
+    }
+  }
+  assert.ok(calls >= 7, "expected the known call sites, found " + calls);
+});
+
 test("validateUser accepts the active and super user names only", () => {
   assert.equal(HAXCMS.validateUser(TEST_USER_NAME), true);
   assert.equal(HAXCMS.validateUser("ghost-user"), false);
@@ -570,14 +696,43 @@ test("validateJWT rejects missing, malformed, and foreign-user tokens", () => {
   );
 });
 
-test("validateJWT honors the sessionJwt when no header was supplied", () => {
-  const savedSession = HAXCMS.sessionJwt;
+test("validateJWT ignores any process-level sessionJwt (dead field removed)", () => {
+  // Security: identity is request-bound only. A process-global JWT field
+  // must never authenticate a request that carries no credential of its own.
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(HAXCMS, "sessionJwt"),
+    false,
+  );
+  HAXCMS.sessionJwt = HAXCMS.getJWT(TEST_USER_NAME);
   try {
-    HAXCMS.sessionJwt = HAXCMS.getJWT(TEST_USER_NAME);
-    assert.equal(HAXCMS.validateJWT({ headers: {} }, null), true);
+    assert.equal(HAXCMS.validateJWT({ headers: {} }, null), false);
+    assert.equal(
+      HAXCMS.getRequestAuthenticatedUserName({ headers: {}, cookies: {} }),
+      "",
+    );
   } finally {
-    HAXCMS.sessionJwt = savedSession;
+    delete HAXCMS.sessionJwt;
   }
+});
+
+test("getRequestTokenUserName binds to the request's bearer identity", () => {
+  const good = HAXCMS.getJWT(TEST_USER_NAME);
+  assert.equal(
+    HAXCMS.getRequestTokenUserName({
+      headers: { authorization: "Bearer " + good },
+      cookies: {},
+    }),
+    TEST_USER_NAME,
+  );
+  // no credential on the request: falls back to the active user (PHP parity)
+  assert.equal(
+    HAXCMS.getRequestTokenUserName({ headers: {}, cookies: {} }),
+    HAXCMS.getActiveUserName(),
+  );
+  assert.equal(
+    HAXCMS.getRequestTokenUserName(null),
+    HAXCMS.getActiveUserName(),
+  );
 });
 
 test("validateJWT and validateRequestToken short-circuit when JWT checks are disabled", () => {
@@ -1084,6 +1239,10 @@ test("generateMachineName mirrors the hardened PHP behavior", () => {
   assert.equal(HAXCMS.generateMachineName("  spaced   out  "), "spaced-out");
   assert.equal(HAXCMS.generateMachineName("..%2F..%2Fetc"), "etc");
   assert.equal(HAXCMS.generateMachineName("a//b\\c"), "abc");
+  // leading and trailing separators go, however many there were
+  assert.equal(HAXCMS.generateMachineName("__--name--__"), "name");
+  assert.equal(HAXCMS.generateMachineName("_name_"), "name");
+  assert.equal(HAXCMS.generateMachineName("-_-a_b-_-"), "a_b");
   assert.equal(HAXCMS.generateMachineName("___---"), "default");
   assert.equal(HAXCMS.generateMachineName(null), "default");
   assert.equal(HAXCMS.generateMachineName(undefined), "default");
@@ -1096,7 +1255,8 @@ test("generateSlugName keeps forward slashes and strips traversal", () => {
   assert.equal(HAXCMS.generateSlugName("../etc/passwd"), "etc/passwd");
   assert.equal(HAXCMS.generateSlugName("/leading/slash"), "leading/slash");
   assert.equal(HAXCMS.generateSlugName("double//slash"), "double/slash");
-  assert.equal(HAXCMS.generateSlugName(null), "");
+  // an empty result becomes "blank" (same as cleanTitle and haxcms-php)
+  assert.equal(HAXCMS.generateSlugName(null), "blank");
 });
 
 test("generateUUID returns distinct v4 identifiers", () => {
@@ -1109,7 +1269,7 @@ test("generateUUID returns distinct v4 identifiers", () => {
 test("cleanTitle strips page path fragments and normalizes spacing", () => {
   assert.equal(HAXCMS.cleanTitle("pages/my-page/index.html"), "my-page");
   assert.equal(HAXCMS.cleanTitle("My Page"), "my-page");
-  // slashes are intentionally preserved by the char class ([^\w\-\/]+)
+  // slashes are intentionally preserved by the char class ([^\p{L}\p{N}_/-]+)
   assert.equal(
     HAXCMS.cleanTitle("dots..and//slashes", false),
     "dots-and//slashes",
@@ -1311,6 +1471,51 @@ test("getWCRegistryGraphJson resolves graph candidates and degrades safely", () 
     HAXCMS.getWCRegistryGraphJson(null, path.join(tempRoot, "no-graph-here")),
     {},
   );
+});
+
+test("registry JSON loaders reuse a parse until the file changes", () => {
+  const cacheDir = path.join(tempRoot, "wc-cache");
+  fs.ensureDirSync(cacheDir);
+  const registryPath = path.join(cacheDir, "wc-registry.json");
+  const graphPath = path.join(cacheDir, "wc-registry-graph.json");
+  fs.writeFileSync(registryPath, JSON.stringify({ "first-el": "a/a.js" }));
+  fs.writeFileSync(graphPath, JSON.stringify({ paths: ["a"], adj: {} }));
+  const first = HAXCMS.getWCRegistryJson(null, cacheDir);
+  const firstGraph = HAXCMS.getWCRegistryGraphJson(null, cacheDir);
+  // unchanged file: same parsed object comes back, no re-read
+  assert.equal(HAXCMS.getWCRegistryJson(null, cacheDir), first);
+  assert.equal(HAXCMS.getWCRegistryGraphJson(null, cacheDir), firstGraph);
+  // rebuilt file (new content + new mtime): the new content is returned
+  fs.writeFileSync(
+    registryPath,
+    JSON.stringify({ "second-el": "b/b.js", "third-el": "c/c.js" }),
+  );
+  fs.writeFileSync(graphPath, JSON.stringify({ paths: ["a", "b"], adj: {} }));
+  const later = new Date(Date.now() + 5000);
+  fs.utimesSync(registryPath, later, later);
+  fs.utimesSync(graphPath, later, later);
+  const second = HAXCMS.getWCRegistryJson(null, cacheDir);
+  assert.equal(second["second-el"], "b/b.js");
+  assert.equal(second["first-el"], undefined);
+  assert.equal(HAXCMS.getWCRegistryGraphJson(null, cacheDir).paths.length, 2);
+  // a file that turns corrupt degrades to {} and is not cached as valid
+  fs.writeFileSync(registryPath, "{ broken");
+  const evenLater = new Date(Date.now() + 10000);
+  fs.utimesSync(registryPath, evenLater, evenLater);
+  assert.deepEqual(HAXCMS.getWCRegistryJson(null, cacheDir), {});
+  fs.writeFileSync(registryPath, JSON.stringify({ "fixed-el": "f/f.js" }));
+  const latest = new Date(Date.now() + 15000);
+  fs.utimesSync(registryPath, latest, latest);
+  assert.equal(HAXCMS.getWCRegistryJson(null, cacheDir)["fixed-el"], "f/f.js");
+});
+
+test("gitTest returns the same git version on repeat calls", async () => {
+  const first = await HAXCMS.gitTest();
+  const second = await HAXCMS.gitTest();
+  assert.equal(second, first);
+  if (first !== null) {
+    assert.ok(String(first).indexOf("git version") === 0);
+  }
 });
 
 test("buildShellModulepreloadPaths falls back to the fixed shell list without a graph artifact", () => {

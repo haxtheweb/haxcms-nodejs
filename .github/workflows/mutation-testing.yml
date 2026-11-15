@@ -1,0 +1,72 @@
+name: mutation testing
+# Weekly mutation testing (Stryker) of the outline designer's bulk save:
+# the saveOutline route and the site.json / page write helpers it calls
+# (scope and tests in stryker.config.json). Stryker changes that code one
+# small edit at a time and reruns the tests that cover it; an edit no test
+# notices (a surviving mutant) is a gap in the saveOutline tests.
+#
+# REPORT-ONLY: the Stryker step is continue-on-error and the config has no
+# break threshold, so this never fails a build. It writes the mutation
+# score and the surviving mutants to the job summary and uploads the HTML
+# report as an artifact. Nothing is opened, commented or pushed.
+#
+# Run locally: yarn test:mutation (see "Mutation testing" in CONTRIBUTING.md)
+on:
+  schedule:
+    - cron: "23 4 * * 0" # weekly, Sunday 04:23 UTC
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mutation-testing
+  cancel-in-progress: false
+jobs:
+  stryker:
+    name: "stryker (saveOutline write path)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> "$GITHUB_OUTPUT"
+      - name: Cache Yarn
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-node-24-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-node-24-yarn-
+      - name: Install
+        run: yarn install --frozen-lockfile
+      - name: Restore last run's results (incremental)
+        # Stryker only retests mutants whose code or covering tests changed
+        # since the cached run, so only the first run pays the full cost.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reports/mutation/stryker-incremental.json
+          key: stryker-incremental-${{ github.run_id }}
+          restore-keys: |
+            stryker-incremental-
+      - name: Mutation tests (report-only)
+        continue-on-error: true
+        # one test runner per CPU on the hosted runner
+        run: yarn test:mutation --concurrency "$(nproc)"
+      - name: Job summary
+        if: always()
+        run: node scripts/mutation-summary.js reports/mutation/mutation.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          if-no-files-found: warn
+          retention-days: 30

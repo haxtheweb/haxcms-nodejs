@@ -2,6 +2,9 @@ const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const filter_var = require("../../../lib/filter_var.js");
 const { sanitizeURLValue } = require("../../../lib/sanitizeContent.js");
 const {
+  rebuildAlternateFormatsLogged,
+} = require("../../../lib/rebuildAlternateFormatsLogged.js");
+const {
   platformAllows,
   featureDisabledResponse,
 } = require("../../../lib/platformFeatures.js");
@@ -187,7 +190,11 @@ async function saveAppearanceSettings(req, res) {
         .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
-    site.manifest.metadata.theme = themes[themeElement];
+    // a copy: the site's theme is edited below and must never change the
+    // shared HAXCMS.config.themes entry (later sites would inherit regions)
+    site.manifest.metadata.theme = JSON.parse(
+      JSON.stringify(themes[themeElement]),
+    );
   }
 
   if (
@@ -354,7 +361,7 @@ async function saveAppearanceSettings(req, res) {
   await site.manifest.save(false);
   await site.gitCommit("Appearance settings updated");
   await site.rebuildManagedFiles();
-  site.updateAlternateFormats();
+  await rebuildAlternateFormatsLogged(site, "saveAppearanceSettings");
   await site.gitCommit("Managed files updated");
 
   res.send({

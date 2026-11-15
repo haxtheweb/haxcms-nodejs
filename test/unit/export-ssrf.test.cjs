@@ -307,6 +307,10 @@ describe('safeFetch byte cap', () => {
     const bigPath = path.join(dir, 'big.bin')
     await rejectsCode(safeFetchToFile('http://files.test/big', bigPath, { maxBytes: 10 * 1024 }), 'SSRF_TOO_LARGE')
     assert.equal(fs.existsSync(bigPath), false)
+    // and it stays gone: the sink's asynchronous open must not land after
+    // the cleanup and recreate the partial file
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.equal(fs.existsSync(bigPath), false)
 
     const missingPath = path.join(dir, 'missing.bin')
     await rejectsCode(safeFetchToFile('http://files.test/missing', missingPath), 'SSRF_HTTP_STATUS')
@@ -348,7 +352,7 @@ describe('HAXCMSFile.downloadAndSaveFile', () => {
     assert.equal(fs.existsSync(tooBig), false)
   })
 
-  test('does not follow redirects (HAX-SEC-007 posture kept)', async (t) => {
+  test('does not follow redirects (max_redirects=0, PHP parity)', async (t) => {
     const srv = await startServer((req, res) => {
       res.writeHead(302, { location: 'http://169.254.169.254/latest/meta-data/' })
       res.end()

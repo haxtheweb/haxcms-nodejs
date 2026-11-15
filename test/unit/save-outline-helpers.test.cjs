@@ -193,7 +193,8 @@ describe('saveOutline.normalizeOutlineSlug', () => {
 
   test('special-cases an empty generated slug to "blank"', () => {
     const site = makeSite([])
-    assert.equal(HAXCMS.generateSlugName('...'), '')
+    // generateSlugName itself now falls back to "blank" (haxcms-php parity)
+    assert.equal(HAXCMS.generateSlugName('...'), 'blank')
     assert.equal(normalizeOutlineSlug(site, '...'), 'blank')
   })
 

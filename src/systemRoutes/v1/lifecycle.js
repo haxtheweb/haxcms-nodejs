@@ -51,7 +51,7 @@ async function getNextArchivedSitePath(siteName = "") {
   }
   return candidatePath;
 }
-// Security (L3, 2026-10-19 audit): normalize a request-supplied site name the
+// Security (SEC-PATH): normalize a request-supplied site name the
 // same way HAXCMS.loadSite() does (decode + cleanTitle) and require a single
 // path segment, so the fallback below can only ever act on the directory the
 // primary archive route already resolved. Returns '' when unusable.
@@ -85,7 +85,7 @@ async function archiveSiteWithCollisionResolution(req, res, error) {
   const sitesRoot = `${HAXCMS.HAXCMS_ROOT}${HAXCMS.sitesDirectory}`;
   const archivedRoot = `${HAXCMS.HAXCMS_ROOT}${HAXCMS.archivedDirectory}`;
   await fs.ensureDir(archivedRoot);
-  // Security (L3): both rename endpoints must resolve inside their roots
+  // Security (SEC-PATH): both rename endpoints must resolve inside their roots
   // (realpath-checked, so symlinks cannot redirect the move either).
   const sourcePath = resolveContainedPath(sitesRoot, siteName);
   const destinationPath = await getNextArchivedSitePath(siteName);
@@ -152,7 +152,7 @@ function applySiteNameFromParams(req) {
   body.site.name = siteName;
 }
 
-// Security (SEC-SESSION, PHP F2/IDOR-001 parity): object-level authorization
+// Security (SEC-ROUTE), PHP parity: object-level authorization
 // on the named site before clone / archive / download / download-skeleton /
 // save-as-template. Port of PHP lifecycle.php userCanAccessSite gating. Only
 // enforced in HAXiam (config.iam) mode: in self-hosted / single-site mode any

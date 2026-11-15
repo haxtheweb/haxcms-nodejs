@@ -274,18 +274,16 @@ const selectors = {
     // UNVERIFIED — per source: app-hax-confirmation-modal appended to document.body.
     confirmationModal: "app-hax-confirmation-modal",
     // Confirm button inside confirmation modal shadowRoot.
-    // UNVERIFIED — per source (app-hax-confirmation-modal.js): button.button.button-confirm
-    confirmButton: ".button.button-confirm",
+    // VERIFIED — app-hax-confirmation-modal renders button.hax-ui-btn.button-confirm
+    // (the generic .button class was dropped in the DDD restyle; match the role class)
+    confirmButton: ".button-confirm",
     // Cancel button inside confirmation modal shadowRoot.
     // UNVERIFIED — per source: button.button.button-cancel (autofocus)
-    cancelButton: ".button.button-cancel",
+    cancelButton: ".button-cancel",
     // Full chain to confirm button (confirmation modal is appended to document.body).
-    // UNVERIFIED — document > app-hax-confirmation-modal (shadowRoot) > .button.button-confirm
-    confirmButtonChain: [
-      "app-hax-confirmation-modal",
-      ".button.button-confirm",
-    ],
-    cancelButtonChain: ["app-hax-confirmation-modal", ".button.button-cancel"],
+    // document > app-hax-confirmation-modal (shadowRoot) > .button-confirm
+    confirmButtonChain: ["app-hax-confirmation-modal", ".button-confirm"],
+    cancelButtonChain: ["app-hax-confirmation-modal", ".button-cancel"],
   },
 
   // --- SITE EDITOR (VERIFIED at runtime by .discovery-editor.cjs) ---------
@@ -311,14 +309,21 @@ const selectors = {
     // The cancel button (exits edit mode without saving).
     // VERIFIED: simple-toolbar-button#cancelbutton, label="Cancel • Ctrl⇧/"
     cancelButton: "#cancelbutton",
-    // The outline-editor opener button (disabled while in edit mode).
-    // VERIFIED: simple-toolbar-button#outlinebutton, label="Outline • Ctrl⇧2", icon="hax:site-map"
-    outlineButton: "#outlinebutton",
+    // Structure (the outline editor) opener. The top bar's #outlinebutton was
+    // removed by haxtheweb/webcomponents 9f7a70591b; Structure is now a quick
+    // link in the house's site settings menu (#site-menu, opened by hovering
+    // #manifestbtn, ArrowDown on it, or Ctrl⇧2) and opens the admin dialog on
+    // its "structure" route. The menu is hidden in edit mode.
+    // VERIFIED: app-hax-user-menu#site-menu > app-hax-user-menu-button[data-route="structure"]
+    siteMenu: "#site-menu",
+    structureMenuItem:
+      '#site-menu app-hax-user-menu-button[data-route="structure"]',
     // The add-page button (opens a super-daemon menu; disabled in edit mode).
     // VERIFIED: haxcms-button-add#addpagebutton, label="Add page • Ctrl⇧1", icon="hax:add-page"
     addPageButton: "#addpagebutton",
-    // The site-settings button (disabled in edit mode).
-    // VERIFIED: simple-toolbar-button#manifestbtn, label="Site Settings • Ctrl⇧3"
+    // The house: site settings menu button (disabled in edit mode). Clicking
+    // it goes to the Dashboard; hovering it opens #site-menu.
+    // VERIFIED: simple-toolbar-button#manifestbtn, label="Site Settings • Ctrl⇧2"
     manifestButton: "#manifestbtn",
     // The editor host element (renders inside the active theme).
     // VERIFIED: haxcms-site-editor found via recursive shadow-DOM walk; it has
@@ -398,21 +403,19 @@ const selectors = {
     // The confirmation modal (same component as archive).
     // UNVERIFIED for download — see note above. Same as archive confirmation modal.
     confirmationModal: "app-hax-confirmation-modal",
-    confirmButton: ".button.button-confirm",
-    cancelButton: ".button.button-cancel",
-    confirmButtonChain: [
-      "app-hax-confirmation-modal",
-      ".button.button-confirm",
-    ],
-    cancelButtonChain: ["app-hax-confirmation-modal", ".button.button-cancel"],
+    confirmButton: ".button-confirm",
+    cancelButton: ".button-cancel",
+    confirmButtonChain: ["app-hax-confirmation-modal", ".button-confirm"],
+    cancelButtonChain: ["app-hax-confirmation-modal", ".button-cancel"],
     // The card method to call directly if the menu click doesn't open the modal.
     // UNVERIFIED at runtime (fallback) — call via cardHandle.evaluate((el) => el.downloadSite())
     downloadSiteMethod: "downloadSite",
   },
 
   // --- OUTLINE EDITOR (VERIFIED at runtime by .discovery-editor.cjs) -------
-  // The outline editor (page management) is opened by clicking #outlinebutton
-  // in the editor chrome (haxcms-site-editor-ui shadowRoot). It opens a
+  // The outline editor (page management) is opened from the Structure quick
+  // link in the house's site settings menu (selectors.editor.structureMenuItem;
+  // see flows.openStructure). It opens a
   // simple-modal containing haxcms-outline-editor-dialog as a light-DOM
   // (slotted) child. The dialog shadowRoot contains outline-designer#outline
   // and two .hax-modal-btn buttons ("Save Outline" and "Import From File").
@@ -683,13 +686,10 @@ const selectors = {
     // VERIFIED: app-hax-confirmation-modal on document.body with
     // .button.button-confirm + .button.button-cancel in its shadowRoot.
     confirmationModal: "app-hax-confirmation-modal",
-    confirmButton: ".button.button-confirm",
-    cancelButton: ".button.button-cancel",
-    confirmButtonChain: [
-      "app-hax-confirmation-modal",
-      ".button.button-confirm",
-    ],
-    cancelButtonChain: ["app-hax-confirmation-modal", ".button.button-cancel"],
+    confirmButton: ".button-confirm",
+    cancelButton: ".button-cancel",
+    confirmButtonChain: ["app-hax-confirmation-modal", ".button-confirm"],
+    cancelButtonChain: ["app-hax-confirmation-modal", ".button-cancel"],
     // Save-template modal button text (VERIFIED):
     //   confirmText = "Save to templates" (.button.button-confirm)
     //   cancelText  = "Download skeleton" (.button.button-cancel)

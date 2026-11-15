@@ -20,7 +20,7 @@ const isPrivateOrReservedIP = HAXCMSFile.isPrivateOrReservedIP;
  * (dns.lookup all:true) rather than just the first, so a hostname that
  * round-robins to an internal address is rejected.
  *
- * Security (L1 / HAX-SEC-007): returning the validated IP lets safeFetch pin
+ * Security (SEC-SSRF): returning the validated IP lets safeFetch pin
  * the connection via a custom lookup, closing the resolve-check-then-fetch
  * TOCTOU where a DNS server returns a public IP for the check and a private
  * IP for the actual connect (DNS rebinding).
@@ -230,11 +230,6 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
       if (settled) { return; }
       settled = true;
       if (timer) { clearTimeout(timer); }
-      if (sink) {
-        try { sink.destroy(); } catch {
-          // intentionally ignored
-        }
-      }
       if (activeResponse) {
         try { activeResponse.destroy(); } catch {
           // intentionally ignored
@@ -245,10 +240,35 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
           // intentionally ignored
         }
       }
+      // A failed download leaves no file behind: reject only once the sink
+      // has closed. The sink opens its file asynchronously, so rejecting
+      // first would let the caller unlink before a still-pending open
+      // creates the file.
+      if (sink && !sink.closed) {
+        sink.once('close', function () { reject(err); });
+        try { sink.destroy(); } catch {
+          reject(err);
+        }
+        return;
+      }
       reject(err);
     }
     req = lib.request(requestOptions, function (response) {
       activeResponse = response;
+      // discardBody: the caller only wants the status line and headers (a
+      // link check). Settle now and drop the socket so no body is read.
+      if (fetchOptions.discardBody === true) {
+        settled = true;
+        if (timer) { clearTimeout(timer); }
+        try { response.destroy(); } catch {
+          // intentionally ignored
+        }
+        try { req.destroy(); } catch {
+          // intentionally ignored
+        }
+        resolve(buildResponseLike(response.statusCode, response.statusMessage, response.headers, Buffer.alloc(0)));
+        return;
+      }
       var declaredLength = parseInt((response.headers && response.headers['content-length']) || '', 10);
       if (!isNaN(declaredLength) && declaredLength > byteCap) {
         fail(tooLargeError(byteCap));
@@ -339,8 +359,8 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
  * pins each hop's TCP connection to the SSRF-validated IP, and follows
  * redirects manually so every hop is re-resolved and re-validated.
  *
- * Security (SEC-02 / L1): the previous implementation called global fetch()
- * after validating DNS, but fetch() re-resolved the hostname — leaving a
+ * Security (SEC-SSRF): never call global fetch() after validating DNS:
+ * fetch() re-resolves the hostname, leaving a
  * same-hop DNS-rebinding window where a public-IP check could be followed by
  * a private-IP connect. pinnedFetchSingle pins the connection to the exact
  * validated address via a custom lookup, closing that TOCTOU while preserving
@@ -355,6 +375,11 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
  *   timeoutMs    per-hop timeout when no signal is given (default 15000)
  *   maxRedirects redirect hops to follow (default and ceiling 5; 0 = never
  *                follow, any 3xx then rejects with SSRF_REDIRECTS)
+ *   discardBody  true = resolve on the status line and headers and never
+ *                read the body (link checks); .text() is then ""
+ *
+ * The final response also carries .url (the URL that answered) and
+ * .redirected (true when a redirect led there), like fetch().
  *
  * Signature matches global fetch: returns the final, non-3xx Response-like
  * object (with .ok/.status/.headers.get/.text/.json). Throws on SSRF rejection
@@ -382,11 +407,14 @@ async function safeFetchInternal(urlString, options, sinkPath) {
   var maxBytes = resolveMaxBytes(fetchOptions.maxBytes);
   var currentUrl = urlString;
   for (var hop = 0; hop <= maxRedirects; hop++) {
-    // Security (L1): resolve + validate, then pin the IP for the connect so
+    // Security (SEC-SSRF): resolve + validate, then pin the IP for the connect so
     // DNS rebinding cannot redirect the request to a private/metadata address
     // between the SSRF check and the actual TCP connection.
     var resolved = await resolveAndValidateUrl(currentUrl);
     var response = await pinnedFetchSingle(resolved.parsed, fetchOptions, resolved.pinnedIp, resolved.family, timeoutMs, maxBytes, sinkPath);
+    // like fetch(): the URL that answered and whether a redirect led there
+    response.url = currentUrl;
+    response.redirected = hop > 0;
     // not a redirect (or 304 Not Modified) -> final response
     if (response.status < 300 || response.status >= 400 || response.status === 304) {
       return response;

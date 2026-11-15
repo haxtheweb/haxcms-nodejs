@@ -4,6 +4,7 @@ const path = require("path");
 const url = require("url");
 const YAML = require("yaml");
 const { shouldEmbedBypassJwt } = require("../../../lib/listenHost.js");
+const { setUncachedResponseHeaders } = require("../../../lib/responseCache.js");
 
 let cachedSystemOpenApiOperationPaths = null;
 
@@ -136,14 +137,11 @@ function resolveSystemOperationPath(
  * )
  */
 async function connectionSettings(req, res) {
-  // D6: token/JWT-bearing JS — prevent any intermediary from caching
-  res.setHeader(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate",
-  );
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  res.setHeader("Surrogate-Control", "no-store");
+  // D6: token/JWT-bearing JS — never cached. Start from no-store for every
+  // early return; the final answer is relaxed to `private, no-cache` only
+  // when it embeds no token or JWT and the request carried no credentials
+  // (issues#3244: no-store here kept every page out of the bfcache).
+  setUncachedResponseHeaders(res, req, { sensitive: true });
   res.setHeader("Content-Type", "application/javascript");
   // System API base path is always absolute (root-level), mirroring PHP
   // (HAXCMS.php appJWTConnectionSettings forces a leading slash). System
@@ -348,7 +346,7 @@ async function connectionSettings(req, res) {
   });
   const returnData = JSON.stringify(returnDataObj);
   let after = "";
-  // Security (SEC-DEPLOY / PHP SEC-03 parity): the superuser JWT is only handed
+  // Security (SEC-DEPLOY), PHP parity: the superuser JWT is only handed
   // out by the no-login bypass outside production and to loopback clients
   // (unless HAXCMS_HOST deliberately exposes the bypass beyond loopback).
   if (
@@ -359,6 +357,9 @@ async function connectionSettings(req, res) {
   ) {
     after = `window.appSettings.jwt = "${HAXCMS.getJWT(HAXCMS.superUser.name)}"`;
   }
+  setUncachedResponseHeaders(res, req, {
+    sensitive: siteToken !== "" || userToken !== "" || after !== "",
+  });
   res.send(`window.MicroFrontendRegistryConfig = window.MicroFrontendRegistryConfig || {};
 window.appSettings =${returnData};${after}`);
 }

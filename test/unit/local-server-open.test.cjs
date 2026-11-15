@@ -293,7 +293,7 @@ test("local.js (no-login mode) listens on 127.0.0.1 only", async () => {
   assert.equal(address.address, "127.0.0.1");
 });
 
-// Security (SEC-DEPLOY / PHP SEC-03 parity): the bypass superuser JWT is only
+// Security (SEC-DEPLOY), PHP parity: the bypass superuser JWT is only
 // embedded in connection-settings for loopback clients.
 test("connection-settings embeds the bypass JWT for loopback clients only", async () => {
   const port = await appModule.serverReady;
@@ -347,7 +347,7 @@ test("connection-settings embeds the bypass JWT for loopback clients only", asyn
   );
 });
 
-// Security (SEC-DEPLOY / DNS rebinding): in no-login mode a request whose Host
+// Security (SEC-DEPLOY): in no-login mode a request whose Host
 // header is not loopback (what a DNS-rebinding page sends) is refused, while
 // normal loopback Host headers keep working.
 function getWithHost(port, hostHeader) {

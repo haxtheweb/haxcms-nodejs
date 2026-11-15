@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
 const { HAXCMS, systemStructureContext } = require('../../lib/HAXCMS.js');
+const { legacySlugMatches } = require('../../lib/slugRules.js');
 const {
   platformAllows,
   featureDisabledResponse,
@@ -752,6 +753,12 @@ function findItemByIdOrSlug(site, idOrSlug) {
     }
     if (String(item.id || '') === value || String(item.slug || '') === value) {
       return item;
+    }
+  }
+  // a slug saved with a leading "/" answers to the value without it
+  for (let i = 0; i < allItems.length; i++) {
+    if (allItems[i] && legacySlugMatches(allItems[i].slug, value)) {
+      return allItems[i];
     }
   }
   return null;

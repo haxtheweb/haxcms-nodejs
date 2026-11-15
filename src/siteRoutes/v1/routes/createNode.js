@@ -1,5 +1,6 @@
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const path = require("path");
+const fs = require("fs-extra");
 const { sanitizeHTMLForStorage } = require("../../../lib/sanitizeContent.js");
 const {
   materializeInlineImages,
@@ -111,33 +112,73 @@ async function createNode(req, res) {
     }
     // implies we've been TOLD to create nodes
     // this is typically from a docx import
-    if (nodeParams["items"]) {
-      // create pages
-      for (let i = 0; i < nodeParams["items"].length; i++) {
-        // outline-designer allows delete + confirmation but we don't have anything
-        // so instead, just don't process the thing in question if asked to delete it
-        if (
-          nodeParams["items"][i]["delete"] &&
-          nodeParams["items"][i]["delete"] == true
-        ) {
-          // do nothing
-        } else {
-          item = await site.addPage(
-            nodeParams["items"][i]["parent"],
-            nodeParams["items"][i]["title"],
-            "html",
-            nodeParams["items"][i]["slug"],
-            nodeParams["items"][i]["id"],
-            nodeParams["items"][i]["indent"],
-            nodeParams["items"][i]["content"] ||
-              nodeParams["items"][i]["contents"] ||
-              "",
-            nodeParams["items"][i]["order"],
-            nodeParams["items"][i]["metadata"]
-              ? nodeParams["items"][i]["metadata"]
-              : null,
-          );
+    // (same test as the items route: an empty items array is no bulk payload)
+    const hasItems =
+      Array.isArray(nodeParams["items"]) && nodeParams["items"].length > 0;
+    if (
+      !hasItems &&
+      (!nodeParams["node"] ||
+        typeof nodeParams["node"] !== "object" ||
+        Array.isArray(nodeParams["node"]))
+    ) {
+      return res.status(400).json({
+        status: 400,
+        data: { message: "Node payload is required" },
+      });
+    }
+    if (hasItems) {
+      // create pages; site.json is written and the generated files rebuilt
+      // once for the whole request, not once per page (haxtheweb/issues#3248)
+      const bulk = { createdFolders: [] };
+      let added = 0;
+      try {
+        for (let i = 0; i < nodeParams["items"].length; i++) {
+          // outline-designer allows delete + confirmation but we don't have anything
+          // so instead, just don't process the thing in question if asked to delete it
+          if (
+            nodeParams["items"][i]["delete"] &&
+            nodeParams["items"][i]["delete"] == true
+          ) {
+            // do nothing
+          } else {
+            item = await site.addPage(
+              nodeParams["items"][i]["parent"],
+              nodeParams["items"][i]["title"],
+              "html",
+              nodeParams["items"][i]["slug"],
+              nodeParams["items"][i]["id"],
+              nodeParams["items"][i]["indent"],
+              nodeParams["items"][i]["content"] ||
+                nodeParams["items"][i]["contents"] ||
+                "",
+              nodeParams["items"][i]["order"],
+              nodeParams["items"][i]["metadata"]
+                ? nodeParams["items"][i]["metadata"]
+                : null,
+              bulk,
+            );
+            added++;
+          }
         }
+      } catch (e) {
+        // a page failed part way: keep the pages added before it, as the
+        // per-page writes did, then report the error
+        if (added > 0 || bulk.createdFolders.length > 0) {
+          await site.finishBulkAddPages(bulk);
+        }
+        throw e;
+      }
+      if (added > 0) {
+        await site.finishBulkAddPages(bulk);
+      }
+      // every entry was marked delete: nothing was created or committed
+      if (!item) {
+        return res.status(400).json({
+          status: 400,
+          data: {
+            message: "Invalid items payload (every item is marked delete)",
+          },
+        });
       }
       await site.gitCommit(nodeParams["items"].length + " pages added");
     } else {
@@ -146,11 +187,16 @@ async function createNode(req, res) {
       item.metadata.images = [];
       item.metadata.videos = [];
       // generate the boilerplate to fill this page
-      // Security (N1/N5 parity): the copy must land inside this site's
+      // Security (SEC-PATH), PHP parity: the copy must land inside this site's
       // directory; refuse rather than writing anywhere else.
+      const pageFolder = path.join(
+        site.siteDirectory,
+        item.location.replace("/index.html", ""),
+      );
+      const folderExisted = fs.existsSync(pageFolder);
       const copied = await HAXCMS.recurseCopy(
         HAXCMS.boilerplatePath + "page/default",
-        path.join(site.siteDirectory, item.location.replace("/index.html", "")),
+        pageFolder,
         [],
         site.siteDirectory,
       );
@@ -162,7 +208,15 @@ async function createNode(req, res) {
       }
       // add the item back into the outline schema
       site.manifest.addItem(item);
-      await site.manifest.save();
+      try {
+        await site.manifest.save();
+      } catch (e) {
+        // no page folder without its outline entry
+        if (!folderExisted) {
+          site.removeCreatedPageFolder(pageFolder);
+        }
+        throw e;
+      }
       let alternateContent = "";
       // support for duplicating the content of another item
       if (nodeParams["node"]["duplicate"]) {

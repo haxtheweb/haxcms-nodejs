@@ -1,6 +1,6 @@
 'use strict'
 
-// Security (HAX-SEC-006 / error-leak) unit tests for resolveClientFacingErrorMessage
+// Security (SEC-ROUTE): unit tests for resolveClientFacingErrorMessage
 // in src/siteRoutes/v1/files.js. Proves that only intentional
 // createStatusError validation messages (which carry a .status) surface to
 // clients; unexpected internal exceptions (no .status) get the generic

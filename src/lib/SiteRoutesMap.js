@@ -83,6 +83,8 @@ const v1BlocksRoutes = require('../siteRoutes/v1/blocks.js');
 const v1ThemesRoutes = require('../siteRoutes/v1/themes.js');
 const v1SiteRoutes = require('../siteRoutes/v1/site.js');
 const v1ContentRoutes = require('../siteRoutes/v1/content.js');
+const v1ContentBlockRoutes = require('../siteRoutes/v1/contentBlocks.js');
+const v1LinkCheckRoutes = require('../siteRoutes/v1/linkChecks.js');
 
 const V1_ENTITY_ROUTE_DEFINITIONS = [
   { route: 'site', file: 'site', detailParam: '' },
@@ -166,6 +168,13 @@ for (let i = 0; i < V1_ENTITY_ROUTE_DEFINITIONS.length; i++) {
   }
 }
 
+// haxtheweb/issues#1149: replace an image's contents with a browser-made one
+addRouteHandler(
+  SiteRoutesMap,
+  'post',
+  'v1/files/:fileUuid/content',
+  require('../siteRoutes/v1/files.js').replaceFileContent,
+);
 addRouteHandler(
   SiteRoutesMap,
   'patch',
@@ -219,6 +228,24 @@ addRouteHandler(
   'post',
   'v1/site/updateAlternativeFormats',
   v1SiteRoutes.updateSiteAlternativeFormats,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'get',
+  'v1/content/:idOrSlug/blocks',
+  v1ContentBlockRoutes.listContentBlocks,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'patch',
+  'v1/content/:idOrSlug/blocks',
+  v1ContentBlockRoutes.updateContentBlocks,
+);
+addRouteHandler(
+  SiteRoutesMap,
+  'post',
+  'v1/site/check-links',
+  v1LinkCheckRoutes.checkSiteLinks,
 );
 addRouteHandler(
   SiteRoutesMap,

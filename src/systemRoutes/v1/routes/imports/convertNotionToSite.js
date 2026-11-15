@@ -3,7 +3,7 @@ const JSONOutlineSchema = require("../../../../lib/JSONOutlineSchema.js");
 const JSONOutlineSchemaItem = require("../../../../lib/JSONOutlineSchemaItem.js");
 const { HAXCMS } = require("../../../../lib/HAXCMS.js");
 const { safeFetch } = require("../../../../lib/safeFetch.js");
-// Security (L1): client-safe exception text (no paths / stack internals)
+// Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const {
   clientSafeErrorDetail,
 } = require("../../../../lib/clientErrorMessage.js");

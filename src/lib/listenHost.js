@@ -96,7 +96,7 @@ function getBrowserHost(host) {
   return value;
 }
 
-// Security (SEC-DEPLOY, PHP SEC-03 parity): may connection-settings embed the
+// Security (SEC-DEPLOY), PHP parity: may connection-settings embed the
 // superuser JWT that the no-login bypass hands to the editor? Only when the
 // bypass is active, never in production, and only for a loopback client —
 // unless the operator explicitly exposed the bypass with a non-loopback
@@ -106,6 +106,19 @@ function getBrowserHost(host) {
 function shouldEmbedBypassJwt(req, options) {
   const opts = options || {};
   if (!opts.jwtChecksDisabled || opts.isProduction) {
+    return false;
+  }
+  // Security (SEC-SESSION), same rule as shouldIncludeRequestTokens:
+  // connection-settings is served as JavaScript, so another site can pull it
+  // in with a <script> tag and read window.appSettings.jwt in its own page.
+  // Browsers mark those loads Sec-Fetch-Site cross-site / same-site; never
+  // hand them the superuser JWT. Absent header (older clients, curl), 'none'
+  // (typed URL / Electron) and 'same-origin' keep working.
+  const fetchSite =
+    req && req.headers && typeof req.headers["sec-fetch-site"] === "string"
+      ? req.headers["sec-fetch-site"].trim().toLowerCase()
+      : "";
+  if (fetchSite === "cross-site" || fetchSite === "same-site") {
     return false;
   }
   const explicitHost = selectListenHost({
@@ -125,7 +138,7 @@ function shouldEmbedBypassJwt(req, options) {
   );
 }
 
-// Security (SEC-DEPLOY / DNS rebinding): when the no-login bypass is bound to
+// Security (SEC-DEPLOY): when the no-login bypass is bound to
 // loopback, a malicious web page can still reach it by pointing its own
 // hostname at 127.0.0.1 (DNS rebinding); the browser then sends
 // `Host: attacker.example`. Only loopback Host headers are accepted in that

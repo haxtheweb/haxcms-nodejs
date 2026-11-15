@@ -1,6 +1,6 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 function logoutRoute(req, res)  {
-    // Security (H1/L2 revocation): revoke the refresh-token family server-side
+    // Security (SEC-SESSION): revoke the refresh-token family server-side
     // so a refresh token exfiltrated before logout can't mint new access tokens
     // after this user logs out. Best-effort.
     try {
@@ -17,7 +17,7 @@ function logoutRoute(req, res)  {
     catch {
       // intentionally ignored
     }
-    // Security (HAX-SEC / PHP [M3] parity): clear via the centralized helper so
+    // Security (SEC-SESSION), PHP parity: clear via the centralized helper so
     // the Secure/SameSite/HttpOnly flags match how the cookie was set (required
     // for the browser to actually delete it).
     HAXCMS.setRefreshTokenCookie(res, '', 1);

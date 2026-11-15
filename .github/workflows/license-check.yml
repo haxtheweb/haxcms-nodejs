@@ -1,0 +1,60 @@
+name: license check
+# Dependency license gate for an Apache-2.0 project (haxtheweb/issues#3262).
+#
+#   pull_request  only when package.json / yarn.lock change: fails if a NEW
+#                 dependency (direct or transitive, compared with the base
+#                 branch's yarn.lock) has a license that is denied (GPL, AGPL,
+#                 SSPL, BUSL, Commons Clause, UNLICENSED), unknown, or needs
+#                 review (LGPL, MPL, anything not on the allow list).
+#   schedule      weekly Sunday sweep of the whole yarn.lock tree, plus a check
+#                 that LICENSE.md and package.json are still Apache-2.0.
+#
+# The policy lives in scripts/license-check.js; packages a maintainer has
+# reviewed and accepted are listed in .github/license-exceptions.json.
+# Findings are written to the job summary. Nothing is opened or commented.
+on:
+  # No branch filter: stacked PRs (base is another feature branch) must run too.
+  pull_request:
+    paths:
+      - package.json
+      - yarn.lock
+      - scripts/license-check.js
+      - .github/license-exceptions.json
+      - .github/workflows/license-check.yml
+  schedule:
+    - cron: "41 23 * * 0" # weekly, Sunday 23:41 UTC
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  licenses:
+    name: "dependency licenses"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install from yarn.lock
+        # Lifecycle scripts are skipped: only the resolved tree and each
+        # package's package.json are needed.
+        run: yarn install --frozen-lockfile --ignore-scripts
+      - name: New dependencies (PR)
+        if: github.event_name == 'pull_request'
+        env:
+          # untrusted, so it is only ever read from the environment
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
+          git fetch --quiet --depth 1 --no-tags "${REPO_URL}" "${BASE_SHA}"
+          git show "${BASE_SHA}:yarn.lock" > "${RUNNER_TEMP}/base-yarn.lock" \
+            || : > "${RUNNER_TEMP}/base-yarn.lock"
+          node scripts/license-check.js --base-lockfile "${RUNNER_TEMP}/base-yarn.lock"
+      - name: Full tree and repository license (sweep)
+        if: github.event_name != 'pull_request'
+        run: node scripts/license-check.js --repo-license

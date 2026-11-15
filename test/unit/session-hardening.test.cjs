@@ -125,7 +125,7 @@ function lastCookie(res) {
 
 // login through the real route so the cookie + store are produced for real
 async function realLogin(t) {
-  t.mock.method(HAXCMS, "testLogin", () => true);
+  t.mock.method(HAXCMS, "testLoginAsync", async () => true);
   const res = fakeRes();
   await loginRoute(
     {
@@ -266,6 +266,67 @@ describe("refresh-session store truth table", () => {
     HAXCMS.revokeRefreshSession(ACTIVE_USER, laptop.family);
     assert.equal(HAXCMS.checkRefreshSession(laptop).reason, "revoked");
     assert.equal(HAXCMS.checkRefreshSession(phone).reason, "current");
+  });
+
+  test("revokeAllRefreshSessions revokes every family and legacy token of the user", async (t) => {
+    const storePath = isolateStore(t);
+    const laptop = HAXCMS.decodeRefreshToken(
+      HAXCMS.getRefreshToken(ACTIVE_USER),
+    );
+    const phone = HAXCMS.decodeRefreshToken(
+      HAXCMS.getRefreshToken(ACTIVE_USER),
+    );
+    const legacy = HAXCMS.decodeRefreshToken(
+      legacyRefreshToken(ACTIVE_USER, -30),
+    );
+    const other = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken("bob"));
+    assert.equal(HAXCMS.checkRefreshSession(laptop).ok, true);
+    assert.equal(HAXCMS.checkRefreshSession(legacy).ok, true);
+
+    HAXCMS.revokeAllRefreshSessions(ACTIVE_USER);
+
+    const entry = readStore(storePath).users[ACTIVE_USER];
+    for (const token of [laptop, phone]) {
+      const fam = entry.families[token.family];
+      assert.equal(fam.revoked, true);
+      assert.ok(fam.exp >= Math.floor(Date.now() / 1000) + 86400 + 60 - 2);
+      assert.equal(HAXCMS.checkRefreshSession(token).reason, "revoked");
+      assert.equal(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), token), null);
+    }
+    assert.equal(typeof entry.legacyRevokedAt, "number");
+    assert.equal(HAXCMS.checkRefreshSession(legacy).reason, "revoked");
+    assert.equal(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), legacy), null);
+    // other users keep their sessions
+    assert.equal(HAXCMS.checkRefreshSession(other).ok, true);
+    // signing in again afterwards works normally
+    const fresh = HAXCMS.decodeRefreshToken(
+      HAXCMS.getRefreshToken(ACTIVE_USER),
+    );
+    assert.equal(HAXCMS.checkRefreshSession(fresh).reason, "current");
+    assert.notEqual(HAXCMS.rotateRefreshTokenAndCookie(fakeRes(), fresh), null);
+  });
+
+  test("revokeAllRefreshSessions keeps existing tombstones and ignores empty users", async (t) => {
+    const storePath = isolateStore(t);
+    const old = HAXCMS.decodeRefreshToken(HAXCMS.getRefreshToken(ACTIVE_USER));
+    HAXCMS.revokeRefreshSession(ACTIVE_USER, old.family);
+    const revokedAt =
+      readStore(storePath).users[ACTIVE_USER].families[old.family].revokedAt;
+    HAXCMS.revokeAllRefreshSessions(ACTIVE_USER);
+    assert.equal(
+      readStore(storePath).users[ACTIVE_USER].families[old.family].revokedAt,
+      revokedAt,
+    );
+    // never-seen user: legacy tombstone so legacy tokens already out there die
+    HAXCMS.revokeAllRefreshSessions("carol");
+    assert.equal(
+      typeof readStore(storePath).users.carol.legacyRevokedAt,
+      "number",
+    );
+    const before = fs.readFileSync(storePath, "utf8");
+    HAXCMS.revokeAllRefreshSessions("");
+    HAXCMS.revokeAllRefreshSessions(null);
+    assert.equal(fs.readFileSync(storePath, "utf8"), before);
   });
 
   test("a v1 store file is migrated on load so live sessions survive the upgrade", async (t) => {
@@ -608,7 +669,12 @@ describe("connection-settings", () => {
     assert.ok(settings.connectionTest);
     assert.ok(settings.token);
     assert.equal(settings.userTokenHeader, "X-HAXCMS-User-Token");
-    assert.equal(res.headers["Cache-Control"].indexOf("no-store"), 0);
+    // nothing user-bound in the answer and no credentials in the request:
+    // revalidate every time, but stay back/forward-cache friendly (#3244)
+    assert.equal(
+      res.headers["Cache-Control"],
+      "private, no-cache, must-revalidate",
+    );
   });
 
   test("a valid bearer JWT receives the tokens and the token headers", async (t) => {
@@ -632,6 +698,7 @@ describe("connection-settings", () => {
       settings.appStore.headers["X-HAXCMS-Site-Token"],
       settings.siteToken,
     );
+    assert.equal(res.headers["Cache-Control"].indexOf("no-store"), 0);
   });
 
   test("a valid refresh-cookie session receives the tokens", async (t) => {
@@ -643,6 +710,7 @@ describe("connection-settings", () => {
       res,
     );
     assert.equal(parse(res).userToken, HAXCMS.getRequestToken(ACTIVE_USER));
+    assert.equal(res.headers["Cache-Control"].indexOf("no-store"), 0);
   });
 
   test("a revoked refresh cookie or a bad bearer gets no tokens (flag on)", async (t) => {
@@ -664,9 +732,11 @@ describe("connection-settings", () => {
     const settings = parse(res);
     assert.equal(settings.userToken, undefined);
     assert.equal(settings.siteToken, undefined);
+    // credentials were sent (even rejected ones): never stored
+    assert.equal(res.headers["Cache-Control"].indexOf("no-store"), 0);
   });
 
-  test("default (flag unset): anonymous callers get no tokens (L-3 session required)", async (t) => {
+  test("default (flag unset): anonymous callers get no tokens (session required)", async (t) => {
     isolateStore(t);
     withRequireSessionFlag(t, null);
     const savedCfg = HAXCMS.config.security
@@ -704,6 +774,8 @@ describe("connection-settings", () => {
     );
     const settings = parse(res);
     assert.equal(settings.userToken, HAXCMS.getRequestToken(ACTIVE_USER));
+    // tokens in the body: no-store even though the request had no credentials
+    assert.equal(res.headers["Cache-Control"].indexOf("no-store"), 0);
     assert.equal(
       settings.getUserDataHeaders["X-HAXCMS-User-Token"],
       settings.userToken,
@@ -1279,7 +1351,7 @@ describe("request tokens on successful session responses", () => {
 
   test("login returns userToken alongside the jwt", async (t) => {
     isolateStore(t);
-    t.mock.method(HAXCMS, "testLogin", () => true);
+    t.mock.method(HAXCMS, "testLoginAsync", async () => true);
     const res = fakeRes();
     await loginRoute(
       {
@@ -1300,7 +1372,7 @@ describe("request tokens on successful session responses", () => {
 
   test("login from a site page also returns that site's siteToken", async (t) => {
     isolateStore(t);
-    t.mock.method(HAXCMS, "testLogin", () => true);
+    t.mock.method(HAXCMS, "testLoginAsync", async () => true);
     const res = fakeRes();
     await loginRoute(
       {
@@ -1466,7 +1538,7 @@ describe("requireSessionForRequestTokens flag resolution", () => {
     });
   }
 
-  test("defaults to true (L-3: front-end picks tokens up after login)", (t) => {
+  test("defaults to true (front-end picks tokens up after login)", (t) => {
     withRequireSessionFlag(t, null);
     withConfigValue(t, undefined);
     assert.equal(HAXCMS.getRequireSessionForRequestTokens(), true);

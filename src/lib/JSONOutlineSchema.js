@@ -1,4 +1,6 @@
 const fs = require("fs-extra");
+const crypto = require("crypto");
+const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const JSONOutlineSchemaItem = require("./JSONOutlineSchemaItem.js");
 const { getLicenseMap } = require("./licenses.js");
@@ -28,6 +30,9 @@ class JSONOutlineSchema {
     this.license = "by-sa";
     this.metadata = {};
     this.items = [];
+    // declared (null until set) so load() keeps it and save() writes it in
+    // the same key position as haxcms-php (declared after items there)
+    this.location = null;
   }
 
   /**
@@ -126,9 +131,26 @@ class JSONOutlineSchema {
       let fileData = JSON.parse(
         await fs.readFileSync(location, { encoding: "utf8", flag: "r" }),
       );
+      // Invariant: a site.json that exists but does not parse to an outline
+      // object is never treated as an empty outline. Loading it throws, so no
+      // request can go on to save the default "New site" outline over it
+      // (haxcms-php: JSONOutlineSchema::load throws the same way).
+      if (
+        !fileData ||
+        typeof fileData !== "object" ||
+        Array.isArray(fileData)
+      ) {
+        throw new Error(
+          "JSONOutlineSchema: " +
+            path.basename(location) +
+            " is not a valid JSON outline",
+        );
+      }
       let vars = fileData;
-      for (var key in vars) {
-        if (typeof this[key] !== "undefined" && key != "items") {
+      // Security: only the schema's own top-level keys are read from disk;
+      // site.json can never set where the manifest is written (file)
+      for (const key of JSONOutlineSchema.TOP_LEVEL_KEYS) {
+        if (vars && Object.prototype.hasOwnProperty.call(vars, key)) {
           this[key] = vars[key];
         }
       }
@@ -139,12 +161,13 @@ class JSONOutlineSchema {
           let item = vars["items"][key];
           if (item) {
             let newItem = new JSONOutlineSchemaItem();
-            newItem.id = item.id;
+            // ids are strings (see normalizeOutlineId)
+            newItem.id = JSONOutlineSchema.normalizeOutlineId(item.id);
             newItem.indent = item.indent;
             newItem.location = item.location;
             newItem.slug = item.slug;
             newItem.order = item.order;
-            newItem.parent = item.parent;
+            newItem.parent = JSONOutlineSchema.normalizeOutlineId(item.parent);
             newItem.title = item.title;
             newItem.description = item.description;
             // metadata can be anything so whatever
@@ -215,8 +238,8 @@ class JSONOutlineSchema {
   // removed findChildenRecursively(): an unfinished stub with no callers whose
   // body referenced undeclared item/children/currentItems/idList/found/sorted
   // (strict-mode ReferenceErrors). findBranch() above covers the use case.
-  // Security (I4, 2026-10-19 audit): removed the unused getContentById(),
-  // which fetch()ed a manifest-derived location with no SSRF guard. Page
+  // Security (SEC-SSRF): there is no getContentById() that fetch()es a
+  // manifest-derived location without the SSRF guard. Page
   // content is read from disk via HAXCMSSite.getPageContent().
   /**
    * Save data back to the file system location
@@ -235,17 +258,127 @@ class JSONOutlineSchema {
     let file = schema["file"];
     // delete so it doesn't show up in the site.json file
     delete schema["file"];
-    let output = JSON.stringify(schema, null, 2);
-    // ensure we have valid json object
-    if (output) {
-      // reassign so we don't lose it in the transaction
+    let output;
+    let encodeError = null;
+    try {
+      output = JSON.stringify(schema, null, 2);
+    } catch (e) {
+      // e.g. a circular structure or a BigInt somewhere in the outline
+      encodeError = e;
+    } finally {
+      // reassign so we don't lose it in the transaction, even when it fails
       this.file = file;
-      return await fs.writeFileSync(file, output);
+    }
+    // Invariant: an outline that cannot be encoded is an error, never a
+    // silent no-op: save() throws and site.json is left as it was. Mirrors
+    // JSONOutlineSchema::save in haxcms-php.
+    if (typeof output !== "string") {
+      throw new Error(
+        "JSONOutlineSchema: unable to encode " + path.basename(String(file)),
+        encodeError ? { cause: encodeError } : undefined,
+      );
+    }
+    JSONOutlineSchema.writeFileAtomic(file, output);
+  }
+  /**
+   * Invariant: a site.json write is atomic. Readers and the next request see
+   * either the previous file or the complete new one, never a truncated or
+   * half-written file: the data goes to a temp file next to the target
+   * (same directory, so the same filesystem), is flushed to disk, and is
+   * then renamed over the target. A write that fails at any step throws,
+   * removes the temp file and leaves the previous file as it was.
+   * A symlinked target is written through to the file it points at.
+   * Mirrors JSONOutlineSchema::writeFileAtomic in haxcms-php.
+   */
+  static writeFileAtomic(file, data) {
+    let target = file;
+    let mode = null;
+    try {
+      if (fs.lstatSync(target).isSymbolicLink()) {
+        target = fs.realpathSync(target);
+      }
+      // keep the permissions the file had
+      mode = fs.statSync(target).mode & 0o777;
+    } catch {
+      // no file yet: it is created
+    }
+    const directory = path.dirname(target);
+    const temp = path.join(
+      directory,
+      "." +
+        path.basename(target) +
+        "." +
+        crypto.randomBytes(8).toString("hex") +
+        ".tmp",
+    );
+    try {
+      fs.writeFileSync(
+        temp,
+        data,
+        mode === null ? { flag: "wx" } : { flag: "wx", mode: mode },
+      );
+      JSONOutlineSchema.fsyncPath(temp, "r+", true);
+      fs.renameSync(temp, target);
+    } catch (error) {
+      try {
+        fs.unlinkSync(temp);
+      } catch {
+        // never created, or already renamed
+      }
+      throw error;
+    }
+    // make the rename itself durable; not every platform can sync a directory
+    JSONOutlineSchema.fsyncPath(directory, "r", false);
+  }
+  /**
+   * fsync a path. With `required`, a failure other than "this filesystem
+   * cannot fsync" throws (a full disk can surface only here).
+   */
+  static fsyncPath(target, flags, required) {
+    let fd = null;
+    try {
+      fd = fs.openSync(target, flags);
+      fs.fsyncSync(fd);
+    } catch (error) {
+      const unsupported =
+        error &&
+        ["EINVAL", "ENOTSUP", "EOPNOTSUPP", "EISDIR", "EPERM"].indexOf(
+          error.code,
+        ) !== -1;
+      if (required && !unsupported) {
+        throw error;
+      }
+    } finally {
+      if (fd !== null) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // already closed
+        }
+      }
     }
   }
   /**
+   * Invariant: an outline item id, and a parent that refers to one, is a
+   * string (haxtheweb/json-outline-schema: id is a string, parent an id or
+   * null). A hand-made site.json may hold integers (7); load() and every
+   * save turn an integer into its decimal string ("7") so ids always
+   * compare as strings. Only integers both backends read exactly (up to
+   * 2^53 - 1) are converted; anything else (null, "", a string, a
+   * fraction) is returned unchanged. Mirrors
+   * JSONOutlineSchema::normalizeOutlineId in haxcms-php.
+   */
+  static normalizeOutlineId(value) {
+    if (Number.isSafeInteger(value)) {
+      // String(-0) is "0", as in PHP
+      return String(value);
+    }
+    return value;
+  }
+  /**
    * Canonical value types for site.json, per haxtheweb/json-outline-schema:
-   * top-level parent is null, indent / order / timestamps are integers,
+   * item ids and parents are strings (normalizeOutlineId), top-level parent
+   * is null, indent / order / timestamps are integers,
    * published / hideInMenu / locked are booleans, tags and relatedItems are
    * arrays. Older sites stored "1" / "" flags, numeric strings and
    * comma-separated tags; readers keep accepting those, every save writes
@@ -258,6 +391,12 @@ class JSONOutlineSchema {
   static normalizeItemValues(item) {
     if (!item || typeof item !== "object") {
       return item;
+    }
+    if ("id" in item) {
+      item.id = JSONOutlineSchema.normalizeOutlineId(item.id);
+    }
+    if ("parent" in item) {
+      item.parent = JSONOutlineSchema.normalizeOutlineId(item.parent);
     }
     if (item.parent === "" || item.parent === false) {
       item.parent = null;
@@ -333,7 +472,16 @@ class JSONOutlineSchema {
       // return is treated as a no-op so children never sort by order.
       return a.order - b.order;
     });
-    this.orderRecurse(byOrder, sorted);
+    const childIndex = byOrder.every(
+      (item) => item && typeof item.id === "string",
+    )
+      ? this.buildChildIndex()
+      : null;
+    if (childIndex) {
+      this.orderRecurseIndexed(byOrder, sorted, new Set(), childIndex);
+    } else {
+      this.orderRecurse(byOrder, sorted);
+    }
     // sanity check, should always be equal
     if (sorted.length == items.length) {
       return sorted;
@@ -364,6 +512,60 @@ class JSONOutlineSchema {
         // only walk deeper if there were children for this page
         if (children.length > 0) {
           this.orderRecurse(children, sorted, idList);
+        }
+      }
+    }
+  }
+  /**
+   * Parent id -> children (in this.items order) for orderRecurseIndexed, so
+   * each page's children are a lookup instead of a scan of every item
+   * (orderRecurse is O(n^2): 24ms at 1,000 pages, 68ms at 3,000, and it runs
+   * on every manifest save).
+   *
+   * Returns null unless every id is a string and every parent is a string,
+   * null or undefined. Only then is orderRecurse's loose == the same as
+   * exact string matching, so the result is identical; anything else takes
+   * the original orderRecurse path unchanged.
+   */
+  buildChildIndex() {
+    const childIndex = new Map();
+    for (var key in this.items) {
+      const item = this.items[key];
+      if (!item || typeof item.id !== "string") {
+        return null;
+      }
+      const parent = item.parent;
+      if (parent === null || parent === undefined) {
+        continue;
+      }
+      if (typeof parent !== "string") {
+        return null;
+      }
+      if (!childIndex.has(parent)) {
+        childIndex.set(parent, []);
+      }
+      childIndex.get(parent).push(item);
+    }
+    return childIndex;
+  }
+  /**
+   * orderRecurse with the child scan replaced by a childIndex lookup and the
+   * placed-id list by a Set. Same visiting order and same output.
+   */
+  orderRecurseIndexed(currentItems, sorted, placed, childIndex) {
+    for (var key in currentItems) {
+      let item = currentItems[key];
+      if (!placed.has(item.id)) {
+        placed.add(item.id);
+        sorted.push(item);
+        const indexed = childIndex.get(item.id);
+        if (indexed && indexed.length > 0) {
+          // copy before sorting: the index is shared across the walk
+          const children = indexed.slice();
+          usort(children, function (a, b) {
+            return a.order - b.order;
+          });
+          this.orderRecurseIndexed(children, sorted, placed, childIndex);
         }
       }
     }
@@ -411,4 +613,15 @@ function normalizeList(value) {
   });
   return list;
 }
+// top-level site.json keys load() reads; items are rebuilt separately.
+// Mirrors JSONOutlineSchema::TOP_LEVEL_KEYS in haxcms-php.
+JSONOutlineSchema.TOP_LEVEL_KEYS = Object.freeze([
+  "id",
+  "title",
+  "author",
+  "description",
+  "license",
+  "metadata",
+  "location",
+]);
 module.exports = JSONOutlineSchema;

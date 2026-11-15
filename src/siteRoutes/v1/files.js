@@ -204,18 +204,18 @@ function createStatusError(message, status) {
   return statusError;
 }
 
-// Security (HAX-SEC-006 / error-leak): only surface exception messages that
+// Security (SEC-ROUTE): only surface exception messages that
 // come from intentional createStatusError validation errors (which carry a
 // .status). Unexpected internal exceptions (sharp, fs-extra, library
 // internals) have no .status and their .message may disclose internal
 // paths/structure, so they get the generic fallback. Used by every file
 // mutation/detail catch block so clients never receive raw internals.
-// (L1, 2026-10-19: shared implementation in lib/clientErrorMessage.js.)
+// (Shared implementation in lib/clientErrorMessage.js.)
 const {
   resolveClientFacingErrorMessage,
 } = require("../../lib/clientErrorMessage.js");
 
-// Security (F3): count-window rate limit for authenticated file-mutation
+// Security (SEC-RATELIMIT): count-window rate limit for authenticated file-mutation
 // ops, keyed by the validated auth context's userName:siteName (set by
 // validateSiteApiRouteAccess before dispatch). Returns true when the request
 // may proceed; returns false after sending a 429 + Retry-So the handler can
@@ -859,7 +859,7 @@ async function scaleImageInPlace(
       fs.removeSync(temporaryPath);
     }
     throw createStatusError(
-      // Security (L1): don't promote raw sharp/fs messages to status errors
+      // Security (SEC-ROUTE): don't promote raw sharp/fs messages to status errors
       resolveClientFacingErrorMessage(e, "Unable to scale image"),
       e && e.status ? e.status : 500,
     );
@@ -918,7 +918,7 @@ async function compressImageInPlace(
       fs.removeSync(temporaryPath);
     }
     throw createStatusError(
-      // Security (L1): don't promote raw sharp/fs messages to status errors
+      // Security (SEC-ROUTE): don't promote raw sharp/fs messages to status errors
       resolveClientFacingErrorMessage(e, "Unable to compress image"),
       e && e.status ? e.status : 500,
     );
@@ -995,8 +995,94 @@ async function transformImageInPlace(
       fs.removeSync(temporaryPath);
     }
     throw createStatusError(
-      // Security (L1): don't promote raw sharp/fs messages to status errors
+      // Security (SEC-ROUTE): don't promote raw sharp/fs messages to status errors
       resolveClientFacingErrorMessage(e, "Unable to transform image"),
+      e && e.status ? e.status : 500,
+    );
+  }
+}
+
+// Formats replaceFileContent accepts, both for the file being replaced and
+// for the upload (what a browser canvas encodes). Animated and vector formats
+// (gif, svg) are left out: a canvas can not round-trip them, so replacing
+// would drop frames or vectors. Mirrors haxcms-php.
+const REPLACEABLE_IMAGE_FORMATS = ["jpeg", "png", "webp"];
+
+/**
+ * Replace a raster image's pixels with an uploaded image (the browser-made
+ * crop from haxtheweb/issues#1149), keeping the file's path, name and format.
+ * Security (SEC-UPLOAD): the upload is never written to files/ as sent. It is
+ * decoded and re-encoded into the existing file's own format, so the bytes on
+ * disk always match the file's extension whatever the client claimed.
+ */
+async function replaceImageContentInPlace(
+  sourcePath,
+  uploadPath,
+  jpegQuality = DEFAULT_JPEG_QUALITY,
+) {
+  let sourceMetadata = null;
+  try {
+    sourceMetadata = await sharp(sourcePath, { failOn: "none" }).metadata();
+  } catch {
+    sourceMetadata = null;
+  }
+  const sourceFormat =
+    sourceMetadata && sourceMetadata.format
+      ? String(sourceMetadata.format)
+      : "";
+  if (!REPLACEABLE_IMAGE_FORMATS.includes(sourceFormat)) {
+    throw createStatusError(
+      "Only JPG, PNG and WebP images can be replaced",
+      400,
+    );
+  }
+  let uploadMetadata = null;
+  try {
+    uploadMetadata = await sharp(uploadPath, { failOn: "none" }).metadata();
+  } catch {
+    uploadMetadata = null;
+  }
+  // the same formats a browser canvas encodes; one still frame only
+  if (
+    !uploadMetadata ||
+    !REPLACEABLE_IMAGE_FORMATS.includes(String(uploadMetadata.format || "")) ||
+    !uploadMetadata.width ||
+    !uploadMetadata.height ||
+    (uploadMetadata.pages && uploadMetadata.pages > 1)
+  ) {
+    throw createStatusError(
+      "The uploaded file must be a JPG, PNG or WebP image",
+      400,
+    );
+  }
+  const normalizedQuality = normalizeJpegQualityValue(jpegQuality);
+  const outputQuality =
+    normalizedQuality !== null ? normalizedQuality : DEFAULT_JPEG_QUALITY;
+  let pipeline = sharp(uploadPath).rotate();
+  if (sourceFormat === "jpeg") {
+    pipeline = pipeline.jpeg({ quality: outputQuality, mozjpeg: true });
+  } else if (sourceFormat === "png") {
+    pipeline = pipeline.png();
+  } else {
+    pipeline = pipeline.webp({ quality: outputQuality });
+  }
+  const temporaryPath = getTemporaryImagePath(sourcePath, "replace");
+  try {
+    await pipeline.toFile(temporaryPath);
+    fs.moveSync(temporaryPath, sourcePath, { overwrite: true });
+    try {
+      const now = new Date();
+      fs.utimesSync(sourcePath, now, now);
+    } catch {
+      // intentionally ignored
+    }
+  } catch (e) {
+    if (fs.pathExistsSync(temporaryPath)) {
+      fs.removeSync(temporaryPath);
+    }
+    throw createStatusError(
+      // Security (SEC-ROUTE): don't promote raw sharp/fs messages to status errors
+      resolveClientFacingErrorMessage(e, "Unable to replace image"),
       e && e.status ? e.status : 500,
     );
   }
@@ -1038,7 +1124,7 @@ async function rotateImageInPlace(sourcePath, rotation = 90) {
       fs.removeSync(temporaryPath);
     }
     throw createStatusError(
-      // Security (L1): don't promote raw sharp/fs messages to status errors
+      // Security (SEC-ROUTE): don't promote raw sharp/fs messages to status errors
       resolveClientFacingErrorMessage(e, "Unable to rotate image"),
       e && e.status ? e.status : 500,
     );
@@ -1598,7 +1684,7 @@ async function createFile(req, res) {
     });
   }
   try {
-    // Security (HAX-SEC-006): use the server-generated sanitized filename from
+    // Security (SEC-UPLOAD, SEC-EXEC): use the server-generated sanitized filename from
     // the save result, not the attacker-controlled upload.originalname, so user
     // input never reaches the git commit message (argument-injection defense).
     var savedFileName =
@@ -1757,6 +1843,107 @@ async function updateFile(req, res) {
   }
 }
 
+/**
+ * POST /x/api/v1/files/{fileUuid}/content (replaceFileContent): replace an
+ * image's contents with an uploaded image while keeping its uuid, path and
+ * name, so every page that uses it shows the new image. Used by the in-browser
+ * crop in site admin Files (haxtheweb/issues#1149).
+ */
+async function replaceFileContent(req, res) {
+  if (!isSiteApiRequestAuthenticated(req, "authenticated-site")) {
+    return res.status(403).json({
+      status: 403,
+      data: {
+        message: "Authenticated site access is required for this endpoint",
+      },
+    });
+  }
+  if (!checkFileOpsRateLimit(req, res)) {
+    return;
+  }
+  const site = await resolveSiteForRequest(req);
+  if (!site || !site.manifest || !site.siteDirectory) {
+    return res.status(404).json({
+      status: 404,
+      data: {
+        message:
+          "Unable to resolve site context for /x/api/v1/files/{fileUuid}/content",
+      },
+    });
+  }
+  if (!platformAllows(site, "uploadMedia")) {
+    return featureDisabledResponse(
+      res,
+      "File operations are disabled for this site",
+    );
+  }
+  const upload = resolveUploadedFile(req);
+  if (!upload) {
+    return res.status(400).json({
+      status: 400,
+      data: { message: "Missing file upload" },
+    });
+  }
+  let mediaSettings = {};
+  try {
+    mediaSettings = await readMediaSettings(HAXCMS);
+  } catch {
+    // intentionally ignored
+  }
+  const jpegQuality = resolveJpegQualityFromSettings(mediaSettings);
+  try {
+    const requestedPath = resolveRequestedFilePath(req, site);
+    if (!requestedPath) {
+      return res.status(400).json({
+        status: 400,
+        data: { message: "File uuid is required" },
+      });
+    }
+    const fileInfo = resolveSiteFilePath(site, requestedPath);
+    fileInfo.resolvedPath = ensureExistingRegularFile(
+      fileInfo.resolvedPath,
+      fileInfo.filesRootPath,
+    );
+    await replaceImageContentInPlace(
+      fileInfo.resolvedPath,
+      upload.path,
+      jpegQuality,
+    );
+    const replacedFile = buildFileRecord(
+      site,
+      fileInfo.resolvedPath,
+      fileInfo.normalizedPath,
+    );
+    // in-place change: files.json keeps the uuid, size/dimensions/mtime refresh
+    const upsertedRecord = await upsertFileRecordInDataStore(
+      site,
+      fileInfo.normalizedPath,
+    );
+    if (upsertedRecord && upsertedRecord.uuid) {
+      replacedFile.uuid = upsertedRecord.uuid;
+    }
+    await site.gitCommit("File content replaced: " + fileInfo.normalizedPath);
+    return res.status(200).json({
+      status: 200,
+      data: {
+        operation: "replace-content",
+        path: fileInfo.normalizedPath,
+        file: replacedFile,
+      },
+    });
+  } catch (e) {
+    return res.status(e && e.status ? e.status : 500).json({
+      status: e && e.status ? e.status : 500,
+      data: {
+        message: resolveClientFacingErrorMessage(
+          e,
+          "Unable to replace file content",
+        ),
+      },
+    });
+  }
+}
+
 async function deleteFile(req, res) {
   if (!isSiteApiRequestAuthenticated(req, "authenticated-site")) {
     return res.status(403).json({
@@ -1857,6 +2044,7 @@ module.exports = {
   fileDetail,
   createFile,
   updateFile,
+  replaceFileContent,
   deleteFile,
   // Exported for direct unit testing of the in-place, format-preserving
   // resize path (see test/unit/files-image-ops.test.cjs). Not wired to a

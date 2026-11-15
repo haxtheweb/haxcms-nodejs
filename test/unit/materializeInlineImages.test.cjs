@@ -629,6 +629,8 @@ describe("materializeInlineImages — #2945", () => {
     });
 
     test("outline import (items): an item marked for delete is skipped and saves nothing", async () => {
+      // every entry is marked delete, so nothing is created: 400, not a 200
+      // with no page (haxtheweb/issues#3285)
       const res = await callCreateNode({
         items: [
           {
@@ -639,7 +641,7 @@ describe("materializeInlineImages — #2945", () => {
           },
         ],
       });
-      assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+      assert.equal(res.statusCode, 400, JSON.stringify(res.body));
       assert.equal(site.manifest.items.length, 0);
       assert.deepEqual(savedImages(siteDirectory), []);
     });
@@ -695,7 +697,7 @@ describe("materializeInlineImages — #2945", () => {
     });
   });
 
-  // Security (PR8-2): only PNG/JPEG/GIF/WebP signatures may reach sharp.
+  // Security (SEC-UPLOAD): only PNG/JPEG/GIF/WebP signatures may reach sharp.
   test("detectInlineRasterType accepts png/jpeg/gif/webp signatures only", async () => {
     const png = Buffer.from(PNG_BASE64, "base64");
     const jpeg = await sharp({

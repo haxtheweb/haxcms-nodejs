@@ -63,7 +63,7 @@ class FeedMe
         if (!site || !site.siteDirectory || !item || !item.location) {
             return ''
         }
-        // Security (N1/N5 parity): the single-pass '../' strip was bypassable
+        // Security (SEC-PATH), PHP parity: a single-pass '../' strip is bypassable
         // (e.g. `....//`); use the realpath containment resolver instead.
         const safeLocation = resolveContainedPath(String(site.siteDirectory), String(item.location))
         if (safeLocation === false) {

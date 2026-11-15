@@ -91,7 +91,7 @@ fs.writeFileSync(
 fs.ensureDirSync(path.join(runtimeRoot, "pages", "home"));
 fs.ensureDirSync(path.join(runtimeRoot, "pages", "about"));
 fs.ensureDirSync(path.join(runtimeRoot, "pages", "scripted"));
-// Security (M1, 2026-10-19 audit): a page file that reached disk WITHOUT the
+// Security (SEC-HEADERS): a page file that reached disk WITHOUT the
 // save-time sanitizer (legacy / git-synced / other-backend content). Its
 // inline scripts must never receive the per-request CSP nonce. The `$`
 // sequences prove page content is spliced literally (no String.replace
@@ -160,7 +160,7 @@ fs.writeFileSync(
           description: "about page",
           metadata: { created: 1700000001, updated: 1700000001 },
         },
-        // Security (N1/N5 parity): a poisoned manifest location pointing
+        // Security (SEC-PATH), PHP parity: a poisoned manifest location pointing
         // outside the site; its sidecars must never be served
         {
           id: "poisoned",
@@ -288,18 +288,35 @@ test("server boots in single-site mode on an ephemeral port", async () => {
   assert.ok(baseUrl.indexOf("http://127.0.0.1:") === 0);
 });
 
-test("the single-site root serves the raw index through express.static", async () => {
+test("the single-site root renders the index with the CSP nonce", async () => {
   const baseUrl = await baseUrlPromise;
   const result = await request("GET", baseUrl + "/", {
     headers: { accept: "text/html" },
   });
   assert.equal(result.status, 200);
-  // the single-site branch registers express.static WITHOUT index:false
-  // (non-dev), so the root streams the raw index.html and the render path
-  // only runs for slug-based page requests
   assert.ok(result.bodyText.indexOf("haxcms-site-builder") !== -1);
   assert.ok(
     String(result.headers["content-type"] || "").indexOf("text/html") !== -1,
+  );
+  // Security (SEC-HEADERS): the single-site branch registers express.static with
+  // index:false so "/" goes through the render path instead of streaming the
+  // raw index.html. The raw file carries no nonce, which would leave its
+  // inline scripts blocked under the nonce-only script-src.
+  const csp = String(result.headers["content-security-policy"] || "");
+  const nonceMatch = /'nonce-([^']+)'/.exec(csp);
+  assert.ok(nonceMatch, "CSP header carries a per-request nonce");
+  const nonce = nonceMatch[1];
+  assert.ok(
+    !/script-src[^;]*'unsafe-inline'/.test(csp),
+    "script-src does not fall back to 'unsafe-inline'",
+  );
+  assert.ok(
+    result.bodyText.indexOf('<script nonce="' + nonce + '">window.app') !== -1,
+    "template inline script on the root carries the real CSP nonce",
+  );
+  assert.ok(
+    result.bodyText.indexOf("<script>window.app") === -1,
+    "no un-nonced inline script is streamed for the root",
   );
 });
 
@@ -349,7 +366,7 @@ test("page variants never serve files outside the site for a poisoned location",
   ]);
 });
 
-test("page-content inline scripts never receive the CSP nonce (M1)", async () => {
+test("page-content inline scripts never receive the CSP nonce", async () => {
   const baseUrl = await baseUrlPromise;
   const result = await request("GET", baseUrl + "/scripted", {
     headers: { accept: "text/html" },
@@ -447,6 +464,28 @@ test("single-site build assets fall back to the public root", async () => {
   assert.equal(registry.status, 200);
 });
 
+test("single-site build modules get a browser cache lifetime; registry and site data do not", async () => {
+  const baseUrl = await baseUrlPromise;
+  const module = await request(
+    "GET",
+    baseUrl +
+      "/build/es6/node_modules/@haxtheweb/a11y-collapse/a11y-collapse.js",
+    {},
+  );
+  assert.equal(module.status, 200);
+  assert.equal(module.headers["cache-control"], "public, max-age=3600");
+  const uncached = ["/wc-registry.json", "/build.js", "/site.json"];
+  for (let i = 0; i < uncached.length; i++) {
+    const result = await request("GET", baseUrl + uncached[i], {});
+    assert.equal(result.status, 200, uncached[i]);
+    assert.notEqual(
+      result.headers["cache-control"],
+      "public, max-age=3600",
+      uncached[i],
+    );
+  }
+});
+
 test("site API paths pass through to the site routes", async () => {
   const baseUrl = await baseUrlPromise;
   const result = await request("GET", baseUrl + "/x/api/v1/files", {});
@@ -454,7 +493,7 @@ test("site API paths pass through to the site routes", async () => {
   assert.equal(result.status, 401);
 });
 
-// Security (PR8-4): malformed / oversized JSON bodies answer 400/413 JSON and
+// Security (SEC-ROUTE): malformed / oversized JSON bodies answer 400/413 JSON and
 // the raw request body never reaches the logs.
 test("malformed JSON body returns 400 envelope and does not log the raw body", async (t) => {
   const baseUrl = await baseUrlPromise;
@@ -501,4 +540,80 @@ test("malformed JSON body returns 400 envelope and does not log the raw body", a
   const all = logged.join("\n");
   assert.equal(all.indexOf(secret), -1, "raw body must not be logged");
   assert.equal(all.indexOf("x".repeat(200)), -1, "log output is truncated");
+});
+
+test("pages added or renamed after boot resolve without a restart", async (t) => {
+  const baseUrl = await baseUrlPromise;
+  const siteJsonPath = path.join(runtimeRoot, "site.json");
+  const original = fs.readFileSync(siteJsonPath, "utf8");
+  t.after(() => {
+    fs.writeFileSync(siteJsonPath, original);
+    fs.removeSync(path.join(runtimeRoot, "pages", "fresh"));
+  });
+  // the page-view route has served from its loaded copy
+  const before = await request("GET", baseUrl + "/fresh", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(before.status, 404);
+  // a save elsewhere (API, CLI, git pull) rewrites site.json
+  const manifest = JSON.parse(original);
+  manifest.items.find((i) => i.id === "about").title = "About Renamed";
+  manifest.items.push({
+    id: "fresh",
+    indent: 0,
+    location: "pages/fresh/index.html",
+    slug: "fresh",
+    order: 9,
+    parent: "",
+    title: "Fresh Page",
+    description: "added after boot",
+    metadata: { created: 1700000009, updated: 1700000009 },
+  });
+  fs.ensureDirSync(path.join(runtimeRoot, "pages", "fresh"));
+  fs.writeFileSync(
+    path.join(runtimeRoot, "pages", "fresh", "index.html"),
+    "<p>Fresh page body</p>",
+  );
+  fs.writeFileSync(siteJsonPath, JSON.stringify(manifest, null, 2));
+  const fresh = await request("GET", baseUrl + "/fresh", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(fresh.status, 200);
+  assert.ok(fresh.bodyText.indexOf("Fresh page body") !== -1);
+  assert.equal(fresh.bodyText.indexOf("haxcms-page-miss"), -1);
+  const markdown = await request("GET", baseUrl + "/fresh.md", {});
+  assert.equal(markdown.status, 200);
+  const about = await request("GET", baseUrl + "/about", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(about.status, 200);
+  assert.ok(about.bodyText.indexOf("About Renamed") !== -1);
+});
+
+test("a half-written site.json keeps serving the last good copy, then recovers", async (t) => {
+  const baseUrl = await baseUrlPromise;
+  const siteJsonPath = path.join(runtimeRoot, "site.json");
+  const original = fs.readFileSync(siteJsonPath, "utf8");
+  t.after(() => fs.writeFileSync(siteJsonPath, original));
+  // load a known-good copy first
+  const good = await request("GET", baseUrl + "/about", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(good.status, 200);
+  // caught mid-write: truncated JSON
+  fs.writeFileSync(siteJsonPath, original.slice(0, 40));
+  const during = await request("GET", baseUrl + "/about", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(during.status, 200);
+  assert.ok(during.bodyText.indexOf("About page body") !== -1);
+  // the write completes with a change; the next request picks it up
+  const manifest = JSON.parse(original);
+  manifest.items.find((i) => i.id === "about").title = "About After Recovery";
+  fs.writeFileSync(siteJsonPath, JSON.stringify(manifest, null, 2));
+  const after = await request("GET", baseUrl + "/about", {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(after.status, 200);
+  assert.ok(after.bodyText.indexOf("About After Recovery") !== -1);
 });

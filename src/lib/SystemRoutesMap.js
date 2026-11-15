@@ -79,6 +79,18 @@ addRouteHandler(
 
 addRouteHandler(SystemRoutesMap, 'post', 'session/login', sessionRoutes.login);
 addRouteHandler(SystemRoutesMap, 'post', 'session/logout', sessionRoutes.logout);
+addRouteHandler(
+  SystemRoutesMap,
+  'get',
+  'session/magic-link',
+  sessionRoutes.magicLinkConfirm,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  'post',
+  'session/magic-link',
+  sessionRoutes.magicLinkConsume,
+);
 addRouteHandler(SystemRoutesMap, 'get', 'session', sessionRoutes.session);
 addRouteHandler(SystemRoutesMap, 'post', 'session', sessionRoutes.session);
 addRouteHandler(
@@ -317,6 +329,7 @@ addRouteHandler(SystemRoutesMap, 'get', 'openapi.yaml', discoveryOpenapiRoute);
 const SystemV1OpenRoutes = [
   'session/login',
   'session/logout',
+  'session/magic-link',
   'session',
   'session/refresh',
   'session/connection-settings',

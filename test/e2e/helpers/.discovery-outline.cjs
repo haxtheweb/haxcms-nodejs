@@ -3,7 +3,7 @@
 // Discovery script for the outline-designer detail controls (dotfile, ignored
 // by node --test glob). Boots the E2E harness, logs in, creates
 // HAXSITEAUTOMATEDTESTING, navigates to the site editor, opens the outline
-// editor dialog (#outlinebutton), and dumps the real shadow-DOM structure of:
+// editor dialog (Structure in the site settings menu), and dumps the real shadow-DOM structure of:
 //   - outline-designer#outline rows (li.item, data-item-id, .label, .label-edit)
 //   - the actions-menu-button (icons:more-vert) + the simple-context-menu actions
 //   - the move up/down, indent/outdent, edit-title menu items (value attrs)
@@ -34,7 +34,7 @@ const {
   patchHaxcmsRootForHarness,
   relocateCreatedSite,
   ensureOutlineOpen,
-  clickEditorButtonById,
+  openStructure,
 } = require('./index.cjs')
 
 const SITES_DIR = '_sites'
@@ -315,8 +315,8 @@ async function main() {
     await waitFor(async () => page.evaluate(function () { return !!document.querySelector('haxcms-site-editor-ui') }), 45000)
     await new Promise((r) => setTimeout(r, 4000))
 
-    section('open outline editor (#outlinebutton)')
-    var outlineOpen = await clickEditorButtonById(page, '#outlinebutton')
+    section('open outline editor (Structure, site settings menu)')
+    var outlineOpen = await openStructure(page, null)
     logJSON('OUTLINE OPEN CLICK', outlineOpen)
     await new Promise((r) => setTimeout(r, 3000))
 

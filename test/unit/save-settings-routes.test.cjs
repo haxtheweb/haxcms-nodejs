@@ -280,6 +280,61 @@ describe("saveManifest", () => {
     assert.equal(site.calls.updateAlternateFormats, 1);
   });
 
+  test("generated files finish rebuilding before the managed-files commit", async (t) => {
+    const order = [];
+    const site = makeFakeSite({
+      async gitCommit(message) {
+        order.push("commit:" + message);
+      },
+      async updateAlternateFormats() {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        order.push("alternate formats written");
+      },
+    });
+    mockManifestExtras(t, site);
+    mockSiteAuth(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        manifest: { site: { "manifest-title": "Ordered" } },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.deepEqual(order, [
+      "commit:Manifest updated",
+      "alternate formats written",
+      "commit:Managed files updated",
+    ]);
+  });
+
+  test("a failed generated-files rebuild is logged and the save still answers 200", async (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
+    const site = makeFakeSite({
+      async updateAlternateFormats() {
+        throw new Error("search index exploded");
+      },
+    });
+    mockManifestExtras(t, site);
+    mockSiteAuth(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        manifest: { site: { "manifest-title": "Still saved" } },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal(site.calls.gitCommits.length, 2);
+    assert.ok(
+      warn.mock.calls.some((c) =>
+        String(c.arguments[0]).includes("search index exploded"),
+      ),
+    );
+  });
+
   test("full form payload writes every manifest section and the CNAME file", async (t) => {
     const site = makeFakeSite();
     site.manifest.metadata.platform = { features: { addPage: false } };
@@ -644,25 +699,6 @@ describe("saveNode", () => {
     );
     assert.equal(res.statusCode, 403);
     assert.equal(res.body.data.message, "Authentication required");
-  });
-
-  test("style guide id delegates to site.handleStyleGuideSave", async (t) => {
-    const site = makeFakeSite();
-    let styleGuidePayload = null;
-    site.handleStyleGuideSave = async (bodyParams) => {
-      styleGuidePayload = bodyParams;
-      return { saved: true };
-    };
-    mockNodeExtras(t, site);
-    mockSiteAuth(t, site);
-    const res = stubRes();
-    const req = siteReq({
-      site: { name: "demo" },
-      node: { id: "x/theme/style-guide", body: "<p>guide</p>" },
-    });
-    await saveNode(req, res);
-    assert.equal(res.body.saved, true);
-    assert.equal(styleGuidePayload, req.body);
   });
 
   test("unknown node id answers 500 Server error", async (t) => {
@@ -1487,6 +1523,36 @@ describe("saveLocalizationSettings", () => {
 // saveMediaSettings (system route, config-scoped)
 // ---------------------------------------------------------------------------
 describe("saveMediaSettings", () => {
+  test("user token is validated against the request's authenticated identity, not the process user", async (t) => {
+    // Security: a user token minted for the process-level active user must
+    // not validate on a request whose bearer identity is a different user,
+    // and the token bound to the request's identity must.
+    const seen = [];
+    t.mock.method(HAXCMS, "validateRequestToken", (token, value) => {
+      seen.push(value);
+      return value === "request-user";
+    });
+    t.mock.method(HAXCMS, "getActiveUserName", () => "process-user");
+    t.mock.method(HAXCMS, "getRequestAuthenticatedUserName", (req) =>
+      req && req.headers && req.headers.authorization ? "request-user" : "",
+    );
+    // request carries a bearer for request-user: validated against it
+    const resBound = stubRes();
+    await saveMediaSettings(
+      userReq({}, { authorization: "Bearer jwt" }),
+      resBound,
+    );
+    assert.deepEqual(seen, ["request-user"]);
+    assert.notEqual(resBound.statusCode, 403);
+    // no credential on the request: falls back to the active user and the
+    // token (minted for request-user) is rejected
+    const resAnon = stubRes();
+    await saveMediaSettings(userReq({}), resAnon);
+    assert.deepEqual(seen, ["request-user", "process-user"]);
+    assert.equal(resAnon.statusCode, 403);
+    assert.equal(resAnon.body.data.message, "invalid request token");
+  });
+
   test("missing user token answers 403 invalid request token", async (t) => {
     mockUserAuth(t);
     const res = stubRes();

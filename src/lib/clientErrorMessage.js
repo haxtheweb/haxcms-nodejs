@@ -1,9 +1,9 @@
-// Security (L1, 2026-10-19 audit / EXPRESS-ERROR-001): helpers for turning
+// Security (SEC-ROUTE): helpers for turning
 // caught exceptions into text that is safe to send to API clients.
 //
 // Raw library errors (fs, sharp, puppeteer, parsers) routinely embed absolute
-// server paths, temp directories and multi-line internals. Route handlers
-// used to interpolate e.message straight into JSON responses. These helpers
+// server paths, temp directories and multi-line internals. Route handlers must
+// never interpolate e.message straight into JSON responses. These helpers
 // keep the useful part of the message (the apiMessageCodes middleware and the
 // UI surface "Error processing X: <detail>") while never disclosing paths or
 // stack text.

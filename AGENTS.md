@@ -14,6 +14,7 @@ https://github.com/haxtheweb/praw, and is read from there instead of being copie
 - Workflow skills: <https://github.com/haxtheweb/praw/tree/main/skills>; interface skills: <https://github.com/haxtheweb/create/tree/main/src/skills>
 - Machine-readable index: <https://raw.githubusercontent.com/haxtheweb/praw/main/llms.txt>
 - Work queue: <https://github.com/haxtheweb/issues> (`gh issue list --repo haxtheweb/issues`)
+- Prototyping HAXcms itself (whole sites, top bar, edit mode, admin, multipage flows): build on the real system with the [`haxcms-prototype`](https://github.com/haxtheweb/praw/tree/main/skills/haxcms-prototype) skill, using this repo's generated UI inventory (`npm run ui:inventory`) as ground truth instead of describing the UI from memory
 - CLI options: `hax help`, `hax <command> --help`, or `man hax`
 
 ## Development Environment Setup
@@ -128,7 +129,7 @@ This repository has three test tiers. Run the one(s) relevant to the area you ch
   - Run `npm run test:e2e` before and after changes that touch the app-hax dashboard, the site editor, or system/site API routes. If UI rendering changed intentionally, regenerate baselines with `npm run test:e2e:update`.
   - Run `npm run test:api-conformance` if you changed system (`/system/api/v1/*`) or site (`/x/api/v1/*`) API routes.
   - Run `npm test` to ensure any generic tests pass.
-  - Run `npm run lint` to verify code style.
+  - Run `npm run lint` to verify code style. CI fails on any ESLint error (warnings do not fail it).
   - Run `hax audit` for web components to confirm DDD compliance.
 - **Commit Guidelines**:
   - Use clear, descriptive commit messages (e.g., "Add i18n support to my-element").

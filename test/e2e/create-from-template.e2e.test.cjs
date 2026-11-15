@@ -90,7 +90,12 @@ async function saveSiteAsTemplateViaUI(page, collector, cardHandle, t) {
         items[i].getAttribute('label') || items[i].label || '',
       ).toLowerCase()
       if (label === 'create template') {
-        items[i].click()
+        // simple-toolbar-button handles clicks on its inner <button>; a click
+        // on the host alone did not open the modal, so every run waited 8s
+        // and fell back to calling createTemplate() directly
+        const inner = items[i].shadowRoot && items[i].shadowRoot.querySelector('button')
+        if (inner) inner.click()
+        else items[i].click()
         return
       }
     }
@@ -112,7 +117,7 @@ async function saveSiteAsTemplateViaUI(page, collector, cardHandle, t) {
     throw new Error('app-hax-confirmation-modal did not appear for Create Template')
   }
 
-  // 4. Click "Save to templates" (.button.button-confirm).
+  // 4. Click "Save to templates" (.button-confirm).
   const confirmBtn = await deepQuery(page, selectors.lifecycle.confirmButtonChain)
   if (confirmBtn) {
     await confirmBtn.evaluate((b) => b.click())
@@ -120,7 +125,7 @@ async function saveSiteAsTemplateViaUI(page, collector, cardHandle, t) {
     await page.evaluate(() => {
       const m = document.querySelector('app-hax-confirmation-modal')
       if (m && m.shadowRoot) {
-        const btn = m.shadowRoot.querySelector('.button.button-confirm')
+        const btn = m.shadowRoot.querySelector('.button-confirm')
         if (btn) btn.click()
       }
     })

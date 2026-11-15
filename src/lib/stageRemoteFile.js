@@ -42,7 +42,7 @@ async function stageRemoteFile(url, stagingRoot, idx, relPath) {
       return null;
     }
     const ext = path.extname(relPath || "");
-    // Security (L6): match safeFetchToFile's staging hygiene — exclusive
+    // Security (SEC-UPLOAD): match safeFetchToFile's staging hygiene — exclusive
     // create at 0600 and a crypto-random name instead of Math.random().
     const stagedPath = path.join(
       stagingRoot,

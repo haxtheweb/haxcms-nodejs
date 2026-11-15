@@ -547,7 +547,7 @@ function isValidBulkImportStagedPath(inputPath) {
  * Blocked IPv4 ranges as [network, prefixLength]. Compared as packed 32-bit
  * integers (CIDR match), never by string prefix.
  *
- * Security (SEC-SSRF): extends the HAX-SEC-007 list (which already covered
+ * Security (SEC-SSRF): extends the base list (which covers
  * 0.0.0.0, 127/8, 169.254/16, 10/8, 192.168/16, 172.16/12 and the CGNAT
  * 100.64/10) with "this network" 0/8, IETF protocol assignments 192.0.0/24,
  * benchmarking 198.18/15, the three documentation nets (TEST-NET-1/2/3),
@@ -613,7 +613,7 @@ function ipv4InCidr(ipInt, network, prefixLength) {
  * carrier-grade NAT, documentation, benchmarking, multicast, or
  * cloud-metadata range (see BLOCKED_IPV4_CIDRS).
  *
- * Security (HAX-SEC-007 / SEC-SSRF): split out from isPrivateOrReservedIP so
+ * Security (SEC-SSRF): split out from isPrivateOrReservedIP so
  * the embedded-IPv4 IPv6 forms (mapped, compat, NAT64, 6to4) reuse it.
  * Non-string/empty input and digit-and-dot strings that are not a valid
  * dotted quad fail closed (true). Other non-IP strings (hostnames) are not
@@ -768,15 +768,15 @@ const IPV6_6TO4_PREFIX = ipv6ToBuffer("2002::");
  * Check if an IP address is in a private, reserved, loopback, link-local,
  * cloud-metadata, or carrier-grade NAT range.
  *
- * Security (HAX-SEC-007 / SSRF hex-form bypass): normalizes IPv4-mapped
+ * Security (SEC-SSRF): normalizes IPv4-mapped
  * (::ffff:0:0/96) and IPv4-compatible (::/96) IPv6 addresses to their
  * embedded IPv4 form before checking. dns.lookup(..., {all:true}) returns
  * mapped/compat addresses verbatim, and an attacker-published AAAA record
  * (or a literal IP in a URL) of ::ffff:7f00:1 / ::ffff:a9fe:a9fe would
  * otherwise bypass the check and reach loopback/internal/metadata targets.
  *
- * The previous text-based match only recognized the dotted-quad spelling
- * (::ffff:127.0.0.1) and fed substr to isPrivateOrReservedIPv4, which matched
+ * A text-based match that only recognizes the dotted-quad spelling
+ * (::ffff:127.0.0.1) and feeds substr to isPrivateOrReservedIPv4 matches
  * no private prefix for the hex spelling (::ffff:7f00:1 -> "7f00:1"). The
  * packed-byte approach canonicalizes every equivalent spelling to the same 16
  * bytes via ipv6ToBuffer, then decodes the trailing 4 bytes (inet_ntop
@@ -868,7 +868,7 @@ function isPrivateOrReservedIP(ip) {
  * Validate that a URL does not resolve to an internal/private/metadata IP.
  * Returns true if the URL is safe to fetch, false otherwise.
  *
- * Security (HAX-SEC-007): checks ALL resolved DNS records (not just the
+ * Security (SEC-SSRF): checks ALL resolved DNS records (not just the
  * first) so a hostname that round-robins to an internal address is rejected.
  * Matches safeFetch.js assertUrlNotSSRF behavior; the hardened
  * isPrivateOrReservedIP predicate is shared by both paths.
@@ -960,7 +960,7 @@ class HAXCMSFile {
           },
         };
       }
-      // Security (HAX-SEC-004): enforce the configured maxUploadSizeMb as an
+      // Security (SEC-UPLOAD, SEC-DOS): enforce the configured maxUploadSizeMb as an
       // app-layer cap. multer's boot-time fileSize limit (1GB) is a separate
       // hard cap; this enforces the site's configured limit (if smaller) using
       // the multer-reported tmpFile.size. The remote-download path is checked
@@ -994,7 +994,7 @@ class HAXCMSFile {
       // (e.g. 'files/assets/x.png' or 'assets/x.png'), mirroring PHP HAXCMSFile
       // save() dirname handling so Gitbook/Notion sub-folder image keys round-
       // trip correctly instead of being flattened to 'files/assets-x.png'.
-      // Security (SEC-18): reject traversal/null-byte/absolute dirnames so a
+      // Security (SEC-UPLOAD, SEC-PATH): reject traversal/null-byte/absolute dirnames so a
       // crafted upload name cannot write outside the site files dir. Non-bulk
       // imports keep the legacy flatten-slashes sanitization below.
       var importDirnamePart = "";
@@ -1114,7 +1114,7 @@ class HAXCMSFile {
             throw dlErr;
           }
           sourcePath = remoteDownloadPath;
-          // Security (HAX-SEC-004): enforce the configured maxUploadSizeMb on
+          // Security (SEC-UPLOAD, SEC-DOS): enforce the configured maxUploadSizeMb on
           // the downloaded file so URL imports cannot bypass the size cap.
           try {
             var dlStats = fs.statSync(remoteDownloadPath);
@@ -1343,7 +1343,7 @@ const REMOTE_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
  * validated IP, streams to disk with a byte cap (options.maxBytes, default
  * the safeFetch 20 MB cap), applies a timeout, rejects non-2xx, and deletes
  * the partial file on any error. Redirects are still not followed
- * (HAX-SEC-007; parity with PHP SsrfGuard max_redirects=0).
+ * (parity with PHP SsrfGuard max_redirects=0).
  */
 async function downloadAndSaveFile(url, filepath, options) {
   // lazy require: safeFetch.js requires this module (isPrivateOrReservedIP)

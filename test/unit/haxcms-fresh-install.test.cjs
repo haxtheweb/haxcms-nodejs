@@ -49,14 +49,27 @@ fs.ensureDirSync(path.join(runtimeRoot, '_sites'))
 process.chdir(runtimeRoot)
 process.env.HAXCMS_ROOT = runtimeRoot + '/'
 
-// the constructor prints the seeded-credentials banner via console.error;
-// capture it instead of leaking the (random, test-only) password to the log
+// the constructor prints the seeded-credentials banner as lines on
+// process.stderr (console.error for anything else it reports); capture both
+// instead of leaking the (random, test-only) password to the log
 const bannerLines = []
+const stderrLines = []
 const originalConsoleError = console.error
+const originalStderrWrite = process.stderr.write
 console.error = function () {
   for (let i = 0; i < arguments.length; i++) {
     bannerLines.push(String(arguments[i]))
   }
+}
+process.stderr.write = function (chunk) {
+  String(chunk)
+    .replace(/\n$/, '')
+    .split('\n')
+    .forEach((line) => {
+      bannerLines.push(line)
+      stderrLines.push(line)
+    })
+  return true
 }
 
 let loadError = null
@@ -67,6 +80,7 @@ try {
   loadError = e
 } finally {
   console.error = originalConsoleError
+  process.stderr.write = originalStderrWrite
 }
 
 test.after(() => {
@@ -123,6 +137,14 @@ test('the seeded password is written to a 0600 file and not to non-TTY stderr', 
   assert.equal(joined.indexOf(match[1]), -1, 'plaintext password not logged')
   assert.ok(!bannerLines.some((line) => /^password: /.test(line)))
   assert.ok(bannerLines.some((line) => line.indexOf(passwordFile) !== -1), 'file path logged')
+})
+
+// the banner goes to process.stderr itself, so a runtime embedding
+// haxcms-nodejs (haxcms-browser) decides where server notes go
+test('the seeded-credentials banner is written to process.stderr', () => {
+  assert.equal(loadError, null)
+  assert.ok(stderrLines.some((line) => line.indexOf('HAXcms admin seeded credentials') !== -1))
+  assert.ok(stderrLines.some((line) => line.indexOf('username: admin') !== -1))
 })
 
 test('announceSeededCredentials echoes the password only on a TTY', () => {

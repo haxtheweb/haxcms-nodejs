@@ -3,7 +3,7 @@
 const yaml = require('js-yaml');
 
 /**
- * Security (SEC-SSRF / YAML alias amplification): js-yaml resolves aliases
+ * Security (SEC-DOS): YAML alias amplification. js-yaml resolves aliases
  * (*name) to shared references, so a few hundred bytes of nested anchors
  * ("billion laughs") become an exponentially large object the moment it is
  * JSON.stringify'd or walked. HAX has no legitimate use for anchors/aliases
