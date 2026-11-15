@@ -24,7 +24,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [24]
+        # Supported Node.js lines (package.json engines). e2e below stays on 24.
+        node-version: [22, 24, 26]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -65,9 +66,13 @@ jobs:
         # build. Warnings do not fail it.
         run: yarn lint
       - name: Coverage
+        # Coverage runs once, on 24. c8's yargs 17 can't be loaded on Node 26
+        # (its extensionless entry inside a "type": "module" package), which
+        # breaks the c8 CLI there; the tests themselves already ran above.
+        if: matrix.node-version == 24
         run: npm run test:coverage
       - name: Upload coverage (lcov)
-        if: always()
+        if: always() && matrix.node-version == 24
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-lcov
