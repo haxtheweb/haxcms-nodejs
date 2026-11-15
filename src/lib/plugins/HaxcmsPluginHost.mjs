@@ -29,10 +29,28 @@ const { safeFetch } = require("../safeFetch.js");
 
 const clone = (v) =>
   v === undefined ? undefined : JSON.parse(JSON.stringify(v));
+// drops "<...>" tag spans (as /<[^>]+>/g does) without a regex sanitizer; the result is a path segment of
+// [a-z0-9-] only, never HTML. Same output as haxcms-php's HAXCMSPluginHost::slug.
+const withoutTags = (text) => {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    // a tag needs at least one character that is not ">" before its closing ">"
+    const close =
+      text[i] === "<" && i + 1 < text.length && text[i + 1] !== ">"
+        ? text.indexOf(">", i + 1)
+        : -1;
+    if (close !== -1) {
+      i = close + 1;
+    } else {
+      out += text[i];
+      i++;
+    }
+  }
+  return out;
+};
 const slugify = (t) =>
-  String(t || "")
-    .toLowerCase()
-    .replace(/<[^>]+>/g, "")
+  withoutTags(String(t || "").toLowerCase())
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "") || "page";
 
