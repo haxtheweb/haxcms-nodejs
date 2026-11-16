@@ -682,6 +682,61 @@ describe("SEC-SANITIZE: saveOutline metadata and title", () => {
     assert.equal(saved.metadata.polluted, undefined);
     assert.equal({}.polluted, undefined);
   });
+
+  test("an outline title is stored without leading or trailing white space", async (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "haxcms-sec-outline-"));
+    t.after(() => fs.removeSync(dir));
+    fs.outputFileSync(path.join(dir, "pages/item-a/index.html"), "<p>A</p>");
+    const items = [
+      {
+        id: "item-a",
+        title: "A",
+        location: "pages/item-a/index.html",
+        slug: "a",
+        parent: null,
+        indent: 0,
+        order: 0,
+        metadata: {
+          created: 1,
+          image: "files/old.png",
+          theme: { key: "clean-one" },
+        },
+      },
+    ];
+    const site = fakeSite(dir, items);
+    t.mock.method(HAXCMS, "validateRequestToken", () => true);
+    t.mock.method(HAXCMS, "getActiveUserName", () => "tester");
+    t.mock.method(HAXCMS, "loadSite", async () => site);
+    t.mock.method(HAXCMS, "getThemes", () => THEMES);
+    const metadata = { created: 1 };
+    const req = {
+      headers: { "x-haxcms-site-token": "token" },
+      haxcmsSiteApiAuth: {
+        authenticated: true,
+        securityLevel: "authenticated-site",
+        userName: "tester",
+        siteName: "demo",
+      },
+      body: {
+        site: { name: "demo" },
+        items: [
+          {
+            id: "item-a",
+            title: "  <b>Real</b> title\u00a0",
+            parent: null,
+            indent: 0,
+            order: 0,
+            metadata: metadata,
+          },
+        ],
+      },
+    };
+    const res = stubRes();
+    await saveOutline(req, res);
+    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+    const saved = items.find((i) => i.id === "item-a");
+    assert.equal(saved.title, "Real title");
+  });
 });
 
 describe("SEC-SANITIZE: saveOutline metadata round-trip", () => {

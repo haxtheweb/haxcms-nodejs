@@ -158,9 +158,10 @@ async function saveOutline(req, res) {
           const plainTitle = toPlainText(item.title);
           if (plainTitle !== "") {
             // the text "null" or only white space is no title
+            // stored without leading or trailing white space
             page.title = isBlankPageTitle(plainTitle)
               ? DEFAULT_PAGE_TITLE
-              : plainTitle;
+              : plainTitle.trim();
           }
         }
         // description belongs to the JSON Outline Schema item; same handling
