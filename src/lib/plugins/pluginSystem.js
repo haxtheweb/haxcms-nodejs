@@ -405,17 +405,18 @@ async function entryOf(site, id, opts) {
  */
 async function enable(site, id, opts = {}) {
   const root = haxRootOf(opts.root);
+  const refusals = (await engine()).REGISTRY_REFUSALS;
   if (!ID.test(String(id))) {
-    return { status: 404, body: { error: "not installed" } };
+    return { status: 404, body: { error: refusals.notInstalled } };
   }
   const system = readRegistryFile(root);
   if (system.blocked.includes(id)) {
-    return { status: 409, body: { error: "blocked by deployment config" } };
+    return { status: 409, body: { error: refusals.blocked } };
   }
   const h = site ? await host(site, opts) : await systemHost(opts);
   const p = h && h.get(id);
   if (!p) {
-    return { status: 404, body: { error: "not installed" } };
+    return { status: 404, body: { error: refusals.notInstalled } };
   }
   if (site) {
     // install and enable hooks may read the site's records, which are not read while nothing is active
@@ -453,25 +454,21 @@ async function enable(site, id, opts = {}) {
 /** Disable a plugin for the system or for one site. Refusals come from the engine (required, dependents). */
 async function disable(site, id, opts = {}) {
   const root = haxRootOf(opts.root);
+  const refusals = (await engine()).REGISTRY_REFUSALS;
   if (!ID.test(String(id))) {
-    return { status: 404, body: { error: "not installed" } };
+    return { status: 404, body: { error: refusals.notInstalled } };
   }
   const system = readRegistryFile(root);
   const h = site ? await host(site, opts) : await systemHost(opts);
   const p = h && h.get(id);
   if (!p) {
-    return { status: 404, body: { error: "not installed" } };
+    return { status: 404, body: { error: refusals.notInstalled } };
   }
   if (system.locked.includes(id)) {
-    return { status: 409, body: { error: "locked by deployment config" } };
+    return { status: 409, body: { error: refusals.locked } };
   }
   if (site && system.enabled.includes(id)) {
-    return {
-      status: 409,
-      body: {
-        error: "enabled for the whole system; a site cannot turn it off",
-      },
-    };
+    return { status: 409, body: { error: refusals.systemEnabled } };
   }
   const r = await h.disable(id);
   if (r.status !== 200) {

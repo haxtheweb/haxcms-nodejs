@@ -10,7 +10,13 @@
 //     at a time, with the plugin's egress list checked again on every hop;
 //   - ctx.now() is the real clock unless a test freezes it.
 // Whether HAXcms keeps this shared engine or grows its own is an open question for review (spec/13 section 9).
-import { MemoryBackend } from "@haxtheweb/haxcms-plugin-spec/harness/memory-backend.mjs";
+import {
+  MemoryBackend,
+  REGISTRY_REFUSALS,
+} from "@haxtheweb/haxcms-plugin-spec/harness/memory-backend.mjs";
+
+// the registry's refusals, from the engine, so both backends and the reference answer alike
+export { REGISTRY_REFUSALS };
 import { join, dirname, resolve, sep } from "node:path";
 import {
   mkdirSync,
