@@ -1700,6 +1700,26 @@ describe("saveMediaSettings", () => {
     }
   });
 
+  test("formats HAXcms can never store answer 400 naming them (haxtheweb/issues#3054)", async (t) => {
+    useTempConfigDirectory(t);
+    mockUserAuth(t);
+    const res = stubRes();
+    await saveMediaSettings(
+      userReq({ acceptedFormats: "png, SVG, pdf, .exe" }),
+      res,
+    );
+    assert.equal(res.statusCode, 400);
+    assert.equal(
+      res.body.data.message,
+      "Invalid acceptedFormats value: unsupported svg, exe",
+    );
+    // a list within the allowlist saves
+    const ok = stubRes();
+    await saveMediaSettings(userReq({ acceptedFormats: "png,pdf" }), ok);
+    assert.equal(ok.statusCode, null);
+    assert.equal(ok.body.data.acceptedFormats, "png,pdf");
+  });
+
   test("a valid payload clamps, normalizes, and persists settings/media.json", async (t) => {
     useTempConfigDirectory(t);
     mockUserAuth(t);
