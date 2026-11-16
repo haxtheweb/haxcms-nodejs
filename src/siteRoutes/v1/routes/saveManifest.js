@@ -1,4 +1,5 @@
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const saveAppearanceSettings = require("./saveAppearanceSettings.js");
 const filter_var = require("../../../lib/filter_var.js");
 const fs = require("fs-extra");
 const { sanitizeURLValue } = require("../../../lib/sanitizeContent.js");
@@ -160,14 +161,14 @@ async function saveManifest(req, res) {
             fs.writeFileSync(site.siteDirectory + "/CNAME", domain);
           }
         }
+        let hThemes = await HAXCMS.getThemes();
         // the design system is the site's choice, not the theme's: keep it
-        // when the theme entry is copied in below (haxtheweb/issues#3350)
+        // when the theme changes
         const keptDesignSystem =
           site.manifest.metadata.theme &&
           typeof site.manifest.metadata.theme.designSystem === "string"
             ? site.manifest.metadata.theme.designSystem
             : "";
-        let hThemes = await HAXCMS.getThemes();
         // look for a match so we can set the correct data
         for (var key in hThemes) {
           let theme = hThemes[key];
@@ -183,8 +184,26 @@ async function saveManifest(req, res) {
             site.manifest.metadata.theme = JSON.parse(JSON.stringify(theme));
           }
         }
-        if (keptDesignSystem !== "") {
+        if (keptDesignSystem) {
           site.manifest.metadata.theme.designSystem = keptDesignSystem;
+        }
+        if (
+          typeof req.body["manifest"]["theme"][
+            "manifest-metadata-theme-designSystem"
+          ] !== "undefined"
+        ) {
+          // same rule as saveAppearanceSettings: "" or "ddd" is DDD (no
+          // value); anything else must be a lowercase name
+          const designSystem = saveAppearanceSettings.normalizeDesignSystem(
+            req.body["manifest"]["theme"][
+              "manifest-metadata-theme-designSystem"
+            ],
+          );
+          if (designSystem === "") {
+            delete site.manifest.metadata.theme.designSystem;
+          } else if (designSystem) {
+            site.manifest.metadata.theme.designSystem = designSystem;
+          }
         }
         if (!site.manifest.metadata.theme.variables) {
           site.manifest.metadata.theme.variables = {};

@@ -515,6 +515,114 @@ describe("saveManifest", () => {
     assert.equal(site.manifest.metadata.theme.variables.palette, "old-palette");
   });
 
+  test("a design system name is stored and kept", async (t) => {
+    const site = makeFakeSite();
+    site.manifest.metadata.theme = { element: "my-theme", variables: {} };
+    mockManifestExtras(t, site);
+    mockSiteAuthWithForm(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        haxcms_form_id: "form-1",
+        haxcms_form_token: "token",
+        manifest: {
+          site: { "manifest-title": "P", "manifest-description": "D" },
+          theme: { "manifest-metadata-theme-designSystem": "carbon" },
+          author: {},
+          seo: {},
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
+  });
+
+  test("an empty design system goes back to DDD", async (t) => {
+    const site = makeFakeSite();
+    site.manifest.metadata.theme = {
+      element: "my-theme",
+      variables: {},
+      designSystem: "carbon",
+    };
+    mockManifestExtras(t, site);
+    mockSiteAuthWithForm(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        haxcms_form_id: "form-1",
+        haxcms_form_token: "token",
+        manifest: {
+          site: { "manifest-title": "P", "manifest-description": "D" },
+          theme: { "manifest-metadata-theme-designSystem": "" },
+          author: {},
+          seo: {},
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal("designSystem" in site.manifest.metadata.theme, false);
+  });
+
+  test("an invalid design system is ignored", async (t) => {
+    const site = makeFakeSite();
+    site.manifest.metadata.theme = {
+      element: "my-theme",
+      variables: {},
+      designSystem: "carbon",
+    };
+    mockManifestExtras(t, site);
+    mockSiteAuthWithForm(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        haxcms_form_id: "form-1",
+        haxcms_form_token: "token",
+        manifest: {
+          site: { "manifest-title": "P", "manifest-description": "D" },
+          theme: { "manifest-metadata-theme-designSystem": "../evil" },
+          author: {},
+          seo: {},
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
+  });
+
+  test("the design system survives a theme change", async (t) => {
+    const site = makeFakeSite();
+    site.manifest.metadata.theme = {
+      element: "old-theme",
+      variables: {},
+      designSystem: "carbon",
+    };
+    mockManifestExtras(t, site);
+    mockSiteAuthWithForm(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        haxcms_form_id: "form-1",
+        haxcms_form_token: "token",
+        manifest: {
+          site: { "manifest-title": "P", "manifest-description": "D" },
+          theme: { "manifest-metadata-theme-element": "my-theme" },
+          author: {},
+          seo: {},
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
+  });
+
   test("a manifest.save failure rejects the handler (no catch in route)", async (t) => {
     const site = makeFakeSite();
     mockManifestExtras(t, site);

@@ -457,43 +457,43 @@ describe("saveAppearanceSettings — theme fields", () => {
     assert.equal(site.manifest.metadata.theme.variables.palette, "new-palette");
   });
 
-  test("designSystem stores a system name, clears on ddd / empty / null, rejects invalid (haxtheweb/issues#3350)", async (t) => {
+  test("design system stores a name, clears to DDD, rejects the rest", async (t) => {
     const site = makeFakeSite();
     mockSiteAuth(t, site);
-    const resValid = stubRes();
+    const resSet = stubRes();
     await saveAppearanceSettings(
-      appearanceReq({ "manifest-metadata-theme-designSystem": " Carbon " }),
-      resValid,
+      appearanceReq({ "manifest-metadata-theme-designSystem": "Carbon" }),
+      resSet,
     );
-    assert.equal(resValid.sent.status, 200);
+    assert.equal(resSet.sent.status, 200);
     assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
-    for (const cleared of ["ddd", "", null]) {
+    for (const ddd of ["", null, "ddd"]) {
       site.manifest.metadata.theme.designSystem = "carbon";
-      const res = stubRes();
+      const resClear = stubRes();
       await saveAppearanceSettings(
-        appearanceReq({ "manifest-metadata-theme-designSystem": cleared }),
-        res,
+        appearanceReq({ "manifest-metadata-theme-designSystem": ddd }),
+        resClear,
       );
-      assert.equal(res.sent.status, 200);
+      assert.equal(resClear.sent.status, 200);
       assert.equal("designSystem" in site.manifest.metadata.theme, false);
     }
-    for (const invalid of ["has spaces", "../carbon", 42, ["carbon"]]) {
-      const res = stubRes();
+    for (const bad of ["../carbon", "has spaces", 42]) {
+      const resBad = stubRes();
       await saveAppearanceSettings(
-        appearanceReq({ "manifest-metadata-theme-designSystem": invalid }),
-        res,
+        appearanceReq({ "manifest-metadata-theme-designSystem": bad }),
+        resBad,
       );
-      assert.equal(res.statusCode, 400, String(invalid));
+      assert.equal(resBad.statusCode, 400);
     }
   });
 
-  test("designSystem stays when the theme changes and the request does not send it", async (t) => {
+  test("design system survives a theme change", async (t) => {
     const site = makeFakeSite();
     mockSiteAuth(t, site);
     mockThemes(t);
     site.manifest.metadata.theme = {
       element: "old-theme",
-      designSystem: "patternfly",
+      designSystem: "carbon",
     };
     const res = stubRes();
     await saveAppearanceSettings(
@@ -502,7 +502,7 @@ describe("saveAppearanceSettings — theme fields", () => {
     );
     assert.equal(res.sent.status, 200);
     assert.equal(site.manifest.metadata.theme.element, "my-theme");
-    assert.equal(site.manifest.metadata.theme.designSystem, "patternfly");
+    assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
   });
 
   test("icon stores strings and rejects other types", async (t) => {

@@ -75,6 +75,11 @@ const PAGE_VARIANT_CONTENT_TYPES = {
 // HAXcms core settings
 process.env.haxcms_middleware = "node-express";
 const { HAXCMS, systemStructureContext } = require("./lib/HAXCMS.js");
+const {
+  INLINE_SCRIPT_OPEN_TAG_PATTERN,
+  replaceManagedHeadMarkup,
+  replaceSiteBuilderContent,
+} = require("./lib/indexMarkup.js");
 const { resolveContainedPath } = require("./lib/pathConfinement.js");
 const { stampDashboardBasePath } = require("./lib/dashboardBasePath.js");
 const { legacySlugMatches } = require("./lib/slugRules.js");
@@ -899,32 +904,6 @@ function mergeImportMapMarkup(existingMarkup = "", linkedDevMarkup = "") {
   return `<script type="importmap" data-haxcms-linked-dev-importmap>${JSON.stringify(merged)}</script>`;
 }
 
-// Security (SEC-HEADERS): the ONE pattern used both to stamp the
-// per-request nonce (injectNonce) and to pre-mark untrusted page-content
-// scripts (neutralizeUntrustedScriptNonces). Sharing it guarantees every tag
-// injectNonce could stamp was already marked when it came from page content.
-var INLINE_SCRIPT_OPEN_TAG_PATTERN = /<script((?:\s[^>]*)?)>/gi;
-
-// Security (SEC-HEADERS): page HTML is read from disk and spliced
-// into the served index BEFORE injectNonce runs. Without this, any literal
-// <script> in a page file (legacy content, git/filesystem-synced sites,
-// another backend's writes) would receive the real nonce and execute, so the
-// nonce CSP would give no stored-XSS protection. Mark every script open tag
-// in untrusted content with an empty nonce: it can never match the real
-// nonce, and injectNonce skips tags that already carry a nonce attribute.
-function neutralizeUntrustedScriptNonces(html = "") {
-  return String(html || "").replace(
-    INLINE_SCRIPT_OPEN_TAG_PATTERN,
-    function (match, attrs) {
-      var attrsStr = String(attrs || "");
-      if (/\snonce\s*=/i.test(attrsStr)) {
-        return match;
-      }
-      return "<script" + attrsStr + ' nonce="">';
-    },
-  );
-}
-
 // Security (SEC-HEADERS): stamp every inline <script> (and
 // inline <script type="importmap">) in the served index.html with nonce="<n>"
 // so the per-request CSP (cspNonceMiddleware) allows them to execute while
@@ -1497,6 +1476,10 @@ const appReady = systemStructureContext().then((site) => {
     app.use("/", requestRateLimiter, async (req, res, next) => {
       setApiCorsHeaders(req, res);
       res.setHeader("Content-Type", "application/json");
+      const pageOwnsPath =
+        (req.url.includes("/pages/") || req.url.includes("/files/")) &&
+        !req.url.includes("/x/") &&
+        requestPathIsPageSlug(await currentSingleSite(), req.url);
       if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
         next();
       }
@@ -1514,6 +1497,7 @@ const appReady = systemStructureContext().then((site) => {
         setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
         serveBuildAssetFile(req, res, path.join(__dirname, "/public"));
       } else if (
+        !pageOwnsPath &&
         !req.url.includes("/x/") &&
         (req.url.includes("custom/build") ||
           req.url.includes("/theme/") ||
@@ -1580,6 +1564,10 @@ const appReady = systemStructureContext().then((site) => {
         }
         // all page calls just go to the index and the front end will render them
         setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
+        if (pageOwnsPath) {
+          // a page under a "files" slug is a page, not an upload of unknown type
+          res.setHeader("Content-Type", "text/html");
+        }
         try {
           let indexFile = await renderDynamicSiteIndexResponse(
             req,
@@ -1760,6 +1748,19 @@ const appReady = systemStructureContext().then((site) => {
           );
           return;
         }
+        let pageOwnsPath = false;
+        if (
+          (req.url.includes("/pages/") || req.url.includes("/files/")) &&
+          !req.url.includes("/x/")
+        ) {
+          const owningSiteName = getMultisiteSiteName(multisiteRequestPath);
+          pageOwnsPath =
+            owningSiteName !== null &&
+            requestPathIsPageSlug(
+              await HAXCMS.loadSite(owningSiteName),
+              getMultisiteSiteSubPath(multisiteRequestPath),
+            );
+        }
         if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
           next();
         }
@@ -1777,6 +1778,7 @@ const appReady = systemStructureContext().then((site) => {
           setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
           serveBuildAssetFile(req, res, publicDir);
         } else if (
+          !pageOwnsPath &&
           !req.url.includes("/x/") &&
           (req.url.includes("custom/build") ||
             req.url.includes("/theme/") ||
@@ -1849,6 +1851,10 @@ const appReady = systemStructureContext().then((site) => {
             res.status(404);
           }
           setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
+          if (pageOwnsPath) {
+            // a page under a "files" slug is a page, not an upload of unknown type
+            res.setHeader("Content-Type", "text/html");
+          }
           if (siteContext && siteContext.siteDirectory) {
             try {
               let indexFile = await renderDynamicSiteIndexResponse(
@@ -3948,6 +3954,13 @@ function getNegotiatedVariantFormat(acceptHeader = "") {
 function normalizeSlugFromPath(pathname = "") {
   let slugPath = String(pathname || "").replace(/^\/+/, "");
   slugPath = slugPath.replace(/\/+$/, "");
+  // slugs keep Unicode letters, but the request path arrives percent-encoded:
+  // decode it so /caf%C3%A9 finds the page whose slug is "café"
+  try {
+    slugPath = decodeURIComponent(slugPath);
+  } catch {
+    // malformed escape: look the path up as it was sent
+  }
   return slugPath;
 }
 
@@ -4013,10 +4026,34 @@ function buildCanonicalPagePath(routePrefix = "", slug = "") {
     }
     return cleanPrefix;
   }
+  // the slug is decoded text (it may hold Unicode letters); this path goes
+  // into Link / Content-Location headers, so each segment is encoded again
+  const encodedSlug = cleanSlug
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
   if (cleanPrefix === "") {
-    return "/" + cleanSlug;
+    return "/" + encodedSlug;
   }
-  return cleanPrefix + "/" + cleanSlug;
+  return cleanPrefix + "/" + encodedSlug;
+}
+
+// A page titled "pages" or "files", and any page nested under one, has that
+// word as a slug segment, so its address looks like a request into the site's
+// pages/ or files/ folder. When the path is exactly a page's slug it is that
+// page, and is rendered like any other page instead of looked up on disk.
+function requestPathIsPageSlug(site, siteSubPath = "") {
+  const cleanPath = getRequestPathWithoutQuery(siteSubPath);
+  if (
+    !site ||
+    (cleanPath.indexOf("/pages/") === -1 && cleanPath.indexOf("/files/") === -1)
+  ) {
+    return false;
+  }
+  const slug = normalizeSlugFromPath(
+    getExplicitVariantInfo(cleanPath).basePath,
+  );
+  return slug !== "" && resolvePageBySlug(site, slug) !== null;
 }
 
 function appendVaryHeader(res, value = "Accept") {
@@ -4303,82 +4340,6 @@ function getRequestAbsoluteUrl(req, fallbackPath = "/") {
     return requestPath;
   }
   return protocol + "://" + host + requestPath;
-}
-
-function sanitizeManagedHeadMarkup(markup = "") {
-  return String(markup || "").replace(/\\"/g, '"');
-}
-
-function replaceManagedHeadMarkup(
-  indexFile = "",
-  metadata = "",
-  serviceWorkerScript = "",
-) {
-  const cleanMetadata = sanitizeManagedHeadMarkup(metadata);
-  const cleanServiceWorkerScript =
-    sanitizeManagedHeadMarkup(serviceWorkerScript);
-  let managedHeadMarkup = cleanMetadata;
-  if (cleanServiceWorkerScript !== "") {
-    managedHeadMarkup += "\n" + cleanServiceWorkerScript + "\n";
-  }
-  let output = String(indexFile || "");
-  const managedHeadPattern = /<meta charset[\s\S]*?(?=\s*<style[\s>])/i;
-  if (managedHeadPattern.test(output)) {
-    // Preserve <script> blocks (the base-href document.write setter and the
-    // importmap) that sit between <meta charset> and <style>. The managed
-    // metadata does not regenerate these, so without preservation they are
-    // swallowed by the replacement. This regressed when <meta charset> was
-    // moved to the top of <head> in the site boilerplate: the regex then
-    // spans the base/importmap scripts instead of starting below them.
-    // Without the base-href script no <base> tag is written, so relative
-    // asset paths resolve against the document URL on sub-pages and 404.
-    // Mirrors the PHP index.php template where getBaseTag() + the importmap
-    // are separate parts ahead of the metadata.
-    const matched = output.match(managedHeadPattern)[0];
-    const scriptBlockPattern = /<script\b[\s\S]*?<\/script\b[^>]*>/gi;
-    const preservedScripts = [];
-    let scriptMatch;
-    while ((scriptMatch = scriptBlockPattern.exec(matched)) !== null) {
-      preservedScripts.push(scriptMatch[0]);
-    }
-    const preservedScriptsMarkup =
-      preservedScripts.length > 0 ? preservedScripts.join("\n  ") + "\n  " : "";
-    output = output.replace(
-      managedHeadPattern,
-      preservedScriptsMarkup + managedHeadMarkup + "\n",
-    );
-    return output;
-  }
-  if (output.indexOf("</head>") !== -1) {
-    output = output.replace("</head>", managedHeadMarkup + "\n</head>");
-  }
-  return output;
-}
-
-function replaceSiteBuilderContent(indexFile = "", pageContent = "") {
-  const builderPattern =
-    /<haxcms-site-builder([^>]*)>[\s\S]*?<\/haxcms-site-builder>/i;
-  if (!builderPattern.test(indexFile)) {
-    return indexFile;
-  }
-  // Security (SEC-HEADERS): page content is untrusted for CSP purposes; pre-mark its
-  // scripts so the later injectNonce pass never authorizes them.
-  const safeContent = neutralizeUntrustedScriptNonces(pageContent);
-  // Replacer function (not a replacement string) so `$&`, `$1`, `` $` `` or
-  // `$'` sequences inside page content are inserted literally instead of
-  // being expanded into other parts of the template.
-  return String(indexFile || "").replace(
-    builderPattern,
-    function (match, builderAttrs) {
-      return (
-        "<haxcms-site-builder" +
-        builderAttrs +
-        ">" +
-        safeContent +
-        "</haxcms-site-builder>"
-      );
-    },
-  );
 }
 
 function injectDevReloadScript(indexFile = "", port = 3000) {

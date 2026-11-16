@@ -34,12 +34,36 @@ function hasGit() {
   }
 }
 
-const GIT_ENV = Object.assign({}, process.env, {
+const GIT_IDENTITY = {
   GIT_AUTHOR_NAME: "test",
   GIT_AUTHOR_EMAIL: "test@example.test",
   GIT_COMMITTER_NAME: "test",
   GIT_COMMITTER_EMAIL: "test@example.test",
-});
+};
+const GIT_ENV = Object.assign({}, process.env, GIT_IDENTITY);
+
+// Runs fn with the test git identity set on process.env, so git commands the
+// code under test spawns can commit on a machine with no global git identity
+// (CI). Sets the keys rather than replacing process.env: from Node.js 26,
+// child processes no longer see a replaced process.env object.
+async function withGitIdentity(fn) {
+  const prev = {};
+  Object.keys(GIT_IDENTITY).forEach((key) => {
+    prev[key] = process.env[key];
+    process.env[key] = GIT_IDENTITY[key];
+  });
+  try {
+    return await fn();
+  } finally {
+    Object.keys(GIT_IDENTITY).forEach((key) => {
+      if (prev[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = prev[key];
+      }
+    });
+  }
+}
 
 function git(cwd, args) {
   return execFileSync("git", args, { cwd: cwd, env: GIT_ENV })
@@ -145,13 +169,10 @@ describe(
       const fx = parentRepoWithSite("own-commit");
       git(fx.siteDir, ["init", "-q"]);
       fs.writeFileSync(path.join(fx.siteDir, "page.html"), "<p>new</p>\n");
-      const prev = process.env;
-      process.env = GIT_ENV;
-      try {
-        assert.equal(await fx.site.gitCommit("Page saved"), true);
-      } finally {
-        process.env = prev;
-      }
+      assert.equal(
+        await withGitIdentity(() => fx.site.gitCommit("Page saved")),
+        true,
+      );
       // git-interface keeps the quotes it wraps messages in, so match loosely
       assert.match(git(fx.siteDir, ["log", "-1", "--format=%s"]), /Page saved/);
       assert.equal(git(fx.siteDir, ["status", "--porcelain"]), "");
@@ -169,13 +190,10 @@ describe(
       const site = new HAXCMSSite();
       site.siteDirectory = dir;
       site.manifest = { metadata: { site: { git: {} } } };
-      const prev = process.env;
-      process.env = GIT_ENV;
-      try {
-        assert.equal(await site.gitCommit("Managed files updated"), true);
-      } finally {
-        process.env = prev;
-      }
+      assert.equal(
+        await withGitIdentity(() => site.gitCommit("Managed files updated")),
+        true,
+      );
       assert.equal(siteGitScope(dir), "own");
       assert.match(
         git(dir, ["log", "-1", "--format=%s"]),
