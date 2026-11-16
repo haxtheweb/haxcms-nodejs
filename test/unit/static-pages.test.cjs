@@ -164,7 +164,7 @@ test("renders index.html and one folder page per published page", async () => {
     pages.map((page) => page.path),
     [
       "index.html",
-      "welcome/index.html",
+      "home/index.html",
       "about/index.html",
       "about/team/index.html",
       "hidden/index.html",

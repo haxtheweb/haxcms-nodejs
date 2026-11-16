@@ -6,7 +6,11 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { toPlainText } = require("../../src/lib/sanitizePageMetadata.js");
+const {
+  toPlainText,
+  isBlankPageTitle,
+  DEFAULT_PAGE_TITLE,
+} = require("../../src/lib/sanitizePageMetadata.js");
 
 test("numeric character references in a title are decoded", () => {
   assert.equal(toPlainText("It&#x27;s a &quot;quote&quot;"), 'It\'s a "quote"');
@@ -24,4 +28,14 @@ test("references that are not characters are left as written", () => {
     toPlainText("&#0;&#xD800;&#x110000;&bogus;"),
     "&#0;&#xD800;&#x110000;&bogus;",
   );
+});
+
+test("a blank title or the text null is no title", () => {
+  assert.equal(DEFAULT_PAGE_TITLE, "New page");
+  for (const blank of [null, undefined, "", "   ", "null", "NULL", " Null "]) {
+    assert.equal(isBlankPageTitle(blank), true, String(blank));
+  }
+  for (const real of ["Nullable", "null pointer", "0", "New page"]) {
+    assert.equal(isBlankPageTitle(real), false, real);
+  }
 });

@@ -118,13 +118,20 @@ test("harness writes into a trailing-slash HAXCMS_ROOT", () => {
 // ---------------------------------------------------------------------------
 // site creation build variants
 // ---------------------------------------------------------------------------
-test("createSite builds a default site with a welcome page, managed files, and a git repo", async () => {
+test("createSite builds a default site with the default-starter page, managed files, and a git repo", async () => {
   const site = await HAXCMS.createSite("unit-site");
   assert.ok(site);
   assert.equal(site.manifest.metadata.site.name, "unit-site");
+  // with no build, the site starts with the default-starter skeleton's page
   assert.equal(site.manifest.items.length, 1);
-  assert.equal(site.manifest.items[0].title, "Welcome");
-  assert.equal(site.manifest.items[0].slug, "welcome");
+  assert.equal(site.manifest.items[0].title, "Home");
+  assert.equal(site.manifest.items[0].slug, "home");
+  assert.equal(site.manifest.items[0].metadata.published, true);
+  const homeHtml = fs.readFileSync(
+    path.join(sitesRoot, "unit-site", site.manifest.items[0].location),
+    "utf8",
+  );
+  assert.ok(homeHtml.indexOf("Edit this page to get started") !== -1);
   assert.ok(site.manifest.metadata.site.created > 0);
   assert.ok(site.manifest.metadata.site.updated > 0);
   assert.equal(site.manifest.metadata.site.settings.pathauto, true);
@@ -526,13 +533,20 @@ test("addPage stores the title as plain text (SEC-SANITIZE)", async () => {
     "missing-title-page",
   );
   assert.equal(missing.title, "New page");
+  const nullText = await site.addPage(
+    null,
+    "null",
+    "default",
+    "null-title-page",
+  );
+  assert.equal(nullText.title, "New page");
 });
 
 test("addPage deduplicates a slug that collides with an existing page", async () => {
   const site = await HAXCMS.loadSite("unit-site");
-  const duplicate = await site.addPage(null, "Welcome", "init", "welcome");
-  assert.ok(duplicate.slug !== "welcome");
-  assert.ok(duplicate.slug.indexOf("welcome-") === 0);
+  const duplicate = await site.addPage(null, "Home", "init", "home");
+  assert.ok(duplicate.slug !== "home");
+  assert.ok(duplicate.slug.indexOf("home-") === 0);
 });
 
 test("renamePageLocation moves the page folder then fails on the redundant unlink", async () => {
@@ -1939,7 +1953,15 @@ test("itemFromParams slugs from the plain title", async () => {
 
 test("itemFromParams falls back to the addPage default for a markup-only title", async () => {
   const site = await HAXCMS.loadSite("unit-website");
-  for (const raw of ["<img src=x onerror=alert(1)>", "", null, undefined]) {
+  for (const raw of [
+    "<img src=x onerror=alert(1)>",
+    "",
+    null,
+    undefined,
+    "null",
+    " NULL ",
+    "   ",
+  ]) {
     const item = site.itemFromParams({ node: { title: raw } });
     assert.equal(item.title, "New page", String(raw));
   }

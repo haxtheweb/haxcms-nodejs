@@ -176,6 +176,17 @@ test('setTitle cascades regenerated slugs to descendants until an override', asy
   assert.equal(grandchild.slug, 'grandchild')
 })
 
+test('setTitle to the text null or white space gives the default title', async () => {
+  for (const title of ['null', 'Null', '   ']) {
+    const site = mkSite([node('a', 0, '', 0)])
+    const result = await applyNodeDetailOperation(site, 'a', {
+      operation: 'setTitle',
+      title: title,
+    })
+    assert.equal(result.item.title, 'New page', title)
+  }
+})
+
 test('setTitle keeps the slug when pathauto is disabled for the site', async () => {
   const site = mkSite([node('a', 0, '', 0)], {
     settings: { pathauto: false },
