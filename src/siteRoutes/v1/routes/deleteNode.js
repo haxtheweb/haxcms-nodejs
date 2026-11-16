@@ -1,6 +1,6 @@
 const {
   isLocked,
-  healSiblingOrder,
+  compactSiblingOrders,
   syncIndentToDepth,
 } = require("../../../lib/outlineUpkeep.js");
 const { reslugPageAndBranch } = require("../../../lib/nodeDetailOperations.js");
@@ -95,14 +95,15 @@ async function deleteNode(req, res) {
           }
         }
         // the rescued pages now live at the top level: their addresses (and
-        // their branches') drop the deleted parent's slug, no two top level
-        // pages share an order, and indent follows the new depth
-        if (orphans.length > 0) {
-          const items = site.manifest.items;
-          for (let i = 0; i < orphans.length; i++) {
-            reslugPageAndBranch(site, orphans[i], items);
-          }
-          healSiblingOrder(items, null);
+        // their branches') drop the deleted parent's slug, and indent follows
+        // the new depth. The deleted page leaves no gap among its siblings:
+        // every group is numbered 0..n-1 again.
+        const items = site.manifest.items;
+        for (let i = 0; i < orphans.length; i++) {
+          reslugPageAndBranch(site, orphans[i], items);
+        }
+        const renumbered = compactSiblingOrders(items);
+        if (orphans.length > 0 || renumbered) {
           syncIndentToDepth(items);
           await site.manifest.save(false);
           await site.updateAlternateFormats();

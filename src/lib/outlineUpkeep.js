@@ -5,7 +5,10 @@
  * outline designer sent it and does not use any of this.
  *
  * The rules kept here, the same in haxcms-php (lib/OutlineUpkeep.php):
- *  - siblings never share an `order` value after a single-page operation
+ *  - after a single-page operation the pages under each parent are numbered
+ *    0..n-1 with no gaps and no repeats, in the sequence a reader sees them.
+ *    The front end numbers siblings by position when it loads the outline,
+ *    so an order it sends ("after this page") means the same spot here.
  *  - `indent` is the page's depth: 0 at the top level, parent's indent + 1 below
  *  - a locked page is changed by nothing but unlocking it
  */
@@ -74,6 +77,36 @@ function healSiblingOrder(items = [], parentId = null) {
     siblings[i].order = i;
   }
   return true;
+}
+
+/**
+ * Number the pages under every parent 0..n-1 in the sequence they are shown
+ * in (by order, then position in the items array), so orders have no gaps
+ * and no repeats. `except` is left out and keeps its order: a page that is
+ * about to be placed by an order the client counted without it.
+ * @returns {boolean} whether any order changed
+ */
+function compactSiblingOrders(items = [], except = null) {
+  const parents = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item && item !== except && !parents.includes(parentOf(item))) {
+      parents.push(parentOf(item));
+    }
+  }
+  let changed = false;
+  for (let p = 0; p < parents.length; p++) {
+    const siblings = sortedSiblings(items, parents[p]).filter(
+      (item) => item !== except,
+    );
+    for (let i = 0; i < siblings.length; i++) {
+      if (siblings[i].order !== i) {
+        siblings[i].order = i;
+        changed = true;
+      }
+    }
+  }
+  return changed;
 }
 
 /**
@@ -189,6 +222,7 @@ module.exports = {
   orderOf,
   sortedSiblings,
   healSiblingOrder,
+  compactSiblingOrders,
   makeRoomFor,
   lastSiblingOrder,
   syncIndentToDepth,
