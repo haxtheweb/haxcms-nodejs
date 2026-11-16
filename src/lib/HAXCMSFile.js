@@ -5,7 +5,10 @@ const { HAXCMS } = require("./HAXCMS.js");
 const { isUnsafeRelativePath } = require("./pathConfinement.js");
 const { buildFilePublicUrl } = require("./siteFileUrl.js");
 const { getDeterministicFileUuid } = require("./siteFileUuid.js");
-const { readMediaSettings } = require("./mediaSettings.js");
+const {
+  readMediaSettings,
+  isUploadFormatAccepted,
+} = require("./mediaSettings.js");
 const FilesDataStore = require("./FilesDataStore.js");
 const sharp = require("sharp");
 const dns = require("dns");
@@ -952,6 +955,21 @@ class HAXCMSFile {
       if (
         !sanitizedIncomingName ||
         !ALLOWED_UPLOAD_EXTENSION_PATTERN.test(sanitizedIncomingName)
+      ) {
+        return {
+          status: 500,
+          data: {
+            message: "File type not allowed",
+          },
+        };
+      }
+      // haxtheweb/issues#3054: the media settings' accepted formats narrow
+      // the safe list above (an operator can turn off, say, csv uploads)
+      if (
+        !isUploadFormatAccepted(
+          await readMediaSettings(HAXCMS),
+          path.extname(sanitizedIncomingName),
+        )
       ) {
         return {
           status: 500,

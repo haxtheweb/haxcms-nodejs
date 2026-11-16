@@ -1497,6 +1497,75 @@ test("service worker precaches only the shell, never pages or uploads", async ()
   assert.ok(locations.indexOf("offline.html") !== -1);
 });
 
+test("service worker lists each shell location once (haxtheweb/issues#3322)", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  const logo = site.manifest.metadata.site.logo;
+  try {
+    // a logo that is not under files/ resolves to a shipped icon per size
+    site.manifest.metadata.site.logo = "assets/banner.jpg";
+    await site.rebuildManagedFiles();
+    const locations = renderedShellFiles(site).map((item) => item[0]);
+    assert.equal(new Set(locations).size, locations.length, locations.join());
+    assert.ok(locations.indexOf("assets/icon-192x192.png") !== -1);
+  } finally {
+    site.manifest.metadata.site.logo = logo;
+  }
+});
+
+test("static shells carry the site title, description, color and image (haxtheweb/issues#3327)", async () => {
+  const site = await HAXCMS.createSite("unit-static-meta");
+  site.manifest.title = 'Tom\'s "R&D" <site>';
+  site.manifest.description = "Learn <b>things</b> & more";
+  site.manifest.metadata.theme = site.manifest.metadata.theme || {};
+  site.manifest.metadata.theme.variables =
+    site.manifest.metadata.theme.variables || {};
+  site.manifest.metadata.theme.variables.hexCode = "#123456";
+  site.manifest.metadata.theme.variables.image = "files/hero.jpg";
+  await site.rebuildManagedFiles();
+  for (const file of ["index.html", "ghpages.html"]) {
+    const html = fs.readFileSync(path.join(site.siteDirectory, file), "utf8");
+    assert.equal(html.indexOf("{{"), -1, file + " has no Twig left");
+    assert.ok(
+      html.indexOf(
+        "<title>Tom&#039;s &quot;R&amp;D&quot; &lt;site&gt;</title>",
+      ) !== -1,
+      file + " title",
+    );
+    assert.ok(
+      html.indexOf(
+        '<meta name="description" content="Learn &lt;b&gt;things&lt;/b&gt; &amp; more" />',
+      ) !== -1,
+      file + " description",
+    );
+    assert.ok(
+      html.indexOf('<meta name="theme-color" content="#123456">') !== -1,
+      file + " theme-color",
+    );
+    assert.ok(
+      html.indexOf(
+        '<meta name="og:image" property="og:image" content="files/hero.jpg" />',
+      ) !== -1,
+      file + " og:image",
+    );
+  }
+  // no description: the title stands in; no banner or files/ logo: no image
+  site.manifest.description = "";
+  site.manifest.metadata.theme.variables.image = "";
+  site.manifest.metadata.site.logo = "assets/banner.jpg";
+  await site.rebuildManagedFiles();
+  const html = fs.readFileSync(
+    path.join(site.siteDirectory, "index.html"),
+    "utf8",
+  );
+  assert.ok(
+    html.indexOf(
+      '<meta name="description" content="Tom&#039;s &quot;R&amp;D&quot; &lt;site&gt;" />',
+    ) !== -1,
+  );
+  assert.equal(html.indexOf('property="og:image"'), -1);
+  assert.equal(html.indexOf('property="twitter:image"'), -1);
+});
+
 test("service worker version follows content, not file size", async () => {
   const site = await HAXCMS.loadSite("unit-website");
   const siteJson = path.join(site.siteDirectory, "site.json");
@@ -1704,8 +1773,23 @@ test("managedTemplateVarsFor escapes title/description per managed format", () =
     managedTemplateVarsFor("llms.txt", vars).title,
     'Tom\'s R&D "x" ',
   );
+  // the static html shells escape every value they print (Twig html
+  // autoescape in PHP gives the same text)
+  const htmlVars = Object.assign({}, vars, {
+    hexCode: '#000"><script>',
+    metaDescription: "<b>R&D</b>",
+    socialImage: "files/a'b.png",
+  });
+  ["index.html", "ghpages.html"].forEach((file) => {
+    const html = managedTemplateVarsFor(file, htmlVars);
+    assert.equal(html.title, "Tom&#039;s R&amp;D &quot;x&quot; ");
+    assert.equal(html.hexCode, "#000&quot;&gt;&lt;script&gt;");
+    assert.equal(html.metaDescription, "&lt;b&gt;R&amp;D&lt;/b&gt;");
+    assert.equal(html.socialImage, "files/a&#039;b.png");
+    assert.equal(html.other, "<keep>");
+  });
   // other templates get the shared vars object untouched
-  assert.equal(managedTemplateVarsFor("index.html", vars), vars);
+  assert.equal(managedTemplateVarsFor("404.html", vars), vars);
 });
 
 test("sanitizeManagedTemplateText follows the PHP parity rule", () => {

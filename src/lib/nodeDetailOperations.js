@@ -1,31 +1,29 @@
-const stripTagsImport = require('locutus/php/strings/strip_tags');
+const stripTagsImport = require("locutus/php/strings/strip_tags");
 const strip_tags = stripTagsImport.strip_tags || stripTagsImport;
-const { HAXCMS } = require('./HAXCMS.js');
-const { reserveSlugRoutes } = require('./slugRules.js');
+const { HAXCMS } = require("./HAXCMS.js");
+const { reserveSlugRoutes } = require("./slugRules.js");
 const {
   sanitizeURLValue,
-  sanitizeMetadataValue
-} = require('./sanitizeContent.js');
-const {
-  platformAllows,
-} = require('./platformFeatures.js');
-const FileContentScanner = require('./FileContentScanner.js');
+  sanitizeMetadataValue,
+} = require("./sanitizeContent.js");
+const { platformAllows } = require("./platformFeatures.js");
+const FileContentScanner = require("./FileContentScanner.js");
 const {
   isBlankPageTitle,
   DEFAULT_PAGE_TITLE,
-} = require('./sanitizePageMetadata.js');
+} = require("./sanitizePageMetadata.js");
 
 const PAGE_DETAIL_OPERATIONS = new Set([
-  'setTitle',
-  'setDescription',
-  'setTags',
-  'setIcon',
-  'setMedia',
-  'setImage',
-  'setRelatedItems',
-  'setLocked',
-  'setPublished',
-  'setHideInMenu',
+  "setTitle",
+  "setDescription",
+  "setTags",
+  "setIcon",
+  "setMedia",
+  "setImage",
+  "setRelatedItems",
+  "setLocked",
+  "setPublished",
+  "setHideInMenu",
 ]);
 
 const {
@@ -37,15 +35,19 @@ const {
   lastSiblingOrder,
   syncIndentToDepth,
   isLocked,
-} = require('./outlineUpkeep.js');
+} = require("./outlineUpkeep.js");
 
-function createStatusError(status = 500, message = 'Unable to complete node operation', options = {}) {
+function createStatusError(
+  status = 500,
+  message = "Unable to complete node operation",
+  options = {},
+) {
   const statusError = new Error(message);
   statusError.status = status;
   if (options.featureDisabled === true) {
     statusError.featureDisabled = true;
   }
-  if (typeof options.reason === 'string') {
+  if (typeof options.reason === "string") {
     statusError.reason = options.reason;
   }
   return statusError;
@@ -70,9 +72,9 @@ function getLastChildOrder(items = [], parentId = null) {
 }
 
 function normalizeOperation(operationValue) {
-  if (typeof operationValue === 'string') {
+  if (typeof operationValue === "string") {
     const cleanOperation = operationValue.trim();
-    if (cleanOperation !== '') {
+    if (cleanOperation !== "") {
       return cleanOperation;
     }
   }
@@ -80,7 +82,7 @@ function normalizeOperation(operationValue) {
 }
 
 function ensureMetadataObject(page) {
-  if (!page.metadata || typeof page.metadata !== 'object') {
+  if (!page.metadata || typeof page.metadata !== "object") {
     page.metadata = {};
   }
 }
@@ -131,12 +133,18 @@ function cascadeSlugUpdates(site, items, changedIds) {
   }
 }
 
-function applyMetadataMutation(page, details = {}, operation = null, site = null, items = null) {
+function applyMetadataMutation(
+  page,
+  details = {},
+  operation = null,
+  site = null,
+  items = null,
+) {
   switch (operation) {
-    case 'setTitle':
+    case "setTitle":
       if (
-        Object.prototype.hasOwnProperty.call(details, 'title') &&
-        details.title !== ''
+        Object.prototype.hasOwnProperty.call(details, "title") &&
+        details.title !== ""
       ) {
         page.title = strip_tags(details.title);
         // white space or the text "null" is no title
@@ -154,91 +162,87 @@ function applyMetadataMutation(page, details = {}, operation = null, site = null
         }
       }
       break;
-    case 'setDescription':
-      if (Object.prototype.hasOwnProperty.call(details, 'description')) {
-        if (details.description !== '') {
+    case "setDescription":
+      if (Object.prototype.hasOwnProperty.call(details, "description")) {
+        if (details.description !== "") {
           page.description = strip_tags(details.description);
-        }
-        else {
-          page.description = '';
+        } else {
+          page.description = "";
         }
       }
       break;
-    case 'setTags':
+    case "setTags":
       ensureMetadataObject(page);
-      if (Object.prototype.hasOwnProperty.call(details, 'tags')) {
-        if (details.tags !== '' && details.tags !== null) {
+      if (Object.prototype.hasOwnProperty.call(details, "tags")) {
+        if (details.tags !== "" && details.tags !== null) {
           page.metadata.tags = sanitizeMetadataValue(details.tags);
-        }
-        else {
+        } else {
           delete page.metadata.tags;
         }
       }
       break;
-    case 'setIcon':
+    case "setIcon":
       ensureMetadataObject(page);
-      if (Object.prototype.hasOwnProperty.call(details, 'icon')) {
-        if (details.icon !== '' && details.icon !== null) {
+      if (Object.prototype.hasOwnProperty.call(details, "icon")) {
+        if (details.icon !== "" && details.icon !== null) {
           page.metadata.icon = sanitizeMetadataValue(details.icon);
-        }
-        else {
+        } else {
           delete page.metadata.icon;
         }
       }
       break;
-    case 'setMedia':
-    case 'setImage': {
+    case "setMedia":
+    case "setImage": {
       ensureMetadataObject(page);
       let imageValue = null;
-      if (Object.prototype.hasOwnProperty.call(details, 'image')) {
+      if (Object.prototype.hasOwnProperty.call(details, "image")) {
         imageValue = details.image;
-      }
-      else if (Object.prototype.hasOwnProperty.call(details, 'media')) {
+      } else if (Object.prototype.hasOwnProperty.call(details, "media")) {
         imageValue = details.media;
       }
       if (imageValue !== null) {
-        if (imageValue !== '' && imageValue !== undefined) {
-          page.metadata.image = sanitizeURLValue(imageValue, '');
-        }
-        else {
+        if (imageValue !== "" && imageValue !== undefined) {
+          page.metadata.image = sanitizeURLValue(imageValue, "");
+        } else {
           delete page.metadata.image;
         }
       }
       break;
     }
-    case 'setRelatedItems':
+    case "setRelatedItems":
       ensureMetadataObject(page);
-      if (Object.prototype.hasOwnProperty.call(details, 'relatedItems')) {
-        if (details.relatedItems !== '' && details.relatedItems !== null) {
-          page.metadata.relatedItems = sanitizeMetadataValue(details.relatedItems);
-        }
-        else {
+      if (Object.prototype.hasOwnProperty.call(details, "relatedItems")) {
+        if (details.relatedItems !== "" && details.relatedItems !== null) {
+          page.metadata.relatedItems = sanitizeMetadataValue(
+            details.relatedItems,
+          );
+        } else {
           delete page.metadata.relatedItems;
         }
       }
       break;
-    case 'setLocked':
+    case "setLocked":
       ensureMetadataObject(page);
-      if (Object.prototype.hasOwnProperty.call(details, 'locked')) {
+      if (Object.prototype.hasOwnProperty.call(details, "locked")) {
         page.metadata.locked = Boolean(details.locked);
       }
       break;
-    case 'setPublished':
+    case "setPublished":
       ensureMetadataObject(page);
-      if (Object.prototype.hasOwnProperty.call(details, 'published')) {
+      if (Object.prototype.hasOwnProperty.call(details, "published")) {
         page.metadata.published = Boolean(details.published);
       }
       break;
-    case 'setHideInMenu':
+    case "setHideInMenu":
       ensureMetadataObject(page);
-      if (Object.prototype.hasOwnProperty.call(details, 'hideInMenu')) {
+      if (Object.prototype.hasOwnProperty.call(details, "hideInMenu")) {
         page.metadata.hideInMenu = Boolean(details.hideInMenu);
       }
       break;
-    case 'setSlug':
+    case "setSlug":
       if (
-        Object.prototype.hasOwnProperty.call(details, 'slug') &&
-        details.slug !== ''
+        Object.prototype.hasOwnProperty.call(details, "slug") &&
+        details.slug !== ""
       ) {
         // no segment may be the reserved "x" route
         page.slug = reserveSlugRoutes(HAXCMS.generateSlugName(details.slug));
@@ -247,9 +251,9 @@ function applyMetadataMutation(page, details = {}, operation = null, site = null
         page.metadata.overridePathauto = true;
       }
       break;
-    case 'setOverridePathauto':
+    case "setOverridePathauto":
       ensureMetadataObject(page);
-      if (Object.prototype.hasOwnProperty.call(details, 'overridePathauto')) {
+      if (Object.prototype.hasOwnProperty.call(details, "overridePathauto")) {
         page.metadata.overridePathauto = Boolean(details.overridePathauto);
       }
       break;
@@ -259,11 +263,11 @@ function applyMetadataMutation(page, details = {}, operation = null, site = null
 }
 
 const OUTLINE_OPERATIONS = new Set([
-  'moveUp',
-  'moveDown',
-  'indent',
-  'outdent',
-  'setParent',
+  "moveUp",
+  "moveDown",
+  "indent",
+  "outdent",
+  "setParent",
 ]);
 
 /** Re-slug the page from its title under its current parent, then its branch. */
@@ -294,7 +298,7 @@ function applyOutlineMutation(
   const siblings = sortedSiblings(items, parentOf(page));
   const position = siblings.indexOf(page);
   switch (operation) {
-    case 'moveUp':
+    case "moveUp":
       if (position > 0) {
         const other = siblings[position - 1];
         const otherOrder = orderOf(other);
@@ -302,7 +306,7 @@ function applyOutlineMutation(
         page.order = otherOrder;
       }
       break;
-    case 'moveDown':
+    case "moveDown":
       if (position !== -1 && position < siblings.length - 1) {
         const other = siblings[position + 1];
         const otherOrder = orderOf(other);
@@ -310,7 +314,7 @@ function applyOutlineMutation(
         page.order = otherOrder;
       }
       break;
-    case 'indent':
+    case "indent":
       if (position > 0) {
         const previous = siblings[position - 1];
         page.parent = previous.id;
@@ -318,7 +322,7 @@ function applyOutlineMutation(
       }
       reslugPageAndBranch(site, page, items);
       break;
-    case 'outdent':
+    case "outdent":
       if (page.parent !== undefined && page.parent !== null) {
         const parentNode = site.loadNode(page.parent);
         const newParent = parentNode ? parentNode.parent : null;
@@ -342,16 +346,16 @@ function applyOutlineMutation(
       }
       reslugPageAndBranch(site, page, items);
       break;
-    case 'setParent': {
-      let newParent = Object.prototype.hasOwnProperty.call(details, 'parent')
+    case "setParent": {
+      let newParent = Object.prototype.hasOwnProperty.call(details, "parent")
         ? details.parent
         : null;
-      if (!newParent || newParent === '') {
+      if (!newParent || newParent === "") {
         newParent = null;
       }
       const requestedOrder = Object.prototype.hasOwnProperty.call(
         details,
-        'order',
+        "order",
       )
         ? parseInt(details.order)
         : NaN;
@@ -376,40 +380,43 @@ function applyOutlineMutation(
 
 async function applyNodeDetailOperation(site, nodeId, details = {}) {
   if (!site || !site.manifest || !Array.isArray(site.manifest.items)) {
-    throw createStatusError(404, 'Unable to resolve site context');
+    throw createStatusError(404, "Unable to resolve site context");
   }
 
-  const normalizedNodeId = String(nodeId || '').trim();
-  if (normalizedNodeId === '') {
-    throw createStatusError(400, 'Missing node id');
+  const normalizedNodeId = String(nodeId || "").trim();
+  if (normalizedNodeId === "") {
+    throw createStatusError(400, "Missing node id");
   }
 
   const operation = normalizeOperation(details.operation);
 
-  if (!platformAllows(site, 'outlineDesigner')) {
+  if (!platformAllows(site, "outlineDesigner")) {
     throw createStatusError(
       403,
-      'Outline operations are disabled for this site',
+      "Outline operations are disabled for this site",
       { featureDisabled: true },
     );
   }
 
-  if (PAGE_DETAIL_OPERATIONS.has(operation) && !platformAllows(site, 'pageBreak')) {
+  if (
+    PAGE_DETAIL_OPERATIONS.has(operation) &&
+    !platformAllows(site, "pageBreak")
+  ) {
     throw createStatusError(
       403,
-      'Page details editing is disabled for this site',
+      "Page details editing is disabled for this site",
       { featureDisabled: true },
     );
   }
 
   const page = site.loadNode(normalizedNodeId);
   if (!page) {
-    throw createStatusError(404, 'Node not found');
+    throw createStatusError(404, "Node not found");
   }
 
   // a locked page is changed by nothing but unlocking it
-  if (isLocked(page) && operation !== 'setLocked') {
-    throw createStatusError(423, 'Page is locked', { reason: 'locked' });
+  if (isLocked(page) && operation !== "setLocked") {
+    throw createStatusError(423, "Page is locked", { reason: "locked" });
   }
 
   const originalItemCount = site.manifest.items.length;
@@ -429,20 +436,26 @@ async function applyNodeDetailOperation(site, nodeId, details = {}) {
   // #3043: rebuild page.metadata.files from a content path-scan so the
   // uuid set stays in sync (and legacy object-shape entries self-heal to
   // uuids on the next details save). Reads the current on-disk content.
-  let pageContentForScan = '';
-  if (site && typeof site.getPageContent === 'function') {
+  let pageContentForScan = "";
+  if (site && typeof site.getPageContent === "function") {
     try {
-      pageContentForScan = String(await site.getPageContent(page) || '');
+      pageContentForScan = String((await site.getPageContent(page)) || "");
     } catch {
-      pageContentForScan = '';
+      pageContentForScan = "";
     }
   }
-  await FileContentScanner.rebuildPageFilesUuids(site, page, pageContentForScan);
+  await FileContentScanner.rebuildPageFilesUuids(
+    site,
+    page,
+    pageContentForScan,
+  );
 
   site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
   await site.manifest.save(false);
   await site.updateAlternateFormats();
-  await site.gitCommit(`Node operation: ${operation} on ${page.title} (${page.id})`);
+  await site.gitCommit(
+    `Node operation: ${operation} on ${page.title} (${page.id})`,
+  );
 
   const updatedNode = site.loadNode(page.id);
   return {
