@@ -13,6 +13,8 @@ const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
 const {
   toPlainText,
   pageDescriptionFromBody,
+  isBlankPageTitle,
+  DEFAULT_PAGE_TITLE,
 } = require("../../../lib/sanitizePageMetadata.js");
 const {
   sanitizeHTMLForStorage,
@@ -130,8 +132,10 @@ async function saveNode(req, res) {
         for (var i in pageData) {
           let data = pageData[i];
           // trap to ensure if front-end didnt send a UUID for id then we make it
-          if (!data["attributes"]["title"]) {
-            data["attributes"]["title"] = "New page";
+          // a page-break with no title, a blank one, or the text "null"
+          // saves the default title
+          if (isBlankPageTitle(toPlainText(data["attributes"]["title"]))) {
+            data["attributes"]["title"] = DEFAULT_PAGE_TITLE;
           }
           // to avoid critical error in parsing, we defer to the POST's ID always
           // this also blocks multiple page breaks if it doesn't exist as we don't allow

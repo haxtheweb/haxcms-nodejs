@@ -217,7 +217,13 @@ const {
   escapeXMLValue,
 } = require("./sanitizeContent.js");
 const { materializeInlineImages } = require("./materializeInlineImages.js");
-const { applyPageMetadata, toPlainText } = require("./sanitizePageMetadata.js");
+const {
+  applyPageMetadata,
+  toPlainText,
+  isBlankPageTitle,
+  DEFAULT_PAGE_TITLE,
+} = require("./sanitizePageMetadata.js");
+const { readDefaultStarterItems } = require("./skeletonSettings.js");
 const exec = util.promisify(child_process.exec);
 // Security (SEC-EXEC): argument-array git calls (no shell string)
 const execFile = util.promisify(child_process.execFile);
@@ -652,6 +658,15 @@ class HAXCMSSite {
     // create an initial page to make sense of what's there
     // this will double as saving our location and other updated data
     // accept a schema which can generate an array of pages to start
+    // no build: the site starts with the default-starter skeleton's pages,
+    // the same first page the dashboard gives a new site. Only when there is
+    // no usable default-starter does it fall back to a "Welcome" page.
+    if (build == null) {
+      const starterItems = readDefaultStarterItems(HAXCMS);
+      if (starterItems) {
+        build = { structure: "from-skeleton", items: starterItems };
+      }
+    }
     if (build == null) {
       await this.addPage(null, "Welcome", "init", "welcome");
     } else {
@@ -1672,9 +1687,10 @@ class HAXCMSSite {
     // set a crappy default title
     // Security (SEC-SANITIZE): title can come straight from a request
     // (createNode items[]); store plain text like saveOutline / PHP
+    // a title that is blank, only markup, or the text "null" gets the default
     title = toPlainText(title);
-    if (title === "") {
-      title = "New page";
+    if (isBlankPageTitle(title)) {
+      title = DEFAULT_PAGE_TITLE;
     }
     page.title = title;
     if (parent == null) {
@@ -2952,7 +2968,7 @@ class HAXCMSSite {
     // saveOutline / saveNode; a title that is nothing but markup gets the
     // same default as addPage (mirrors PHP HAXCMSSite::itemFromParams)
     const plainTitle = toPlainText(params["node"]["title"]).replace(/\n/g, "");
-    item.title = plainTitle === "" ? "New page" : plainTitle;
+    item.title = isBlankPageTitle(plainTitle) ? DEFAULT_PAGE_TITLE : plainTitle;
     if (
       params["node"]["id"] &&
       params["node"]["id"] != "" &&
