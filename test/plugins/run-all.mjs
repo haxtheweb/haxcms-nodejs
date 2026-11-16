@@ -3,7 +3,7 @@
 // Runs the spec's conformance cases, then every core and contrib plugin's own tests, against real HAXcms storage
 // through test/plugins/haxcms-adapter.mjs (Node runtime only; PHP plugins are haxcms-php's job).
 //   npm run test:plugins            all of it
-//   npm run test:plugins -- feeds   one plugin (folder name under core-plugins/ or contrib-plugins/)
+//   npm run test:plugins -- example   one plugin (folder name under core-plugins/, contrib-plugins/ or examples/)
 import { spawnSync } from "node:child_process";
 import { readdirSync, existsSync, mkdtempSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -30,7 +30,9 @@ const run = (args) =>
 let failed = [];
 if (!only && !run([join(spec, "conformance", "run.mjs"), "--backend", adapter]))
   failed.push("conformance");
-for (const tier of ["core-plugins", "contrib-plugins"]) {
+// every plugin folder the spec checkout has (its base branch has examples/ only)
+for (const tier of ["core-plugins", "contrib-plugins", "examples"]) {
+  if (!existsSync(join(spec, tier))) continue;
   for (const name of readdirSync(join(spec, tier)).sort()) {
     const dir = join(spec, tier, name);
     if (only && name !== only) continue;

@@ -2,13 +2,14 @@
 
 // DRAFT plugin platform (contingent on https://github.com/haxtheweb/haxcms-plugin-examples/pull/1).
 //
-// Runs plugins from the spec package against a REAL site in a temp HAXCMS_ROOT:
-//   - saveNode fires page.before.save: reading-time stores its declared metadata.plugins fields in site.json,
+// Runs the spec's backend fixtures against a REAL site in a temp HAXCMS_ROOT (no catalog plugin is needed):
+//   - saveNode fires page.before.save: fx-backend stores its declared metadata.plugins field in site.json,
 //     and a vetoing plugin (fx-vetoer) stops the write with 409
-//   - updateAlternateFormats fires rebuild.after: feeds writes rss.xml into the site folder
+//   - updateAlternateFormats fires rebuild.after: fx-backend writes its managed file into the site folder
 //   - deleteNode fires page.before.delete (veto) and page.after.delete
-//   - plugin operations are mounted under x/api/v1/plugins/<id>/: comments stores its personal data at the
+//   - plugin operations are mounted under x/api/v1/plugins/<id>/: fx-backend's notes keep personal data at the
 //     spec's siteData path, and security comes from the operation's declaration
+//   - /.well-known/<reserved name>: fx-well-known answers once its required issuer is set
 //
 // Constraints honored: CommonJS (.cjs), require(), node:test + node:assert/strict, no optional chaining.
 
@@ -24,13 +25,10 @@ const spec = path.dirname(
   require.resolve("@haxtheweb/haxcms-plugin-spec/package.json"),
 );
 process.env.HAXCMS_PLUGIN_DIRS = [
-  path.join(spec, "contrib-plugins", "reading-time"),
-  path.join(spec, "contrib-plugins", "comments"),
-  path.join(spec, "core-plugins", "feeds"),
+  path.join(spec, "conformance", "fixtures", "fx-backend"),
   path.join(spec, "conformance", "fixtures", "fx-vetoer"),
-  path.join(spec, "contrib-plugins", "link-checker"),
   path.join(spec, "examples", "example"),
-  path.join(spec, "core-plugins", "oauth"),
+  path.join(spec, "conformance", "fixtures", "fx-well-known"),
 ].join(path.delimiter);
 
 const { HAXCMS } = require("../../src/lib/HAXCMS.js");
@@ -118,7 +116,7 @@ describe("plugin discovery", () => {
 });
 
 describe("core save points fire plugin hooks", () => {
-  test("page.before.save: reading-time adds its declared fields; they land in site.json", async (t) => {
+  test("page.before.save: fx-backend adds its declared field; it lands in site.json", async (t) => {
     t.mock.method(HAXCMS, "validateRequestToken", () => true);
     const s = await freshSite();
     const page = s.manifest.items[0];
@@ -139,10 +137,7 @@ describe("core save points fire plugin hooks", () => {
       fs.readFileSync(path.join(s.siteDirectory, "site.json"), "utf8"),
     );
     const item = stored.items.find((i) => i.id === page.id);
-    assert.deepEqual(item.metadata.plugins["reading-time"], {
-      words: 410,
-      minutes: 2,
-    });
+    assert.deepEqual(item.metadata.plugins["fx-backend"], { words: 410 });
   });
 
   test("page.before.save: a veto stops the write with 409 and the file is unchanged", async (t) => {
@@ -171,13 +166,15 @@ describe("core save points fire plugin hooks", () => {
     );
   });
 
-  test("rebuild.after: feeds writes rss.xml into the site folder after core rewrites its files", async () => {
+  test("rebuild.after: fx-backend writes its managed file into the site folder after core rewrites its files", async () => {
     const s = await freshSite();
     await s.updateAlternateFormats();
-    const rss = fs.readFileSync(path.join(s.siteDirectory, "rss.xml"), "utf8");
-    // the plugin's feed of published pages (core still writes its own first; the extraction removes that)
-    assert.match(rss, /<generator>HAXcms<\/generator>/);
-    assert.match(rss, /<title>Reading<\/title>/);
+    const list = fs.readFileSync(
+      path.join(s.siteDirectory, "fx-backend.txt"),
+      "utf8",
+    );
+    // the titles of the listed pages, one per line
+    assert.match(list, /^Reading$/m);
   });
 
   test("page.before.delete: a veto keeps the page; page.after.delete runs after a delete", async (t) => {
@@ -302,27 +299,27 @@ describe("plugin operations are mounted under x/api/v1/plugins/<id>/", () => {
     };
   }
 
-  test("comments: create and list through the route; personal data at the siteData path", async () => {
+  test("notes: create and list through the route; personal data at the siteData path", async () => {
     const r = mount();
     const s = await freshSite();
     const pageId = s.manifest.items[0].id;
     const created = await r.call(
       "POST",
-      "comments",
-      `pages/${pageId}/comments`,
+      "fx-backend",
+      `pages/${pageId}/notes`,
       { body: "Nice page" },
     );
     assert.equal(created.statusCode, 200, JSON.stringify(created.body));
-    assert.equal(created.body.status, "approved");
-    const listed = await r.call("GET", "comments", `pages/${pageId}/comments`);
+    assert.equal(created.body.body, "Nice page");
+    const listed = await r.call("GET", "fx-backend", `pages/${pageId}/notes`);
     assert.equal(listed.body.length, 1);
     const file = path.join(
       testRoot,
       "_config",
       "siteData",
       s.manifest.id,
-      "comments",
-      "comments.json",
+      "fx-backend",
+      "notes.json",
     );
     assert.ok(fs.existsSync(file), file);
     assert.equal(
@@ -337,13 +334,13 @@ describe("plugin operations are mounted under x/api/v1/plugins/<id>/", () => {
     const pageId = s.manifest.items[0].id;
     const visitor = await r.call(
       "POST",
-      "comments",
-      `pages/${pageId}/comments`,
+      "fx-backend",
+      `pages/${pageId}/notes`,
       { body: "hi" },
       { userName: "", jwt: false, userToken: false, siteToken: false },
     );
     assert.equal(visitor.statusCode, 401);
-    const missing = await r.call("GET", "comments", "nope");
+    const missing = await r.call("GET", "fx-backend", "nope");
     assert.equal(missing.statusCode, 404);
   });
 
@@ -359,9 +356,11 @@ describe("plugin operations are mounted under x/api/v1/plugins/<id>/", () => {
       undefined,
     );
     assert.ok(data.contributions.every((c) => c.surface === "site"));
-    assert.deepEqual(data.contracts["insights.check"].provides, [
-      "link.status",
-    ]);
+    assert.ok(
+      data.contributions.find((c) => c.id === "fx-backend-insights"),
+      JSON.stringify(data.contributions),
+    );
+    assert.deepEqual(data.contracts["insights.check"].provides, ["word.count"]);
     const visitor = await r.get("/x/api/v1/plugins/contributions", {
       userName: "",
       jwt: false,
@@ -371,19 +370,25 @@ describe("plugin operations are mounted under x/api/v1/plugins/<id>/", () => {
     assert.equal(visitor.statusCode, 401);
   });
 
-  test(".well-known: reserved names only; oauth metadata needs its issuer set first", async () => {
+  test(".well-known: reserved names only; fx-well-known answers once its issuer is set", async () => {
     const r = mount();
     const unknown = await r.get("/.well-known/security.txt");
     assert.ok(
       unknown.nextCalled,
       "not reserved: falls through to the rest of the app",
     );
-    const meta = await r.get("/.well-known/oauth-authorization-server");
-    // oauth stays inactive until its required issuer setting has a value, so nothing serves the name yet
-    assert.ok(
-      meta.nextCalled || meta.statusCode === 200,
-      JSON.stringify(meta.body),
+    pluginSystem.reset();
+    const before = await r.get("/.well-known/oauth-authorization-server");
+    // fx-well-known stays inactive until its required issuer has a value, so nothing serves the name yet
+    assert.ok(before.nextCalled, JSON.stringify(before.body));
+    fs.outputJsonSync(
+      path.join(testRoot, "_config", "plugins", "config", "fx-well-known.json"),
+      { issuer: "https://cms.example.edu" },
     );
+    pluginSystem.reset();
+    const meta = await r.get("/.well-known/oauth-authorization-server");
+    assert.equal(meta.nextCalled, false);
+    assert.deepEqual(meta.body, { issuer: "https://cms.example.edu" });
   });
 });
 
