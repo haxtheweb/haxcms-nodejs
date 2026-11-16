@@ -1,48 +1,71 @@
-const { HAXCMS, sanitizeGitCommitMessage } = require('../../../lib/HAXCMS.js');
-const GitPlus = require('../../../lib/GitPlus.js');
-const { formatCommitMessage } = require('../../../lib/commitContext.js');
-const JSONOutlineSchemaItem = require('../../../lib/JSONOutlineSchemaItem.js');
-const HAXCMSFile = require('../../../lib/HAXCMSFile.js');
-const fs = require('fs-extra');
-const path = require('path');
-const { safeFetch } = require('../../../lib/safeFetch.js');
-const { getBulkImportStagingRoot, stageRemoteFile } = require('../../../lib/stageRemoteFile.js');
-const EntityRegistry = require('../../../lib/EntityRegistry.js');
-const FileStorage = require('../../../lib/FileStorage.js');
-const FileContentScanner = require('../../../lib/FileContentScanner.js');
+const { HAXCMS, sanitizeGitCommitMessage } = require("../../../lib/HAXCMS.js");
+const GitPlus = require("../../../lib/GitPlus.js");
+const { formatCommitMessage } = require("../../../lib/commitContext.js");
+const JSONOutlineSchemaItem = require("../../../lib/JSONOutlineSchemaItem.js");
+const HAXCMSFile = require("../../../lib/HAXCMSFile.js");
+const fs = require("fs-extra");
+const path = require("path");
+const { safeFetch } = require("../../../lib/safeFetch.js");
+const {
+  getBulkImportStagingRoot,
+  stageRemoteFile,
+} = require("../../../lib/stageRemoteFile.js");
+const EntityRegistry = require("../../../lib/EntityRegistry.js");
+const FileStorage = require("../../../lib/FileStorage.js");
+const FileContentScanner = require("../../../lib/FileContentScanner.js");
 const {
   getLicenseCodes,
-  normalizeLicenseValue
-} = require('../../../lib/licenses.js');
+  normalizeLicenseValue,
+} = require("../../../lib/licenses.js");
 
-const SAFE_BULK_IMPORT_EXTENSION_REGEX = /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf|h5p)$/i;
-const DEFAULT_CREATE_SITE_THEME_ICON = 'icons:record-voice-over';
-const DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE = '--simple-colors-default-theme-light-blue-7';
+const {
+  SAFE_UPLOAD_EXTENSION_REGEX,
+  isUploadFormatAccepted,
+  readMediaSettings,
+} = require("../../../lib/mediaSettings.js");
+// build.files takes the same allowlist as any upload (one list, in mediaSettings)
+const SAFE_BULK_IMPORT_EXTENSION_REGEX = SAFE_UPLOAD_EXTENSION_REGEX;
+const DEFAULT_CREATE_SITE_THEME_ICON = "icons:record-voice-over";
+const DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE =
+  "--simple-colors-default-theme-light-blue-7";
 // Extensions permitted for build.siteFiles downloads (theme/ and custom/
 // assets imported from another HAXcms instance). Allow-listing rather than
 // deny-listing executable extensions blocks php/phtml/phar/cgi/pl/py/rb/sh/
 // asp/aspx/jsp/exe/etc. from being written into the web-served site tree
 // (CWE-434). Mirrors the SAFE_BULK_IMPORT_EXTENSION_REGEX gate on build.files.
-const SAFE_SITE_FILE_EXTENSION_REGEX = /\.(css|js|html?|json|md|txt|svg|png|jpe?g|gif|webp|webm|mp4|mp3|mov|vtt|woff2?|ttf|eot|csv|pdf|xml)$/i;
-const SAFE_SITE_FILE_TEXT_EXTENSIONS = ['css', 'js', 'html', 'htm', 'json', 'md', 'txt', 'vtt', 'csv', 'svg', 'xml'];
+const SAFE_SITE_FILE_EXTENSION_REGEX =
+  /\.(css|js|html?|json|md|txt|svg|png|jpe?g|gif|webp|webm|mp4|mp3|mov|vtt|woff2?|ttf|eot|csv|pdf|xml)$/i;
+const SAFE_SITE_FILE_TEXT_EXTENSIONS = [
+  "css",
+  "js",
+  "html",
+  "htm",
+  "json",
+  "md",
+  "txt",
+  "vtt",
+  "csv",
+  "svg",
+  "xml",
+];
 
 function normalizeSiteFilePath(relativePath) {
-  if (typeof relativePath !== 'string') {
+  if (typeof relativePath !== "string") {
     return null;
   }
-  const normalized = relativePath.trim().replace(/\\/g, '/');
+  const normalized = relativePath.trim().replace(/\\/g, "/");
   if (
-    normalized === '' ||
-    normalized.indexOf('\0') !== -1 ||
-    normalized.includes('..') ||
-    normalized.startsWith('/') ||
-    !(normalized.startsWith('theme/') || normalized.startsWith('custom/'))
+    normalized === "" ||
+    normalized.indexOf("\0") !== -1 ||
+    normalized.includes("..") ||
+    normalized.startsWith("/") ||
+    !(normalized.startsWith("theme/") || normalized.startsWith("custom/"))
   ) {
     return null;
   }
-  const parts = normalized.split('/');
+  const parts = normalized.split("/");
   for (const part of parts) {
-    if (part === '' || part === '.' || part === '..') {
+    if (part === "" || part === "." || part === "..") {
       return null;
     }
   }
@@ -62,23 +85,30 @@ function normalizeSiteFilePath(relativePath) {
 // accepted for text-type extensions since misconfigured servers commonly
 // serve css/js/html/json as text/plain.
 function siteFileContentTypeAcceptable(response, normalizedPath) {
-  const ext = path.extname(normalizedPath).replace('.', '').toLowerCase();
-  const mappedExt = ext === 'htm' ? 'html' : ext;
+  const ext = path.extname(normalizedPath).replace(".", "").toLowerCase();
+  const mappedExt = ext === "htm" ? "html" : ext;
   const allowedMimes = HAXCMSFile.ALLOWED_MIME_BY_EXTENSION[mappedExt];
   if (!allowedMimes || !allowedMimes.length) {
     return true;
   }
-  const contentTypeHeader = response && response.headers && typeof response.headers.get === 'function'
-    ? response.headers.get('content-type')
-    : '';
-  const contentType = String(contentTypeHeader || '').split(';')[0].trim().toLowerCase();
-  if (contentType === '') {
+  const contentTypeHeader =
+    response && response.headers && typeof response.headers.get === "function"
+      ? response.headers.get("content-type")
+      : "";
+  const contentType = String(contentTypeHeader || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  if (contentType === "") {
     return true;
   }
   if (HAXCMSFile.mimeMatchesAllowed(contentType, allowedMimes)) {
     return true;
   }
-  if (contentType === 'text/plain' && SAFE_SITE_FILE_TEXT_EXTENSIONS.indexOf(mappedExt) !== -1) {
+  if (
+    contentType === "text/plain" &&
+    SAFE_SITE_FILE_TEXT_EXTENSIONS.indexOf(mappedExt) !== -1
+  ) {
     return true;
   }
   return false;
@@ -86,21 +116,24 @@ function siteFileContentTypeAcceptable(response, normalizedPath) {
 const DEFAULT_SUPPORTED_SITE_LICENSES = getLicenseCodes();
 
 function normalizeBulkImportName(locationName) {
-  if (typeof locationName !== 'string') {
+  if (typeof locationName !== "string") {
     return null;
   }
-  let normalized = locationName.trim().replace(/\\/g, '/').replace(/^files\//, '');
+  let normalized = locationName
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^files\//, "");
   if (
-    normalized === '' ||
-    normalized.indexOf('\0') !== -1 ||
-    normalized.startsWith('/') ||
-    normalized.includes('..')
+    normalized === "" ||
+    normalized.indexOf("\0") !== -1 ||
+    normalized.startsWith("/") ||
+    normalized.includes("..")
   ) {
     return null;
   }
-  const parts = normalized.split('/');
+  const parts = normalized.split("/");
   for (const part of parts) {
-    if (part === '' || part === '.' || part === '..') {
+    if (part === "" || part === "." || part === "..") {
       return null;
     }
   }
@@ -108,24 +141,27 @@ function normalizeBulkImportName(locationName) {
 }
 
 function normalizeSkeletonMachineName(value) {
-  if (typeof value !== 'string') {
-    return '';
+  if (typeof value !== "string") {
+    return "";
   }
-  return value.replace(/\.json$/i, '').trim().toLowerCase();
+  return value
+    .replace(/\.json$/i, "")
+    .trim()
+    .toLowerCase();
 }
 
 function getSupportedSiteLicenseCodes() {
   let supported = [...DEFAULT_SUPPORTED_SITE_LICENSES];
-  if (HAXCMS && typeof HAXCMS.getLicenseData === 'function') {
-    const options = HAXCMS.getLicenseData('select');
-    if (options && typeof options === 'object') {
+  if (HAXCMS && typeof HAXCMS.getLicenseData === "function") {
+    const options = HAXCMS.getLicenseData("select");
+    if (options && typeof options === "object") {
       const keys = Object.keys(options)
         .map((key) =>
-          typeof key === 'string'
-            ? key.trim().toLowerCase().replace(/_/g, '-')
-            : ''
+          typeof key === "string"
+            ? key.trim().toLowerCase().replace(/_/g, "-")
+            : "",
         )
-        .filter((key) => key !== '');
+        .filter((key) => key !== "");
       if (keys.length > 0) {
         supported = keys;
       }
@@ -140,13 +176,13 @@ function normalizeSiteLicenseValue(rawValue, supportedLicenses = []) {
 
 async function resolveSkeletonBuildByMachineName(machineName) {
   const normalizedTarget = normalizeSkeletonMachineName(machineName);
-  if (normalizedTarget === '') {
+  if (normalizedTarget === "") {
     return null;
   }
   const dirs = [
-    path.join(HAXCMS.configDirectory, 'user', 'skeletons'),
-    path.join(HAXCMS.configDirectory, 'skeletons'),
-    path.join(HAXCMS.coreConfigPath, 'skeletons')
+    path.join(HAXCMS.configDirectory, "user", "skeletons"),
+    path.join(HAXCMS.configDirectory, "skeletons"),
+    path.join(HAXCMS.coreConfigPath, "skeletons"),
   ];
   for (const dir of dirs) {
     if (!(await fs.pathExists(dir))) {
@@ -154,29 +190,30 @@ async function resolveSkeletonBuildByMachineName(machineName) {
     }
     const files = await fs.readdir(dir);
     for (const file of files) {
-      if (path.extname(file).toLowerCase() !== '.json') {
+      if (path.extname(file).toLowerCase() !== ".json") {
         continue;
       }
       const filePath = path.join(dir, file);
       let skeleton;
       try {
-        skeleton = JSON.parse(await fs.readFile(filePath, 'utf8'));
-      }
-      catch {
+        skeleton = JSON.parse(await fs.readFile(filePath, "utf8"));
+      } catch {
         continue;
       }
       const normalizedFileName = normalizeSkeletonMachineName(
-        path.basename(file, '.json')
+        path.basename(file, ".json"),
       );
       const normalizedMetaMachineName = normalizeSkeletonMachineName(
-        skeleton && skeleton.meta && typeof skeleton.meta.machineName === 'string'
+        skeleton &&
+          skeleton.meta &&
+          typeof skeleton.meta.machineName === "string"
           ? skeleton.meta.machineName
-          : ''
+          : "",
       );
       const normalizedMetaName = normalizeSkeletonMachineName(
-        skeleton && skeleton.meta && typeof skeleton.meta.name === 'string'
+        skeleton && skeleton.meta && typeof skeleton.meta.name === "string"
           ? skeleton.meta.name
-          : ''
+          : "",
       );
       if (
         normalizedTarget === normalizedFileName ||
@@ -195,7 +232,7 @@ async function resolveSkeletonBuildByMachineName(machineName) {
 
 async function resolveSkeletonBuildByThemeMachineName(machineName) {
   const normalizedTarget = normalizeSkeletonMachineName(machineName);
-  if (normalizedTarget === '') {
+  if (normalizedTarget === "") {
     return null;
   }
   const themesAry = HAXCMS.getThemes();
@@ -207,13 +244,13 @@ async function resolveSkeletonBuildByThemeMachineName(machineName) {
     const themeObj = themesAry[key];
     const normalizedKey = normalizeSkeletonMachineName(key);
     const normalizedElement = normalizeSkeletonMachineName(
-      isObjectLike(themeObj) && typeof themeObj.element === 'string'
+      isObjectLike(themeObj) && typeof themeObj.element === "string"
         ? themeObj.element
-        : ''
+        : "",
     );
     if (
       normalizedTarget === normalizedKey ||
-      (normalizedElement !== '' && normalizedTarget === normalizedElement)
+      (normalizedElement !== "" && normalizedTarget === normalizedElement)
     ) {
       matchedThemeKey = key;
       break;
@@ -222,7 +259,8 @@ async function resolveSkeletonBuildByThemeMachineName(machineName) {
   if (!matchedThemeKey) {
     return null;
   }
-  const fallbackSkeleton = await resolveSkeletonBuildByMachineName('default-starter');
+  const fallbackSkeleton =
+    await resolveSkeletonBuildByMachineName("default-starter");
   let trustedSkeleton = null;
   let trustedSkeletonFilePath = null;
   if (fallbackSkeleton && isObjectLike(fallbackSkeleton.skeleton)) {
@@ -234,13 +272,13 @@ async function resolveSkeletonBuildByThemeMachineName(machineName) {
       meta: {},
       site: {},
       build: {
-        type: 'skeleton',
-        structure: 'from-skeleton',
+        type: "skeleton",
+        structure: "from-skeleton",
         items: [],
         files: [],
       },
     };
-    trustedSkeletonFilePath = 'generated:theme-fallback';
+    trustedSkeletonFilePath = "generated:theme-fallback";
   }
   if (!isObjectLike(trustedSkeleton.meta)) {
     trustedSkeleton.meta = {};
@@ -253,7 +291,10 @@ async function resolveSkeletonBuildByThemeMachineName(machineName) {
   trustedSkeleton.site.theme = matchedThemeKey;
   if (
     isObjectLike(trustedSkeleton._skeleton) &&
-    Object.prototype.hasOwnProperty.call(trustedSkeleton._skeleton, 'fullThemeConfig')
+    Object.prototype.hasOwnProperty.call(
+      trustedSkeleton._skeleton,
+      "fullThemeConfig",
+    )
   ) {
     delete trustedSkeleton._skeleton.fullThemeConfig;
   }
@@ -269,7 +310,7 @@ function buildItemsSignature(items) {
   }
   const ids = [];
   for (const item of items) {
-    if (item && typeof item === 'object' && typeof item.id === 'string') {
+    if (item && typeof item === "object" && typeof item.id === "string") {
       ids.push(item.id);
     }
     if (ids.length >= 5) {
@@ -279,7 +320,7 @@ function buildItemsSignature(items) {
   if (ids.length === 0) {
     return null;
   }
-  return items.length + ':' + ids.join('|');
+  return items.length + ":" + ids.join("|");
 }
 
 async function resolveSkeletonByBuildItems(items) {
@@ -288,9 +329,9 @@ async function resolveSkeletonByBuildItems(items) {
     return null;
   }
   const dirs = [
-    path.join(HAXCMS.configDirectory, 'user', 'skeletons'),
-    path.join(HAXCMS.configDirectory, 'skeletons'),
-    path.join(HAXCMS.coreConfigPath, 'skeletons')
+    path.join(HAXCMS.configDirectory, "user", "skeletons"),
+    path.join(HAXCMS.configDirectory, "skeletons"),
+    path.join(HAXCMS.coreConfigPath, "skeletons"),
   ];
   for (const dir of dirs) {
     if (!(await fs.pathExists(dir))) {
@@ -302,24 +343,24 @@ async function resolveSkeletonByBuildItems(items) {
       let stat;
       try {
         stat = await fs.stat(filePath);
-      }
-      catch {
+      } catch {
         continue;
       }
-      if (!stat.isFile() || path.extname(file).toLowerCase() !== '.json') {
+      if (!stat.isFile() || path.extname(file).toLowerCase() !== ".json") {
         continue;
       }
       let skeleton;
       try {
-        skeleton = JSON.parse(await fs.readFile(filePath, 'utf8'));
-      }
-      catch {
+        skeleton = JSON.parse(await fs.readFile(filePath, "utf8"));
+      } catch {
         continue;
       }
       if (!isObjectLike(skeleton) || !isObjectLike(skeleton.build)) {
         continue;
       }
-      const skeletonBuildItems = Array.isArray(skeleton.build.items) ? skeleton.build.items : [];
+      const skeletonBuildItems = Array.isArray(skeleton.build.items)
+        ? skeleton.build.items
+        : [];
       const skeletonSignature = buildItemsSignature(skeletonBuildItems);
       if (skeletonSignature !== null && skeletonSignature === targetSignature) {
         return {
@@ -334,17 +375,16 @@ async function resolveSkeletonByBuildItems(items) {
 }
 
 function isObjectLike(value) {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function cloneJsonValue(value, fallback = null) {
-  if (typeof value === 'undefined' || value === null) {
+  if (typeof value === "undefined" || value === null) {
     return fallback;
   }
   try {
     return JSON.parse(JSON.stringify(value));
-  }
-  catch {
+  } catch {
     return fallback;
   }
 }
@@ -356,7 +396,10 @@ function getTrustedSkeletonSettings(skeleton) {
   if (isObjectLike(skeleton.site) && isObjectLike(skeleton.site.settings)) {
     return cloneJsonValue(skeleton.site.settings, null);
   }
-  if (isObjectLike(skeleton._skeleton) && isObjectLike(skeleton._skeleton.originalSettings)) {
+  if (
+    isObjectLike(skeleton._skeleton) &&
+    isObjectLike(skeleton._skeleton.originalSettings)
+  ) {
     return cloneJsonValue(skeleton._skeleton.originalSettings, null);
   }
   if (
@@ -365,7 +408,10 @@ function getTrustedSkeletonSettings(skeleton) {
     isObjectLike(skeleton._skeleton.originalMetadata.site) &&
     isObjectLike(skeleton._skeleton.originalMetadata.site.settings)
   ) {
-    return cloneJsonValue(skeleton._skeleton.originalMetadata.site.settings, null);
+    return cloneJsonValue(
+      skeleton._skeleton.originalMetadata.site.settings,
+      null,
+    );
   }
   return null;
 }
@@ -400,16 +446,15 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
     let themeBase = {};
     if (isObjectLike(fullThemeConfig.settings)) {
       themeBase = cloneJsonValue(fullThemeConfig.settings, {});
-    }
-    else if (isObjectLike(skeleton.theme)) {
+    } else if (isObjectLike(skeleton.theme)) {
       // Trimmed skeletons drop fullThemeConfig.settings; fall back to the
       // top-level theme object (registry defaults) so we keep path, name,
       // thumbnail, regions, etc.
       themeBase = cloneJsonValue(skeleton.theme, {});
     }
     if (
-      typeof fullThemeConfig.element === 'string' &&
-      fullThemeConfig.element !== ''
+      typeof fullThemeConfig.element === "string" &&
+      fullThemeConfig.element !== ""
     ) {
       themeBase.element = fullThemeConfig.element;
     }
@@ -420,10 +465,10 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
   }
   const skeletonThemeElement =
     isObjectLike(skeleton.site) &&
-    typeof skeleton.site.theme === 'string' &&
-    skeleton.site.theme !== ''
+    typeof skeleton.site.theme === "string" &&
+    skeleton.site.theme !== ""
       ? skeleton.site.theme
-      : '';
+      : "";
   if (
     (!isObjectLike(theme) || Object.keys(theme).length === 0) &&
     skeletonThemeElement &&
@@ -431,7 +476,10 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
   ) {
     theme = cloneJsonValue(themesAry[skeletonThemeElement], {});
   }
-  if ((!isObjectLike(theme) || Object.keys(theme).length === 0) && isObjectLike(skeleton.theme)) {
+  if (
+    (!isObjectLike(theme) || Object.keys(theme).length === 0) &&
+    isObjectLike(skeleton.theme)
+  ) {
     theme = cloneJsonValue(skeleton.theme, {});
   }
   if (!isObjectLike(theme) || Object.keys(theme).length === 0) {
@@ -440,12 +488,8 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
   if (!theme.element && skeletonThemeElement) {
     theme.element = skeletonThemeElement;
   }
-  if (
-    !theme.element &&
-    typeof theme.path === 'string' &&
-    theme.path !== ''
-  ) {
-    const inferredElement = path.basename(theme.path, '.js');
+  if (!theme.element && typeof theme.path === "string" && theme.path !== "") {
+    const inferredElement = path.basename(theme.path, ".js");
     if (inferredElement) {
       theme.element = inferredElement;
     }
@@ -457,16 +501,13 @@ function getTrustedSkeletonTheme(skeleton, themesAry = {}) {
 }
 // eslint-disable-next-line no-unused-vars -- unused; kept until the owner confirms it is dead
 function isSystemV1Request(req) {
-  const requestPath = (
-    req &&
-    typeof req.originalUrl === 'string' &&
-    req.originalUrl !== ''
-  ) ? req.originalUrl : (
-    req &&
-    typeof req.url === 'string' &&
-    req.url !== ''
-  ) ? req.url : '';
-  return requestPath.indexOf('/system/api/v1/') !== -1;
+  const requestPath =
+    req && typeof req.originalUrl === "string" && req.originalUrl !== ""
+      ? req.originalUrl
+      : req && typeof req.url === "string" && req.url !== ""
+        ? req.url
+        : "";
+  return requestPath.indexOf("/system/api/v1/") !== -1;
 }
 function hasValidCreateSiteRequestToken(_req) {
   // v1 routes are already JWT-gated in app.js before this handler runs
@@ -478,100 +519,103 @@ function hasValidCreateSiteUserToken(_req) {
 }
 
 /**
-   * @OA\Post(
-   *    path="/createSite",
-   *    tags={"cms","authenticated","site"},
-   *    @OA\Parameter(
-   *         name="user_token",
-   *         description="User validation token",
-   *         in="query",
-   *         required=true,
-   *         @OA\Schema(type="string")
-   *    ),
-   *     @OA\RequestBody(
-   *        @OA\MediaType(
-   *             mediaType="application/json",
-   *             @OA\Schema(
-   *                 @OA\Property(
-   *                     property="site",
-   *                     type="object"
-   *                 ),
-   *                 @OA\Property(
-   *                     property="build",
-   *                     type="object"
-   *                 ),
-   *                 @OA\Property(
-   *                     property="token",
-   *                     type="string"
-   *                 ),
-   *                 required={"site","token"},
-   *                 example={
-   *                    "site": {
-   *                      "name": "mynewsite",
-   *                      "description": "The description",
-   *                      "theme": "learn-two-theme"
-   *                    },
-   *                    "build": {
-   *                      "type": "course",
-   *                      "structure": "docx import"
-   *                    },
-   *                    "token": "request-token"
-   *                 }
-   *             )
-   *         )
-   *    ),
-   *    @OA\Response(
-   *        response="200",
-   *        description="Create a new site"
-   *   )
-   * )
-   */
+ * @OA\Post(
+ *    path="/createSite",
+ *    tags={"cms","authenticated","site"},
+ *    @OA\Parameter(
+ *         name="user_token",
+ *         description="User validation token",
+ *         in="query",
+ *         required=true,
+ *         @OA\Schema(type="string")
+ *    ),
+ *     @OA\RequestBody(
+ *        @OA\MediaType(
+ *             mediaType="application/json",
+ *             @OA\Schema(
+ *                 @OA\Property(
+ *                     property="site",
+ *                     type="object"
+ *                 ),
+ *                 @OA\Property(
+ *                     property="build",
+ *                     type="object"
+ *                 ),
+ *                 @OA\Property(
+ *                     property="token",
+ *                     type="string"
+ *                 ),
+ *                 required={"site","token"},
+ *                 example={
+ *                    "site": {
+ *                      "name": "mynewsite",
+ *                      "description": "The description",
+ *                      "theme": "learn-two-theme"
+ *                    },
+ *                    "build": {
+ *                      "type": "course",
+ *                      "structure": "docx import"
+ *                    },
+ *                    "token": "request-token"
+ *                 }
+ *             )
+ *         )
+ *    ),
+ *    @OA\Response(
+ *        response="200",
+ *        description="Create a new site"
+ *   )
+ * )
+ */
 async function createSite(req, res) {
   if (hasValidCreateSiteRequestToken(req) && hasValidCreateSiteUserToken(req)) {
     let domain = null;
     // woohoo we can edit this thing!
-    if (req.body['site']['domain'] && req.body['site']['domain'] != null && req.body['site']['domain'] != '') {
-      domain = req.body['site']['domain'];
+    if (
+      req.body["site"]["domain"] &&
+      req.body["site"]["domain"] != null &&
+      req.body["site"]["domain"] != ""
+    ) {
+      domain = req.body["site"]["domain"];
     }
     // null in the event we get hits that don't have this
     let build = null;
     let filesToDownload = null;
     let trustedSkeleton = null;
     // support for build info. the details used to actually create this site originally
-    if (req.body['build']) {
+    if (req.body["build"]) {
       build = {};
       // the platform version is intentionally not recorded: site.json is
       // public and the running version must not be shown to visitors
       // course, website, portfolio, etc
-      build.structure = req.body['build']['structure'];
+      build.structure = req.body["build"]["structure"];
       // TYPE of structure we are creating
-      build.type = req.body['build']['type'];
-      if (build.type == 'docx import' || build.structure == "import" || build.structure == "from-skeleton") {
+      build.type = req.body["build"]["type"];
+      if (
+        build.type == "docx import" ||
+        build.structure == "import" ||
+        build.structure == "from-skeleton"
+      ) {
         // JSONOutlineSchemaItem Array
-        build.items = req.body['build']['items'];
+        build.items = req.body["build"]["items"];
       }
-      if (req.body['build']['files']) {
-        filesToDownload = req.body['build']['files'];
+      if (req.body["build"]["files"]) {
+        filesToDownload = req.body["build"]["files"];
       }
-      const isFromSkeleton =
-        build &&
-        build.structure === 'from-skeleton';
+      const isFromSkeleton = build && build.structure === "from-skeleton";
       if (isFromSkeleton) {
-        const skeletonMachineName = (
-          req.body['build']['skeletonMachineName'] &&
-          typeof req.body['build']['skeletonMachineName'] === 'string'
-        )
-          ? req.body['build']['skeletonMachineName']
-          : '';
+        const skeletonMachineName =
+          req.body["build"]["skeletonMachineName"] &&
+          typeof req.body["build"]["skeletonMachineName"] === "string"
+            ? req.body["build"]["skeletonMachineName"]
+            : "";
         let resolvedSkeleton = null;
-        if (skeletonMachineName !== '') {
-          resolvedSkeleton = await resolveSkeletonBuildByMachineName(
-            skeletonMachineName
-          );
+        if (skeletonMachineName !== "") {
+          resolvedSkeleton =
+            await resolveSkeletonBuildByMachineName(skeletonMachineName);
           if (!resolvedSkeleton || !resolvedSkeleton.skeleton) {
-            resolvedSkeleton = await resolveSkeletonBuildByThemeMachineName(
-              skeletonMachineName
-            );
+            resolvedSkeleton =
+              await resolveSkeletonBuildByThemeMachineName(skeletonMachineName);
           }
         }
         if (
@@ -582,15 +626,16 @@ async function createSite(req, res) {
           resolvedSkeleton = await resolveSkeletonByBuildItems(build.items);
         }
         if (
-          skeletonMachineName !== '' &&
+          skeletonMachineName !== "" &&
           (!resolvedSkeleton || !resolvedSkeleton.skeleton)
         ) {
           return res.status(400).json({
             status: 400,
             data: {
-              message: 'Unable to resolve skeletonMachineName for from-skeleton build',
+              message:
+                "Unable to resolve skeletonMachineName for from-skeleton build",
               skeletonMachineName: skeletonMachineName,
-            }
+            },
           });
         }
         if (resolvedSkeleton && resolvedSkeleton.skeleton) {
@@ -598,14 +643,22 @@ async function createSite(req, res) {
           const trustedBuild = isObjectLike(trustedSkeleton.build)
             ? trustedSkeleton.build
             : {};
-          if (typeof trustedBuild.structure === 'string' && trustedBuild.structure !== '') {
+          if (
+            typeof trustedBuild.structure === "string" &&
+            trustedBuild.structure !== ""
+          ) {
             build.structure = trustedBuild.structure;
           }
-          if (typeof trustedBuild.type === 'string' && trustedBuild.type !== '') {
+          if (
+            typeof trustedBuild.type === "string" &&
+            trustedBuild.type !== ""
+          ) {
             build.type = trustedBuild.type;
           }
-          build.items = Array.isArray(trustedBuild.items) ? trustedBuild.items : [];
-          if (trustedBuild.files && typeof trustedBuild.files === 'object') {
+          build.items = Array.isArray(trustedBuild.items)
+            ? trustedBuild.items
+            : [];
+          if (trustedBuild.files && typeof trustedBuild.files === "object") {
             filesToDownload = trustedBuild.files;
           }
         }
@@ -613,46 +666,41 @@ async function createSite(req, res) {
     }
     const useTrustedSkeleton =
       build &&
-      build.structure === 'from-skeleton' &&
+      build.structure === "from-skeleton" &&
       isObjectLike(trustedSkeleton);
     // sanitize name
-    let name = HAXCMS.generateMachineName(req.body['site']['name']);
-    let site = await HAXCMS.loadSite(
-        name.toLowerCase(),
-        true,
-        domain,
-        build
-    );
+    let name = HAXCMS.generateMachineName(req.body["site"]["name"]);
+    let site = await HAXCMS.loadSite(name.toLowerCase(), true, domain, build);
     // Security (SEC-PATH), PHP parity: newSite returns false when the boilerplate
     // copy is refused (traversal / escaping destination); answer with an
     // error envelope instead of dereferencing a missing site.
     if (!site || !site.manifest) {
       return res.status(500).json({
         status: 500,
-        data: { message: 'Unable to create site' },
+        data: { message: "Unable to create site" },
       });
     }
     const supportedSiteLicenses = getSupportedSiteLicenseCodes();
     const requestedLicense =
       req.body &&
-      req.body['site'] &&
-      typeof req.body['site']['license'] === 'string'
-        ? req.body['site']['license']
+      req.body["site"] &&
+      typeof req.body["site"]["license"] === "string"
+        ? req.body["site"]["license"]
         : null;
     let normalizedSiteLicense = normalizeSiteLicenseValue(
       requestedLicense,
-      supportedSiteLicenses
+      supportedSiteLicenses,
     );
     if (
       !normalizedSiteLicense &&
       useTrustedSkeleton &&
       trustedSkeleton &&
       trustedSkeleton.site &&
-      typeof trustedSkeleton.site.license === 'string'
+      typeof trustedSkeleton.site.license === "string"
     ) {
       normalizedSiteLicense = normalizeSiteLicenseValue(
         trustedSkeleton.site.license,
-        supportedSiteLicenses
+        supportedSiteLicenses,
       );
     }
     if (normalizedSiteLicense) {
@@ -663,11 +711,11 @@ async function createSite(req, res) {
     schema.id = site.manifest.id;
     schema.title = name;
     schema.location =
-        HAXCMS.basePath +
-        HAXCMS.sitesDirectory +
-        '/' +
-        site.manifest.metadata.site.name +
-        '/index.html';
+      HAXCMS.basePath +
+      HAXCMS.sitesDirectory +
+      "/" +
+      site.manifest.metadata.site.name +
+      "/index.html";
     schema.slug = schema.location;
     schema.metadata = {
       site: {},
@@ -682,9 +730,9 @@ async function createSite(req, res) {
     if (!isObjectLike(schema.metadata.platform)) {
       // platform settings scaffold (prevents front-end null handling)
       schema.metadata.platform = {
-        audience: 'expert',
+        audience: "expert",
         features: {},
-        allowedBlocks: []
+        allowedBlocks: [],
       };
     }
     // store build provenance (structure/type) in case we need it
@@ -708,15 +756,17 @@ async function createSite(req, res) {
       useTrustedSkeleton &&
       trustedSkeleton &&
       trustedSkeleton.site &&
-      typeof trustedSkeleton.site.theme === 'string' &&
-      trustedSkeleton.site.theme !== ''
+      typeof trustedSkeleton.site.theme === "string" &&
+      trustedSkeleton.site.theme !== ""
     ) {
       theme = trustedSkeleton.site.theme;
+    } else if (
+      req.body["site"]["theme"] &&
+      typeof req.body["site"]["theme"] === "string"
+    ) {
+      theme = req.body["site"]["theme"];
     }
-    else if (req.body['site']['theme'] && typeof req.body['site']['theme'] === "string") {
-      theme = req.body['site']['theme'];
-    }
-    if (typeof theme === 'string') {
+    if (typeof theme === "string") {
       theme = theme.trim().toLowerCase();
     }
     let themesAry = HAXCMS.getThemes();
@@ -727,16 +777,21 @@ async function createSite(req, res) {
       }
     }
     // look for a match so we can set the correct data
-    if (!isObjectLike(schema.metadata.theme) || Object.keys(schema.metadata.theme).length === 0) {
+    if (
+      !isObjectLike(schema.metadata.theme) ||
+      Object.keys(schema.metadata.theme).length === 0
+    ) {
       if (isObjectLike(themesAry) && isObjectLike(themesAry[theme])) {
-        schema.metadata.theme = cloneJsonValue(themesAry[theme], themesAry[theme]);
-      }
-      else {
+        schema.metadata.theme = cloneJsonValue(
+          themesAry[theme],
+          themesAry[theme],
+        );
+      } else {
         return res.status(400).json({
           status: 400,
           data: {
-            message: 'Invalid theme supplied for site creation',
-          }
+            message: "Invalid theme supplied for site creation",
+          },
         });
       }
     }
@@ -747,17 +802,26 @@ async function createSite(req, res) {
       schema.metadata.theme.variables = {};
     }
     // description for an overview if desired
-    if (req.body['site']['description'] && req.body['site']['description'] != '' && req.body['site']['description'] != null) {
-        schema.description = req.body['site']['description'].replace(/<\/?[^>]+(>|$)/g, "");
-    }
-    else if (
+    if (
+      req.body["site"]["description"] &&
+      req.body["site"]["description"] != "" &&
+      req.body["site"]["description"] != null
+    ) {
+      schema.description = req.body["site"]["description"].replace(
+        /<\/?[^>]+(>|$)/g,
+        "",
+      );
+    } else if (
       useTrustedSkeleton &&
       trustedSkeleton &&
       trustedSkeleton.site &&
       trustedSkeleton.site.description &&
-      typeof trustedSkeleton.site.description === 'string'
+      typeof trustedSkeleton.site.description === "string"
     ) {
-      schema.description = trustedSkeleton.site.description.replace(/<\/?[^>]+(>|$)/g, "");
+      schema.description = trustedSkeleton.site.description.replace(
+        /<\/?[^>]+(>|$)/g,
+        "",
+      );
     }
     // background image / banner (request does not control this)
     if (
@@ -765,18 +829,17 @@ async function createSite(req, res) {
       trustedSkeleton &&
       trustedSkeleton.site &&
       trustedSkeleton.site.logo &&
-      typeof trustedSkeleton.site.logo === 'string'
+      typeof trustedSkeleton.site.logo === "string"
     ) {
       schema.metadata.site.logo = trustedSkeleton.site.logo;
-    }
-    else {
-      schema.metadata.site.logo = 'assets/banner.jpg';
+    } else {
+      schema.metadata.site.logo = "assets/banner.jpg";
     }
     let icon = DEFAULT_CREATE_SITE_THEME_ICON;
     if (
       schema.metadata.theme.variables.icon &&
-      typeof schema.metadata.theme.variables.icon === 'string' &&
-      schema.metadata.theme.variables.icon !== ''
+      typeof schema.metadata.theme.variables.icon === "string" &&
+      schema.metadata.theme.variables.icon !== ""
     ) {
       icon = schema.metadata.theme.variables.icon;
     }
@@ -784,8 +847,8 @@ async function createSite(req, res) {
     let hex = HAXCMS.HAXCMS_FALLBACK_HEX;
     if (
       schema.metadata.theme.variables.hexCode &&
-      typeof schema.metadata.theme.variables.hexCode === 'string' &&
-      schema.metadata.theme.variables.hexCode !== ''
+      typeof schema.metadata.theme.variables.hexCode === "string" &&
+      schema.metadata.theme.variables.hexCode !== ""
     ) {
       hex = schema.metadata.theme.variables.hexCode;
     }
@@ -793,8 +856,8 @@ async function createSite(req, res) {
     let cssvar = DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE;
     if (
       schema.metadata.theme.variables.cssVariable &&
-      typeof schema.metadata.theme.variables.cssVariable === 'string' &&
-      schema.metadata.theme.variables.cssVariable !== ''
+      typeof schema.metadata.theme.variables.cssVariable === "string" &&
+      schema.metadata.theme.variables.cssVariable !== ""
     ) {
       cssvar = schema.metadata.theme.variables.cssVariable;
     }
@@ -805,21 +868,23 @@ async function createSite(req, res) {
     }
     if (isObjectLike(trustedSettings)) {
       schema.metadata.site.settings = trustedSettings;
-    }
-    else {
+    } else {
       schema.metadata.site.settings = {};
     }
     if (!schema.metadata.site.settings.lang) {
-      var systemDefaultLang = (HAXCMS.config.localization && HAXCMS.config.localization.defaultLanguage) || 'en-US';
+      var systemDefaultLang =
+        (HAXCMS.config.localization &&
+          HAXCMS.config.localization.defaultLanguage) ||
+        "en-US";
       schema.metadata.site.settings.lang = systemDefaultLang;
     }
-    if (typeof schema.metadata.site.settings.publishPagesOn === 'undefined') {
+    if (typeof schema.metadata.site.settings.publishPagesOn === "undefined") {
       schema.metadata.site.settings.publishPagesOn = true;
     }
-    if (typeof schema.metadata.site.settings.canonical === 'undefined') {
+    if (typeof schema.metadata.site.settings.canonical === "undefined") {
       schema.metadata.site.settings.canonical = true;
     }
-    if (typeof schema.metadata.site.settings.pathauto === 'undefined') {
+    if (typeof schema.metadata.site.settings.pathauto === "undefined") {
       schema.metadata.site.settings.pathauto = true;
     }
     schema.metadata.site.created = Math.floor(Date.now() / 1000);
@@ -828,19 +893,19 @@ async function createSite(req, res) {
     // this would allow them to fork off to different locations down stream
     schema.metadata.site.git = {};
     if (HAXCMS.config.site.git.vendor) {
-        // shallow clone: schema.metadata.site.git is later deleted (below, once
-        // the response schema no longer needs it) so that it isn't exposed in
-        // the API response. site.manifest.metadata.site.git is mirrored from
-        // this same object a few lines down (the `for (var key in
-        // schema.metadata)` loop) and is still needed afterward to decide
-        // whether to create the configured git branches. Without the clone,
-        // both mirrors pointed at the SAME object, so deleting schema's copy
-        // also wiped site.manifest's copy and the branch-creation checks below
-        // always saw `undefined`, silently skipping git.createBranch().
-        schema.metadata.site.git = { ...HAXCMS.config.site.git };
-        delete schema.metadata.site.git.keySet;
-        delete schema.metadata.site.git.email;
-        delete schema.metadata.site.git.user;
+      // shallow clone: schema.metadata.site.git is later deleted (below, once
+      // the response schema no longer needs it) so that it isn't exposed in
+      // the API response. site.manifest.metadata.site.git is mirrored from
+      // this same object a few lines down (the `for (var key in
+      // schema.metadata)` loop) and is still needed afterward to decide
+      // whether to create the configured git branches. Without the clone,
+      // both mirrors pointed at the SAME object, so deleting schema's copy
+      // also wiped site.manifest's copy and the branch-creation checks below
+      // always saw `undefined`, silently skipping git.createBranch().
+      schema.metadata.site.git = { ...HAXCMS.config.site.git };
+      delete schema.metadata.site.git.keySet;
+      delete schema.metadata.site.git.email;
+      delete schema.metadata.site.git.user;
     }
     // mirror the metadata information into the site's info
     // this means that this info is available to the full site listing
@@ -848,7 +913,7 @@ async function createSite(req, res) {
     // later on if we only need to hit 1 file each time to get all the
     // data we need.
     for (var key in schema.metadata) {
-        site.manifest.metadata[key] = schema.metadata[key];
+      site.manifest.metadata[key] = schema.metadata[key];
     }
     site.manifest.metadata.node = {};
     site.manifest.metadata.node.fields = {};
@@ -861,11 +926,17 @@ async function createSite(req, res) {
     // data.warnings) and the site is still created. The SSRF/extension/path
     // guards inside importBuildFile still refuse to fetch or write anything
     // unsafe; they just no longer abort the request.
-    if (filesToDownload && typeof filesToDownload === 'object') {
+    if (filesToDownload && typeof filesToDownload === "object") {
       let fileIndex = 0;
       const fileWarnings = [];
       for (var locationName in filesToDownload) {
-        await importBuildFile(site, locationName, filesToDownload[locationName], fileIndex++, fileWarnings);
+        await importBuildFile(
+          site,
+          locationName,
+          filesToDownload[locationName],
+          fileIndex++,
+          fileWarnings,
+        );
       }
       if (fileWarnings.length > 0) {
         schema.warnings = fileWarnings;
@@ -875,22 +946,28 @@ async function createSite(req, res) {
       }
     }
     // download user-customized theme and custom files (imported from another instance)
-    const siteFiles = req.body['build'] && req.body['build']['siteFiles'] ? req.body['build']['siteFiles'] : null;
-    if (siteFiles && typeof siteFiles === 'object') {
+    const siteFiles =
+      req.body["build"] && req.body["build"]["siteFiles"]
+        ? req.body["build"]["siteFiles"]
+        : null;
+    if (siteFiles && typeof siteFiles === "object") {
       for (const relativePath in siteFiles) {
         const normalizedPath = normalizeSiteFilePath(relativePath);
         if (!normalizedPath) {
           continue;
         }
         const downloadUrl = siteFiles[relativePath];
-        if (typeof downloadUrl !== 'string' || downloadUrl === '') {
+        if (typeof downloadUrl !== "string" || downloadUrl === "") {
           continue;
         }
         try {
           // SSRF guard: reject private/loopback/link-local/metadata targets
           // before fetching, matching the build.files baseline (GHSA-q862-gcgq-5m6g)
           const response = await safeFetch(downloadUrl);
-          if (response.ok && siteFileContentTypeAcceptable(response, normalizedPath)) {
+          if (
+            response.ok &&
+            siteFileContentTypeAcceptable(response, normalizedPath)
+          ) {
             const content = await response.text();
             const targetPath = path.join(site.siteDirectory, normalizedPath);
             await fs.ensureDir(path.dirname(targetPath));
@@ -907,14 +984,16 @@ async function createSite(req, res) {
     // loop), so this delete also strips .git off site.manifest.metadata.site.
     // Capture the branch names we still need for git.createBranch() below
     // BEFORE deleting, instead of re-reading them from the now-stale object.
-    const configuredStaticBranch = schema.metadata.site.git && schema.metadata.site.git.staticBranch;
-    const configuredBranch = schema.metadata.site.git && schema.metadata.site.git.branch;
+    const configuredStaticBranch =
+      schema.metadata.site.git && schema.metadata.site.git.staticBranch;
+    const configuredBranch =
+      schema.metadata.site.git && schema.metadata.site.git.branch;
     delete schema.metadata.site.git;
 
     try {
       const git = new GitPlus({
         dir: site.siteDirectory,
-        cliVersion: await HAXCMS.gitTest()
+        cliVersion: await HAXCMS.gitTest(),
       });
       git.setDir(site.siteDirectory);
       await git.init();
@@ -925,7 +1004,11 @@ async function createSite(req, res) {
       await git.commit(
         formatCommitMessage(
           sanitizeGitCommitMessage(
-            'A new journey begins: ' + site.manifest.title + ' (' + site.manifest.id + ')',
+            "A new journey begins: " +
+              site.manifest.title +
+              " (" +
+              site.manifest.id +
+              ")",
           ),
         ),
       );
@@ -936,20 +1019,25 @@ async function createSite(req, res) {
       if (configuredBranch) {
         await git.createBranch(configuredBranch);
       }
-    }
-    catch {
+    } catch {
       // intentionally ignored
     }
     res.send({
-      "status": 200,
-      "data": schema,
-      "id": schema.id,
-      "slug": schema.slug,
-      "link": HAXCMS.basePath + HAXCMS.sitesDirectory + '/' + site.manifest.metadata.site.name + '/'
+      status: 200,
+      data: schema,
+      id: schema.id,
+      slug: schema.slug,
+      link:
+        HAXCMS.basePath +
+        HAXCMS.sitesDirectory +
+        "/" +
+        site.manifest.metadata.site.name +
+        "/",
     });
-  }
-  else {
-    res.status(403).json({ status: 403, data: { message: 'Authentication required' } });
+  } else {
+    res
+      .status(403)
+      .json({ status: 403, data: { message: "Authentication required" } });
   }
 }
 /**
@@ -972,26 +1060,65 @@ async function createSite(req, res) {
  * instead of aborting with 400. The collector is intentionally optional so the
  * boolean-only call path used by tests behaves exactly as before.
  */
-async function importBuildFile(site, locationName, downloadLocation, index, warnings) {
+async function importBuildFile(
+  site,
+  locationName,
+  downloadLocation,
+  index,
+  warnings,
+) {
   const normalizedImportName = normalizeBulkImportName(locationName);
   if (!normalizedImportName) {
     if (warnings) {
-      warnings.push({ file: locationName, reason: 'Invalid file name in build.files' });
+      warnings.push({
+        file: locationName,
+        reason: "Invalid file name in build.files",
+      });
     }
     return false;
   }
   if (!SAFE_BULK_IMPORT_EXTENSION_REGEX.test(normalizedImportName)) {
     if (warnings) {
-      warnings.push({ file: locationName, reason: 'Disallowed file extension in build.files' });
+      warnings.push({
+        file: locationName,
+        reason: "Disallowed file extension in build.files",
+      });
+    }
+    return false;
+  }
+  // haxtheweb/issues#3054: a format turned off in Media settings is skipped
+  // before anything is downloaded, and says why (the save would refuse it)
+  if (
+    !isUploadFormatAccepted(
+      await readMediaSettings(HAXCMS),
+      path.extname(normalizedImportName),
+    )
+  ) {
+    if (warnings) {
+      warnings.push({
+        file: locationName,
+        reason: "File format turned off in Media settings",
+      });
     }
     return false;
   }
   let downloaded = null;
-  if (typeof downloadLocation === 'string' && /^https?:\/\//i.test(downloadLocation)) {
-    downloaded = await stageRemoteFile(downloadLocation, getBulkImportStagingRoot(), index, normalizedImportName);
+  if (
+    typeof downloadLocation === "string" &&
+    /^https?:\/\//i.test(downloadLocation)
+  ) {
+    downloaded = await stageRemoteFile(
+      downloadLocation,
+      getBulkImportStagingRoot(),
+      index,
+      normalizedImportName,
+    );
     if (!downloaded) {
       if (warnings) {
-        warnings.push({ file: locationName, reason: 'Remote file could not be downloaded' });
+        warnings.push({
+          file: locationName,
+          reason: "Remote file could not be downloaded",
+        });
       }
       return true;
     }
@@ -1000,15 +1127,18 @@ async function importBuildFile(site, locationName, downloadLocation, index, warn
   const valid = HAXCMSFile.isValidBulkImportStagedPath(downloadLocation);
   if (!valid) {
     if (warnings) {
-      warnings.push({ file: locationName, reason: 'Invalid bulk import source path in build.files' });
+      warnings.push({
+        file: locationName,
+        reason: "Invalid bulk import source path in build.files",
+      });
     }
     return false;
   }
   const upload = {
-    "name": normalizedImportName,
-    "tmp_name": downloadLocation,
-    "path": downloadLocation,
-    "bulk-import": true
+    name: normalizedImportName,
+    tmp_name: downloadLocation,
+    path: downloadLocation,
+    "bulk-import": true,
   };
   if (downloaded) {
     // a download carries its size so the site's maxUploadSizeMb applies (SEC-UPLOAD)
@@ -1020,9 +1150,12 @@ async function importBuildFile(site, locationName, downloadLocation, index, warn
   // so the caller knows why no entity was created.
   const saveResult = await new HAXCMSFile().save(upload, site);
   if (warnings && saveResult && saveResult.status !== 200) {
-    const reason = (saveResult.data && typeof saveResult.data.message === 'string' && saveResult.data.message)
-      ? saveResult.data.message
-      : 'File rejected during build.files import';
+    const reason =
+      saveResult.data &&
+      typeof saveResult.data.message === "string" &&
+      saveResult.data.message
+        ? saveResult.data.message
+        : "File rejected during build.files import";
     warnings.push({ file: locationName, reason: reason });
   }
   // save moves an accepted file into the site; a download it rejected is dropped
@@ -1047,14 +1180,16 @@ async function linkImportedPageFiles(site) {
     const content = await site.getPageContent(page);
     const uuids = [];
     for (const reference of FileContentScanner.extractFileReferences(content)) {
-      const uuid = await fileStorage.getDataStore().resolveUuidByPath(reference);
+      const uuid = await fileStorage
+        .getDataStore()
+        .resolveUuidByPath(reference);
       const entity = uuid ? fileStorage.load(uuid) : null;
       if (entity && uuids.indexOf(entity.getUuid()) === -1) {
         uuids.push(entity.getUuid());
       }
     }
     if (uuids.length > 0) {
-      if (!page.metadata || typeof page.metadata !== 'object') {
+      if (!page.metadata || typeof page.metadata !== "object") {
         page.metadata = {};
       }
       page.metadata.files = uuids;

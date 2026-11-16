@@ -275,6 +275,38 @@ describe("mediaSettings accepted upload formats (haxtheweb/issues#3054)", () => 
   });
 });
 
+describe("mediaSettings shared upload allowlist (haxtheweb/issues#3054)", () => {
+  test("the extension test matches exactly the safe formats", () => {
+    media.SAFE_UPLOAD_FORMATS.forEach((ext) => {
+      assert.equal(
+        media.SAFE_UPLOAD_EXTENSION_REGEX.test("a." + ext),
+        true,
+        ext,
+      );
+      assert.equal(
+        media.SAFE_UPLOAD_EXTENSION_REGEX.test("a." + ext.toUpperCase()),
+        true,
+        ext,
+      );
+    });
+    ["a.svg", "a.php", "a.exe", "a.jpg.php", "jpg", "a.html.svg"].forEach(
+      (n) => {
+        assert.equal(media.SAFE_UPLOAD_EXTENSION_REGEX.test(n), false, n);
+      },
+    );
+  });
+
+  test("unsupportedAcceptedFormats names what is outside the allowlist", () => {
+    assert.deepEqual(media.unsupportedAcceptedFormats("png, SVG, .exe"), [
+      "svg",
+      "exe",
+    ]);
+    assert.deepEqual(media.unsupportedAcceptedFormats(["pdf", "vtt"]), []);
+    assert.deepEqual(media.unsupportedAcceptedFormats(null), []);
+    assert.deepEqual(media.unsupportedAcceptedFormats(""), []);
+  });
+});
+
 describe("mediaSettings.hasSupportedMediaSettingsPayload", () => {
   test("is true when any supported key is present", () => {
     assert.equal(

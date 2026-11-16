@@ -4,6 +4,7 @@ const {
   normalizeJpegQuality,
   normalizeMaxUploadSizeMb,
   normalizeAcceptedFormats,
+  unsupportedAcceptedFormats,
   writeMediaSettings,
 } = require("../../../lib/mediaSettings.js");
 
@@ -98,6 +99,19 @@ async function saveMediaSettings(req, res) {
       status: 400,
       data: {
         message: "Invalid acceptedFormats value",
+      },
+    });
+  }
+  // haxtheweb/issues#3054: the setting narrows the upload allowlist, so a
+  // format HAXcms can never store is refused instead of saved as a no-op
+  const unsupported = unsupportedAcceptedFormats(payload.acceptedFormats);
+  if (unsupported.length > 0) {
+    return res.status(400).json({
+      status: 400,
+      data: {
+        message:
+          "Invalid acceptedFormats value: unsupported " +
+          unsupported.join(", "),
       },
     });
   }
