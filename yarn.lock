@@ -1170,9 +1170,9 @@
     "@eslint/core" "^0.17.0"
     levn "^0.4.1"
 
-"@haxtheweb/haxcms-plugin-spec@github:haxtheweb/haxcms-plugin-examples#28f78a80e9530cf4cdaac58edba69ec930675962":
+"@haxtheweb/haxcms-plugin-spec@github:haxtheweb/haxcms-plugins#cc2c0139e52fcd4523402c6a26a64aea4d388e93":
   version "0.1.0"
-  resolved "https://codeload.github.com/haxtheweb/haxcms-plugin-examples/tar.gz/28f78a80e9530cf4cdaac58edba69ec930675962"
+  resolved "https://codeload.github.com/haxtheweb/haxcms-plugins/tar.gz/cc2c0139e52fcd4523402c6a26a64aea4d388e93"
   dependencies:
     ajv "8.20.0"
     ajv-formats "3.0.1"
