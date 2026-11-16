@@ -311,27 +311,96 @@
     (function () {
       var loadingDismissed = false;
       var analyticsLoaded = false;
-      function loadAnalyticsFromManifest() {
-        if (analyticsLoaded) {
-          return;
+      // Google Analytics only loads after the visitor accepts it (ePrivacy
+      // Art. 5(3), GDPR Art. 7). The choice is kept in localStorage; sites
+      // without a gaID never show the banner.
+      var CONSENT_KEY = 'haxcms-analytics-consent';
+      function readConsent() {
+        try {
+          return globalThis.localStorage.getItem(CONSENT_KEY);
+        } catch (e) {
+          return null;
         }
-        analyticsLoaded = true;
-        var script = document.createElement('script');
-        script.async = true;
-        document.body.appendChild(script);
+      }
+      function saveConsent(value) {
+        try {
+          globalThis.localStorage.setItem(CONSENT_KEY, value);
+        } catch (e) {}
+      }
+      function siteGaID() {
         if (
           globalThis.HAXCMS &&
           globalThis.HAXCMS.requestAvailability &&
           globalThis.HAXCMS.requestAvailability().store.getManifest()
         ) {
-          var gaid =
+          var settings =
             globalThis.HAXCMS.requestAvailability().store.getManifest()
-              .metadata.site.settings.gaID || null;
-          if (gaid) {
-            gtag('config', gaid);
-            script.src =
-              'https://www.googletagmanager.com/gtag/js?id=' + gaid;
-          }
+              .metadata.site.settings || {};
+          return settings.gaID || null;
+        }
+        return null;
+      }
+      function injectAnalytics(gaid) {
+        if (analyticsLoaded) {
+          return;
+        }
+        analyticsLoaded = true;
+        gtag('config', gaid);
+        var script = document.createElement('script');
+        script.async = true;
+        script.src = 'https://www.googletagmanager.com/gtag/js?id=' + gaid;
+        document.body.appendChild(script);
+      }
+      function showConsentBanner(gaid) {
+        if (document.getElementById('haxcms-analytics-consent')) {
+          return;
+        }
+        var bar = document.createElement('div');
+        bar.id = 'haxcms-analytics-consent';
+        bar.setAttribute('role', 'region');
+        bar.setAttribute('aria-label', 'Analytics consent');
+        bar.style.cssText =
+          'position:fixed;left:16px;right:16px;bottom:16px;z-index:10000;' +
+          'max-width:640px;margin:0 auto;display:flex;flex-wrap:wrap;' +
+          'align-items:center;gap:12px;padding:16px 20px;border-radius:8px;' +
+          'background:#1e1e1e;color:#fff;font:16px/1.4 system-ui,sans-serif;' +
+          'box-shadow:0 4px 24px rgba(0,0,0,.3);';
+        var text = document.createElement('p');
+        text.style.cssText = 'margin:0;flex:1 1 260px;';
+        text.textContent =
+          'This site uses Google Analytics to count visits. It only loads if you allow it.';
+        function button(label, value, primary) {
+          var b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = label;
+          b.style.cssText =
+            'font:inherit;padding:8px 16px;border-radius:6px;cursor:pointer;' +
+            'border:1px solid #fff;' +
+            (primary ? 'background:#fff;color:#1e1e1e;' : 'background:transparent;color:#fff;');
+          b.addEventListener('click', function () {
+            saveConsent(value);
+            bar.remove();
+            if (value === 'granted') {
+              injectAnalytics(gaid);
+            }
+          });
+          return b;
+        }
+        bar.appendChild(text);
+        bar.appendChild(button('Decline', 'denied', false));
+        bar.appendChild(button('Accept', 'granted', true));
+        document.body.appendChild(bar);
+      }
+      function loadAnalyticsFromManifest() {
+        var gaid = siteGaID();
+        if (!gaid) {
+          return;
+        }
+        var consent = readConsent();
+        if (consent === 'granted') {
+          injectAnalytics(gaid);
+        } else if (consent !== 'denied') {
+          showConsentBanner(gaid);
         }
       }
       // The loading figure is a page that builds itself, on a loop of CSS
