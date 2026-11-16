@@ -342,6 +342,15 @@ async function saveNode(req, res) {
             } else {
               page.metadata.hideInMenu = false;
             }
+            // "Hide page title" (page-break hide-title): the title shows unless
+            // the page hides it, so it is only stored while it is on
+            if (typeof data["attributes"]["hide-title"] !== "undefined") {
+              page.metadata.hideTitle = true;
+            } else if (
+              Object.prototype.hasOwnProperty.call(page.metadata, "hideTitle")
+            ) {
+              delete page.metadata.hideTitle;
+            }
             // support for defining and updating related-items
             if (
               data["attributes"]["related-items"] &&
