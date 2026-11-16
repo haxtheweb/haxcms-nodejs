@@ -11,8 +11,16 @@
 // Every refusal must carry a documented reason. Hostile replaceBlock payloads
 // must never be written.
 //
-// BLOCK_FUZZ_SEED and BLOCK_FUZZ_ITERATIONS override the defaults for long
-// runs; the default run is quick enough for every test pass.
+// Seed convention (haxtheweb/issues#3272, as in the fast-check tests and the
+// PHP twin, haxcms-php tests/Unit/BlockOperationsFuzzTest.php):
+//   HAX_FUZZ_SEED  integer, or `random`; default 3270, so every test pass
+//                  checks the same pages
+//   HAX_FUZZ_RUNS  generated pages; default 60 (`npm run test:fuzz` hunts
+//                  with a random seed and many more)
+//   HAX_FUZZ_PATH  replay: stop after this page index of the seed's run
+// BLOCK_FUZZ_SEED and BLOCK_FUZZ_ITERATIONS are kept as aliases. A failure is
+// reported the way fast-check reports one ({ seed, path } and a Counterexample
+// line), so scripts/fuzz-nightly.mjs replays and files it like the others.
 //
 // Constraints honored: CommonJS (.cjs), require(), globalThis (not window),
 // NO optional chaining (explicit && guards), node:test + node:assert/strict.
@@ -28,8 +36,31 @@ const vectors = require(
   path.join(__dirname, "..", "fixtures", "block-operations-vectors.json"),
 );
 
-const ITERATIONS = Number(process.env.BLOCK_FUZZ_ITERATIONS || 60);
-let seed = Number(process.env.BLOCK_FUZZ_SEED || 3270) >>> 0;
+function fromEnv(names) {
+  for (const n of names) {
+    const v = process.env[n];
+    if (v !== undefined && v !== "") return { name: n, value: v };
+  }
+  return null;
+}
+const runsEnv = fromEnv(["HAX_FUZZ_RUNS", "BLOCK_FUZZ_ITERATIONS"]);
+const ITERATIONS = runsEnv ? Number(runsEnv.value) : 60;
+if (!Number.isInteger(ITERATIONS) || ITERATIONS < 1) {
+  throw new RangeError(`${runsEnv.name} must be a positive integer`);
+}
+const seedEnv = fromEnv(["HAX_FUZZ_SEED", "BLOCK_FUZZ_SEED"]);
+let SEED = 3270;
+if (seedEnv && seedEnv.value === "random") {
+  SEED = require("node:crypto").randomInt(1, 2147483647);
+} else if (seedEnv) {
+  if (!/^-?\d+$/.test(seedEnv.value)) {
+    throw new RangeError(`${seedEnv.name} must be an integer or random`);
+  }
+  SEED = Number(seedEnv.value) >>> 0;
+}
+const pathEnv = fromEnv(["HAX_FUZZ_PATH"]);
+const STOP_AFTER = pathEnv ? Number(pathEnv.value) : null;
+let seed = SEED;
 function rnd() {
   seed = (seed + 0x6d2b79f5) >>> 0;
   let t = seed;
@@ -190,93 +221,115 @@ function checkAccepted(html, block, name, value, r) {
   );
 }
 
-test(`fuzz: ${ITERATIONS} generated pages plus the vector pages`, () => {
+test("fuzz: generated pages plus the vector pages", () => {
   const pages = Object.values(vectors.pages);
   for (let i = 0; i < ITERATIONS; i++)
     pages.push([0, 1, 2, 3].map(() => gen(0)).join(""));
   let accepted = 0;
   let refused = 0;
-  for (const html of pages) {
-    const blocks = bo.listBlocks(html);
-    for (let k = 0; k < Math.min(4, blocks.length); k++) {
-      const block = pick(blocks);
-      const allowed = bo.ALLOWLIST.tags[block.tag];
-      const name = pick(Object.keys(allowed));
-      const value =
-        rnd() < 0.1 ? null : pick(allowed[name] === "url" ? URLS : TEXT);
-      const op = {
-        op: "setAttributes",
-        tag: block.tag,
-        index: block.index,
-        before: block.before,
-        set: { [name]: value },
-      };
-      const r = bo.runBlockOperations(html, [op], {
-        sanitize: sanitizeHTMLForStorage,
+  for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+    if (STOP_AFTER !== null && pageIndex > STOP_AFTER) break;
+    const html = pages[pageIndex];
+    try {
+      const counts = checkPage(html);
+      accepted += counts.accepted;
+      refused += counts.refused;
+    } catch (error) {
+      // reported the way fast-check reports a failure, so
+      // scripts/fuzz-nightly.mjs reads the seed and path, replays it and
+      // names the property
+      throw new assert.AssertionError({
+        message:
+          "Property failed by returning false\n" +
+          `{ seed: ${SEED}, path: "${pageIndex}", endOnFailure: true }\n` +
+          `Counterexample: ${JSON.stringify(html)}\n` +
+          `Replay: HAX_FUZZ_SEED=${SEED} HAX_FUZZ_RUNS=${ITERATIONS} HAX_FUZZ_PATH=${pageIndex} node --test test/unit/block-operations-fuzz.test.cjs\n` +
+          error.message,
       });
-      if (!r.ok) {
-        assert.ok(REASONS.has(r.code), `unexpected reason ${r.code}`);
-        // nothing about the page decides a refusal of a clean value except
-        // the sanitizer and kind rules
-        assert.notEqual(
-          r.code,
-          "structure-changed",
-          `${block.tag} ${name}: ${r.message}`,
-        );
-        refused++;
-        continue;
-      }
-      accepted++;
-      checkAccepted(html, block, name, value, r);
-      // identity replace leaves the page byte-identical
-      const id = bo.runBlockOperations(
-        html,
-        [
-          {
-            op: "replaceBlock",
-            tag: block.tag,
-            index: block.index,
-            before: block.before,
-            after: block.before,
-          },
-        ],
-        { sanitize: sanitizeHTMLForStorage },
-      );
-      if (id.ok) assert.equal(id.content, html);
-      // hostile replacements are never written
-      const hostile = pick(HOSTILE)(block.tag);
-      const h = bo.runBlockOperations(
-        html,
-        [
-          {
-            op: "replaceBlock",
-            tag: block.tag,
-            index: block.index,
-            before: block.before,
-            after: hostile,
-          },
-        ],
-        { sanitize: sanitizeHTMLForStorage },
-      );
-      assert.equal(
-        h.ok,
-        false,
-        `hostile written into ${block.tag}: ${hostile}`,
-      );
-      // a one-byte change to before is never accepted at that element
-      const flip = Math.floor(rnd() * block.before.length);
-      const stale =
-        block.before.slice(0, flip) +
-        (block.before[flip] === "x" ? "y" : "x") +
-        block.before.slice(flip + 1);
-      const s = bo.runBlockOperations(
-        html,
-        [Object.assign({}, op, { before: stale })],
-        { sanitize: sanitizeHTMLForStorage },
-      );
-      if (s.ok) assert.notEqual(s.results[0].start, r.results[0].start);
     }
   }
-  assert.ok(accepted > 0, "some edits were accepted");
+  if (STOP_AFTER === null) assert.ok(accepted > 0, "some edits were accepted");
   assert.ok(refused >= 0);
 });
+
+// One page: up to four random edits and every check on each.
+function checkPage(html) {
+  let accepted = 0;
+  let refused = 0;
+  const blocks = bo.listBlocks(html);
+  for (let k = 0; k < Math.min(4, blocks.length); k++) {
+    const block = pick(blocks);
+    const allowed = bo.ALLOWLIST.tags[block.tag];
+    const name = pick(Object.keys(allowed));
+    const value =
+      rnd() < 0.1 ? null : pick(allowed[name] === "url" ? URLS : TEXT);
+    const op = {
+      op: "setAttributes",
+      tag: block.tag,
+      index: block.index,
+      before: block.before,
+      set: { [name]: value },
+    };
+    const r = bo.runBlockOperations(html, [op], {
+      sanitize: sanitizeHTMLForStorage,
+    });
+    if (!r.ok) {
+      assert.ok(REASONS.has(r.code), `unexpected reason ${r.code}`);
+      // nothing about the page decides a refusal of a clean value except
+      // the sanitizer and kind rules
+      assert.notEqual(
+        r.code,
+        "structure-changed",
+        `${block.tag} ${name}: ${r.message}`,
+      );
+      refused++;
+      continue;
+    }
+    accepted++;
+    checkAccepted(html, block, name, value, r);
+    // identity replace leaves the page byte-identical
+    const id = bo.runBlockOperations(
+      html,
+      [
+        {
+          op: "replaceBlock",
+          tag: block.tag,
+          index: block.index,
+          before: block.before,
+          after: block.before,
+        },
+      ],
+      { sanitize: sanitizeHTMLForStorage },
+    );
+    if (id.ok) assert.equal(id.content, html);
+    // hostile replacements are never written
+    const hostile = pick(HOSTILE)(block.tag);
+    const h = bo.runBlockOperations(
+      html,
+      [
+        {
+          op: "replaceBlock",
+          tag: block.tag,
+          index: block.index,
+          before: block.before,
+          after: hostile,
+        },
+      ],
+      { sanitize: sanitizeHTMLForStorage },
+    );
+    assert.equal(h.ok, false, `hostile written into ${block.tag}: ${hostile}`);
+    // a one-byte change to before is never accepted at that element
+    const flip = Math.floor(rnd() * block.before.length);
+    const stale =
+      block.before.slice(0, flip) +
+      (block.before[flip] === "x" ? "y" : "x") +
+      block.before.slice(flip + 1);
+    const s = bo.runBlockOperations(
+      html,
+      [Object.assign({}, op, { before: stale })],
+      { sanitize: sanitizeHTMLForStorage },
+    );
+    if (s.ok) assert.notEqual(s.results[0].start, r.results[0].start);
+  }
+  return { accepted, refused };
+}
