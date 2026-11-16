@@ -58,22 +58,27 @@ The following are not license problems for the project's SaaS/hosted deployment
 build that bundles `node_modules` (e.g. a Docker image, an on-prem package, or a
 desktop app bundle). Review before any such distribution.
 
-### sharp@0.32.6 + vendored libvips 8.14.5
+### sharp@0.35.5 + prebuilt libvips 8.18.7 (`@img/sharp-libvips-*` 1.3.4)
 
 - **sharp (JS):** Apache-2.0.
-- **Vendored native bundle:** sharp installs a prebuilt `libvips-cpp.so.42`
-  that bundles libraries under **LGPL-3.0-or-later** (libvips, glib, pango,
+- **Prebuilt native bundle:** since sharp 0.33 the native libraries come
+  from a per-platform optional dependency, `@img/sharp-libvips-<platform>`
+  (`lib/libvips-cpp.so.8.18.7` on linux-x64), declared `LGPL-3.0-or-later`. It
+  bundles libraries under **LGPL-3.0-or-later** (libvips, glib, pango,
   gdk-pixbuf, librsvg, libheif, libexif, fribidi, proxy-libintl) and
-  **MPL-2.0** (cairo). The "any later version" clause of the upstream LGPL-2.x
-  licenses yields an effective `LGPL-3.0-or-later`.
+  **MPL-1.1** (cairo, per the sharp-libvips licensing table). The "any
+  later version" clause of the upstream LGPL-2.x licenses yields an effective
+  `LGPL-3.0-or-later`.
 - **SaaS (no conveyance):** no LGPL/MPL obligation triggered.
 - **Distribution:** LGPL-3.0-or-later requires a written source-offer for the
   bundled libs, a user-replaceable-library notice, a prominent LGPL notice, and
-  allowance for reverse engineering for interoperation; MPL-2.0 requires
+  allowance for reverse engineering for interoperation; MPL-1.1 requires
   file-level handling if cairo files are modified.
-- **Upstream notices/source:** sharp ships
-  `node_modules/sharp/vendor/<version>/<platform>/THIRD-PARTY-NOTICES.md`
-  (the authoritative bundled-library notice and license table). libvips and the
+- **Upstream notices/source:** each `@img/sharp-libvips-<platform>` package
+  ships a `versions.json` listing every bundled library and its version (the
+  `vendor/<version>/<platform>/THIRD-PARTY-NOTICES.md` path only existed up to
+  sharp 0.32). The license table for those libraries is the "Licensing" section of
+  that package's `README.md`. libvips and the
   bundled libraries' source is published at
   https://github.com/lovell/sharp-libvips — use that as the source-offer
   pointer for unmodified builds.
