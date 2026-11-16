@@ -1476,6 +1476,10 @@ const appReady = systemStructureContext().then((site) => {
     app.use("/", requestRateLimiter, async (req, res, next) => {
       setApiCorsHeaders(req, res);
       res.setHeader("Content-Type", "application/json");
+      const pageOwnsPath =
+        (req.url.includes("/pages/") || req.url.includes("/files/")) &&
+        !req.url.includes("/x/") &&
+        requestPathIsPageSlug(await currentSingleSite(), req.url);
       if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
         next();
       }
@@ -1493,6 +1497,7 @@ const appReady = systemStructureContext().then((site) => {
         setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
         serveBuildAssetFile(req, res, path.join(__dirname, "/public"));
       } else if (
+        !pageOwnsPath &&
         !req.url.includes("/x/") &&
         (req.url.includes("custom/build") ||
           req.url.includes("/theme/") ||
@@ -1559,6 +1564,10 @@ const appReady = systemStructureContext().then((site) => {
         }
         // all page calls just go to the index and the front end will render them
         setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
+        if (pageOwnsPath) {
+          // a page under a "files" slug is a page, not an upload of unknown type
+          res.setHeader("Content-Type", "text/html");
+        }
         try {
           let indexFile = await renderDynamicSiteIndexResponse(
             req,
@@ -1739,6 +1748,19 @@ const appReady = systemStructureContext().then((site) => {
           );
           return;
         }
+        let pageOwnsPath = false;
+        if (
+          (req.url.includes("/pages/") || req.url.includes("/files/")) &&
+          !req.url.includes("/x/")
+        ) {
+          const owningSiteName = getMultisiteSiteName(multisiteRequestPath);
+          pageOwnsPath =
+            owningSiteName !== null &&
+            requestPathIsPageSlug(
+              await HAXCMS.loadSite(owningSiteName),
+              getMultisiteSiteSubPath(multisiteRequestPath),
+            );
+        }
         if (req.url.includes("/system/api/") || isSiteApiRequestPath(req.url)) {
           next();
         }
@@ -1756,6 +1778,7 @@ const appReady = systemStructureContext().then((site) => {
           setStaticContentTypeWithCharset(res, req.url.split("?")[0], null);
           serveBuildAssetFile(req, res, publicDir);
         } else if (
+          !pageOwnsPath &&
           !req.url.includes("/x/") &&
           (req.url.includes("custom/build") ||
             req.url.includes("/theme/") ||
@@ -1828,6 +1851,10 @@ const appReady = systemStructureContext().then((site) => {
             res.status(404);
           }
           setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
+          if (pageOwnsPath) {
+            // a page under a "files" slug is a page, not an upload of unknown type
+            res.setHeader("Content-Type", "text/html");
+          }
           if (siteContext && siteContext.siteDirectory) {
             try {
               let indexFile = await renderDynamicSiteIndexResponse(
@@ -3927,6 +3954,13 @@ function getNegotiatedVariantFormat(acceptHeader = "") {
 function normalizeSlugFromPath(pathname = "") {
   let slugPath = String(pathname || "").replace(/^\/+/, "");
   slugPath = slugPath.replace(/\/+$/, "");
+  // slugs keep Unicode letters, but the request path arrives percent-encoded:
+  // decode it so /caf%C3%A9 finds the page whose slug is "café"
+  try {
+    slugPath = decodeURIComponent(slugPath);
+  } catch {
+    // malformed escape: look the path up as it was sent
+  }
   return slugPath;
 }
 
@@ -3992,10 +4026,34 @@ function buildCanonicalPagePath(routePrefix = "", slug = "") {
     }
     return cleanPrefix;
   }
+  // the slug is decoded text (it may hold Unicode letters); this path goes
+  // into Link / Content-Location headers, so each segment is encoded again
+  const encodedSlug = cleanSlug
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
   if (cleanPrefix === "") {
-    return "/" + cleanSlug;
+    return "/" + encodedSlug;
   }
-  return cleanPrefix + "/" + cleanSlug;
+  return cleanPrefix + "/" + encodedSlug;
+}
+
+// A page titled "pages" or "files", and any page nested under one, has that
+// word as a slug segment, so its address looks like a request into the site's
+// pages/ or files/ folder. When the path is exactly a page's slug it is that
+// page, and is rendered like any other page instead of looked up on disk.
+function requestPathIsPageSlug(site, siteSubPath = "") {
+  const cleanPath = getRequestPathWithoutQuery(siteSubPath);
+  if (
+    !site ||
+    (cleanPath.indexOf("/pages/") === -1 && cleanPath.indexOf("/files/") === -1)
+  ) {
+    return false;
+  }
+  const slug = normalizeSlugFromPath(
+    getExplicitVariantInfo(cleanPath).basePath,
+  );
+  return slug !== "" && resolvePageBySlug(site, slug) !== null;
 }
 
 function appendVaryHeader(res, value = "Accept") {

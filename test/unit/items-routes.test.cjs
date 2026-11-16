@@ -567,6 +567,42 @@ describe('items routes — createItem', () => {
     assert.ok(site.calls.gitCommits[0].indexOf('Page added:Brand New Page') === 0)
   })
 
+  test('a new page takes the order it asks for and the pages after it move down', async (t) => {
+    const site = makeCreateSite(t)
+    const fromParams = site.itemFromParams
+    site.itemFromParams = (params) => Object.assign(fromParams(params), { parent: params.parent || null })
+    mockSite(t, site)
+    const res = stubRes()
+    await createItem(
+      makeReq({ body: { site: { name: 'demo' }, node: { title: 'Wedge' }, parent: 'item-1', order: 1 } }),
+      res,
+      () => {},
+    )
+    assert.equal(res.sent.status, 200)
+    assert.equal(res.sent.data.order, 1)
+    // a child of item-1, so its indent is its depth
+    assert.equal(res.sent.data.indent, 1)
+    assert.equal(site.loadNode('item-2').order, 2)
+    assert.equal(site.loadNode('item-3').order, 3)
+  })
+
+  test('a new page sent without an order goes to the end of its siblings', async (t) => {
+    const site = makeCreateSite(t)
+    const fromParams = site.itemFromParams
+    site.itemFromParams = (params) => Object.assign(fromParams(params), { parent: params.parent || null })
+    mockSite(t, site)
+    const res = stubRes()
+    await createItem(
+      makeReq({ body: { site: { name: 'demo' }, node: { title: 'Last' }, parent: 'item-1' } }),
+      res,
+      () => {},
+    )
+    assert.equal(res.sent.status, 200)
+    assert.equal(res.sent.data.order, 3)
+    assert.equal(site.loadNode('item-2').order, 1)
+    assert.equal(site.loadNode('item-3').order, 2)
+  })
+
   function withAddPage(site) {
     site.calls.addPage = []
     site.calls.bulks = []
@@ -699,5 +735,46 @@ describe('items routes — deleteItem', () => {
     assert.deepEqual(site.calls.gitCommits, ['Page deleted: Second Page (item-2)'])
     // the deleted page is gone from the outline
     assert.equal(site.manifest.items.length, 2)
+  })
+
+  test('a locked page is not deleted', async (t) => {
+    const site = makeFakeSite()
+    site.loadNode('item-2').metadata.locked = true
+    mockSite(t, site)
+    const res = stubRes()
+    await deleteItem(makeReq({ params: { idOrSlug: 'second-page' } }), res, () => {})
+    assert.equal(res.statusCode, 423)
+    assert.equal(res.body.data.reason, 'locked')
+    assert.deepEqual(site.calls.deleteNode, [])
+    assert.equal(site.manifest.items.length, 3)
+  })
+
+  test('children of a deleted page move to the top level with addresses, order and indent to match', async (t) => {
+    const site = makeFakeSite()
+    site.manifest.metadata.site.settings.pathauto = true
+    site.loadNode('item-2').slug = 'first-page/second-page'
+    site.loadNode('item-3').slug = 'first-page/third-page'
+    site.manifest.items.push({
+      id: 'item-4', title: 'Fourth Page', slug: 'first-page/third-page/fourth-page', parent: 'item-3',
+      indent: 2, order: 0, location: 'pages/item-4/index.html', metadata: {},
+    })
+    // slug from the title under the page's current ancestors
+    site.getUniqueSlugName = function (cleanTitle, page) {
+      const parent = page.parent ? site.loadNode(page.parent) : null
+      return (parent ? parent.slug + '/' : '') + cleanTitle
+    }
+    t.mock.method(HAXCMS, 'cleanTitle', (title) => String(title).toLowerCase().replace(/ /g, '-'))
+    mockSite(t, site)
+    const res = stubRes()
+    await deleteItem(makeReq({ params: { idOrSlug: 'first-page' } }), res, () => {})
+    assert.equal(res.sent.status, 200)
+    const two = site.loadNode('item-2')
+    const three = site.loadNode('item-3')
+    const four = site.loadNode('item-4')
+    assert.deepEqual([two.parent, three.parent, four.parent], [null, null, 'item-3'])
+    assert.deepEqual([two.slug, three.slug, four.slug], ['second-page', 'third-page', 'third-page/fourth-page'])
+    assert.deepEqual([two.indent, three.indent, four.indent], [0, 0, 1])
+    assert.notEqual(two.order, three.order)
+    assert.ok(two.order < three.order)
   })
 })

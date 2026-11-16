@@ -253,18 +253,99 @@ test('setIcon and setRelatedItems clear their metadata on empty values', async (
   assert.equal(Object.prototype.hasOwnProperty.call(relatedCleared.item.metadata, 'relatedItems'), false)
 })
 
-test('moveUp and moveDown are no-ops without a matching sibling order', async () => {
+test('moveUp and moveDown swap with the visible neighbour when orders have gaps', async () => {
   const site = mkSite([
     node('a', 0, '', 0),
     node('b', 2, '', 0),
     node('c', 5, '', 0),
   ])
-  // b at order 2 has no sibling at order 1 -> stays
+  const find = function (id) { return site.manifest.items.find(function (i) { return i.id === id }) }
+  // b sits between a and c: up trades order values with a
   const up = await applyNodeDetailOperation(site, 'b', { operation: 'moveUp' })
-  assert.equal(up.item.order, 2)
-  // b at order 2 has no sibling at order 3 -> stays
+  assert.equal(up.item.order, 0)
+  assert.equal(find('a').order, 2)
+  // and down again trades back
   const down = await applyNodeDetailOperation(site, 'b', { operation: 'moveDown' })
   assert.equal(down.item.order, 2)
+  assert.equal(find('a').order, 0)
+  assert.equal(find('c').order, 5)
+  // the first page has nothing above it, the last nothing below
+  assert.equal((await applyNodeDetailOperation(site, 'a', { operation: 'moveUp' })).item.order, 0)
+  assert.equal((await applyNodeDetailOperation(site, 'c', { operation: 'moveDown' })).item.order, 5)
+})
+
+test('siblings that share an order value are settled before a move', async () => {
+  const site = mkSite([
+    node('a', 1, '', 0),
+    node('b', 1, '', 0),
+    node('c', 1, '', 0),
+  ])
+  const order = function () {
+    return site.manifest.items.slice().sort(function (x, y) { return x.order - y.order }).map(function (i) { return i.id + ':' + i.order }).join(' ')
+  }
+  await applyNodeDetailOperation(site, 'a', { operation: 'moveDown' })
+  assert.equal(order(), 'b:0 a:1 c:2')
+  await applyNodeDetailOperation(site, 'c', { operation: 'moveUp' })
+  assert.equal(order(), 'b:0 c:1 a:2')
+})
+
+test('setParent without an order goes to the end; with one it takes the spot and the rest move down', async () => {
+  const site = mkSite([
+    node('p', 0, '', 0),
+    node('k1', 0, 'p', 1),
+    node('k2', 1, 'p', 1),
+    node('x', 1, '', 0),
+    node('y', 2, '', 0),
+  ])
+  const find = function (id) { return site.manifest.items.find(function (i) { return i.id === id }) }
+  const end = await applyNodeDetailOperation(site, 'x', { operation: 'setParent', parent: 'p' })
+  assert.equal(end.item.parent, 'p')
+  assert.equal(end.item.order, 2)
+  assert.equal(end.item.indent, 1)
+  const spot = await applyNodeDetailOperation(site, 'y', { operation: 'setParent', parent: 'p', order: 1 })
+  assert.equal(spot.item.order, 1)
+  assert.equal(find('k1').order, 0)
+  assert.equal(find('k2').order, 2)
+  assert.equal(find('x').order, 3)
+})
+
+test('indent follows depth for the moved page and the branch under it', async () => {
+  const site = mkSite([
+    node('a', 0, '', 0),
+    node('b', 1, '', 0),
+    node('b1', 0, 'b', 0),
+    node('b2', 0, 'b1', 0),
+  ])
+  const find = function (id) { return site.manifest.items.find(function (i) { return i.id === id }) }
+  await applyNodeDetailOperation(site, 'b', { operation: 'indent' })
+  assert.deepEqual(['a', 'b', 'b1', 'b2'].map(function (id) { return find(id).indent }), [0, 1, 2, 3])
+  await applyNodeDetailOperation(site, 'b', { operation: 'outdent' })
+  assert.deepEqual(['a', 'b', 'b1', 'b2'].map(function (id) { return find(id).indent }), [0, 0, 1, 2])
+})
+
+test('a locked page refuses every operation but unlocking', async () => {
+  const site = mkSite([
+    node('a', 0, '', 0, { metadata: { locked: true } }),
+    node('b', 1, '', 0),
+  ])
+  const refused = ['moveDown', 'indent', 'setParent', 'setTitle', 'setTags', 'setPublished', 'setSlug']
+  for (let i = 0; i < refused.length; i++) {
+    await assert.rejects(
+      applyNodeDetailOperation(site, 'a', { operation: refused[i], title: 'x', tags: 'x', published: false, slug: 'x', parent: 'b' }),
+      function (e) { return e.status === 423 && e.reason === 'locked' },
+      refused[i],
+    )
+  }
+  const a = site.manifest.items.find(function (i) { return i.id === 'a' })
+  assert.equal(a.order, 0)
+  // moving another page around a locked one is fine
+  await applyNodeDetailOperation(site, 'b', { operation: 'moveUp' })
+  assert.equal(a.order, 1)
+  // unlocking works, and then the page can change again
+  const unlocked = await applyNodeDetailOperation(site, 'a', { operation: 'setLocked', locked: false })
+  assert.equal(unlocked.item.metadata.locked, false)
+  const moved = await applyNodeDetailOperation(site, 'a', { operation: 'moveUp' })
+  assert.equal(moved.item.order, 0)
 })
 
 test('moveDown swaps with the sibling holding the next order value', async () => {

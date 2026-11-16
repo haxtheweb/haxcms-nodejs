@@ -24,33 +24,27 @@ const PAGE_DETAIL_OPERATIONS = new Set([
   'setHideInMenu',
 ]);
 
+const {
+  parentOf,
+  orderOf,
+  sortedSiblings,
+  healSiblingOrder,
+  makeRoomFor,
+  lastSiblingOrder,
+  syncIndentToDepth,
+  isLocked,
+} = require('./outlineUpkeep.js');
+
 function createStatusError(status = 500, message = 'Unable to complete node operation', options = {}) {
   const statusError = new Error(message);
   statusError.status = status;
   if (options.featureDisabled === true) {
     statusError.featureDisabled = true;
   }
-  return statusError;
-}
-
-function sameParent(a, b) {
-  const parentA = a.parent !== undefined ? a.parent : null;
-  const parentB = b.parent !== undefined ? b.parent : null;
-  return parentA === parentB;
-}
-
-function findSiblingByOrder(siblings = [], order = null) {
-  if (order === null || typeof order === 'undefined') {
-    return null;
+  if (typeof options.reason === 'string') {
+    statusError.reason = options.reason;
   }
-  return (
-    siblings.find(
-      (sibling) =>
-        sibling &&
-        sibling.order !== undefined &&
-        parseInt(sibling.order) === parseInt(order),
-    ) || null
-  );
+  return statusError;
 }
 
 function getLastChildOrder(items = [], parentId = null) {
@@ -256,46 +250,65 @@ function applyMetadataMutation(page, details = {}, operation = null, site = null
   }
 }
 
-function applyOutlineMutation(site, page, items = [], details = {}, operation = null) {
-  const siblings = items.filter((item) => sameParent(item, page));
+const OUTLINE_OPERATIONS = new Set([
+  'moveUp',
+  'moveDown',
+  'indent',
+  'outdent',
+  'setParent',
+]);
+
+/** Re-slug the page from its title under its current parent, then its branch. */
+function reslugPageAndBranch(site, page, items) {
+  if (isPathautoEnabled(site) && !isOverridePathauto(page)) {
+    const cleanTitle = HAXCMS.cleanTitle(page.title);
+    page.slug = site.getUniqueSlugName(cleanTitle, page, true);
+    if (items) {
+      site.manifest.items = items;
+      cascadeSlugUpdates(site, items, [page.id]);
+    }
+  }
+}
+
+function applyOutlineMutation(
+  site,
+  page,
+  items = [],
+  details = {},
+  operation = null,
+) {
+  if (!OUTLINE_OPERATIONS.has(operation)) {
+    return;
+  }
+  // siblings that share an order value have no defined neighbour: settle the
+  // page's group first so "the one above" and "the one below" mean something
+  healSiblingOrder(items, parentOf(page));
+  const siblings = sortedSiblings(items, parentOf(page));
+  const position = siblings.indexOf(page);
   switch (operation) {
     case 'moveUp':
-      if (page.order !== undefined && parseInt(page.order) > 0) {
-        const other = findSiblingByOrder(siblings, parseInt(page.order) - 1);
-        if (other && other.id !== page.id) {
-          other.order = parseInt(other.order) + 1;
-          page.order = parseInt(page.order) - 1;
-        }
+      if (position > 0) {
+        const other = siblings[position - 1];
+        const otherOrder = orderOf(other);
+        other.order = orderOf(page);
+        page.order = otherOrder;
       }
       break;
     case 'moveDown':
-      if (page.order !== undefined) {
-        const other = findSiblingByOrder(siblings, parseInt(page.order) + 1);
-        if (other && other.id !== page.id) {
-          other.order = parseInt(other.order) - 1;
-          page.order = parseInt(page.order) + 1;
-        }
+      if (position !== -1 && position < siblings.length - 1) {
+        const other = siblings[position + 1];
+        const otherOrder = orderOf(other);
+        other.order = orderOf(page);
+        page.order = otherOrder;
       }
       break;
     case 'indent':
-      if (page.order !== undefined) {
-        const previous = findSiblingByOrder(siblings, parseInt(page.order) - 1);
-        if (previous) {
-          page.parent = previous.id;
-          page.indent =
-            previous.indent !== undefined ? parseInt(previous.indent) + 1 : 1;
-          page.order = getLastChildOrder(items, previous.id) + 1;
-        }
+      if (position > 0) {
+        const previous = siblings[position - 1];
+        page.parent = previous.id;
+        page.order = getLastChildOrder(items, previous.id) + 1;
       }
-      // If pathauto is on and overridePathauto is not set, regenerate the slug and cascade
-      if (isPathautoEnabled(site) && !isOverridePathauto(page)) {
-        const cleanTitle = HAXCMS.cleanTitle(page.title);
-        page.slug = site.getUniqueSlugName(cleanTitle, page, true);
-        if (items) {
-          site.manifest.items = items;
-          cascadeSlugUpdates(site, items, [page.id]);
-        }
-      }
+      reslugPageAndBranch(site, page, items);
       break;
     case 'outdent':
       if (page.parent !== undefined && page.parent !== null) {
@@ -317,56 +330,40 @@ function applyOutlineMutation(site, page, items = [], details = {}, operation = 
           }
         }
         page.parent = newParent;
-        page.indent =
-          page.indent !== undefined ? Math.max(parseInt(page.indent) - 1, 0) : 0;
         page.order = insertAfterOrder;
       }
-      // If pathauto is on and overridePathauto is not set, regenerate the slug and cascade
-      if (isPathautoEnabled(site) && !isOverridePathauto(page)) {
-        const cleanTitle = HAXCMS.cleanTitle(page.title);
-        page.slug = site.getUniqueSlugName(cleanTitle, page, true);
-        if (items) {
-          site.manifest.items = items;
-          cascadeSlugUpdates(site, items, [page.id]);
-        }
-      }
+      reslugPageAndBranch(site, page, items);
       break;
     case 'setParent': {
       let newParent = Object.prototype.hasOwnProperty.call(details, 'parent')
         ? details.parent
         : null;
-      const newOrder = Object.prototype.hasOwnProperty.call(details, 'order')
-        ? parseInt(details.order)
-        : 0;
       if (!newParent || newParent === '') {
         newParent = null;
       }
+      const requestedOrder = Object.prototype.hasOwnProperty.call(
+        details,
+        'order',
+      )
+        ? parseInt(details.order)
+        : NaN;
       page.parent = newParent;
-      page.order = newOrder;
-      if (newParent === null) {
-        page.indent = 0;
+      if (Number.isFinite(requestedOrder)) {
+        // the page takes the spot it asked for; whoever held it moves down
+        page.order = requestedOrder;
+        makeRoomFor(items, page);
+      } else {
+        // no order given: the page goes to the end of its new siblings
+        page.order = lastSiblingOrder(items, newParent, page) + 1;
       }
-      else {
-        const parentNode = site.loadNode(newParent);
-        page.indent =
-          parentNode && parentNode.indent !== undefined
-            ? parseInt(parentNode.indent) + 1
-            : 1;
-      }
-      // If pathauto is on and overridePathauto is not set, regenerate the slug and cascade
-      if (isPathautoEnabled(site) && !isOverridePathauto(page)) {
-        const cleanTitle = HAXCMS.cleanTitle(page.title);
-        page.slug = site.getUniqueSlugName(cleanTitle, page, true);
-        if (items) {
-          site.manifest.items = items;
-          cascadeSlugUpdates(site, items, [page.id]);
-        }
-      }
+      reslugPageAndBranch(site, page, items);
       break;
     }
     default:
       break;
   }
+  // indent is the page's depth, for the moved page and the branch under it
+  syncIndentToDepth(items);
 }
 
 async function applyNodeDetailOperation(site, nodeId, details = {}) {
@@ -400,6 +397,11 @@ async function applyNodeDetailOperation(site, nodeId, details = {}) {
   const page = site.loadNode(normalizedNodeId);
   if (!page) {
     throw createStatusError(404, 'Node not found');
+  }
+
+  // a locked page is changed by nothing but unlocking it
+  if (isLocked(page) && operation !== 'setLocked') {
+    throw createStatusError(423, 'Page is locked', { reason: 'locked' });
   }
 
   const originalItemCount = site.manifest.items.length;
@@ -447,4 +449,5 @@ module.exports = {
   createStatusError,
   isPathautoEnabled,
   cascadeSlugUpdates,
+  reslugPageAndBranch,
 };
