@@ -11,7 +11,9 @@
 //   GET  /x/api/v1/plugins                       the registry as one site sees it   (JWT + site token)
 //   POST /x/api/v1/plugins/<id>/enable           enable for that site               (JWT + site token)
 //   POST /x/api/v1/plugins/<id>/disable
-// enable, disable and settings are reserved sub-paths: a plugin operation cannot take them.
+//   GET, POST .../plugins/<id>/settings          a plugin's settings form and values; secrets are write-only
+//   GET  .../plugins/<id>/assets/<path>          one of its front-end files (frontend/dist), no credentials
+// assets, enable, disable and settings are reserved sub-paths: a plugin operation cannot take them.
 const pluginSystem = require("./pluginSystem.js");
 const fs = require("fs");
 const path = require("path");
@@ -144,7 +146,8 @@ function mountPluginRoutes(app, deps) {
           body: req.body || {},
           headers: req.headers || {},
         },
-        { credentials: credentialsOf(auth) },
+        // an anonymous call is counted against the caller's address (spec/05)
+        { credentials: credentialsOf(auth), client: req.ip || null },
       );
       for (const [k, v] of Object.entries(r.headers || {})) {
         res.set(k, v);
@@ -312,6 +315,74 @@ function mountPluginRoutes(app, deps) {
       return refuse(res, 500, "server error");
     }
   };
+  // ---- settings (spec/13 section 7): the form and values; secrets are never sent back ----
+  const settingsRoute = (scope, write) => async (req, res) => {
+    try {
+      const site =
+        scope === "site" ? await deps.resolveSite(req).catch(() => null) : null;
+      const auth = deps.resolveAuth(req, site);
+      const allowed =
+        scope === "site"
+          ? !!site && auth.jwt && auth.siteToken
+          : auth.jwt && auth.userToken;
+      if (!allowed) {
+        return refuse(res, 401, "access denied");
+      }
+      const opts = { user: userOf(auth) };
+      const r = write
+        ? await pluginSystem.saveSettings(
+            site,
+            String(req.params.plugin),
+            req.body && req.body.values !== undefined
+              ? req.body.values
+              : req.body,
+            opts,
+          )
+        : await pluginSystem.settings(site, String(req.params.plugin), opts);
+      if (r.status !== 200) {
+        return res.status(r.status).json({
+          status: r.status,
+          data: { message: (r.body && r.body.error) || "refused" },
+        });
+      }
+      return res.json({ status: 200, data: r.body });
+    } catch {
+      return refuse(res, 500, "server error");
+    }
+  };
+  // ---- front-end files (spec/07, assets): frontend/dist of a plugin that is on, nothing else ----
+  const assetRoute = (scope) => async (req, res) => {
+    try {
+      const site =
+        scope === "site" ? await deps.resolveSite(req).catch(() => null) : null;
+      const h =
+        scope === "site"
+          ? await pluginSystem.host(site, { user: null })
+          : await pluginSystem.systemHost({ user: null });
+      const rest = String(
+        (req.params[1] !== undefined ? req.params[1] : req.params[0]) || "",
+      );
+      const found = h ? h.asset(String(req.params.plugin), rest) : null;
+      if (!found || found.status !== 200) {
+        return refuse(res, 404, "not found");
+      }
+      res.set("Content-Type", found.type);
+      res.set("X-Content-Type-Options", "nosniff");
+      res.set("Cache-Control", "public, max-age=300");
+      return res.status(200).send(fs.readFileSync(found.file));
+    } catch {
+      return refuse(res, 500, "server error");
+    }
+  };
+  for (const [prefix, scope] of [
+    [`${base}system/api/v1/plugins`, "system"],
+    [`${base}x/api/v1/plugins`, "site"],
+    [`${base}${deps.sitesDirectory}/*/x/api/v1/plugins`, "site"],
+  ]) {
+    app.get(`${prefix}/:plugin/settings`, settingsRoute(scope, false));
+    app.post(`${prefix}/:plugin/settings`, settingsRoute(scope, true));
+    app.get(`${prefix}/:plugin/assets/*`, assetRoute(scope));
+  }
   app.get(`${base}system/api/v1/plugins`, systemRegistry);
   app.get(`${base}x/api/v1/plugins`, siteRegistry);
   app.get(`${base}${deps.sitesDirectory}/*/x/api/v1/plugins`, siteRegistry);

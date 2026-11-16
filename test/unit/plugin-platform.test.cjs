@@ -787,3 +787,193 @@ describe("the plugin registry: installed is not enabled", () => {
     pluginSystem.reset();
   });
 });
+
+// Settings, front-end files, anonymous limits and store writes over the routes (spec/13 sections 5, 7 and 8).
+describe("settings, assets, rate limits and stores over the routes", () => {
+  const authAll = {
+    userName: "admin",
+    jwt: true,
+    userToken: true,
+    siteToken: true,
+  };
+  let routes;
+  let auth;
+  const find = (p) => routes.find((r) => r.p === p);
+  const run = async (p, req) => {
+    const res = stubRes();
+    res.sendBody = null;
+    await find(p).h(
+      Object.assign(
+        { method: "GET", params: {}, query: {}, body: {}, headers: {} },
+        req || {},
+      ),
+      res,
+    );
+    return res;
+  };
+
+  before(async () => {
+    fs.copySync(
+      path.join(spec, "conformance", "fixtures", "fx-tally"),
+      path.join(testRoot, "_plugins", "fx-tally"),
+    );
+    pluginSystem.reset();
+    routes = [];
+    const app = {
+      all: (p, h) => routes.push({ p, h }),
+      get: (p, h) => routes.push({ p, h }),
+      post: (p, h) => routes.push({ p: `POST ${p}`, h }),
+    };
+    auth = authAll;
+    mountPluginRoutes(app, {
+      basePath: "/",
+      sitesDirectory: "_sites",
+      resolveSite: async () => freshSite(),
+      resolveAuth: () => auth,
+    });
+    const on = await run("POST /system/api/v1/plugins/:plugin/enable", {
+      params: { plugin: "fx-tally" },
+    });
+    assert.equal(on.statusCode, null, JSON.stringify(on.body));
+  });
+
+  test("a secret setting is saved outside the config file, never sent back, and kept when left empty", async () => {
+    const before = await run("/system/api/v1/plugins/:plugin/settings", {
+      params: { plugin: "example" },
+    });
+    assert.equal(before.statusCode, null, JSON.stringify(before.body));
+    assert.deepEqual(before.body.data.values.apiKey, {
+      secret: true,
+      set: false,
+    });
+    const saved = await run("POST /system/api/v1/plugins/:plugin/settings", {
+      params: { plugin: "example" },
+      body: { values: { apiKey: "k-12345-secret" } },
+    });
+    assert.equal(saved.statusCode, null, JSON.stringify(saved.body));
+    assert.deepEqual(saved.body.data.values.apiKey, {
+      secret: true,
+      set: true,
+    });
+    assert.ok(
+      !JSON.stringify(saved.body).includes("k-12345-secret"),
+      "the secret came back",
+    );
+    const secrets = path.join(
+      testRoot,
+      "_config",
+      "plugins",
+      "secrets",
+      "example.json",
+    );
+    assert.equal(
+      JSON.parse(fs.readFileSync(secrets, "utf8")).apiKey,
+      "k-12345-secret",
+    );
+    assert.equal(
+      fs.statSync(secrets).mode & 0o077,
+      0,
+      "the secrets file is readable by others",
+    );
+    const config = path.join(
+      testRoot,
+      "_config",
+      "plugins",
+      "config",
+      "example.json",
+    );
+    assert.ok(!fs.readFileSync(config, "utf8").includes("k-12345-secret"));
+    // after a restart the secret is read back from its own file
+    pluginSystem.reset();
+    const again = await run("POST /system/api/v1/plugins/:plugin/settings", {
+      params: { plugin: "example" },
+      body: { values: { apiKey: "" } },
+    });
+    assert.deepEqual(again.body.data.values.apiKey, {
+      secret: true,
+      set: true,
+    });
+    assert.equal(
+      JSON.parse(fs.readFileSync(secrets, "utf8")).apiKey,
+      "k-12345-secret",
+    );
+    auth = { userName: "admin", jwt: true, userToken: false, siteToken: true };
+    assert.equal(
+      (
+        await run("/system/api/v1/plugins/:plugin/settings", {
+          params: { plugin: "example" },
+        })
+      ).statusCode,
+      401,
+    );
+    auth = authAll;
+  });
+
+  test("assets: a listed front-end file is served with its type; anything else is 404", async () => {
+    const ok = await run("/x/api/v1/plugins/:plugin/assets/*", {
+      params: { plugin: "fx-tally", 0: "fx-tally-board.js" },
+    });
+    assert.equal(ok.statusCode, 200);
+    assert.equal(ok.headers["Content-Type"], "text/javascript");
+    assert.equal(ok.headers["X-Content-Type-Options"], "nosniff");
+    assert.match(String(ok.sent), /fx-tally-board/);
+    for (const bad of [
+      "unlisted.js",
+      "edited.js",
+      "../config/openapi.yaml",
+      "img/../../src/nodejs/index.js",
+      "sneaky.php",
+      ".env",
+    ]) {
+      const res = await run("/x/api/v1/plugins/:plugin/assets/*", {
+        params: { plugin: "fx-tally", 0: bad },
+      });
+      assert.equal(res.statusCode, 404, bad);
+    }
+    const off = await run("/x/api/v1/plugins/:plugin/assets/*", {
+      params: { plugin: "fx-exec", 0: "x.js" },
+    });
+    assert.equal(off.statusCode, 404);
+  });
+
+  test("an anonymous caller is limited per address; the store file is written whole", async () => {
+    auth = { userName: "", jwt: false, userToken: false, siteToken: false };
+    const vote = (ip) =>
+      run("/x/api/v1/plugins/:plugin/*", {
+        method: "POST",
+        ip,
+        params: { plugin: "fx-tally", 0: "vote" },
+      });
+    const first = await Promise.all([
+      vote("203.0.113.5"),
+      vote("203.0.113.5"),
+      vote("203.0.113.5"),
+    ]);
+    assert.deepEqual(
+      first.map((r) => r.statusCode),
+      [200, 200, 200],
+    );
+    const over = await vote("203.0.113.5");
+    assert.equal(over.statusCode, 429);
+    assert.ok(Number(over.headers["retry-after"]) > 0);
+    assert.equal((await vote("203.0.113.9")).statusCode, 200);
+    auth = authAll;
+    const s = await freshSite();
+    const dir = path.join(
+      testRoot,
+      "_config",
+      "siteData",
+      s.manifest.id,
+      "fx-tally",
+    );
+    assert.deepEqual(
+      JSON.parse(fs.readFileSync(path.join(dir, "tally.json"), "utf8")),
+      { n: 4 },
+    );
+    assert.deepEqual(
+      fs.readdirSync(dir),
+      ["tally.json"],
+      "a temp file was left behind",
+    );
+  });
+});

@@ -22,6 +22,7 @@ import {
   mkdirSync,
   mkdtempSync,
   writeFileSync,
+  renameSync,
   readFileSync,
   realpathSync,
   existsSync,
@@ -114,6 +115,7 @@ export class HaxcmsPluginHost extends MemoryBackend {
     // live network only when HAXcms runs it; adapters for the spec's runners stay offline (fakes or nothing)
     this.liveNetwork = liveNetwork;
     this.liveExec = liveExec;
+    this.tmpCount = 0;
     let frozen = null;
     // the real clock; tests may freeze it (backend.now = ms)
     Object.defineProperty(this, "now", {
@@ -171,10 +173,13 @@ export class HaxcmsPluginHost extends MemoryBackend {
       throw e;
     }
   }
-  writeFile(full, content) {
+  // written whole to a temp file beside it and renamed, so a reader never sees half a file (spec/04)
+  writeFile(full, content, mode) {
     this.rememberFile(full);
     mkdirSync(dirname(full), { recursive: true });
-    writeFileSync(full, content);
+    const tmp = `${full}.${process.pid}.${++this.tmpCount}.tmp`;
+    writeFileSync(tmp, content, mode ? { mode } : undefined);
+    renameSync(tmp, full);
   }
   async saveManifest() {
     if (!this.haxSite) return;
@@ -275,24 +280,83 @@ export class HaxcmsPluginHost extends MemoryBackend {
     return info;
   }
 
-  // ---- settings: saved to <HAXCMS_ROOT>/_config/plugins/config/<id>.json (spec/13); hooks and validation run in
-  // the engine. TODO(draft): site-scope writes and write-only secrets.
+  // ---- settings (spec/13 sections 1 and 7): hooks and validation run in the engine; what was saved is written to
+  //   system scope   <HAXCMS_ROOT>/_config/plugins/config/<id>.json
+  //   site scope     <site>/_config/plugins/config/<id>.json          (a plugin whose settingsScope is site or both)
+  // and secret fields (x-secret) never to either: they go to
+  //   system scope   <HAXCMS_ROOT>/_config/plugins/secrets/<id>.json
+  //   site scope     <HAXCMS_ROOT>/_config/siteData/<site uuid>/plugins/<id>.secrets.json
+  // outside every site folder and its git history, readable by the server's user only.
+  settingsFiles(p) {
+    const perSite =
+      !!this.haxSite &&
+      ["site", "both"].includes(p.manifest.settingsScope || "system");
+    return {
+      config: perSite
+        ? join(this.site.path, "_config", "plugins", "config", `${p.id}.json`)
+        : join(this.root, "_config", "plugins", "config", `${p.id}.json`),
+      secrets: perSite
+        ? join(
+            this.root,
+            "_config",
+            "siteData",
+            this.site.id,
+            "plugins",
+            `${p.id}.secrets.json`,
+          )
+        : join(this.root, "_config", "plugins", "secrets", `${p.id}.json`),
+    };
+  }
+  secretFields(p) {
+    return new Set(
+      p.form.filter((f) => f && f["x-secret"]).map((f) => f.property),
+    );
+  }
   async saveConfig(id, values) {
     const r = await super.saveConfig(id, values);
     const p = this.get(id);
     if (r.status === 200 && p) {
-      const file = join(
-        this.root,
-        "_config",
-        "plugins",
-        "config",
-        `${id}.json`,
-      );
-      const saved = {};
-      for (const k of p.explicit) saved[k] = p.settings[k];
-      this.writeFile(file, JSON.stringify(saved, null, 2) + "\n");
+      const secret = this.secretFields(p);
+      const files = this.settingsFiles(p);
+      const plain = {};
+      const hidden = {};
+      for (const k of p.explicit) {
+        (secret.has(k) ? hidden : plain)[k] = p.settings[k];
+      }
+      this.writeFile(files.config, JSON.stringify(plain, null, 2) + "\n");
+      if (secret.size) {
+        this.writeFile(
+          files.secrets,
+          JSON.stringify(hidden, null, 2) + "\n",
+          0o600,
+        );
+      }
     }
     return r;
+  }
+  /** A plugin's settings for a screen: the form, and the values with every secret replaced by whether it is set. */
+  settingsView(id) {
+    const p = this.get(id);
+    if (!p) return null;
+    const secret = this.secretFields(p);
+    const eff = this.effectiveSettings(p);
+    const values = {};
+    for (const [k, v] of Object.entries(eff)) {
+      values[k] = secret.has(k)
+        ? { secret: true, set: v !== undefined && v !== null && v !== "" }
+        : v;
+    }
+    for (const k of secret) {
+      if (!(k in values)) values[k] = { secret: true, set: false };
+    }
+    return {
+      id: p.id,
+      scope: p.manifest.settingsScope || "system",
+      fields: p.form,
+      values,
+      status: p.status,
+      unmet: p.unmet || [],
+    };
   }
 
   // ---- plugin stores at the spec/04 locations ----

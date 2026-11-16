@@ -187,9 +187,10 @@ function haxcmsVersion() {
 }
 
 /**
- * Saved plugin settings (spec/13): schema defaults (the engine adds those), then
- * <HAXCMS_ROOT>/_config/plugins/config/<id>.json, then <site>/_config/plugins/config/<id>.json (site wins).
- * TODO(draft): secret settings (_config/plugins/secrets/<id>.json) are not read yet.
+ * Saved plugin settings (spec/13 section 7): schema defaults (the engine adds those), then
+ * <HAXCMS_ROOT>/_config/plugins/config/<id>.json, then <site>/_config/plugins/config/<id>.json (site wins), then
+ * the secret fields from <HAXCMS_ROOT>/_config/plugins/secrets/<id>.json and, for a site,
+ * <HAXCMS_ROOT>/_config/siteData/<site uuid>/plugins/<id>.secrets.json. Secrets never sit in a site folder.
  */
 function pluginSettings(dirs, site, root) {
   const out = {};
@@ -215,8 +216,27 @@ function pluginSettings(dirs, site, root) {
             {},
           )
         : {};
-    if (Object.keys(system).length || Object.keys(local).length) {
-      out[id] = { ...system, ...local };
+    const secrets = readJson(
+      path.join(root, "_config", "plugins", "secrets", `${id}.json`),
+      {},
+    );
+    const siteSecrets =
+      site && site.manifest && site.manifest.id
+        ? readJson(
+            path.join(
+              root,
+              "_config",
+              "siteData",
+              String(site.manifest.id),
+              "plugins",
+              `${id}.secrets.json`,
+            ),
+            {},
+          )
+        : {};
+    const all = { ...system, ...local, ...secrets, ...siteSecrets };
+    if (Object.keys(all).length) {
+      out[id] = all;
     }
   }
   return out;
@@ -487,7 +507,58 @@ async function disable(site, id, opts = {}) {
   };
 }
 
+// ---- settings (spec/13 section 7) ----
+/** A plugin's settings form and values for the system (site null) or one site; secrets come back as set or not. */
+async function settings(site, id, opts = {}) {
+  const refusals = (await engine()).REGISTRY_REFUSALS;
+  const h = site ? await host(site, opts) : await systemHost(opts);
+  const view = h && ID.test(String(id)) ? h.settingsView(id) : null;
+  return view
+    ? { status: 200, body: view }
+    : { status: 404, body: { error: refusals.notInstalled } };
+}
+
+/**
+ * Save a plugin's settings. The system saves system-scope settings; a site saves its own only for a plugin whose
+ * settingsScope is site or both. Validation and the config hooks run in the engine; a secret left out or sent
+ * empty keeps its stored value.
+ */
+async function saveSettings(site, id, values, opts = {}) {
+  const refusals = (await engine()).REGISTRY_REFUSALS;
+  const h = site ? await host(site, opts) : await systemHost(opts);
+  const p = h && ID.test(String(id)) ? h.get(id) : null;
+  if (!p || p.status === "available" || p.status === "refused") {
+    return { status: 404, body: { error: refusals.notInstalled } };
+  }
+  const scope = p.manifest.settingsScope || "system";
+  if (site ? scope === "system" : scope === "site") {
+    return { status: 409, body: { error: refusals.settingsScope } };
+  }
+  if (site) {
+    h.hydrate();
+  }
+  const secret = h.secretFields(p);
+  const clean = {};
+  const input =
+    values && typeof values === "object" && !Array.isArray(values)
+      ? values
+      : {};
+  for (const [k, v] of Object.entries(input)) {
+    if (secret.has(k) && (v === "" || v === null || v === undefined)) {
+      continue;
+    }
+    clean[k] = v;
+  }
+  const r = await h.saveConfig(id, clean);
+  if (r.status !== 200) {
+    return r;
+  }
+  return { status: 200, body: h.settingsView(id) };
+}
+
 module.exports = {
+  settings,
+  saveSettings,
   host,
   systemHost,
   reset,
