@@ -200,7 +200,8 @@ describe("mediaSettings.getEffectiveMediaSettings", () => {
     assert.deepEqual(media.getEffectiveMediaSettings({}), {
       jpegQuality: 80,
       maxUploadSizeMb: 256,
-      acceptedFormats: "jpg,jpeg,png,gif,webp,svg",
+      acceptedFormats:
+        "jpg,jpeg,png,gif,webm,webp,mp4,mp3,mov,csv,ppt,pptx,xlsx,doc,xls,docx,pdf,rtf,txt,vtt,html,md,xml,ics,vcf,h5p",
     });
   });
 
@@ -223,8 +224,86 @@ describe("mediaSettings.getEffectiveMediaSettings", () => {
     assert.deepEqual(media.DEFAULT_MEDIA_SETTINGS, {
       jpegQuality: 80,
       maxUploadSizeMb: 256,
-      acceptedFormats: "jpg,jpeg,png,gif,webp,svg",
+      acceptedFormats:
+        "jpg,jpeg,png,gif,webm,webp,mp4,mp3,mov,csv,ppt,pptx,xlsx,doc,xls,docx,pdf,rtf,txt,vtt,html,md,xml,ics,vcf,h5p",
     });
+  });
+});
+
+describe("mediaSettings accepted upload formats (haxtheweb/issues#3054)", () => {
+  test("the default accepts every safe upload format, xml and vtt included", () => {
+    assert.equal(
+      media.DEFAULT_ACCEPTED_FORMATS,
+      media.SAFE_UPLOAD_FORMATS.join(","),
+    );
+    ["xml", "vtt", "pdf", "h5p", "jpg"].forEach((ext) => {
+      assert.equal(media.isUploadFormatAccepted({}, ext), true, ext);
+    });
+  });
+
+  test("a saved list narrows uploads within the safe list", () => {
+    const settings = { acceptedFormats: "png,pdf,.CSV" };
+    const normalized = media.normalizeMediaSettings(settings);
+    assert.equal(media.isUploadFormatAccepted(normalized, "png"), true);
+    assert.equal(media.isUploadFormatAccepted(normalized, ".PDF"), true);
+    assert.equal(media.isUploadFormatAccepted(normalized, "csv"), true);
+    assert.equal(media.isUploadFormatAccepted(normalized, "jpg"), false);
+    assert.equal(media.isUploadFormatAccepted(normalized, "vtt"), false);
+  });
+
+  test("a saved list never widens the safe list", () => {
+    const normalized = media.normalizeMediaSettings({
+      acceptedFormats: "png,svg,exe,php",
+    });
+    assert.equal(media.isUploadFormatAccepted(normalized, "png"), true);
+    ["svg", "exe", "php", ""].forEach((ext) => {
+      assert.equal(media.isUploadFormatAccepted(normalized, ext), false, ext);
+    });
+  });
+
+  test("an earlier default that was saved reads as the default", () => {
+    ["jpg,jpeg,png,gif,webp,svg", "jpg,jpeg,png,webp,gif"].forEach((legacy) => {
+      const normalized = media.normalizeMediaSettings({
+        acceptedFormats: legacy,
+      });
+      assert.equal(
+        media.getEffectiveMediaSettings(normalized).acceptedFormats,
+        media.DEFAULT_ACCEPTED_FORMATS,
+      );
+      assert.equal(media.isUploadFormatAccepted(normalized, "pdf"), true);
+    });
+  });
+});
+
+describe("mediaSettings shared upload allowlist (haxtheweb/issues#3054)", () => {
+  test("the extension test matches exactly the safe formats", () => {
+    media.SAFE_UPLOAD_FORMATS.forEach((ext) => {
+      assert.equal(
+        media.SAFE_UPLOAD_EXTENSION_REGEX.test("a." + ext),
+        true,
+        ext,
+      );
+      assert.equal(
+        media.SAFE_UPLOAD_EXTENSION_REGEX.test("a." + ext.toUpperCase()),
+        true,
+        ext,
+      );
+    });
+    ["a.svg", "a.php", "a.exe", "a.jpg.php", "jpg", "a.html.svg"].forEach(
+      (n) => {
+        assert.equal(media.SAFE_UPLOAD_EXTENSION_REGEX.test(n), false, n);
+      },
+    );
+  });
+
+  test("unsupportedAcceptedFormats names what is outside the allowlist", () => {
+    assert.deepEqual(media.unsupportedAcceptedFormats("png, SVG, .exe"), [
+      "svg",
+      "exe",
+    ]);
+    assert.deepEqual(media.unsupportedAcceptedFormats(["pdf", "vtt"]), []);
+    assert.deepEqual(media.unsupportedAcceptedFormats(null), []);
+    assert.deepEqual(media.unsupportedAcceptedFormats(""), []);
   });
 });
 

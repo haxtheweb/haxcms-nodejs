@@ -34,8 +34,33 @@ const ALLOWED_THEME_KEYS = new Set([
   "manifest-metadata-theme-variables-cssVariable",
   "manifest-metadata-theme-variables-palette",
   "manifest-metadata-theme-variables-icon",
+  "manifest-metadata-theme-designSystem",
   ...Object.keys(REGION_FIELD_MAP),
 ]);
+
+/**
+ * The site's design system (metadata.theme.designSystem): a lowercase name
+ * such as "carbon". "" and "ddd" mean DDD, which is stored as no value.
+ * The front end only ever imports a system its own registry lists, so the
+ * name is stored as given once it passes this shape check.
+ * @returns {string|null} "" for DDD, the name, or null when invalid
+ */
+function normalizeDesignSystem(value) {
+  if (value === null) {
+    return "";
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  const name = value.trim().toLowerCase();
+  if (name === "" || name === "ddd") {
+    return "";
+  }
+  if (name.length > 64 || !/^[a-z0-9-]+$/.test(name)) {
+    return null;
+  }
+  return name;
+}
 
 function normalizeCssVariable(value) {
   if (typeof value !== "string") {
@@ -190,11 +215,17 @@ async function saveAppearanceSettings(req, res) {
         .json({ status: 400, data: { message: "Invalid request" } });
       return;
     }
+    // the design system is the site's choice, not the theme's: keep it
+    // when the theme changes
+    const designSystem = site.manifest.metadata.theme.designSystem;
     // a copy: the site's theme is edited below and must never change the
     // shared HAXCMS.config.themes entry (later sites would inherit regions)
     site.manifest.metadata.theme = JSON.parse(
       JSON.stringify(themes[themeElement]),
     );
+    if (typeof designSystem === "string" && designSystem !== "") {
+      site.manifest.metadata.theme.designSystem = designSystem;
+    }
   }
 
   if (
@@ -343,6 +374,28 @@ async function saveAppearanceSettings(req, res) {
     );
   }
 
+  if (
+    Object.prototype.hasOwnProperty.call(
+      themePayload,
+      "manifest-metadata-theme-designSystem",
+    )
+  ) {
+    const designSystem = normalizeDesignSystem(
+      themePayload["manifest-metadata-theme-designSystem"],
+    );
+    if (designSystem === null) {
+      res
+        .status(400)
+        .json({ status: 400, data: { message: "Invalid request" } });
+      return;
+    }
+    if (designSystem === "") {
+      delete site.manifest.metadata.theme.designSystem;
+    } else {
+      site.manifest.metadata.theme.designSystem = designSystem;
+    }
+  }
+
   for (const regionField of Object.keys(REGION_FIELD_MAP)) {
     if (Object.prototype.hasOwnProperty.call(themePayload, regionField)) {
       const cleanRegionIds = sanitizeRegionIds(themePayload[regionField]);
@@ -377,4 +430,5 @@ async function saveAppearanceSettings(req, res) {
 
 saveAppearanceSettings.normalizeCssVariable = normalizeCssVariable;
 saveAppearanceSettings.sanitizeRegionIds = sanitizeRegionIds;
+saveAppearanceSettings.normalizeDesignSystem = normalizeDesignSystem;
 module.exports = saveAppearanceSettings;

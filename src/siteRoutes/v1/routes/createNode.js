@@ -1,3 +1,9 @@
+const {
+  parentOf,
+  makeRoomFor,
+  lastSiblingOrder,
+  syncIndentToDepth,
+} = require("../../../lib/outlineUpkeep.js");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const path = require("path");
 const fs = require("fs-extra");
@@ -208,6 +214,28 @@ async function createNode(req, res) {
       }
       // add the item back into the outline schema
       site.manifest.addItem(item);
+      // place it among its siblings: at the order asked for (whoever held
+      // that spot moves down), or at the end when no order was sent, so no
+      // two siblings share an order; indent is the page's depth
+      const placed = site.loadNode(item.id);
+      if (placed) {
+        const requestedOrder = Object.prototype.hasOwnProperty.call(
+          nodeParams,
+          "order",
+        )
+          ? parseInt(nodeParams["order"])
+          : NaN;
+        if (Number.isFinite(requestedOrder)) {
+          placed.order = requestedOrder;
+          makeRoomFor(site.manifest.items, placed);
+        } else {
+          placed.order =
+            lastSiblingOrder(site.manifest.items, parentOf(placed), placed) + 1;
+        }
+        syncIndentToDepth(site.manifest.items);
+        item.order = placed.order;
+        item.indent = placed.indent;
+      }
       try {
         await site.manifest.save();
       } catch (e) {
@@ -260,11 +288,13 @@ async function createNode(req, res) {
           // page.metadata.files from those uuids rather than re-scanning:
           // mammoth docx output carries images as data URIs (which the
           // helper just saved), not pre-existing files/ refs.
-          if (!page.metadata) {
-            page.metadata = {};
-          }
-          page.metadata.files = uuids;
+          // only a page that brought files gets the list (same rule as
+          // addPage and haxcms-php)
           if (uuids.length > 0) {
+            if (!page.metadata) {
+              page.metadata = {};
+            }
+            page.metadata.files = uuids;
             await site.manifest.save();
           }
         }

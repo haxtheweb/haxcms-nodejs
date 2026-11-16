@@ -457,6 +457,54 @@ describe("saveAppearanceSettings — theme fields", () => {
     assert.equal(site.manifest.metadata.theme.variables.palette, "new-palette");
   });
 
+  test("design system stores a name, clears to DDD, rejects the rest", async (t) => {
+    const site = makeFakeSite();
+    mockSiteAuth(t, site);
+    const resSet = stubRes();
+    await saveAppearanceSettings(
+      appearanceReq({ "manifest-metadata-theme-designSystem": "Carbon" }),
+      resSet,
+    );
+    assert.equal(resSet.sent.status, 200);
+    assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
+    for (const ddd of ["", null, "ddd"]) {
+      site.manifest.metadata.theme.designSystem = "carbon";
+      const resClear = stubRes();
+      await saveAppearanceSettings(
+        appearanceReq({ "manifest-metadata-theme-designSystem": ddd }),
+        resClear,
+      );
+      assert.equal(resClear.sent.status, 200);
+      assert.equal("designSystem" in site.manifest.metadata.theme, false);
+    }
+    for (const bad of ["../carbon", "has spaces", 42]) {
+      const resBad = stubRes();
+      await saveAppearanceSettings(
+        appearanceReq({ "manifest-metadata-theme-designSystem": bad }),
+        resBad,
+      );
+      assert.equal(resBad.statusCode, 400);
+    }
+  });
+
+  test("design system survives a theme change", async (t) => {
+    const site = makeFakeSite();
+    mockSiteAuth(t, site);
+    mockThemes(t);
+    site.manifest.metadata.theme = {
+      element: "old-theme",
+      designSystem: "carbon",
+    };
+    const res = stubRes();
+    await saveAppearanceSettings(
+      appearanceReq({ "manifest-metadata-theme-element": "my-theme" }),
+      res,
+    );
+    assert.equal(res.sent.status, 200);
+    assert.equal(site.manifest.metadata.theme.element, "my-theme");
+    assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
+  });
+
   test("icon stores strings and rejects other types", async (t) => {
     const site = makeFakeSite();
     mockSiteAuth(t, site);

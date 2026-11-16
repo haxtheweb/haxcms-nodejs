@@ -2,19 +2,30 @@
 // arrive in bulk from request bodies (saveOutline items[], createNode items[]
 // -> addPage). Uses the same per-field primitives saveNode applies so a value
 // cannot bypass saveNode's rules by being sent through another route.
-const strip_tags = require('locutus/php/strings/strip_tags').strip_tags;
-const html_entity_decode = require('locutus/php/strings/html_entity_decode').html_entity_decode;
+const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
+const html_entity_decode =
+  require("locutus/php/strings/html_entity_decode").html_entity_decode;
 const {
   sanitizeURLValue,
   sanitizeMetadataValue,
   hasScriptCapableScheme,
-} = require('./sanitizeContent.js');
+} = require("./sanitizeContent.js");
 
-const FORBIDDEN_METADATA_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const FORBIDDEN_METADATA_KEYS = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
 // fields saveNode runs through sanitizeURLValue
-const URL_METADATA_FIELDS = new Set(['image', 'linkUrl']);
+const URL_METADATA_FIELDS = new Set(["image", "linkUrl"]);
 // fields saveNode runs through sanitizeMetadataValue
-const TEXT_METADATA_FIELDS = new Set(['tags', 'icon', 'accentColor', 'linkTarget', 'relatedItems']);
+const TEXT_METADATA_FIELDS = new Set([
+  "tags",
+  "icon",
+  "accentColor",
+  "linkTarget",
+  "relatedItems",
+]);
 // nested arrays / objects deeper than this are dropped
 const MAX_METADATA_DEPTH = 5;
 
@@ -25,27 +36,76 @@ const MAX_METADATA_DEPTH = 5;
  */
 function toPlainText(value) {
   if (value === null || value === undefined) {
-    return '';
+    return "";
   }
-  return strip_tags(html_entity_decode(String(value)));
+  return strip_tags(decodeEntities(String(value)));
+}
+
+/**
+ * The title a page gets when it has none.
+ */
+const DEFAULT_PAGE_TITLE = 'New page';
+
+/**
+ * Whether a title counts as no title: empty, only white space, or the text
+ * `null` in any case. `null` is what a missing value turns into when it is
+ * written out as text, so it is never a real title. Same rule as PHP
+ * SanitizeContent::isBlankPageTitle.
+ */
+function isBlankPageTitle(title) {
+  if (title === null || title === undefined) {
+    return true;
+  }
+  const text = String(title).trim();
+  return text === '' || text.toLowerCase() === 'null';
+}
+
+/**
+ * Decode named and numeric character references in one pass, the way PHP's
+ * html_entity_decode does. locutus' html_entity_decode only knows named
+ * entities, so a title sent as `It&#x27;s` (how serializers escape an
+ * apostrophe inside an attribute) used to be stored still encoded.
+ * One pass, so `&amp;#x27;` decodes to the text `&#x27;` and no further.
+ */
+function decodeEntities(text) {
+  return text.replace(
+    /&(#[xX][0-9a-fA-F]{1,6}|#[0-9]{1,7}|[a-zA-Z][a-zA-Z0-9]{1,31});/g,
+    (match, entity) => {
+      if (entity.charAt(0) !== "#") {
+        return html_entity_decode(match);
+      }
+      const hex = entity.charAt(1) === "x" || entity.charAt(1) === "X";
+      const codePoint = hex
+        ? parseInt(entity.slice(2), 16)
+        : parseInt(entity.slice(1), 10);
+      // not a character: NUL, a surrogate half, or past the Unicode range
+      if (
+        !(codePoint > 0 && codePoint <= 0x10ffff) ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        return match;
+      }
+      return String.fromCodePoint(codePoint);
+    },
+  );
 }
 
 // longest auto-generated page description, in characters (code points)
 const AUTO_DESCRIPTION_MAX_CHARS = 200;
 
 // elements whose text is never page prose (raw text / inert content)
-const NON_TEXT_ELEMENTS = ['script', 'style', 'noscript', 'template'];
+const NON_TEXT_ELEMENTS = ["script", "style", "noscript", "template"];
 
 function isTagNameEnd(ch) {
   return (
     ch === undefined ||
-    ch === '>' ||
-    ch === '/' ||
-    ch === ' ' ||
-    ch === '\t' ||
-    ch === '\n' ||
-    ch === '\r' ||
-    ch === '\f'
+    ch === ">" ||
+    ch === "/" ||
+    ch === " " ||
+    ch === "\t" ||
+    ch === "\n" ||
+    ch === "\r" ||
+    ch === "\f"
   );
 }
 
@@ -58,10 +118,10 @@ function isTagNameEnd(ch) {
  */
 function removeNonTextElements(html) {
   const lower = html.replace(/[A-Z]/g, (c) => c.toLowerCase());
-  let out = '';
+  let out = "";
   let i = 0;
   while (i < html.length) {
-    const open = lower.indexOf('<', i);
+    const open = lower.indexOf("<", i);
     if (open === -1) {
       out += html.substring(i);
       break;
@@ -78,7 +138,7 @@ function removeNonTextElements(html) {
       }
     }
     if (name === null) {
-      out += '<';
+      out += "<";
       i = open + 1;
       continue;
     }
@@ -86,13 +146,13 @@ function removeNonTextElements(html) {
     let search = open + 1 + name.length;
     let end = html.length;
     for (;;) {
-      const close = lower.indexOf('</' + name, search);
+      const close = lower.indexOf("</" + name, search);
       if (close === -1) {
         break;
       }
       const after = close + 2 + name.length;
       if (isTagNameEnd(lower[after])) {
-        const gt = lower.indexOf('>', after);
+        const gt = lower.indexOf(">", after);
         end = gt === -1 ? html.length : gt + 1;
         break;
       }
@@ -115,13 +175,12 @@ function removeNonTextElements(html) {
  */
 function pageDescriptionFromBody(body) {
   if (body === null || body === undefined) {
-    return '';
+    return "";
   }
-  const text = toPlainText(strip_tags(removeNonTextElements(String(body)))).replace(
-    /[\r\n]/g,
-    '',
-  );
-  return Array.from(text).slice(0, AUTO_DESCRIPTION_MAX_CHARS).join('');
+  const text = toPlainText(
+    strip_tags(removeNonTextElements(String(body))),
+  ).replace(/[\r\n]/g, "");
+  return Array.from(text).slice(0, AUTO_DESCRIPTION_MAX_CHARS).join("");
 }
 
 function sanitizeMetadataString(value) {
@@ -136,13 +195,13 @@ function sanitizeUnknownMetadataString(value) {
     return undefined;
   }
   return String(value)
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function isPlainObject(value) {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
   const proto = Object.getPrototypeOf(value);
@@ -153,13 +212,13 @@ function isPlainObject(value) {
 // arrays and plain objects walked (forbidden keys dropped), everything else
 // dropped (returns undefined)
 function sanitizeMetadataNested(value, escapeString, depth = 0) {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return escapeString(value);
   }
-  if (value === null || typeof value === 'boolean') {
+  if (value === null || typeof value === "boolean") {
     return value;
   }
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     return Number.isFinite(value) ? value : undefined;
   }
   if (depth >= MAX_METADATA_DEPTH) {
@@ -192,21 +251,21 @@ function sanitizeMetadataNested(value, escapeString, depth = 0) {
 }
 
 function resolveTheme(value, themes) {
-  let key = '';
-  if (typeof value === 'string') {
+  let key = "";
+  if (typeof value === "string") {
     key = value;
-  } else if (isPlainObject(value) && typeof value.key === 'string') {
+  } else if (isPlainObject(value) && typeof value.key === "string") {
     key = value.key;
   }
   if (
-    key === '' ||
-    key === '_none_' ||
+    key === "" ||
+    key === "_none_" ||
     FORBIDDEN_METADATA_KEYS.has(key) ||
     !themes ||
-    typeof themes !== 'object' ||
+    typeof themes !== "object" ||
     !Object.prototype.hasOwnProperty.call(themes, key) ||
     !themes[key] ||
-    typeof themes[key] !== 'object'
+    typeof themes[key] !== "object"
   ) {
     return undefined;
   }
@@ -230,11 +289,11 @@ function sanitizePageMetadata(incoming, options = {}) {
     }
     const value = incoming[key];
     if (URL_METADATA_FIELDS.has(key)) {
-      if (value === null || value === undefined || value === '') {
+      if (value === null || value === undefined || value === "") {
         result.remove.push(key);
-      } else if (typeof value === 'string') {
-        const clean = sanitizeURLValue(value, '');
-        if (clean === '') {
+      } else if (typeof value === "string") {
+        const clean = sanitizeURLValue(value, "");
+        if (clean === "") {
           result.remove.push(key);
         } else {
           result.values[key] = clean;
@@ -244,9 +303,9 @@ function sanitizePageMetadata(incoming, options = {}) {
       continue;
     }
     if (TEXT_METADATA_FIELDS.has(key)) {
-      if (value === null || value === undefined || value === '') {
+      if (value === null || value === undefined || value === "") {
         result.remove.push(key);
-      } else if (typeof value === 'string' || typeof value === 'number') {
+      } else if (typeof value === "string" || typeof value === "number") {
         result.values[key] = sanitizeMetadataString(String(value));
       } else {
         const clean = sanitizeMetadataNested(value, sanitizeMetadataString);
@@ -256,7 +315,7 @@ function sanitizePageMetadata(incoming, options = {}) {
       }
       continue;
     }
-    if (key === 'theme') {
+    if (key === "theme") {
       const theme = resolveTheme(value, themes);
       if (theme === undefined) {
         result.remove.push(key);
@@ -281,7 +340,7 @@ function applyPageMetadata(page, incoming, options = {}) {
   if (!page) {
     return page;
   }
-  if (!page.metadata || typeof page.metadata !== 'object') {
+  if (!page.metadata || typeof page.metadata !== "object") {
     page.metadata = {};
   }
   const { values, remove } = sanitizePageMetadata(incoming, options);
@@ -296,6 +355,8 @@ function applyPageMetadata(page, incoming, options = {}) {
 
 module.exports = {
   toPlainText,
+  DEFAULT_PAGE_TITLE,
+  isBlankPageTitle,
   pageDescriptionFromBody,
   removeNonTextElements,
   AUTO_DESCRIPTION_MAX_CHARS,

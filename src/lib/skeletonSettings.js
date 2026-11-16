@@ -282,8 +282,41 @@ async function discoverSkeletons(haxcms) {
   return items;
 }
 
+/**
+ * The pages of the default-starter skeleton: the first page a site gets when
+ * it is created without a build. Looked up in the same order as every other
+ * skeleton (user, then config, then core), so a deployment can replace it.
+ * Returns null when no readable default-starter has any pages.
+ */
+function readDefaultStarterItems(haxcms) {
+  const dirs = getSkeletonDirectories(haxcms);
+  for (let i = 0; i < dirs.length; i++) {
+    const filePath = path.join(dirs[i].dir, 'default-starter.json');
+    let skeleton = null;
+    try {
+      if (!fs.pathExistsSync(filePath)) {
+        continue;
+      }
+      skeleton = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
+    catch {
+      continue;
+    }
+    if (
+      skeleton &&
+      skeleton.build &&
+      Array.isArray(skeleton.build.items) &&
+      skeleton.build.items.length > 0
+    ) {
+      return skeleton.build.items;
+    }
+  }
+  return null;
+}
+
 module.exports = {
   normalizeBoolean,
+  readDefaultStarterItems,
   normalizeMachineNameList,
   normalizeEnabledSkeletonMap,
   applyDetectedSkeletonDefaults,

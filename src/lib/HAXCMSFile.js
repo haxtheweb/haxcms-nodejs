@@ -5,13 +5,17 @@ const { HAXCMS } = require("./HAXCMS.js");
 const { isUnsafeRelativePath } = require("./pathConfinement.js");
 const { buildFilePublicUrl } = require("./siteFileUrl.js");
 const { getDeterministicFileUuid } = require("./siteFileUuid.js");
-const { readMediaSettings } = require("./mediaSettings.js");
+const {
+  readMediaSettings,
+  isUploadFormatAccepted,
+  SAFE_UPLOAD_EXTENSION_REGEX,
+} = require("./mediaSettings.js");
 const FilesDataStore = require("./FilesDataStore.js");
 const sharp = require("sharp");
 const dns = require("dns");
 
-const ALLOWED_UPLOAD_EXTENSION_PATTERN =
-  /\.(jpg|jpeg|png|gif|webm|webp|mp4|mp3|mov|csv|ppt|pptx|xlsx|doc|xls|docx|pdf|rtf|txt|vtt|html|md|xml|ics|vcf|h5p)$/i;
+// the one upload allowlist (mediaSettings.SAFE_UPLOAD_FORMATS)
+const ALLOWED_UPLOAD_EXTENSION_PATTERN = SAFE_UPLOAD_EXTENSION_REGEX;
 const ALLOWED_MIME_BY_EXTENSION = {
   jpg: ["image/jpeg"],
   jpeg: ["image/jpeg"],
@@ -952,6 +956,21 @@ class HAXCMSFile {
       if (
         !sanitizedIncomingName ||
         !ALLOWED_UPLOAD_EXTENSION_PATTERN.test(sanitizedIncomingName)
+      ) {
+        return {
+          status: 500,
+          data: {
+            message: "File type not allowed",
+          },
+        };
+      }
+      // haxtheweb/issues#3054: the media settings' accepted formats narrow
+      // the safe list above (an operator can turn off, say, csv uploads)
+      if (
+        !isUploadFormatAccepted(
+          await readMediaSettings(HAXCMS),
+          path.extname(sanitizedIncomingName),
+        )
       ) {
         return {
           status: 500,

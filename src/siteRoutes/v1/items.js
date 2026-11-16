@@ -542,6 +542,12 @@ async function updateItem(req, res) {
     if (e && e.featureDisabled === true) {
       return featureDisabledResponse(res, e.message);
     }
+    if (e && e.status === 423) {
+      return res.status(423).json({
+        status: 423,
+        data: { message: e.message, reason: e.reason || "locked" },
+      });
+    }
     return res.status(e && e.status ? e.status : 500).json({
       status: e && e.status ? e.status : 500,
       data: { message: clientSafeErrorDetail(e, "Unable to update item") },

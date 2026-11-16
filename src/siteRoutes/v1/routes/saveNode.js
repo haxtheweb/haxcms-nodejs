@@ -1,3 +1,10 @@
+const {
+  isLocked,
+  parentOf,
+  orderOf,
+  makeRoomFor,
+  syncIndentToDepth,
+} = require("../../../lib/outlineUpkeep.js");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const filter_var = require("../../../lib/filter_var.js");
 const path = require("path");
@@ -6,6 +13,8 @@ const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
 const {
   toPlainText,
   pageDescriptionFromBody,
+  isBlankPageTitle,
+  DEFAULT_PAGE_TITLE,
 } = require("../../../lib/sanitizePageMetadata.js");
 const {
   sanitizeHTMLForStorage,
@@ -98,6 +107,14 @@ async function saveNode(req, res) {
     // determines to be the correct page
     // @todo review this step by step
     let page = site.loadNode(bodyParams["node"]["id"]);
+    // a locked page is changed by nothing but unlocking it (the setLocked
+    // item operation); the lock a save carries applies to an unlocked page
+    if (isLocked(page)) {
+      return res.status(423).json({
+        status: 423,
+        data: { message: "Page is locked", reason: "locked" },
+      });
+    }
     if (page) {
       // convert web location for loading into file location for writing
       if (body) {
@@ -118,8 +135,10 @@ async function saveNode(req, res) {
         for (var i in pageData) {
           let data = pageData[i];
           // trap to ensure if front-end didnt send a UUID for id then we make it
-          if (!data["attributes"]["title"]) {
-            data["attributes"]["title"] = "New page";
+          // a page-break with no title, a blank one, or the text "null"
+          // saves the default title
+          if (isBlankPageTitle(toPlainText(data["attributes"]["title"]))) {
+            data["attributes"]["title"] = DEFAULT_PAGE_TITLE;
           }
           // to avoid critical error in parsing, we defer to the POST's ID always
           // this also blocks multiple page breaks if it doesn't exist as we don't allow
@@ -258,7 +277,8 @@ async function saveNode(req, res) {
             if (data["attributes"]["title"]) {
               // Security (SEC-SANITIZE): decode entities THEN strip tags so
               // `&lt;img onerror&gt;` can't decode into markup after the strip
-              page.title = toPlainText(data["attributes"]["title"]);
+              // stored without leading or trailing white space
+              page.title = toPlainText(data["attributes"]["title"]).trim();
             }
             if (
               Object.prototype.hasOwnProperty.call(
@@ -282,6 +302,10 @@ async function saveNode(req, res) {
                 HAXCMS.generateSlugName(data["attributes"]["slug"]),
               );
             }
+            // where the page sat before this save applies the page-break's
+            // parent / order, to tell whether the save moves it
+            const parentBeforeSave = parentOf(page);
+            const orderBeforeSave = orderOf(page);
             if (data["attributes"]["parent"]) {
               page.parent = data["attributes"]["parent"];
             } else {
@@ -322,6 +346,16 @@ async function saveNode(req, res) {
             if (data["attributes"]["order"]) {
               page.order = parseInt(data["attributes"]["order"]);
             }
+            // a save that moves the page keeps the outline rules the item
+            // operations keep: no two siblings share an order, and indent is
+            // the page's depth whatever depth the page-break carried
+            if (
+              parentBeforeSave !== parentOf(page) ||
+              orderBeforeSave !== orderOf(page)
+            ) {
+              makeRoomFor(site.manifest.items, page);
+            }
+            syncIndentToDepth(site.manifest.items);
             // If pathauto is enabled and overridePathauto is not set, regenerate the slug from the title
             const pathautoEnabled = isPathautoEnabled(site);
             if (pathautoEnabled && !page.metadata.overridePathauto) {

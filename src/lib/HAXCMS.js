@@ -217,7 +217,13 @@ const {
   escapeXMLValue,
 } = require("./sanitizeContent.js");
 const { materializeInlineImages } = require("./materializeInlineImages.js");
-const { applyPageMetadata, toPlainText } = require("./sanitizePageMetadata.js");
+const {
+  applyPageMetadata,
+  toPlainText,
+  isBlankPageTitle,
+  DEFAULT_PAGE_TITLE,
+} = require("./sanitizePageMetadata.js");
+const { readDefaultStarterItems } = require("./skeletonSettings.js");
 const exec = util.promisify(child_process.exec);
 // Security (SEC-EXEC): argument-array git calls (no shell string)
 const execFile = util.promisify(child_process.execFile);
@@ -392,13 +398,25 @@ function siteGitScope(dir) {
  *  - json: escaped as JSON string contents (JSON.stringify(v).slice(1, -1))
  *  - xml:  escapeXMLValue (&, <, >, ", ')
  *  - text: no escaping (control-char/backslash rule only)
+ *  - html: escapeHTMLAttribute (&, <, >, ", '), the same output as PHP Twig's
+ *          html autoescape; index.html also escapes the other values it
+ *          prints (see MANAGED_HTML_TEMPLATE_KEYS)
  */
 const MANAGED_TEMPLATE_TEXT_FORMATS = {
   "manifest.json": "json",
   "package.json": "json",
   "imsmanifest.xml": "xml",
   "llms.txt": "text",
+  "index.html": "html",
+  "ghpages.html": "html",
 };
+// Security (SEC-SANITIZE): every value an html managed template prints is
+// escaped, matching PHP where Twig's html autoescape covers all of them
+const MANAGED_HTML_TEMPLATE_KEYS = [
+  "hexCode",
+  "metaDescription",
+  "socialImage",
+];
 /**
  * Security (SEC-SANITIZE): parity contract with PHP: before rendering managed
  * JSON/XML, title/description have CR, LF and TAB replaced by a space and every
@@ -428,6 +446,9 @@ function escapeManagedTemplateText(value, format) {
   if (format === "xml") {
     return escapeXMLValue(text);
   }
+  if (format === "html") {
+    return escapeHTMLAttribute(text);
+  }
   return text;
 }
 /**
@@ -444,10 +465,16 @@ function managedTemplateVarsFor(fileName, templateVars) {
   if (!format) {
     return templateVars;
   }
-  return Object.assign({}, templateVars, {
+  const vars = Object.assign({}, templateVars, {
     title: escapeManagedTemplateText(templateVars.title, format),
     description: escapeManagedTemplateText(templateVars.description, format),
   });
+  if (format === "html") {
+    MANAGED_HTML_TEMPLATE_KEYS.forEach((key) => {
+      vars[key] = escapeManagedTemplateText(templateVars[key], format);
+    });
+  }
+  return vars;
 }
 // a site object
 // The boilerplate ships assets/icon-<n>x<n>.png at 48 to 512; the 16 and
@@ -631,6 +658,15 @@ class HAXCMSSite {
     // create an initial page to make sense of what's there
     // this will double as saving our location and other updated data
     // accept a schema which can generate an array of pages to start
+    // no build: the site starts with the default-starter skeleton's pages,
+    // the same first page the dashboard gives a new site. Only when there is
+    // no usable default-starter does it fall back to a "Welcome" page.
+    if (build == null) {
+      const starterItems = readDefaultStarterItems(HAXCMS);
+      if (starterItems) {
+        build = { structure: "from-skeleton", items: starterItems };
+      }
+    }
     if (build == null) {
       await this.addPage(null, "Welcome", "init", "welcome");
     } else {
@@ -1154,6 +1190,14 @@ class HAXCMSSite {
           : false,
       reservedSite: isAllRightsReserved(this.manifest.license),
       description: sanitizeManagedTemplateText(this.manifest.description),
+      // static index.html (haxtheweb/issues#3327): the site description,
+      // else the site title, so a static publish always has one
+      metaDescription: sanitizeManagedTemplateText(
+        this.manifest.description || this.manifest.title || "",
+      ),
+      socialImage: this.getSiteSocialShareImage(
+        await this.getLogoSize("512", "512"),
+      ),
       forceUpgrade: this.getForceUpgrade(),
       swhash: [],
       ghPagesURLParamCount: 0,
@@ -1186,7 +1230,14 @@ class HAXCMSSite {
       "offline.html",
       await this.getLogoSize("192", "192"),
     ];
+    // haxtheweb/issues#3322: one precache entry per location, so a logo size
+    // that resolves to a file already listed is not added again
+    const hashedLocations = new Set();
     for (const location of shellFiles) {
+      if (hashedLocations.has(location)) {
+        continue;
+      }
+      hashedLocations.add(location);
       // managed files are hashed from the boilerplate source, matching the
       // old copy-then-render flow (the site copy may be one rebuild behind)
       let filePath = managedSourcePaths[location];
@@ -1636,9 +1687,11 @@ class HAXCMSSite {
     // set a crappy default title
     // Security (SEC-SANITIZE): title can come straight from a request
     // (createNode items[]); store plain text like saveOutline / PHP
-    title = toPlainText(title);
-    if (title === "") {
-      title = "New page";
+    // a title that is blank, only markup, or the text "null" gets the default
+    // stored without leading or trailing white space (same in PHP and the CLI)
+    title = toPlainText(title).trim();
+    if (isBlankPageTitle(title)) {
+      title = DEFAULT_PAGE_TITLE;
     }
     page.title = title;
     if (parent == null) {
@@ -1741,12 +1794,18 @@ class HAXCMSSite {
       // saved), not pre-existing files/ refs, so the entity uuids are
       // the complete set. Pre-existing files/ refs in imported HTML are
       // reconciled by saveNode's content scan on the next edit.
-      if (!page.metadata) {
-        page.metadata = {};
-      }
-      page.metadata.files = uuids;
-      if (uuids.length > 0 && !bulk) {
-        await this.manifest.save();
+      // Only a page that brought files gets the list. An empty list used
+      // to be set here too, and whether it reached site.json depended on a
+      // later save happening, so the same page differed between backends.
+      // Readers treat a missing list as no files.
+      if (uuids.length > 0) {
+        if (!page.metadata) {
+          page.metadata = {};
+        }
+        page.metadata.files = uuids;
+        if (!bulk) {
+          await this.manifest.save();
+        }
       }
     }
     this.writePageAlternateFormats(page, alternateContent);
@@ -2520,6 +2579,30 @@ class HAXCMSSite {
     return "";
   }
   /**
+   * Site-level social image for the static index.html / ghpages.html (no page
+   * context): the theme banner image, else the site's own logo (a logo under
+   * files/) at its 512 size, else "" (never the generic HAX icon). Same rule
+   * as PHP getSiteSocialShareImage.
+   * @param {string} sizedLogo the getLogoSize("512", "512") result
+   * @return string sanitized URL or ""
+   */
+  getSiteSocialShareImage(sizedLogo = "") {
+    const site =
+      this.manifest && this.manifest.metadata ? this.manifest.metadata : {};
+    const image =
+      site.theme && site.theme.variables && site.theme.variables.image
+        ? String(site.theme.variables.image).trim()
+        : "";
+    if (image !== "") {
+      return sanitizeURLValue(image, "");
+    }
+    const logo = site.site ? site.site.logo : "";
+    if (typeof logo === "string" && logo.startsWith("files/") && sizedLogo) {
+      return sanitizeURLValue(sizedLogo, "");
+    }
+    return "";
+  }
+  /**
    * Return attributes for the site
    * @todo make this mirror the drupal get attributes method
    * @return string eventually, array of data keyed by type of information
@@ -2906,8 +2989,10 @@ class HAXCMSSite {
     // Security (SEC-SANITIZE): titles are plain text, same as addPage /
     // saveOutline / saveNode; a title that is nothing but markup gets the
     // same default as addPage (mirrors PHP HAXCMSSite::itemFromParams)
-    const plainTitle = toPlainText(params["node"]["title"]).replace(/\n/g, "");
-    item.title = plainTitle === "" ? "New page" : plainTitle;
+    const plainTitle = toPlainText(params["node"]["title"])
+      .replace(/\n/g, "")
+      .trim();
+    item.title = isBlankPageTitle(plainTitle) ? DEFAULT_PAGE_TITLE : plainTitle;
     if (
       params["node"]["id"] &&
       params["node"]["id"] != "" &&
@@ -5756,6 +5841,7 @@ class HAXCMSClass {
             "manifest-metadata-theme-variables-cssVariable": null,
             "manifest-metadata-theme-variables-palette": null,
             "manifest-metadata-theme-variables-icon": null,
+            "manifest-metadata-theme-designSystem": null,
             "regions": {
               "manifest-metadata-theme-regions-header": null,
               "manifest-metadata-theme-regions-sidebarFirst": null,

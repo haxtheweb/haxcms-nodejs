@@ -20,7 +20,8 @@
 //
 // Seed convention: test/_helpers/fuzz-config.* (haxtheweb/issues#3272).
 // This file is copied, not published, across haxtheweb/create,
-// haxtheweb/haxcms-nodejs and haxtheweb/webcomponents; keep the copies in step.
+// haxtheweb/haxcms-nodejs, haxtheweb/haxcms-php and haxtheweb/webcomponents;
+// keep the copies in step.
 import { spawn } from "node:child_process";
 import { randomInt } from "node:crypto";
 import fs from "node:fs";
@@ -116,10 +117,12 @@ function run(command, extraEnv) {
 //   TAP (node --test, no TTY):  "not ok 3 - name"
 //   spec / dot (node --test):   "✖ name (12.3ms)"
 //   wtr failures reporter:      "• name [chromium]"
+//   PHPUnit (haxcms-php):       "1) BlockOperationsFuzzTest::testFuzz"
 const NAME_PATTERNS = [
   /^\s*not ok \d+ - (.+?)\s*$/,
   /^\s*✖ (.+?) \([\d.]+m?s\)\s*$/,
   /^\s*• (.+?)(?: \[[\w-]+\])?\s*$/,
+  /^\d+\) ([\w\\]+::\w+)(?: with data set .*)?\s*$/,
 ];
 const REPORT = /\{ seed: (-?\d+), path: "(\d+(?::\d+)*)"/;
 const COUNTEREXAMPLE = /Counterexample: (.*)$/;

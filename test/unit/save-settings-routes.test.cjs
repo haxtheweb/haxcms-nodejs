@@ -515,6 +515,114 @@ describe("saveManifest", () => {
     assert.equal(site.manifest.metadata.theme.variables.palette, "old-palette");
   });
 
+  test("a design system name is stored and kept", async (t) => {
+    const site = makeFakeSite();
+    site.manifest.metadata.theme = { element: "my-theme", variables: {} };
+    mockManifestExtras(t, site);
+    mockSiteAuthWithForm(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        haxcms_form_id: "form-1",
+        haxcms_form_token: "token",
+        manifest: {
+          site: { "manifest-title": "P", "manifest-description": "D" },
+          theme: { "manifest-metadata-theme-designSystem": "carbon" },
+          author: {},
+          seo: {},
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
+  });
+
+  test("an empty design system goes back to DDD", async (t) => {
+    const site = makeFakeSite();
+    site.manifest.metadata.theme = {
+      element: "my-theme",
+      variables: {},
+      designSystem: "carbon",
+    };
+    mockManifestExtras(t, site);
+    mockSiteAuthWithForm(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        haxcms_form_id: "form-1",
+        haxcms_form_token: "token",
+        manifest: {
+          site: { "manifest-title": "P", "manifest-description": "D" },
+          theme: { "manifest-metadata-theme-designSystem": "" },
+          author: {},
+          seo: {},
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal("designSystem" in site.manifest.metadata.theme, false);
+  });
+
+  test("an invalid design system is ignored", async (t) => {
+    const site = makeFakeSite();
+    site.manifest.metadata.theme = {
+      element: "my-theme",
+      variables: {},
+      designSystem: "carbon",
+    };
+    mockManifestExtras(t, site);
+    mockSiteAuthWithForm(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        haxcms_form_id: "form-1",
+        haxcms_form_token: "token",
+        manifest: {
+          site: { "manifest-title": "P", "manifest-description": "D" },
+          theme: { "manifest-metadata-theme-designSystem": "../evil" },
+          author: {},
+          seo: {},
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
+  });
+
+  test("the design system survives a theme change", async (t) => {
+    const site = makeFakeSite();
+    site.manifest.metadata.theme = {
+      element: "old-theme",
+      variables: {},
+      designSystem: "carbon",
+    };
+    mockManifestExtras(t, site);
+    mockSiteAuthWithForm(t, site);
+    const res = stubRes();
+    await saveManifest(
+      siteReq({
+        site: { name: "demo" },
+        haxcms_form_id: "form-1",
+        haxcms_form_token: "token",
+        manifest: {
+          site: { "manifest-title": "P", "manifest-description": "D" },
+          theme: { "manifest-metadata-theme-element": "my-theme" },
+          author: {},
+          seo: {},
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal(site.manifest.metadata.theme.designSystem, "carbon");
+  });
+
   test("a manifest.save failure rejects the handler (no catch in route)", async (t) => {
     const site = makeFakeSite();
     mockManifestExtras(t, site);
@@ -1590,6 +1698,26 @@ describe("saveMediaSettings", () => {
       assert.equal(res.statusCode, 400, "case " + JSON.stringify(cases[i]));
       assert.equal(res.body.data.message, expected[i]);
     }
+  });
+
+  test("formats HAXcms can never store answer 400 naming them (haxtheweb/issues#3054)", async (t) => {
+    useTempConfigDirectory(t);
+    mockUserAuth(t);
+    const res = stubRes();
+    await saveMediaSettings(
+      userReq({ acceptedFormats: "png, SVG, pdf, .exe" }),
+      res,
+    );
+    assert.equal(res.statusCode, 400);
+    assert.equal(
+      res.body.data.message,
+      "Invalid acceptedFormats value: unsupported svg, exe",
+    );
+    // a list within the allowlist saves
+    const ok = stubRes();
+    await saveMediaSettings(userReq({ acceptedFormats: "png,pdf" }), ok);
+    assert.equal(ok.statusCode, null);
+    assert.equal(ok.body.data.acceptedFormats, "png,pdf");
   });
 
   test("a valid payload clamps, normalizes, and persists settings/media.json", async (t) => {

@@ -10,7 +10,53 @@ const DEFAULT_JPEG_QUALITY = 80;
 // settings/media.json (maxUploadSizeMb, up to MAX_UPLOAD_SIZE_MB) when a
 // deployment really needs larger media files.
 const DEFAULT_MAX_UPLOAD_SIZE_MB = 256;
-const DEFAULT_ACCEPTED_FORMATS = "jpg,jpeg,png,gif,webp,svg";
+// haxtheweb/issues#3054: every format HAXcms can safely store (the
+// HAXCMSFile upload allowlist). acceptedFormats narrows uploads within this
+// list; a format outside it is never accepted, whatever the setting says.
+const SAFE_UPLOAD_FORMATS = [
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webm",
+  "webp",
+  "mp4",
+  "mp3",
+  "mov",
+  "csv",
+  "ppt",
+  "pptx",
+  "xlsx",
+  "doc",
+  "xls",
+  "docx",
+  "pdf",
+  "rtf",
+  "txt",
+  "vtt",
+  "html",
+  "md",
+  "xml",
+  "ics",
+  "vcf",
+  "h5p",
+];
+const DEFAULT_ACCEPTED_FORMATS = SAFE_UPLOAD_FORMATS.join(",");
+// The one upload allowlist as a file-name test. Every route that writes into
+// files/ (direct upload, build.files bulk import, importers, remote staging)
+// uses this, so the list lives in one place. Built only from the fixed
+// [a-z0-9] tokens above, never from input.
+const SAFE_UPLOAD_EXTENSION_REGEX = new RegExp(
+  "\\.(" + SAFE_UPLOAD_FORMATS.join("|") + ")$",
+  "i",
+);
+// defaults earlier releases stored or showed while the setting was not yet
+// applied to uploads; a saved copy of one means "not chosen", so it reads as
+// the default instead of suddenly blocking documents and media
+const LEGACY_DEFAULT_ACCEPTED_FORMATS = [
+  "jpg,jpeg,png,gif,webp,svg",
+  "jpg,jpeg,png,webp,gif",
+];
 const DEFAULT_MEDIA_SETTINGS = {
   jpegQuality: DEFAULT_JPEG_QUALITY,
   maxUploadSizeMb: DEFAULT_MAX_UPLOAD_SIZE_MB,
@@ -113,10 +159,45 @@ function getEffectiveMediaSettings(settings = {}) {
         ? DEFAULT_MAX_UPLOAD_SIZE_MB
         : source.maxUploadSizeMb,
     acceptedFormats:
-      source.acceptedFormats == null
+      source.acceptedFormats == null ||
+      LEGACY_DEFAULT_ACCEPTED_FORMATS.indexOf(source.acceptedFormats) !== -1
         ? DEFAULT_ACCEPTED_FORMATS
         : source.acceptedFormats,
   };
+}
+
+/**
+ * Formats in a submitted acceptedFormats value that HAXcms can never store
+ * (outside SAFE_UPLOAD_FORMATS). saveMediaSettings refuses a list that
+ * names any, so the setting can only narrow the allowlist, never claim to
+ * widen it (haxtheweb/issues#3054).
+ * @param {string|string[]} value
+ * @returns {string[]} normalized unsupported formats, in the order given
+ */
+function unsupportedAcceptedFormats(value) {
+  const normalized = normalizeAcceptedFormats(value);
+  if (normalized === null) {
+    return [];
+  }
+  return normalized
+    .split(",")
+    .filter((format) => SAFE_UPLOAD_FORMATS.indexOf(format) === -1);
+}
+
+/**
+ * Whether an upload with this extension is accepted: it must be a safe
+ * format, and one the media settings accept (haxtheweb/issues#3054).
+ * @param {object} settings readMediaSettings() result
+ * @param {string} extension file extension, with or without the dot
+ * @returns {boolean}
+ */
+function isUploadFormatAccepted(settings, extension) {
+  const format = `${extension || ""}`.trim().toLowerCase().replace(/^\.+/, "");
+  if (SAFE_UPLOAD_FORMATS.indexOf(format) === -1) {
+    return false;
+  }
+  const accepted = getEffectiveMediaSettings(settings).acceptedFormats;
+  return `${accepted}`.split(",").indexOf(format) !== -1;
 }
 
 function hasSupportedMediaSettingsPayload(input = {}) {
@@ -178,6 +259,11 @@ module.exports = {
   normalizeAcceptedFormats,
   normalizeMediaSettings,
   getEffectiveMediaSettings,
+  isUploadFormatAccepted,
+  unsupportedAcceptedFormats,
+  SAFE_UPLOAD_FORMATS,
+  SAFE_UPLOAD_EXTENSION_REGEX,
+  DEFAULT_ACCEPTED_FORMATS,
   DEFAULT_MEDIA_SETTINGS,
   hasSupportedMediaSettingsPayload,
   readMediaSettings,

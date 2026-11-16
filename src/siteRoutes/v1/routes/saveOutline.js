@@ -14,6 +14,8 @@ const strip_tags = require("locutus/php/strings/strip_tags").strip_tags;
 const {
   toPlainText,
   applyPageMetadata,
+  isBlankPageTitle,
+  DEFAULT_PAGE_TITLE,
 } = require("../../../lib/sanitizePageMetadata.js");
 /**
  * @OA\Post(
@@ -155,7 +157,11 @@ async function saveOutline(req, res) {
           // Security (SEC-SANITIZE): titles are plain text, same as saveNode
           const plainTitle = toPlainText(item.title);
           if (plainTitle !== "") {
-            page.title = plainTitle;
+            // the text "null" or only white space is no title
+            // stored without leading or trailing white space
+            page.title = isBlankPageTitle(plainTitle)
+              ? DEFAULT_PAGE_TITLE
+              : plainTitle.trim();
           }
         }
         // description belongs to the JSON Outline Schema item; same handling
