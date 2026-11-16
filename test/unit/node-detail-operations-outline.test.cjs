@@ -93,9 +93,9 @@ test("indent moves a page under its previous sibling and cascades slugs", async 
   const b = result.item;
   assert.equal(b.parent, "a");
   assert.equal(b.indent, 1);
-  // the page itself already counts as a child of the new parent when the
-  // last child order is computed, so the order continues past it
-  assert.equal(b.order, 2);
+  // it goes after the new parent's last child (c, order 0); its own old
+  // order does not count (haxtheweb/issues#3360)
+  assert.equal(b.order, 1);
   // pathauto regenerates the slug from the parent chain + title
   assert.equal(b.slug, "a/t-b");
 });
