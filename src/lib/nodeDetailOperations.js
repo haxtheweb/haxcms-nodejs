@@ -10,6 +10,10 @@ const {
   platformAllows,
 } = require('./platformFeatures.js');
 const FileContentScanner = require('./FileContentScanner.js');
+const {
+  isBlankPageTitle,
+  DEFAULT_PAGE_TITLE,
+} = require('./sanitizePageMetadata.js');
 
 const PAGE_DETAIL_OPERATIONS = new Set([
   'setTitle',
@@ -135,6 +139,10 @@ function applyMetadataMutation(page, details = {}, operation = null, site = null
         details.title !== ''
       ) {
         page.title = strip_tags(details.title);
+        // white space or the text "null" is no title
+        if (isBlankPageTitle(page.title)) {
+          page.title = DEFAULT_PAGE_TITLE;
+        }
         // If pathauto is on and overridePathauto is not set, regenerate the slug and cascade
         if (isPathautoEnabled(site) && !isOverridePathauto(page)) {
           const cleanTitle = HAXCMS.cleanTitle(page.title);

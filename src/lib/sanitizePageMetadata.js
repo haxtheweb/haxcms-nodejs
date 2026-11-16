@@ -31,6 +31,25 @@ function toPlainText(value) {
 }
 
 /**
+ * The title a page gets when it has none.
+ */
+const DEFAULT_PAGE_TITLE = 'New page';
+
+/**
+ * Whether a title counts as no title: empty, only white space, or the text
+ * `null` in any case. `null` is what a missing value turns into when it is
+ * written out as text, so it is never a real title. Same rule as PHP
+ * SanitizeContent::isBlankPageTitle.
+ */
+function isBlankPageTitle(title) {
+  if (title === null || title === undefined) {
+    return true;
+  }
+  const text = String(title).trim();
+  return text === '' || text.toLowerCase() === 'null';
+}
+
+/**
  * Decode named and numeric character references in one pass, the way PHP's
  * html_entity_decode does. locutus' html_entity_decode only knows named
  * entities, so a title sent as `It&#x27;s` (how serializers escape an
@@ -326,6 +345,8 @@ function applyPageMetadata(page, incoming, options = {}) {
 
 module.exports = {
   toPlainText,
+  DEFAULT_PAGE_TITLE,
+  isBlankPageTitle,
   pageDescriptionFromBody,
   removeNonTextElements,
   AUTO_DESCRIPTION_MAX_CHARS,

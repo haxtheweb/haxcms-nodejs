@@ -768,14 +768,14 @@ test("site pages render the index with replaced managed head content", async () 
 });
 
 test("explicit page variants serve sidecar formats with headers", async () => {
-  const base = runtime.baseUrl + "/_sites/" + SITE_NAME + "/welcome";
+  const base = runtime.baseUrl + "/_sites/" + SITE_NAME + "/home";
   const md = await request("GET", base + ".md", {});
   assert.equal(md.status, 200);
   assert.ok(
     String(md.headers["content-type"] || "").indexOf("text/markdown") !== -1,
   );
   assert.ok(
-    String(md.headers["content-location"] || "").indexOf("welcome.md") !== -1,
+    String(md.headers["content-location"] || "").indexOf("home.md") !== -1,
   );
   const json = await request("GET", base + ".json", {});
   assert.equal(json.status, 200);
@@ -799,7 +799,7 @@ test("explicit page variants serve sidecar formats with headers", async () => {
 test("content negotiation serves the markdown variant via the Accept header", async () => {
   const result = await request(
     "GET",
-    runtime.baseUrl + "/_sites/" + SITE_NAME + "/welcome",
+    runtime.baseUrl + "/_sites/" + SITE_NAME + "/home",
     {
       headers: { accept: "text/markdown" },
     },
