@@ -53,3 +53,26 @@ test("every other page is a post under Posts", () => {
 test("ids are unique", () => {
   assert.equal(new Set(items.map((item) => item.id)).size, items.length);
 });
+
+// New installs offer the new blocks in the block picker: the picker's list is
+// the appStore autoloader in the system setup config (not
+// dynamicElementLoader.json), copied into _config/config.json on install.
+test("new installs offer a11y-footnote and ddd-hero in the block picker", () => {
+  const config = require(
+    path.join(
+      __dirname,
+      "..",
+      "..",
+      "src",
+      "boilerplate",
+      "systemsetup",
+      "config.json",
+    ),
+  );
+  const autoloader = config.appStore.autoloader;
+  assert.equal(
+    autoloader["a11y-footnote"],
+    "@haxtheweb/a11y-footnote/a11y-footnote.js",
+  );
+  assert.equal(autoloader["ddd-hero"], "@haxtheweb/d-d-d/lib/ddd-hero.js");
+});
