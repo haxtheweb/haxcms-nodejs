@@ -539,7 +539,8 @@ describe("materializeInlineImages — #2945", () => {
           '<place-holder type="image" text="vector chart"></place-holder>',
         ) !== -1,
       );
-      assert.deepEqual(page.metadata.files, []);
+      // no file references: the page has no files list
+      assert.equal(page.metadata.files, undefined);
       assert.equal(
         saves.length,
         1,
@@ -596,7 +597,8 @@ describe("materializeInlineImages — #2945", () => {
         ) !== -1,
       );
       assert.deepEqual(withImage.metadata.files, [loaded.uuid]);
-      assert.deepEqual(textOnly.metadata.files, []);
+      // a page that brought no files has no files list
+      assert.equal(textOnly.metadata.files, undefined);
       assert.deepEqual(
         saves[saves.length - 1],
         [[loaded.uuid], []],

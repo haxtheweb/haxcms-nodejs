@@ -146,7 +146,9 @@ function applyMetadataMutation(
         Object.prototype.hasOwnProperty.call(details, "title") &&
         details.title !== ""
       ) {
-        page.title = strip_tags(details.title);
+        // stored without leading or trailing white space, like every
+        // other write path and the CLI
+        page.title = strip_tags(details.title).trim();
         // white space or the text "null" is no title
         if (isBlankPageTitle(page.title)) {
           page.title = DEFAULT_PAGE_TITLE;

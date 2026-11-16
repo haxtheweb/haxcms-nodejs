@@ -288,11 +288,13 @@ async function createNode(req, res) {
           // page.metadata.files from those uuids rather than re-scanning:
           // mammoth docx output carries images as data URIs (which the
           // helper just saved), not pre-existing files/ refs.
-          if (!page.metadata) {
-            page.metadata = {};
-          }
-          page.metadata.files = uuids;
+          // only a page that brought files gets the list (same rule as
+          // addPage and haxcms-php)
           if (uuids.length > 0) {
+            if (!page.metadata) {
+              page.metadata = {};
+            }
+            page.metadata.files = uuids;
             await site.manifest.save();
           }
         }

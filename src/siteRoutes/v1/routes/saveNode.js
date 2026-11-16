@@ -226,7 +226,8 @@ async function saveNode(req, res) {
             if (data["attributes"]["title"]) {
               // Security (SEC-SANITIZE): decode entities THEN strip tags so
               // `&lt;img onerror&gt;` can't decode into markup after the strip
-              page.title = toPlainText(data["attributes"]["title"]);
+              // stored without leading or trailing white space
+              page.title = toPlainText(data["attributes"]["title"]).trim();
             }
             if (
               Object.prototype.hasOwnProperty.call(

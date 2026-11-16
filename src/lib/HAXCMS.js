@@ -1688,7 +1688,8 @@ class HAXCMSSite {
     // Security (SEC-SANITIZE): title can come straight from a request
     // (createNode items[]); store plain text like saveOutline / PHP
     // a title that is blank, only markup, or the text "null" gets the default
-    title = toPlainText(title);
+    // stored without leading or trailing white space (same in PHP and the CLI)
+    title = toPlainText(title).trim();
     if (isBlankPageTitle(title)) {
       title = DEFAULT_PAGE_TITLE;
     }
@@ -1793,12 +1794,18 @@ class HAXCMSSite {
       // saved), not pre-existing files/ refs, so the entity uuids are
       // the complete set. Pre-existing files/ refs in imported HTML are
       // reconciled by saveNode's content scan on the next edit.
-      if (!page.metadata) {
-        page.metadata = {};
-      }
-      page.metadata.files = uuids;
-      if (uuids.length > 0 && !bulk) {
-        await this.manifest.save();
+      // Only a page that brought files gets the list. An empty list used
+      // to be set here too, and whether it reached site.json depended on a
+      // later save happening, so the same page differed between backends.
+      // Readers treat a missing list as no files.
+      if (uuids.length > 0) {
+        if (!page.metadata) {
+          page.metadata = {};
+        }
+        page.metadata.files = uuids;
+        if (!bulk) {
+          await this.manifest.save();
+        }
       }
     }
     this.writePageAlternateFormats(page, alternateContent);
@@ -2967,7 +2974,9 @@ class HAXCMSSite {
     // Security (SEC-SANITIZE): titles are plain text, same as addPage /
     // saveOutline / saveNode; a title that is nothing but markup gets the
     // same default as addPage (mirrors PHP HAXCMSSite::itemFromParams)
-    const plainTitle = toPlainText(params["node"]["title"]).replace(/\n/g, "");
+    const plainTitle = toPlainText(params["node"]["title"])
+      .replace(/\n/g, "")
+      .trim();
     item.title = isBlankPageTitle(plainTitle) ? DEFAULT_PAGE_TITLE : plainTitle;
     if (
       params["node"]["id"] &&

@@ -189,3 +189,54 @@ test("a page-break titled null or blank saves the default title", async (t) => {
     t.mock.restoreAll();
   }
 });
+
+test("a page-break title is saved without leading or trailing white space", async (t) => {
+  for (const title of ["  Padded title  ", "Padded title\u00a0"]) {
+    const page = {
+      id: "item-a",
+      title: "Item A",
+      slug: "item-a",
+      parent: null,
+      order: 0,
+      indent: 0,
+      location: "pages/item-a/index.html",
+      metadata: {},
+      writeLocation: async () => 1,
+    };
+    const items = [page];
+    const site = {
+      siteDirectory: "/tmp/does-not-matter",
+      loadNode: (id) => items.find((item) => item.id === id) || null,
+      getUniqueSlugName: (slug) => slug,
+      updateNode: async () => true,
+      writePageAlternateFormats: async () => true,
+      updateAlternateFormats: async () => true,
+      gitCommit: async () => true,
+      manifest: { items, metadata: { site: {} }, save: async () => true },
+    };
+    t.mock.method(HAXCMS, "validateRequestToken", () => true);
+    t.mock.method(HAXCMS, "getActiveUserName", () => "tester");
+    t.mock.method(HAXCMS, "loadSite", async () => site);
+    const req = {
+      headers: { "x-haxcms-site-token": "token" },
+      haxcmsSiteApiAuth: {
+        authenticated: true,
+        securityLevel: "authenticated-site",
+        userName: "tester",
+        siteName: "demo",
+      },
+      body: {
+        site: { name: "demo" },
+        node: {
+          id: "item-a",
+          body: `<page-break title="${title}" item-id="item-a"></page-break><p>Body</p>`,
+        },
+      },
+    };
+    const res = stubRes();
+    await saveNode(req, res);
+    assert.equal(res.statusCode, 200, title);
+    assert.equal(page.title, "Padded title", JSON.stringify(title));
+    t.mock.restoreAll();
+  }
+});

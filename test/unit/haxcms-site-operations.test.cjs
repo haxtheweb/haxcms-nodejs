@@ -127,6 +127,8 @@ test("createSite builds a default site with the default-starter page, managed fi
   assert.equal(site.manifest.items[0].title, "Home");
   assert.equal(site.manifest.items[0].slug, "home");
   assert.equal(site.manifest.items[0].metadata.published, true);
+  // a page that brought no files has no files list, the same as haxcms-php
+  assert.equal(site.manifest.items[0].metadata.files, undefined);
   const homeHtml = fs.readFileSync(
     path.join(sitesRoot, "unit-site", site.manifest.items[0].location),
     "utf8",
@@ -540,6 +542,17 @@ test("addPage stores the title as plain text (SEC-SANITIZE)", async () => {
     "null-title-page",
   );
   assert.equal(nullText.title, "New page");
+});
+
+test("addPage stores a title without leading or trailing white space", async () => {
+  const site = await HAXCMS.loadSite("unit-site");
+  const page = await site.addPage(
+    null,
+    "  Padded title\u00a0 ",
+    "default",
+    "padded-title-page",
+  );
+  assert.equal(page.title, "Padded title");
 });
 
 test("addPage deduplicates a slug that collides with an existing page", async () => {
@@ -2049,6 +2062,14 @@ test("itemFromParams falls back to the addPage default for a markup-only title",
     const item = site.itemFromParams({ node: { title: raw } });
     assert.equal(item.title, "New page", String(raw));
   }
+});
+
+test("itemFromParams stores a title without leading or trailing white space", async () => {
+  const site = await HAXCMS.loadSite("unit-website");
+  const item = site.itemFromParams({
+    node: { title: "  Padded <b>title</b> " },
+  });
+  assert.equal(item.title, "Padded title");
 });
 
 test("itemFromParams merges request metadata through the page sanitiser", async () => {
