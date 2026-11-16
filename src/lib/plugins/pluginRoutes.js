@@ -1,10 +1,17 @@
-// DRAFT (plugin platform, contingent on https://github.com/haxtheweb/haxcms-plugin-examples/pull/1).
+// DRAFT (plugin platform, contingent on https://github.com/haxtheweb/haxcms-plugins/pull/15).
 //
 // Mounts plugin operations (spec/05): each plugin's config/openapi.yaml paths live under
 //   site scope    /x/api/v1/plugins/<id>/...        (and /<sitesDirectory>/<site>/x/api/v1/plugins/<id>/...)
 //   system scope  /system/api/v1/plugins/<id>/...
-// and the plugin list at GET /system/api/v1/plugins. The engine enforces each operation's declared security from
-// the credentials app.js resolved for the request; routes never decide auth themselves.
+// The engine enforces each operation's declared security from the credentials app.js resolved for the request.
+// Core's own routes here are the plugin registry and enablement (spec/03, The plugin registry):
+//   GET  /system/api/v1/plugins                  the registry for the system        (JWT + user token)
+//   POST /system/api/v1/plugins/<id>/enable      enable for the whole system        (JWT + user token)
+//   POST /system/api/v1/plugins/<id>/disable
+//   GET  /x/api/v1/plugins                       the registry as one site sees it   (JWT + site token)
+//   POST /x/api/v1/plugins/<id>/enable           enable for that site               (JWT + site token)
+//   POST /x/api/v1/plugins/<id>/disable
+// enable, disable and settings are reserved sub-paths: a plugin operation cannot take them.
 const pluginSystem = require("./pluginSystem.js");
 const fs = require("fs");
 const path = require("path");
@@ -159,7 +166,12 @@ function mountPluginRoutes(app, deps) {
   const contributions = (surface) => async (req, res) => {
     const site = surface === "site" ? await deps.resolveSite(req) : null;
     const auth = deps.resolveAuth(req, site);
-    if (!auth.jwt || (surface === "site" && !site)) {
+    // both credentials for the dashboard, site credentials for a site's admin screens (spec/13 section 8)
+    const allowed =
+      surface === "site"
+        ? !!site && auth.jwt && auth.siteToken
+        : auth.jwt && auth.userToken;
+    if (!allowed) {
       return res
         .status(401)
         .json({ status: 401, data: { message: "access denied" } });
@@ -246,22 +258,84 @@ function mountPluginRoutes(app, deps) {
     }
   });
 
+  // ---- the plugin registry and enablement (spec/03) ----
+  const refuse = (res, status, message) =>
+    res.status(status).json({ status, data: { message } });
+  const systemRegistry = async (req, res) => {
+    const auth = deps.resolveAuth(req, null);
+    if (!auth.jwt || !auth.userToken) {
+      return refuse(res, 401, "access denied");
+    }
+    const data = await pluginSystem.registry(null, {
+      user: userOf(auth),
+      sitesDirectory: deps.sitesDirectory,
+    });
+    return res.json({ status: 200, data });
+  };
+  const siteRegistry = async (req, res) => {
+    const site = await deps.resolveSite(req).catch(() => null);
+    const auth = deps.resolveAuth(req, site);
+    if (!site || !auth.jwt || !auth.siteToken) {
+      return refuse(res, 401, "access denied");
+    }
+    const data = await pluginSystem.registry(site, { user: userOf(auth) });
+    return res.json({ status: 200, data });
+  };
+  const toggle = (scope, action) => async (req, res) => {
+    try {
+      const site =
+        scope === "site" ? await deps.resolveSite(req).catch(() => null) : null;
+      const auth = deps.resolveAuth(req, site);
+      const allowed =
+        scope === "site"
+          ? !!site && auth.jwt && auth.siteToken
+          : auth.jwt && auth.userToken;
+      if (!allowed) {
+        return refuse(res, 401, "access denied");
+      }
+      const r = await pluginSystem[action](site, String(req.params.plugin), {
+        user: userOf(auth),
+        sitesDirectory: deps.sitesDirectory,
+      });
+      if (r.status !== 200) {
+        const body = r.body || {};
+        const data = { message: body.error || "refused" };
+        for (const k of ["dependencies", "dependents", "status", "previous"]) {
+          if (body[k] !== undefined) {
+            data[k] = body[k];
+          }
+        }
+        return res.status(r.status).json({ status: r.status, data });
+      }
+      return res.json({ status: 200, data: r.body });
+    } catch {
+      return refuse(res, 500, "server error");
+    }
+  };
+  app.get(`${base}system/api/v1/plugins`, systemRegistry);
+  app.get(`${base}x/api/v1/plugins`, siteRegistry);
+  app.get(`${base}${deps.sitesDirectory}/*/x/api/v1/plugins`, siteRegistry);
+  for (const action of ["enable", "disable"]) {
+    app.post(
+      `${base}system/api/v1/plugins/:plugin/${action}`,
+      toggle("system", action),
+    );
+    app.post(
+      `${base}x/api/v1/plugins/:plugin/${action}`,
+      toggle("site", action),
+    );
+    app.post(
+      `${base}${deps.sitesDirectory}/*/x/api/v1/plugins/:plugin/${action}`,
+      toggle("site", action),
+    );
+  }
+
   app.all(`${base}x/api/v1/plugins/:plugin/*`, handle("site"));
   app.all(
     `${base}${deps.sitesDirectory}/*/x/api/v1/plugins/:plugin/*`,
     handle("site"),
   );
   app.all(`${base}system/api/v1/plugins/:plugin/*`, handle("system"));
-  app.get(`${base}system/api/v1/plugins`, async (req, res) => {
-    const auth = deps.resolveAuth(req, null);
-    if (!auth.jwt) {
-      return res
-        .status(401)
-        .json({ status: 401, data: { message: "access denied" } });
-    }
-    const h = await pluginSystem.systemHost({ user: userOf(auth) });
-    return res.json({ status: 200, data: h ? h.status() : [] });
-  });
 }
 
 module.exports = { mountPluginRoutes };

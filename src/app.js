@@ -2175,7 +2175,7 @@ const appReady = systemStructureContext().then((site) => {
     }
   }
   assertSiteApiMutationRoutesAreSecured(siteRouteRegistry);
-  // DRAFT plugin platform (https://github.com/haxtheweb/haxcms-plugin-examples/pull/1): plugin operations under
+  // DRAFT plugin platform (https://github.com/haxtheweb/haxcms-plugins/pull/15): plugin operations under
   // x/api/v1/plugins/<id>/ and system/api/v1/plugins/<id>/. The engine enforces each operation's declared security
   // from the credentials resolved here.
   if (process.env.HAXCMS_PLUGINS !== "off") {

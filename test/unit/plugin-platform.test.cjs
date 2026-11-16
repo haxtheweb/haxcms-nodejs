@@ -1,6 +1,6 @@
 "use strict";
 
-// DRAFT plugin platform (contingent on https://github.com/haxtheweb/haxcms-plugin-examples/pull/1).
+// DRAFT plugin platform (contingent on https://github.com/haxtheweb/haxcms-plugins/pull/15).
 //
 // Runs the spec's backend fixtures against a REAL site in a temp HAXCMS_ROOT (no catalog plugin is needed):
 //   - saveNode fires page.before.save: fx-backend stores its declared metadata.plugins field in site.json,
@@ -228,6 +228,7 @@ describe("plugin operations are mounted under x/api/v1/plugins/<id>/", () => {
     const app = {
       all: (p, h) => routes.push({ p, h }),
       get: (p, h) => routes.push({ p, h, get: true }),
+      post: (p, h) => routes.push({ p, h, post: true }),
     };
     let authState = {
       userName: "admin",
@@ -400,6 +401,7 @@ describe("system-scope routes run on the system engine", () => {
     const app = {
       all: (p, h) => routes.push({ p, h }),
       get: (p, h) => routes.push({ p, h }),
+      post: (p, h) => routes.push({ p, h, post: true }),
     };
     mountPluginRoutes(app, {
       basePath: "/",
@@ -450,9 +452,10 @@ describe("system-scope routes run on the system engine", () => {
       () => h.saveEntity("page", { id: "p1", title: "x" }),
       /page records: needs a site/,
     );
+    // each request gets its own view; the engine underneath is cached per HAXcms root
     assert.strictEqual(
-      await pluginSystem.systemHost({ user: null }),
-      h,
+      Object.getPrototypeOf(await pluginSystem.systemHost({ user: null })),
+      Object.getPrototypeOf(h),
       "cached per HAXcms root",
     );
   });
@@ -554,5 +557,233 @@ describe("ctx.exec runs listed commands", () => {
       host.execFor(plugin, "sh", ["-c", "id"]),
       /may not run "sh"/,
     );
+  });
+});
+
+// One engine serves every request for a site, so a request's user must not live on it (spec/13 section 8c). Each
+// request here carries its own credentials and the two overlap; with the user kept on the shared engine, both notes
+// were written as the same author.
+describe("overlapping requests keep their own user", () => {
+  test("two people posting a note at the same moment are each the author of their own", async () => {
+    const routes = [];
+    const app = {
+      all: (p, h) => routes.push({ p, h }),
+      get: (p, h) => routes.push({ p, h }),
+      post: (p, h) => routes.push({ p, h }),
+    };
+    mountPluginRoutes(app, {
+      basePath: "/",
+      sitesDirectory: "_sites",
+      resolveSite: async () => freshSite(),
+      resolveAuth: (req) => ({
+        userName: req.who,
+        jwt: true,
+        userToken: false,
+        siteToken: true,
+      }),
+    });
+    const siteRoute = routes.find((r) => r.p === "/x/api/v1/plugins/:plugin/*");
+    const s = await freshSite();
+    const pageId = s.manifest.items[0].id;
+    const post = async (who) => {
+      const res = stubRes();
+      await siteRoute.h(
+        {
+          who,
+          method: "POST",
+          params: { plugin: "fx-backend", 0: `pages/${pageId}/notes` },
+          query: {},
+          body: { body: `from ${who}` },
+          headers: {},
+        },
+        res,
+      );
+      return res;
+    };
+    for (let round = 0; round < 10; round++) {
+      const [a, b] = await Promise.all([post("alice"), post("bob")]);
+      assert.equal(a.statusCode, 200, JSON.stringify(a.body));
+      assert.equal(a.body.authorId, "alice", `round ${round}`);
+      assert.equal(b.body.authorId, "bob", `round ${round}`);
+    }
+  });
+
+  test("a view has its own user and shares the engine's plugins and stores", async () => {
+    const s = await freshSite();
+    const alice = await pluginSystem.host(s, { user: { id: "alice" } });
+    const bob = await pluginSystem.host(s, { user: { id: "bob" } });
+    assert.equal(alice.user.id, "alice");
+    assert.equal(bob.user.id, "bob");
+    assert.equal(alice.plugins, bob.plugins);
+    assert.equal(alice.memory, bob.memory);
+  });
+});
+
+// The plugin registry (spec/03): what is installed, what is on, and the routes that change it. fx-exec and
+// fx-optional are installed the way a deployment installs a plugin, as folders under <HAXCMS_ROOT>/_plugins/.
+describe("the plugin registry: installed is not enabled", () => {
+  const authAll = {
+    userName: "admin",
+    jwt: true,
+    userToken: true,
+    siteToken: true,
+  };
+  let routes;
+  let auth;
+  const find = (p) => routes.find((r) => r.p === p);
+  const run = async (p, params) => {
+    const res = stubRes();
+    await find(p).h(
+      {
+        method: "POST",
+        params: params || {},
+        query: {},
+        body: {},
+        headers: {},
+      },
+      res,
+    );
+    return res;
+  };
+  const entry = (res, id) => res.body.data.find((e) => e.id === id);
+
+  before(() => {
+    for (const id of ["fx-exec", "fx-optional"]) {
+      fs.copySync(
+        path.join(spec, "conformance", "fixtures", id),
+        path.join(testRoot, "_plugins", id),
+      );
+    }
+    pluginSystem.reset();
+    routes = [];
+    const app = {
+      all: (p, h) => routes.push({ p, h }),
+      get: (p, h) => routes.push({ p, h }),
+      post: (p, h) => routes.push({ p, h }),
+    };
+    auth = authAll;
+    mountPluginRoutes(app, {
+      basePath: "/",
+      sitesDirectory: "_sites",
+      resolveSite: async () => freshSite(),
+      resolveAuth: () => auth,
+    });
+  });
+
+  test("a plugin dropped into _plugins is available: listed, not loaded, no routes", async () => {
+    const list = await run("/system/api/v1/plugins");
+    assert.equal(list.statusCode, null, JSON.stringify(list.body));
+    const e = entry(list, "fx-exec");
+    assert.equal(e.status, "available");
+    assert.equal(e.enabled, false);
+    assert.deepEqual(e.needs, ["backend", "process"]);
+    assert.deepEqual(e.targets, {
+      server: "full",
+      desktop: "full",
+      browser: "no",
+    });
+    const res = stubRes();
+    await find("/x/api/v1/plugins/:plugin/*").h(
+      {
+        method: "POST",
+        params: { plugin: "fx-exec", 0: "run/echo" },
+        query: {},
+        body: {},
+        headers: {},
+      },
+      res,
+    );
+    assert.equal(res.statusCode, 404);
+  });
+
+  test("the registry needs both credentials; a site's registry needs the site token", async () => {
+    auth = { userName: "admin", jwt: true, userToken: false, siteToken: false };
+    assert.equal((await run("/system/api/v1/plugins")).statusCode, 401);
+    assert.equal((await run("/x/api/v1/plugins")).statusCode, 401);
+    assert.equal(
+      (
+        await run("/system/api/v1/plugins/:plugin/enable", {
+          plugin: "fx-exec",
+        })
+      ).statusCode,
+      401,
+    );
+    auth = authAll;
+  });
+
+  test("enable for the system: written to plugins.yaml, active in every site, a site cannot turn it off", async () => {
+    const on = await run("/system/api/v1/plugins/:plugin/enable", {
+      plugin: "fx-exec",
+    });
+    assert.equal(on.statusCode, null, JSON.stringify(on.body));
+    assert.equal(on.body.data.status, "active");
+    assert.equal(on.body.data.scope, "system");
+    const file = path.join(testRoot, "_config", "plugins", "plugins.yaml");
+    assert.match(fs.readFileSync(file, "utf8"), /enabled:\n\s+- fx-exec/);
+    assert.equal(
+      pluginSystem.readRegistryFile(testRoot).plugins["fx-exec"].by,
+      "admin",
+    );
+    const inSite = await run("/x/api/v1/plugins");
+    assert.equal(entry(inSite, "fx-exec").status, "active");
+    const off = await run("/x/api/v1/plugins/:plugin/disable", {
+      plugin: "fx-exec",
+    });
+    assert.equal(off.statusCode, 409, JSON.stringify(off.body));
+  });
+
+  test("enable for one site: written to the site's plugins.yaml and counted by the system", async () => {
+    const on = await run("/x/api/v1/plugins/:plugin/enable", {
+      plugin: "fx-optional",
+    });
+    assert.equal(on.statusCode, null, JSON.stringify(on.body));
+    assert.equal(on.body.data.scope, "site");
+    const s = await freshSite();
+    assert.deepEqual(pluginSystem.readRegistryFile(s.siteDirectory).enabled, [
+      "fx-optional",
+    ]);
+    const system = await run("/system/api/v1/plugins");
+    assert.equal(entry(system, "fx-optional").status, "available");
+    assert.deepEqual(entry(system, "fx-optional").sites, [
+      path.basename(s.siteDirectory),
+    ]);
+  });
+
+  test("disable: removed from the file and off again; unknown ids are 404", async () => {
+    const off = await run("/system/api/v1/plugins/:plugin/disable", {
+      plugin: "fx-exec",
+    });
+    assert.equal(off.statusCode, null, JSON.stringify(off.body));
+    assert.equal(off.body.data.enabled, false);
+    assert.deepEqual(pluginSystem.readRegistryFile(testRoot).enabled, []);
+    const siteOff = await run("/x/api/v1/plugins/:plugin/disable", {
+      plugin: "fx-optional",
+    });
+    assert.equal(siteOff.statusCode, null, JSON.stringify(siteOff.body));
+    const s = await freshSite();
+    assert.deepEqual(
+      pluginSystem.readRegistryFile(s.siteDirectory).enabled,
+      [],
+    );
+    const missing = await run("/system/api/v1/plugins/:plugin/enable", {
+      plugin: "no-such-plugin",
+    });
+    assert.equal(missing.statusCode, 404);
+    const odd = await run("/system/api/v1/plugins/:plugin/enable", {
+      plugin: "../etc",
+    });
+    assert.equal(odd.statusCode, 404);
+  });
+
+  test("a blocked plugin cannot be enabled", async () => {
+    const file = path.join(testRoot, "_config", "plugins", "plugins.yaml");
+    fs.writeFileSync(file, "version: 1\nenabled: []\nblocked: [fx-exec]\n");
+    pluginSystem.reset();
+    const on = await run("/system/api/v1/plugins/:plugin/enable", {
+      plugin: "fx-exec",
+    });
+    assert.equal(on.statusCode, 409, JSON.stringify(on.body));
+    fs.writeFileSync(file, "version: 1\nenabled: []\n");
+    pluginSystem.reset();
   });
 });

@@ -1,4 +1,4 @@
-// DRAFT (plugin platform, contingent on https://github.com/haxtheweb/haxcms-plugin-examples/pull/1).
+// DRAFT (plugin platform, contingent on https://github.com/haxtheweb/haxcms-plugins/pull/15).
 //
 // The plugin engine for one HAXcms site. It reuses the reference engine from the spec package (loading, manifest
 // validation, hook dispatch with aliases, priorities, stages and no re-entry, vetoes, transactions, ctx, contracts,
@@ -70,6 +70,8 @@ export class HaxcmsPluginHost extends MemoryBackend {
    * @param {boolean} [o.liveNetwork]  real fetches through safeFetch (HAXcms); off for test adapters
    * @param {boolean} [o.liveExec]  ctx.exec runs the command (HAXcms); off for test adapters, which answer from fakes
    * @param {object} [o.user]    the signed-in user record, or null for a visitor (omitted: the engine's default admin)
+   * @param {string} [o.target]  server (default), desktop or browser (spec/14)
+   * @param {boolean} [o.hydrate] read the site's records now (default); false leaves it to the caller
    */
   constructor({
     site,
@@ -79,6 +81,8 @@ export class HaxcmsPluginHost extends MemoryBackend {
     hookTimeout,
     liveNetwork = false,
     liveExec = false,
+    target = "server",
+    hydrate = true,
   }) {
     const name =
       site &&
@@ -91,6 +95,8 @@ export class HaxcmsPluginHost extends MemoryBackend {
     super({
       haxcmsVersion: version,
       runtime: "nodejs",
+      // where this backend runs (spec/14): server, desktop (haxcms-desktop) or browser (haxcms-browser)
+      target,
       site: site
         ? { id: site.manifest.id, name, path: site.siteDirectory }
         : null,
@@ -111,7 +117,15 @@ export class HaxcmsPluginHost extends MemoryBackend {
       },
       configurable: true,
     });
-    this.hydrate();
+    // HAXcms hydrates only once a plugin is active (pluginSystem.host); test adapters hydrate up front
+    if (hydrate) {
+      this.hydrate();
+    }
+  }
+
+  /** Whether any plugin is active: when none is, nothing listens and core's saves need no engine work at all. */
+  hasActive() {
+    return this.plugins.some((p) => p.status === "active");
   }
 
   // ---- records: site.json and the page files ----

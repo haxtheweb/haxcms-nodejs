@@ -1,4 +1,4 @@
-// DRAFT (plugin platform, contingent on https://github.com/haxtheweb/haxcms-plugin-examples/pull/1).
+// DRAFT (plugin platform, contingent on https://github.com/haxtheweb/haxcms-plugins/pull/15).
 //
 // Runs the spec's conformance cases, then every core and contrib plugin's own tests, against real HAXcms storage
 // through test/plugins/haxcms-adapter.mjs (Node runtime only; PHP plugins are haxcms-php's job).

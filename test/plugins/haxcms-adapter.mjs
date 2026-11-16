@@ -26,6 +26,7 @@ export async function createBackend(opts = {}) {
       version: opts.haxcmsVersion || "26.10.1",
       ...(opts.user !== undefined ? { user: opts.user } : {}),
       ...(opts.hookTimeout ? { hookTimeout: opts.hookTimeout } : {}),
+      ...(opts.target ? { target: opts.target } : {}),
     });
     host.now = Date.parse("2026-01-01T00:00:00Z");
     return host;
@@ -44,6 +45,7 @@ export async function createBackend(opts = {}) {
     version: opts.haxcmsVersion || "26.10.1",
     ...(opts.user !== undefined ? { user: opts.user } : {}),
     ...(opts.hookTimeout ? { hookTimeout: opts.hookTimeout } : {}),
+    ...(opts.target ? { target: opts.target } : {}),
   });
   // the reference's frozen clock, so time-based cases mean the same thing (a case's run.now overrides it)
   host.now = Date.parse("2026-01-01T00:00:00Z");

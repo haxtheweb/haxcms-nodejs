@@ -1912,7 +1912,7 @@ class HAXCMSSite {
       }
     }
     // DRAFT plugin platform: rebuild.before / rebuild.after so plugins write their managed files
-    // (https://github.com/haxtheweb/haxcms-plugin-examples/pull/1). A plugin failure never fails the save.
+    // (https://github.com/haxtheweb/haxcms-plugins/pull/15). A plugin failure never fails the save.
     if (process.env.HAXCMS_PLUGINS !== "off" && !this.__pluginRebuilding) {
       this.__pluginRebuilding = true;
       try {
