@@ -65,12 +65,12 @@ function mountPluginRoutes(app, deps) {
 
   const handle = (scope) => async (req, res) => {
     try {
-      // TODO(draft): one engine per site, so system-scope operations borrow a site's engine (spec/13 section 9)
-      let site = await deps.resolveSite(req).catch(() => null);
-      if (!site && scope === "system" && deps.anySite) {
-        site = await deps.anySite();
-      }
-      if (!site) {
+      // system-scope operations run on the system engine, never on some site's (spec/13 section 8b)
+      const site =
+        scope === "system"
+          ? null
+          : await deps.resolveSite(req).catch(() => null);
+      if (scope !== "system" && !site) {
         return res.status(404).json({
           status: 404,
           data: {
@@ -79,7 +79,10 @@ function mountPluginRoutes(app, deps) {
         });
       }
       const auth = deps.resolveAuth(req, site);
-      const h = await pluginSystem.host(site, { user: userOf(auth) });
+      const h =
+        scope === "system"
+          ? await pluginSystem.systemHost({ user: userOf(auth) })
+          : await pluginSystem.host(site, { user: userOf(auth) });
       const id = req.params.plugin;
       // the last wildcard is the operation path (the first, on /<sites>/*/x/api/..., is the site path)
       const rest =
@@ -154,16 +157,17 @@ function mountPluginRoutes(app, deps) {
   // GET .../plugins/contributions (spec/07): declarative UI from enabled plugins for one surface, plus the advertised
   // core contracts by contract and result name, so core screens enable features without naming a plugin.
   const contributions = (surface) => async (req, res) => {
-    const site = await deps.resolveSite(req);
+    const site = surface === "site" ? await deps.resolveSite(req) : null;
     const auth = deps.resolveAuth(req, site);
     if (!auth.jwt || (surface === "site" && !site)) {
       return res
         .status(401)
         .json({ status: 401, data: { message: "access denied" } });
     }
-    const h = site
-      ? await pluginSystem.host(site, { user: userOf(auth) })
-      : null;
+    const h =
+      surface === "site"
+        ? await pluginSystem.host(site, { user: userOf(auth) })
+        : await pluginSystem.systemHost({ user: userOf(auth) });
     if (!h) {
       return res.json({
         status: 200,
@@ -206,11 +210,8 @@ function mountPluginRoutes(app, deps) {
       return next();
     }
     try {
-      const site = await deps.resolveSite(req).catch(() => null);
-      const anySite = site || (deps.anySite ? await deps.anySite() : null);
-      const h = anySite
-        ? await pluginSystem.host(anySite, { user: null })
-        : null;
+      // well-known metadata is system-wide: the system engine answers it
+      const h = await pluginSystem.systemHost({ user: null });
       if (!h) {
         return next();
       }
@@ -252,16 +253,13 @@ function mountPluginRoutes(app, deps) {
   );
   app.all(`${base}system/api/v1/plugins/:plugin/*`, handle("system"));
   app.get(`${base}system/api/v1/plugins`, async (req, res) => {
-    const site = await deps.resolveSite(req);
-    const auth = deps.resolveAuth(req, site);
+    const auth = deps.resolveAuth(req, null);
     if (!auth.jwt) {
       return res
         .status(401)
         .json({ status: 401, data: { message: "access denied" } });
     }
-    const h = site
-      ? await pluginSystem.host(site, { user: userOf(auth) })
-      : null;
+    const h = await pluginSystem.systemHost({ user: userOf(auth) });
     return res.json({ status: 200, data: h ? h.status() : [] });
   });
 }

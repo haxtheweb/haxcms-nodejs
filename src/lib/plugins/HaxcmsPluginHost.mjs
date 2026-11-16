@@ -6,21 +6,27 @@
 //   - page and site records come from site.json and the page files, and saves write them back;
 //   - plugin stores live where spec/04 puts them (site: <site>/_config/data/<plugin>/, siteData:
 //     <HAXCMS_ROOT>/_config/siteData/<site uuid>/<plugin>/, system: <HAXCMS_ROOT>/_config/systemData/<plugin>/);
-//   - managed files are written into the site folder; ctx.fetch goes through core's safeFetch (SSRF guard);
+//   - managed files are written into the site folder; ctx.fetch goes through core's safeFetch (SSRF guard) one hop
+//     at a time, with the plugin's egress list checked again on every hop;
 //   - ctx.now() is the real clock unless a test freezes it.
 // Whether HAXcms keeps this shared engine or grows its own is an open question for review (spec/13 section 9).
 import { MemoryBackend } from "@haxtheweb/haxcms-plugin-spec/harness/memory-backend.mjs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve, sep } from "node:path";
 import {
   mkdirSync,
+  mkdtempSync,
   writeFileSync,
   readFileSync,
+  realpathSync,
   existsSync,
   rmSync,
 } from "node:fs";
 import { createRequire } from "node:module";
+import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import process from "node:process";
-import { URL } from "node:url";
+import { Buffer } from "node:buffer";
+import { setTimeout, clearTimeout } from "node:timers";
 
 const require = createRequire(import.meta.url);
 const JSONOutlineSchemaItem = require("../JSONOutlineSchemaItem.js");
@@ -57,24 +63,37 @@ const slugify = (t) =>
 export class HaxcmsPluginHost extends MemoryBackend {
   /**
    * @param {object} o
-   * @param {object} o.site      a loaded HAXCMSSite
+   * @param {object|null} o.site a loaded HAXCMSSite, or null for the system engine: HAXcms-wide work with no site
+   *                             (spec/13 section 8b)
    * @param {string} o.root      HAXCMS_ROOT (for siteData and system stores)
    * @param {string} o.version   the running HAXcms version
    * @param {boolean} [o.liveNetwork]  real fetches through safeFetch (HAXcms); off for test adapters
+   * @param {boolean} [o.liveExec]  ctx.exec runs the command (HAXcms); off for test adapters, which answer from fakes
    * @param {object} [o.user]    the signed-in user record, or null for a visitor (omitted: the engine's default admin)
    */
-  constructor({ site, root, version, user, hookTimeout, liveNetwork = false }) {
+  constructor({
+    site,
+    root,
+    version,
+    user,
+    hookTimeout,
+    liveNetwork = false,
+    liveExec = false,
+  }) {
     const name =
-      (site.manifest &&
+      site &&
+      ((site.manifest &&
         site.manifest.metadata &&
         site.manifest.metadata.site &&
         site.manifest.metadata.site.name) ||
-      site.name ||
-      "site";
+        site.name ||
+        "site");
     super({
       haxcmsVersion: version,
       runtime: "nodejs",
-      site: { id: site.manifest.id, name, path: site.siteDirectory },
+      site: site
+        ? { id: site.manifest.id, name, path: site.siteDirectory }
+        : null,
       ...(user !== undefined ? { user } : {}),
       ...(hookTimeout ? { hookTimeout } : {}),
     });
@@ -82,6 +101,7 @@ export class HaxcmsPluginHost extends MemoryBackend {
     this.root = root;
     // live network only when HAXcms runs it; adapters for the spec's runners stay offline (fakes or nothing)
     this.liveNetwork = liveNetwork;
+    this.liveExec = liveExec;
     let frozen = null;
     // the real clock; tests may freeze it (backend.now = ms)
     Object.defineProperty(this, "now", {
@@ -96,6 +116,7 @@ export class HaxcmsPluginHost extends MemoryBackend {
 
   // ---- records: site.json and the page files ----
   hydrate() {
+    if (!this.haxSite) return;
     const m = this.haxSite.manifest;
     this.records.site = {
       [this.site.id]: {
@@ -114,6 +135,7 @@ export class HaxcmsPluginHost extends MemoryBackend {
   // re-read site.json and the page files: records are what is on disk, not what was last held in memory
   // (conformance `reload` step, spec/13 section 9)
   async reload() {
+    if (!this.haxSite) return;
     const fresh = new JSONOutlineSchema();
     if (await fresh.load(this.haxSite.manifest.file))
       this.haxSite.manifest = fresh;
@@ -135,6 +157,7 @@ export class HaxcmsPluginHost extends MemoryBackend {
     writeFileSync(full, content);
   }
   async saveManifest() {
+    if (!this.haxSite) return;
     if (this.haxSite.manifest.file)
       this.rememberFile(this.haxSite.manifest.file);
     await this.haxSite.manifest.save(false);
@@ -156,6 +179,7 @@ export class HaxcmsPluginHost extends MemoryBackend {
   }
   // called by the engine after the before hooks accepted a save
   writeToDisk(type, record) {
+    if (!this.haxSite) return;
     const m = this.haxSite.manifest;
     if (type === "page") {
       let item = (m.items || []).find((x) => x.id === record.id);
@@ -194,7 +218,7 @@ export class HaxcmsPluginHost extends MemoryBackend {
   }
   async deleteEntity(type, id) {
     const r = await super.deleteEntity(type, id);
-    if (r.deleted && type === "page") {
+    if (r.deleted && type === "page" && this.haxSite) {
       const m = this.haxSite.manifest;
       const item = (m.items || []).find((x) => x.id === id);
       m.items = (m.items || []).filter((x) => x.id !== id);
@@ -220,6 +244,7 @@ export class HaxcmsPluginHost extends MemoryBackend {
   // fallback stays for test adapters that set neither.
   siteInfo() {
     const info = super.siteInfo();
+    if (!info) return null;
     const m = this.haxSite.manifest;
     const domain = m && m.metadata && m.metadata.site && m.metadata.site.domain;
     const base = process.env.HAXCMS_PUBLIC_URL;
@@ -252,6 +277,8 @@ export class HaxcmsPluginHost extends MemoryBackend {
 
   // ---- plugin stores at the spec/04 locations ----
   storeFile(p, s) {
+    if (["site", "siteData", "manifest"].includes(s.scope))
+      this.requireSite(`${p.id}: store "${s.id}" (${s.scope} scope)`);
     if (s.scope === "site")
       return join(
         this.site.path,
@@ -302,34 +329,107 @@ export class HaxcmsPluginHost extends MemoryBackend {
 
   // ---- managed files land in the site folder ----
   writeManaged(p, path, content) {
+    this.requireSite(`${p.id}: managed files`);
     const r = super.writeManaged(p, path, content);
     this.writeFile(join(this.site.path, path), String(content));
     return r;
   }
 
-  // ---- network: egress from the manifest, then core's SSRF-guarded fetch ----
-  async fetchFor(p, url, init = {}) {
+  // ---- network: the engine checks the plugin's egress list on every hop (fetchFor); each hop goes through core's
+  // SSRF-guarded fetch, resolved, validated and pinned, with no redirect followed inside it ----
+  async fetchOnce(p, url, init, host) {
     // test harness fakes still win when a case provides them
-    if (!this.liveNetwork) return super.fetchFor(p, url, init);
-    const host = new URL(url).hostname;
-    const hosts = this.egressHosts(p);
-    if (
-      !(p.manifest.capabilities || []).includes("network:egress") ||
-      !(hosts.includes("*") || hosts.includes(host))
-    )
-      throw new Error(`fetch to ${host} not allowed`);
-    this.fetchCalls.push({
-      plugin: p.id,
-      method: (init.method || "GET").toUpperCase(),
-      url,
+    if (!this.liveNetwork) return super.fetchOnce(p, url, init, host);
+    // init comes from the plugin: never let it ask safeFetch to follow redirects itself
+    const opts = Object.assign({}, init, {
+      maxRedirects: 0,
+      redirect: "manual",
     });
-    // TODO(draft): safeFetch re-validates every redirect hop against private addresses; it does not yet re-check the
-    // plugin's egress list per hop (spec/13 asks for both). Final-URL check until safeFetch exposes a hop callback.
-    const res = await safeFetch(url, { ...init, maxRedirects: 5 });
-    const finalHost = res && res.url ? new URL(res.url).hostname : host;
-    if (!(hosts.includes("*") || hosts.includes(finalHost)))
-      throw new Error(`fetch to ${finalHost} not allowed (redirected)`);
-    return res;
+    return safeFetch(url, opts);
+  }
+
+  // ---- ctx.exec: the engine has checked the exec list and argument list; this runs the command (spec/13) ----
+  // No shell, an argument list only. `files` go into a private temp folder, named {tmp} in arguments, removed
+  // afterwards. The command runs in the site folder (or a `cwd` inside it) with a minimal environment (PATH,
+  // HOME={tmp}, LANG), a timeout (60 s by default, 300 s at most) and a 10 MB cap on each of stdout and stderr; a
+  // time-out or an output over the cap kills it and throws. Same rules as haxcms-php's HAXCMSPluginHost::execOnce.
+  async execOnce(p, cmd, args, opts = {}) {
+    if (!this.liveExec) return super.execOnce(p, cmd, args, opts);
+    const files = opts.files || {};
+    for (const name of Object.keys(files)) {
+      if (!/^[A-Za-z0-9._-]+$/.test(name) || name === "." || name === "..")
+        throw new Error(`exec file name "${name}" is not a plain file name`);
+    }
+    // a site engine runs in the site folder (or under it); the system engine has none, so it runs in its temp folder
+    let cwd = null;
+    if (this.site) {
+      const site = realpathSync(this.site.path);
+      cwd = resolve(site, String(opts.cwd || "."));
+      if (cwd !== site && !cwd.startsWith(site + sep))
+        throw new Error("exec cwd must be inside the site folder");
+    } else if (opts.cwd && opts.cwd !== ".") this.requireSite("exec cwd");
+    const timeout = Math.min(
+      Number.isInteger(opts.timeout) && opts.timeout > 0 ? opts.timeout : 60000,
+      300000,
+    );
+    const cap = 10 * 1024 * 1024;
+    const tmp = mkdtempSync(join(tmpdir(), "hax-exec-"));
+    if (cwd === null) cwd = tmp;
+    try {
+      for (const [name, f] of Object.entries(files)) {
+        writeFileSync(join(tmp, name), String((f && f.content) ?? ""), {
+          mode: f && Number.isInteger(f.mode) ? f.mode : 0o600,
+        });
+      }
+      const argv = args.map((a) => a.split("{tmp}").join(tmp));
+      return await new Promise((done, fail) => {
+        const child = spawn(cmd, argv, {
+          cwd,
+          shell: false,
+          env: {
+            PATH: process.env.PATH || "/usr/bin:/bin",
+            HOME: tmp,
+            LANG: "C.UTF-8",
+          },
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        const out = { stdout: [], stderr: [], bytes: { stdout: 0, stderr: 0 } };
+        let failure = null;
+        const stop = (message) => {
+          if (!failure) failure = new Error(message);
+          child.kill("SIGKILL");
+        };
+        const timer = setTimeout(
+          () => stop(`exec "${cmd}" timed out after ${timeout} ms`),
+          timeout,
+        );
+        for (const stream of ["stdout", "stderr"]) {
+          child[stream].on("data", (chunk) => {
+            out.bytes[stream] += chunk.length;
+            if (out.bytes[stream] > cap)
+              return stop(`exec "${cmd}" ${stream} exceeded 10 MB`);
+            out[stream].push(chunk);
+          });
+        }
+        child.on("error", (e) => {
+          clearTimeout(timer);
+          fail(new Error(`exec "${cmd}" could not start: ${e.message}`));
+        });
+        child.on("close", (code) => {
+          clearTimeout(timer);
+          if (failure) return fail(failure);
+          done({
+            code: code === null ? 1 : code,
+            stdout: Buffer.concat(out.stdout).toString("utf8"),
+            stderr: Buffer.concat(out.stderr).toString("utf8"),
+          });
+        });
+        child.stdin.on("error", () => {});
+        child.stdin.end(opts.input === undefined ? "" : String(opts.input));
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   }
 }
 

@@ -5,6 +5,7 @@
 //                                                       around core's own saves and deletes
 //   rebuild(site, reason)                              rebuild.before / rebuild.after after core rewrote managed files
 //   host(site, user)                                   the engine, for routes (operations) and anything else
+//   systemHost({ user })                               the system engine (no site), for system routes
 // Core never names a plugin here: everything comes from the plugin folders and the deployment's plugin config.
 //
 // Where plugins come from (spec/03 tiers, simplified for the draft):
@@ -180,6 +181,7 @@ async function host(site, { root, user = null } = {}) {
       version: haxcmsVersion(),
       user,
       liveNetwork: true,
+      liveExec: true,
     });
     const { dirs, cfg } = pluginDirsFor(site, haxRoot);
     await h.load(dirs, {
@@ -192,6 +194,36 @@ async function host(site, { root, user = null } = {}) {
   // core reloads the site per request; keep the engine's view of site.json and pages current
   h.haxSite = site;
   h.hydrate();
+  h.user = user;
+  return h;
+}
+
+/**
+ * The system engine (cached per HAXcms root): HAXcms-wide plugins with no site, for system-scope operations, the
+ * plugin list and dashboard contributions (spec/13 section 8b). Site-tier plugins are not part of it.
+ */
+async function systemHost({ root, user = null } = {}) {
+  const haxRoot = root || process.env.HAXCMS_ROOT || process.cwd();
+  const key = `\0system:${haxRoot}`;
+  let h = state.hosts.get(key);
+  if (!h) {
+    const { HaxcmsPluginHost } = await engine();
+    h = new HaxcmsPluginHost({
+      site: null,
+      root: haxRoot,
+      version: haxcmsVersion(),
+      user,
+      liveNetwork: true,
+      liveExec: true,
+    });
+    const { dirs, cfg } = pluginDirsFor(null, haxRoot);
+    await h.load(dirs, {
+      disabled: cfg.disabled,
+      blocked: cfg.blocked,
+      settings: pluginSettings(dirs, null, haxRoot),
+    });
+    state.hosts.set(key, h);
+  }
   h.user = user;
   return h;
 }
@@ -249,6 +281,7 @@ async function rebuild(site, reason = "save", opts = {}) {
 
 module.exports = {
   host,
+  systemHost,
   reset,
   before,
   after,

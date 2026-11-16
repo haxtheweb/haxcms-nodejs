@@ -386,3 +386,168 @@ describe("plugin operations are mounted under x/api/v1/plugins/<id>/", () => {
     );
   });
 });
+
+// the system engine (spec/13 section 8b): system routes, the plugin list and dashboard contributions run with no site,
+// never on some site's engine
+describe("system-scope routes run on the system engine", () => {
+  test("the plugin list and dashboard contributions never resolve a site", async () => {
+    const routes = [];
+    const app = {
+      all: (p, h) => routes.push({ p, h }),
+      get: (p, h) => routes.push({ p, h }),
+    };
+    mountPluginRoutes(app, {
+      basePath: "/",
+      sitesDirectory: "_sites",
+      resolveSite: async () => {
+        throw new Error("a system route asked for a site");
+      },
+      resolveAuth: (req, site) => {
+        assert.equal(site, null);
+        return {
+          userName: "admin",
+          jwt: true,
+          userToken: true,
+          siteToken: false,
+        };
+      },
+    });
+    const call = async (path) => {
+      const res = stubRes();
+      await routes
+        .find((r) => r.p === path)
+        .h(
+          { method: "GET", params: {}, query: {}, body: {}, headers: {} },
+          res,
+        );
+      return res;
+    };
+    const list = await call("/system/api/v1/plugins");
+    assert.ok(Array.isArray(list.body.data), JSON.stringify(list.body));
+    assert.ok(list.body.data.length > 0, "core plugins are listed");
+    const dash = await call("/system/api/v1/plugins/contributions");
+    assert.ok(
+      dash.body.data.contributions.every(
+        (c) => (c.surface || "dashboard") === "dashboard",
+      ),
+    );
+  });
+
+  test("the system engine has no site: site stores, records and rendering refuse", async () => {
+    const h = await pluginSystem.systemHost({ user: null });
+    assert.equal(h.site, null);
+    assert.equal(h.siteInfo(), null);
+    await assert.rejects(
+      () => h.render({ id: "p1", content: "x" }),
+      /rendering: needs a site; this is the system engine/,
+    );
+    await assert.rejects(
+      () => h.saveEntity("page", { id: "p1", title: "x" }),
+      /page records: needs a site/,
+    );
+    assert.strictEqual(
+      await pluginSystem.systemHost({ user: null }),
+      h,
+      "cached per HAXcms root",
+    );
+  });
+});
+
+// ctx.exec on a real HAXcms (spec/13): the engine checks the exec list and argument list; the host runs the command
+// with no shell, files in a private {tmp} folder removed afterwards, the site folder as cwd, a minimal environment
+// and a timeout. haxcms-php runs the same rules (PluginPlatformTest).
+describe("ctx.exec runs listed commands", () => {
+  const plugin = {
+    id: "fx-exec-live",
+    manifest: { capabilities: ["exec:run"], exec: [process.execPath] },
+    settings: {},
+    explicit: new Set(),
+    form: [],
+  };
+  let host;
+  before(async () => {
+    const { HaxcmsPluginHost } = await import(
+      "../../src/lib/plugins/HaxcmsPluginHost.mjs"
+    );
+    const dir = fs.mkdtempSync(path.join(testRoot, "exec-site-"));
+    host = new HaxcmsPluginHost({
+      site: {
+        siteDirectory: dir,
+        manifest: {
+          id: "site-exec",
+          title: "x",
+          metadata: { site: { name: "x" } },
+          items: [],
+        },
+      },
+      root: testRoot,
+      version: "0.0.0",
+      liveExec: true,
+    });
+  });
+
+  test("files reach {tmp}, cwd is the site, the environment is minimal, {tmp} is removed", async () => {
+    const script =
+      "const fs=require('fs');const t=process.argv[1];" +
+      "process.stdout.write(JSON.stringify({key:fs.readFileSync(t+'/id','utf8'),mode:(fs.statSync(t+'/id').mode&0o777).toString(8)," +
+      "home:process.env.HOME===t,cwd:process.cwd(),secret:process.env.HAX_SECRET_TEST||null,input:fs.readFileSync(0,'utf8')}));" +
+      "process.stderr.write('warn')";
+    process.env.HAX_SECRET_TEST = "leak";
+    const r = await host.execFor(
+      plugin,
+      process.execPath,
+      ["-e", script, "{tmp}"],
+      {
+        files: { id: { content: "KEY" } },
+        input: "hello",
+      },
+    );
+    delete process.env.HAX_SECRET_TEST;
+    assert.equal(r.code, 0);
+    assert.equal(r.stderr, "warn");
+    const out = JSON.parse(r.stdout);
+    assert.deepEqual(
+      {
+        key: out.key,
+        mode: out.mode,
+        home: out.home,
+        secret: out.secret,
+        input: out.input,
+      },
+      { key: "KEY", mode: "600", home: true, secret: null, input: "hello" },
+    );
+    assert.equal(fs.realpathSync(out.cwd), fs.realpathSync(host.site.path));
+    assert.deepEqual(host.execCalls.slice(-1)[0].args.slice(-1), ["<tmp>"]);
+  });
+
+  test("a non-zero exit is returned, a timeout kills and throws, cwd and file names stay inside", async () => {
+    const r = await host.execFor(plugin, process.execPath, [
+      "-e",
+      "process.exit(3)",
+    ]);
+    assert.equal(r.code, 3);
+    await assert.rejects(
+      host.execFor(
+        plugin,
+        process.execPath,
+        ["-e", "setTimeout(()=>{},10000)"],
+        { timeout: 200 },
+      ),
+      /timed out after 200 ms/,
+    );
+    await assert.rejects(
+      host.execFor(plugin, process.execPath, ["-e", "1"], { cwd: ".." }),
+      /cwd must be inside the site folder/,
+    );
+    await assert.rejects(
+      host.execFor(plugin, process.execPath, ["-e", "1"], {
+        files: { "../x": { content: "" } },
+      }),
+      /not a plain file name/,
+    );
+    await assert.rejects(
+      host.execFor(plugin, "sh", ["-c", "id"]),
+      /may not run "sh"/,
+    );
+  });
+});

@@ -18,6 +18,18 @@ const { HAXCMS } = require("../../src/lib/HAXCMS.js");
 let n = 0;
 
 export async function createBackend(opts = {}) {
+  // site: null is the system engine (spec/13 section 8b): no site, a store root of its own
+  if (opts.site === null) {
+    const host = new HaxcmsPluginHost({
+      site: null,
+      root: mkdtempSync(join(tmpdir(), "plugin-stores-")),
+      version: opts.haxcmsVersion || "26.10.1",
+      ...(opts.user !== undefined ? { user: opts.user } : {}),
+      ...(opts.hookTimeout ? { hookTimeout: opts.hookTimeout } : {}),
+    });
+    host.now = Date.parse("2026-01-01T00:00:00Z");
+    return host;
+  }
   const site = await HAXCMS.loadSite(`conformance-${process.pid}-${++n}`, true);
   if (!site || !site.manifest)
     throw new Error("could not create a HAXcms site for the case");

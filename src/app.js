@@ -2170,18 +2170,6 @@ const appReady = systemStructureContext().then((site) => {
       basePath: HAXCMS.basePath || "/",
       sitesDirectory: HAXCMS.sitesDirectory,
       resolveSite: (req) => resolvePluginSite(req),
-      // TODO(draft): system-scope plugins (oauth's well-known metadata) run on a site's engine because the draft
-      // keeps one engine per site; a system-level engine is an open item (spec/13 section 9).
-      anySite: async () => {
-        const dir = path.join(HAXCMS.HAXCMS_ROOT, HAXCMS.sitesDirectory);
-        const names = fs.existsSync(dir)
-          ? fs
-              .readdirSync(dir)
-              .filter((n) => fs.existsSync(path.join(dir, n, "site.json")))
-              .sort()
-          : [];
-        return names.length ? HAXCMS.loadSite(names[0]) : null;
-      },
       resolveAuth: (req, site) => {
         const cli = HAXCMS.isCLI() || HAXCMS.HAXCMS_DISABLE_JWT_CHECKS;
         const jwt = getBearerJwtFromRequest(req);
