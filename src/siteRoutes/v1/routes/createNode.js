@@ -1,5 +1,6 @@
 const {
   parentOf,
+  compactSiblingOrders,
   makeRoomFor,
   lastSiblingOrder,
   syncIndentToDepth,
@@ -225,6 +226,9 @@ async function createNode(req, res) {
         )
           ? parseInt(nodeParams["order"])
           : NaN;
+        // the client counts orders as positions among the other pages, so
+        // number those 0..n-1 before reading the order it sent
+        compactSiblingOrders(site.manifest.items, placed);
         if (Number.isFinite(requestedOrder)) {
           placed.order = requestedOrder;
           makeRoomFor(site.manifest.items, placed);
@@ -232,6 +236,7 @@ async function createNode(req, res) {
           placed.order =
             lastSiblingOrder(site.manifest.items, parentOf(placed), placed) + 1;
         }
+        compactSiblingOrders(site.manifest.items);
         syncIndentToDepth(site.manifest.items);
         item.order = placed.order;
         item.indent = placed.indent;

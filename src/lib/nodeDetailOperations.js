@@ -30,7 +30,7 @@ const {
   parentOf,
   orderOf,
   sortedSiblings,
-  healSiblingOrder,
+  compactSiblingOrders,
   makeRoomFor,
   lastSiblingOrder,
   syncIndentToDepth,
@@ -276,9 +276,9 @@ function applyOutlineMutation(
   if (!OUTLINE_OPERATIONS.has(operation)) {
     return;
   }
-  // siblings that share an order value have no defined neighbour: settle the
-  // page's group first so "the one above" and "the one below" mean something
-  healSiblingOrder(items, parentOf(page));
+  // number every group 0..n-1 first: siblings that share an order have no
+  // defined neighbour, and an order the client sends counts positions
+  compactSiblingOrders(items);
   const siblings = sortedSiblings(items, parentOf(page));
   const position = siblings.indexOf(page);
   switch (operation) {
@@ -360,7 +360,9 @@ function applyOutlineMutation(
     default:
       break;
   }
-  // indent is the page's depth, for the moved page and the branch under it
+  // no gaps or repeats left behind in the old or the new group, and indent
+  // is the page's depth, for the moved page and the branch under it
+  compactSiblingOrders(items);
   syncIndentToDepth(items);
 }
 

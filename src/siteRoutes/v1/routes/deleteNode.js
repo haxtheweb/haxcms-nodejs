@@ -1,6 +1,6 @@
 const {
   isLocked,
-  healSiblingOrder,
+  compactSiblingOrders,
   syncIndentToDepth,
   adoptChildren,
 } = require("../../../lib/outlineUpkeep.js");
@@ -99,16 +99,14 @@ async function deleteNode(req, res) {
           }
         }
         // the moved pages' addresses (and their branches') drop the deleted
-        // parent's slug, no two siblings share an order, and indent follows
-        // the new depth
-        if (moved.length > 0) {
-          for (let i = 0; i < moved.length; i++) {
-            reslugPageAndBranch(site, moved[i], items);
-          }
-          const parents = new Set(
-            moved.map((item) => (item.parent == null ? null : item.parent)),
-          );
-          parents.forEach((parentId) => healSiblingOrder(items, parentId));
+        // parent's slug, and indent follows the new depth. The deleted page
+        // leaves no gap among its siblings: every group is numbered 0..n-1
+        // again, in the order a reader sees them.
+        for (let i = 0; i < moved.length; i++) {
+          reslugPageAndBranch(site, moved[i], items);
+        }
+        const renumbered = compactSiblingOrders(items);
+        if (moved.length > 0 || renumbered) {
           syncIndentToDepth(items);
           await site.manifest.save(false);
           await site.updateAlternateFormats();

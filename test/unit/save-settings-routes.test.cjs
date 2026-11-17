@@ -842,6 +842,7 @@ describe("saveNode", () => {
 
   test("a full page-break save updates page attributes, metadata, and schema media", async (t) => {
     const page = makeFakePage();
+    const placeBefore = { indent: page.indent, order: page.order };
     const site = makeFakeSite();
     site.loadNode = (id) => (id === "item-1" ? page : null);
     mockNodeExtras(t, site);
@@ -874,10 +875,12 @@ describe("saveNode", () => {
     assert.ok(page.writeCalls[0].content.indexOf("Hello world") !== -1);
     assert.equal(page.title, "New & Shiny");
     assert.equal(page.slug, "my-page");
-    assert.equal(page.parent, null);
+    // every detail applies except the page's place: a content save never
+    // moves the page, whatever parent, order or depth the page-break carries
+    assert.equal(page.parent, "item-0");
     assert.equal(page.description, "A page");
-    assert.equal(page.indent, 1);
-    assert.equal(page.order, 2);
+    assert.equal(page.indent, placeBefore.indent);
+    assert.equal(page.order, placeBefore.order);
     assert.equal(page.metadata.published, true);
     assert.equal(page.metadata.locked, true);
     assert.equal(page.metadata.hideInMenu, true);

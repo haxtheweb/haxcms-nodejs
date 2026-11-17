@@ -94,7 +94,7 @@ test("indent moves a page under its previous sibling and cascades slugs", async 
   assert.equal(b.parent, "a");
   assert.equal(b.indent, 1);
   // it goes after the new parent's last child (c, order 0); its own old
-  // order does not count (haxtheweb/issues#3360)
+  // order does not count (haxtheweb/issues#3360). Siblings are numbered 0..n-1
   assert.equal(b.order, 1);
   // pathauto regenerates the slug from the parent chain + title
   assert.equal(b.slug, "a/t-b");
@@ -144,7 +144,8 @@ test("setParent re-homes a page under a new parent and regenerates the slug", as
   const c = result.item;
   assert.equal(c.parent, "a");
   assert.equal(c.indent, 1);
-  assert.equal(c.order, 3);
+  // a's first and only child: order 3 past the end is the last spot, 0
+  assert.equal(c.order, 0);
   assert.equal(c.slug, "a/t-c");
 });
 
@@ -303,7 +304,7 @@ test("setIcon and setRelatedItems clear their metadata on empty values", async (
   );
 });
 
-test("moveUp and moveDown swap with the visible neighbour when orders have gaps", async () => {
+test("moveUp and moveDown swap with the visible neighbour, and gaps close", async () => {
   const site = mkSite([
     node("a", 0, "", 0),
     node("b", 2, "", 0),
@@ -314,17 +315,19 @@ test("moveUp and moveDown swap with the visible neighbour when orders have gaps"
       return i.id === id;
     });
   };
-  // b sits between a and c: up trades order values with a
+  // b sits between a and c: up trades places with a; orders 0, 2, 5
+  // become 0, 1, 2 so they match the positions the front end counts
   const up = await applyNodeDetailOperation(site, "b", { operation: "moveUp" });
   assert.equal(up.item.order, 0);
-  assert.equal(find("a").order, 2);
+  assert.equal(find("a").order, 1);
+  assert.equal(find("c").order, 2);
   // and down again trades back
   const down = await applyNodeDetailOperation(site, "b", {
     operation: "moveDown",
   });
-  assert.equal(down.item.order, 2);
+  assert.equal(down.item.order, 1);
   assert.equal(find("a").order, 0);
-  assert.equal(find("c").order, 5);
+  assert.equal(find("c").order, 2);
   // the first page has nothing above it, the last nothing below
   assert.equal(
     (await applyNodeDetailOperation(site, "a", { operation: "moveUp" })).item
@@ -334,7 +337,7 @@ test("moveUp and moveDown swap with the visible neighbour when orders have gaps"
   assert.equal(
     (await applyNodeDetailOperation(site, "c", { operation: "moveDown" })).item
       .order,
-    5,
+    2,
   );
 });
 
@@ -469,7 +472,7 @@ test("a locked page refuses every operation but unlocking", async () => {
   assert.equal(moved.item.order, 0);
 });
 
-test("moveDown swaps with the sibling holding the next order value", async () => {
+test("moveDown swaps with the next sibling", async () => {
   const site = mkSite([
     node("a", 0, "", 0),
     node("b", 1, "", 0),
@@ -486,7 +489,8 @@ test("moveDown swaps with the sibling holding the next order value", async () =>
   const c = site.manifest.items.find(function (i) {
     return i.id === "c";
   });
-  assert.equal(c.order, 5);
+  // the gap after b closes
+  assert.equal(c.order, 2);
 });
 
 test("page detail operations are gated on the pageBreak platform feature", async () => {

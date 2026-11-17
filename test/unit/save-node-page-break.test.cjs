@@ -63,7 +63,7 @@ test("a body without a <page-break> is refused with 400 and nothing is written",
   assert.equal(writes, 0);
 });
 
-test("a save that moves the page keeps sibling orders distinct and indent at depth", async (t) => {
+test("a content save never moves the page: page-break parent, order and depth are ignored", async (t) => {
   const page = {
     id: "item-a",
     title: "Item A",
@@ -125,18 +125,26 @@ test("a save that moves the page keeps sibling orders distinct and indent at dep
       site: { name: "demo" },
       node: {
         id: "item-a",
-        // asks for the spot item-b holds, and carries a depth that is wrong
-        body: '<page-break title="Item A" item-id="item-a" order="0" depth="4"></page-break><p>Body</p>',
+        // the browser renumbers orders when it loads the outline, so the
+        // page-break can carry any parent, order or depth; none of it counts
+        body: '<page-break title="Item A" item-id="item-a" parent="item-b" order="0" depth="4"></page-break><p>Body</p>',
       },
     },
   };
   const res = stubRes();
   await saveNode(req, res);
   assert.equal(res.statusCode, 200);
-  assert.equal(page.order, 0);
+  assert.equal(page.parent, null);
+  assert.equal(page.order, 2);
   assert.equal(page.indent, 0);
-  const orders = items.map((item) => item.order);
-  assert.equal(new Set(orders).size, orders.length);
+  assert.deepEqual(
+    items.map((item) => [item.id, item.parent, item.order]),
+    [
+      ["item-b", null, 0],
+      ["item-c", null, 1],
+      ["item-a", null, 2],
+    ],
+  );
 });
 
 test("a page-break titled null or blank saves the default title", async (t) => {
