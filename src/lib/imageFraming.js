@@ -2,9 +2,8 @@
  * Image framing: one photo framed for each screen size
  * (haxtheweb/issues#2976).
  *
- * Elements that frame a photo (ddd-hero, or anything carrying a `framing`
- * attribute next to its `source`) are served from files cut when the page is
- * saved, under files/haxcms-managed/framing/:
+ * Elements that frame a photo (the tags in FRAMING_TAGS) are served from
+ * files cut when the page is saved, under files/haxcms-managed/framing/:
  *
  * - width variants of the original, for the sizes left automatic:
  *   <stem>-full-<w>w.<ext> at 600, 1200, 1920 and 2880
@@ -17,9 +16,18 @@
  * names. Files are only ever made, never upscaled: a file is named for the
  * width asked for even when the photo is smaller.
  *
- * Security (SEC-PATH): the photo is read and every cut written only through
- * resolveContainedPath, so both stay inside the site's directory, and only
- * plain files/ paths with still-image extensions are cut at all.
+ * Security (SEC-PATH): the photo is read and every cut written or removed
+ * only through resolveContainedPath, so all of it stays inside the site's
+ * directory, and only plain files/ paths with still-image extensions are cut.
+ *
+ * Stability: a save never does unbounded image work. Only allowlisted tags
+ * are cut; the photo's first bytes must be the image type its extension
+ * names; photos over FRAMING_MAX_BYTES or FRAMING_MAX_PIXELS are left to the
+ * CSS fallback; one save cuts at most FRAMING_MAX_PHOTOS photos and stops
+ * starting new files after FRAMING_MAX_SECONDS (the next save carries on,
+ * since files already made are kept). When a framing changes, the cuts of
+ * that photo no page uses any more are removed, so the folder doesn't grow
+ * with every reframing.
  */
 const fs = require("fs-extra");
 const sharp = require("sharp");
@@ -35,8 +43,15 @@ const FRAMING_SIZES = Object.freeze([
 const FRAMING_FULL_WIDTHS = Object.freeze([600, 1200, 1920, 2880]);
 const FRAMING_FORMATS = Object.freeze(["jpg", "jpeg", "png", "webp"]);
 const FRAMING_DIR = "files/haxcms-managed/framing/";
-// elements that are served from cuts even with every size automatic
+// the only elements whose photos are cut
 const FRAMING_TAGS = Object.freeze(["ddd-hero"]);
+// limits on the work one save may do
+const FRAMING_MAX_PHOTOS = 12;
+const FRAMING_MAX_BYTES = 25 * 1024 * 1024;
+const FRAMING_MAX_PIXELS = 40000000;
+const FRAMING_MAX_SECONDS = 20;
+// pages read when looking for cuts still in use; past this nothing is removed
+const FRAMING_MAX_PAGES = 5000;
 
 const isNum = (n) => typeof n === "number" && Number.isFinite(n);
 
@@ -137,21 +152,34 @@ function framingCutWidths(sizeId) {
 
 /**
  * Every file the framed photos in this HTML are served from:
- * [{ source, location, width, sizeId?, rect? }], one entry per file
+ * [{ source, location, width, sizeId?, rect? }], one entry per file.
+ * Only the first FRAMING_MAX_PHOTOS photos are planned, unless `limited` is
+ * false (used when listing what is in use, never for cutting).
  */
-function framingPlan(html) {
+function framingPlan(html, limited) {
   const plan = [];
   const seen = {};
+  const photos = {};
   if (typeof html !== "string" || html.indexOf("source") === -1) return plan;
   const root = parse(html);
   root.querySelectorAll("[source]").forEach((el) => {
     const tag = (el.rawTagName || "").toLowerCase();
     const framing = el.getAttribute("framing");
-    if (!FRAMING_TAGS.includes(tag) && typeof framing !== "string") return;
+    if (!FRAMING_TAGS.includes(tag)) return;
     const mediaType = el.getAttribute("media-type");
     if (mediaType && mediaType !== "image") return;
     const source = el.getAttribute("source");
     if (!framingSource(source)) return;
+    const photo = source.split(/[?#]/)[0];
+    if (!photos[photo]) {
+      if (
+        limited !== false &&
+        Object.keys(photos).length >= FRAMING_MAX_PHOTOS
+      ) {
+        return;
+      }
+      photos[photo] = true;
+    }
     const add = (entry) => {
       if (!seen[entry.location]) {
         seen[entry.location] = true;
@@ -179,20 +207,170 @@ function framingPlan(html) {
   return plan;
 }
 
+/** the image type a file's first bytes say it is: "jpg", "png", "webp" or null */
+function sniffImage(file) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, "r");
+    const head = Buffer.alloc(12);
+    const read = fs.readSync(fd, head, 0, 12, 0);
+    if (read >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) {
+      return "jpg";
+    }
+    if (
+      read >= 8 &&
+      head
+        .subarray(0, 8)
+        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    ) {
+      return "png";
+    }
+    if (
+      read >= 12 &&
+      head.toString("latin1", 0, 4) === "RIFF" &&
+      head.toString("latin1", 8, 12) === "WEBP"
+    ) {
+      return "webp";
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
 /**
- * Make the files the framed photos in `html` need, inside `siteDirectory`.
- * Files already there are kept; a photo that is missing or can't be read is
- * skipped (the element falls back to framing the original in CSS).
- * Returns the locations written.
+ * { width, height } of a photo that may be cut, as it displays (EXIF
+ * orientation applied), or null: not a regular file, too big, not the image
+ * type its extension names, or unreadable
  */
-async function cutFramings(siteDirectory, html) {
+async function framingPhoto(input, ext) {
+  try {
+    if (!fs.pathExistsSync(input)) return null;
+    const stat = fs.lstatSync(input);
+    if (!stat.isFile() || stat.size > FRAMING_MAX_BYTES) return null;
+    const type = sniffImage(input);
+    if (type === null || type !== (ext === "jpeg" ? "jpg" : ext)) return null;
+    // reads the header only
+    const info = await sharp(input, {
+      failOn: "none",
+      limitInputPixels: FRAMING_MAX_PIXELS,
+    }).metadata();
+    // a turned photo swaps sides once its orientation is applied
+    const turned = info.orientation && info.orientation >= 5;
+    const width = turned ? info.height : info.width;
+    const height = turned ? info.width : info.height;
+    if (!width || !height || width * height > FRAMING_MAX_PIXELS) return null;
+    return { width, height };
+  } catch {
+    return null;
+  }
+}
+
+/** every index.html under pages/ in the site, or null when there are too many */
+function framingPageFiles(siteDirectory) {
+  const out = [];
+  const root = resolveContainedPath(siteDirectory, "pages");
+  if (root === false || !fs.pathExistsSync(root)) return out;
+  const walk = (dir, depth) => {
+    if (depth > 8) return true;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (entry.isSymbolicLink()) continue;
+      const full = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (!walk(full, depth + 1)) return false;
+      } else if (entry.isFile() && entry.name === "index.html") {
+        out.push(full);
+        if (out.length > FRAMING_MAX_PAGES) return false;
+      }
+    }
+    return true;
+  };
+  return walk(root, 0) ? out : null;
+}
+
+/**
+ * Remove the custom cuts of the photos named by `stems` that no page in the
+ * site uses any more. Only files in the framing folder whose names are cuts
+ * of those photos are ever removed; width variants of the photo are kept,
+ * and so is every location listed in `keep` (the save in hand).
+ * Returns the locations removed.
+ */
+function cleanFramings(siteDirectory, stems, keep) {
+  const removed = [];
+  const dir = resolveContainedPath(siteDirectory, FRAMING_DIR);
+  if (dir === false || !fs.pathExistsSync(dir) || !stems.length) return removed;
+  let pages = null;
+  try {
+    pages = framingPageFiles(siteDirectory);
+  } catch {
+    pages = null;
+  }
+  // can't tell what is in use: remove nothing
+  if (pages === null) return removed;
+  const used = {};
+  (keep || []).forEach((location) => {
+    used[location] = true;
+  });
+  for (let i = 0; i < pages.length; i++) {
+    let html = "";
+    try {
+      html = fs.readFileSync(pages[i], "utf8");
+    } catch {
+      return removed;
+    }
+    if (html.indexOf("framing") === -1) continue;
+    framingPlan(html, false).forEach((entry) => {
+      used[entry.location] = true;
+    });
+  }
+  const cutName =
+    /^(.+)-(sm|md|lg|xl)-[0-9a-f]{8}-[0-9]+w\.(jpg|jpeg|png|webp)$/;
+  fs.readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+    if (!entry.isFile()) return;
+    const match = cutName.exec(entry.name);
+    if (!match || !stems.includes(match[1])) return;
+    const location = FRAMING_DIR + entry.name;
+    if (used[location]) return;
+    const target = resolveContainedPath(siteDirectory, location);
+    if (target === false) return;
+    try {
+      fs.unlinkSync(target);
+      removed.push(location);
+    } catch {
+      // still there: a later save removes it
+    }
+  });
+  return removed;
+}
+
+/**
+ * Make the files the framed photos in `html` need, inside `siteDirectory`,
+ * within the limits at the top of this file. Files already there are kept; a
+ * photo that is missing, too big or not an image is skipped (the element
+ * falls back to framing the original in CSS). When a new custom cut is
+ * written, that photo's cuts no page uses any more are removed.
+ * `options.maxSeconds` overrides FRAMING_MAX_SECONDS. Returns the locations
+ * written.
+ */
+async function cutFramings(siteDirectory, html, options) {
   const written = [];
   const plan = framingPlan(html);
   if (!plan.length) return written;
   const dir = resolveContainedPath(siteDirectory, FRAMING_DIR);
   if (dir === false) return written;
-  const meta = {};
+  const maxSeconds =
+    options && typeof options.maxSeconds === "number"
+      ? options.maxSeconds
+      : FRAMING_MAX_SECONDS;
+  const deadline = Date.now() + maxSeconds * 1000;
+  const photos = {};
+  const reframed = [];
   for (let i = 0; i < plan.length; i++) {
+    if (Date.now() >= deadline) break;
     const entry = plan[i];
     const input = resolveContainedPath(
       siteDirectory,
@@ -201,21 +379,20 @@ async function cutFramings(siteDirectory, html) {
     const target = resolveContainedPath(siteDirectory, entry.location);
     if (input === false || target === false) continue;
     if (fs.pathExistsSync(target)) continue;
-    if (!fs.pathExistsSync(input) || !fs.lstatSync(input).isFile()) continue;
+    const source = framingSource(entry.source);
+    if (photos[input] === undefined) {
+      photos[input] = await framingPhoto(input, source.ext);
+    }
+    const photo = photos[input];
+    if (!photo) continue;
+    const W = photo.width;
+    const H = photo.height;
     try {
-      if (!meta[input]) {
-        meta[input] = await sharp(input, { failOn: "none" })
-          .rotate()
-          .metadata();
-      }
-      const info = meta[input];
-      // rotate() applies EXIF orientation, so a turned photo swaps sides
-      const turned = info.orientation && info.orientation >= 5;
-      const W = turned ? info.height : info.width;
-      const H = turned ? info.width : info.height;
-      if (!W || !H) continue;
       fs.ensureDirSync(dir);
-      let pipeline = sharp(input, { failOn: "none" }).rotate();
+      let pipeline = sharp(input, {
+        failOn: "none",
+        limitInputPixels: FRAMING_MAX_PIXELS,
+      }).rotate();
       if (entry.rect) {
         const left = Math.min(W - 1, Math.round(entry.rect.x * W));
         const top = Math.min(H - 1, Math.round(entry.rect.y * H));
@@ -233,8 +410,28 @@ async function cutFramings(siteDirectory, html) {
         .resize({ width: entry.width, withoutEnlargement: true })
         .toFile(target);
       written.push(entry.location);
+      if (entry.rect && !reframed.includes(source.stem)) {
+        reframed.push(source.stem);
+      }
     } catch {
-      // unreadable photo: leave it to the CSS fallback
+      // unreadable photo: leave it to the CSS fallback; never leave a
+      // half-written file behind to be served
+      try {
+        fs.removeSync(target);
+      } catch {
+        // nothing to remove
+      }
+    }
+  }
+  if (reframed.length) {
+    try {
+      cleanFramings(
+        siteDirectory,
+        reframed,
+        plan.map((entry) => entry.location),
+      );
+    } catch {
+      // cleaning up is best effort
     }
   }
   return written;
@@ -246,6 +443,10 @@ module.exports = {
   FRAMING_FORMATS,
   FRAMING_DIR,
   FRAMING_TAGS,
+  FRAMING_MAX_PHOTOS,
+  FRAMING_MAX_BYTES,
+  FRAMING_MAX_PIXELS,
+  FRAMING_MAX_SECONDS,
   parseFraming,
   fnv1a,
   framingKey,
@@ -254,5 +455,6 @@ module.exports = {
   framingCutUrl,
   framingCutWidths,
   framingPlan,
+  cleanFramings,
   cutFramings,
 };
