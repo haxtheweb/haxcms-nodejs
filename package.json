@@ -115,7 +115,7 @@
     "ws": "^8.21.0",
     "xml2js": "^0.6.2",
     "yaml": "^2.9.0",
-    "@haxtheweb/haxcms-plugin-spec": "github:haxtheweb/haxcms-plugins#5ccfc18e9f03eca65ea59b0940e048441efdd191"
+    "@haxtheweb/haxcms-plugin-spec": "github:haxtheweb/haxcms-plugins#eb96ff7082196989f16742aa075996c98813e64f"
   },
   "devDependencies": {
     "@babel/cli": "7.28.6",

@@ -485,6 +485,87 @@ function siteSummary(site, extra = {}) {
 }
 
 /**
+ * For a core operation other than the page save that is about to write one page (a block edit, a restored
+ * revision, a change to a page's details): the page before hooks. Returns { veto, after }: on a veto core must not
+ * write; otherwise it writes and then awaits after(stored). What the hooks return is not applied.
+ */
+async function pageSave(site, record, previous, opts = {}) {
+  const idle = { veto: null, after: async () => {} };
+  if (process.env.HAXCMS_PLUGINS === "off" || !(await listening(site, opts))) {
+    return idle;
+  }
+  const plain = (v) => (v ? JSON.parse(JSON.stringify(v)) : v);
+  const was = plain(previous);
+  const pre = await before(site, "page", plain(record), was, opts);
+  if (pre.veto) {
+    return { veto: pre.veto, after: idle.after };
+  }
+  return {
+    veto: null,
+    after: async (stored) => {
+      try {
+        await after(site, "page", plain(stored || record), was, opts);
+      } catch {
+        // the page is written; a plugin failing afterwards never undoes it
+      }
+    },
+  };
+}
+
+/** Answer a request that a plugin refused. */
+function refuse(res, veto) {
+  const status = veto.status || 409;
+  return res
+    .status(status)
+    .json({ status, data: { message: veto.message, plugin: veto.plugin } });
+}
+
+/** The site record the manifest hooks carry: what site.json says about the site itself, without its pages. */
+function siteRecord(site) {
+  const m = (site && site.manifest) || {};
+  return {
+    id: m.id,
+    title: m.title,
+    description: m.description,
+    metadata: JSON.parse(JSON.stringify(m.metadata || {})),
+  };
+}
+
+/**
+ * For a core operation that has changed site.manifest in memory and is about to write site.json (a settings
+ * screen, a slug clean-up): the manifest before hooks, with the stored site as ctx.previous, so a theme change
+ * made anywhere fires theme.before.change. `opts.stored` is a function that loads the site as it is on disk; it is
+ * called only when a plugin is listening. Returns { veto, after }: on a veto core must not write; otherwise it
+ * writes and then awaits after(). As in saveManifest, the only thing taken from what the hooks return is the
+ * plugins' own metadata.plugins fields.
+ */
+async function siteSave(site, opts = {}) {
+  const idle = { veto: null, after: async () => {} };
+  if (process.env.HAXCMS_PLUGINS === "off" || !(await listening(site, opts))) {
+    return idle;
+  }
+  const stored = typeof opts.stored === "function" ? await opts.stored() : null;
+  const previous = stored && stored.manifest ? siteRecord(stored) : null;
+  const pre = await before(site, "site", siteRecord(site), previous, opts);
+  if (pre.veto) {
+    return { veto: pre.veto, after: idle.after };
+  }
+  if (pre.record && pre.record.metadata && pre.record.metadata.plugins) {
+    site.manifest.metadata.plugins = pre.record.metadata.plugins;
+  }
+  return {
+    veto: null,
+    after: async () => {
+      try {
+        await after(site, "site", pre.record, previous, opts);
+      } catch {
+        // site.json is written; a plugin failing afterwards never undoes it
+      }
+    },
+  };
+}
+
+/**
  * Several records changed by one core operation (the outline save, a bulk page create): the before hooks for all of
  * them, in one bulk transaction whose origin names the operation, so a plugin sees one transaction and can tell
  * which operation it is (transaction.before.start, ctx.transaction.origin). `changes` is a list of
@@ -793,6 +874,10 @@ async function saveSettings(site, id, values, opts = {}) {
 }
 
 module.exports = {
+  pageSave,
+  refuse,
+  siteRecord,
+  siteSave,
   log,
   settle,
   engineAvailable,

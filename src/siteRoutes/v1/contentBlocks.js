@@ -27,6 +27,15 @@ const { HAXCMS } = require("../../lib/HAXCMS.js");
 // one block write per page at a time (read, patch, write); keyed by site
 // directory and page id
 const pageLocks = new Map();
+// DRAFT plugin platform: this route writes a page, so it fires the page hooks (spec/06)
+const pluginSystem = require("../../lib/plugins/pluginSystem.js");
+const pluginActor = (req) =>
+  pluginSystem.userRecord(
+    req && req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "",
+  );
+
 async function withPageLock(key, fn) {
   const previous = pageLocks.get(key) || Promise.resolve();
   let release;
@@ -271,6 +280,17 @@ async function updateContentBlocks(req, res) {
         : [];
       r.previous = decoded.length ? decoded[0].attributes : {};
     });
+    // DRAFT plugin platform: a block edit rewrites the page's content, so it is a page save with the new content
+    // as the subject; a veto refuses it before anything is written
+    const pluginSave = await pluginSystem.pageSave(
+      site,
+      Object.assign({}, page, { content: outcome.content }),
+      Object.assign({}, page, { content: html }),
+      { user: pluginActor(req) },
+    );
+    if (pluginSave.veto) {
+      return pluginSystem.refuse(res, pluginSave.veto);
+    }
     const written = await page.writeLocation(
       outcome.content,
       site.siteDirectory,
@@ -303,6 +323,9 @@ async function updateContentBlocks(req, res) {
       site.manifest.metadata.site.updated = now;
     }
     await site.manifest.save(false);
+    await pluginSave.after(
+      Object.assign({}, page, { content: outcome.content }),
+    );
     await site.gitCommit(
       `Block operations: ${summarize(ops)} on ${page.title || "Untitled"} (${page.id})` +
         (note ? `: ${note}` : ""),

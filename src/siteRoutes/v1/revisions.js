@@ -25,6 +25,15 @@ const {
   findStructureChanges,
 } = require("../../lib/structureHistory.js");
 
+// DRAFT plugin platform: this route writes a page, so it fires the page hooks (spec/06)
+const pluginSystem = require("../../lib/plugins/pluginSystem.js");
+const pluginActor = (req) =>
+  pluginSystem.userRecord(
+    req && req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "",
+  );
+
 /**
  * haxtheweb/issues#3191: split a commit subject into its op-code parts.
  * Subjects without a valid prefix (manual commits, history from before op
@@ -957,6 +966,20 @@ async function restoreItemRevision(req, res) {
         ),
       ),
     );
+    // DRAFT plugin platform: restoring a revision rewrites the page, so it is a page save with the restored
+    // content as the subject; a veto refuses it before anything is written
+    const pluginSave = await pluginSystem.pageSave(
+      site,
+      Object.assign({}, page, {
+        content: revisionContent,
+        restoredFrom: revisionHash,
+      }),
+      page,
+      { user: pluginActor(req) },
+    );
+    if (pluginSave.veto) {
+      return pluginSystem.refuse(res, pluginSave.veto);
+    }
     const bytes = await page.writeLocation(revisionContent, site.siteDirectory);
     if (bytes === false) {
       return res.status(500).json({
@@ -1007,6 +1030,9 @@ async function restoreItemRevision(req, res) {
     if (site.manifest && typeof site.manifest.save === "function") {
       await site.manifest.save();
     }
+    await pluginSave.after(
+      Object.assign({}, page, { content: revisionContent }),
+    );
     const note = normalizeRestoreNote(
       req && req.body && typeof req.body === "object" ? req.body.note : "",
     );

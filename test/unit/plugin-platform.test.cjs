@@ -1468,3 +1468,163 @@ describe("the log reaches a log sink, from plugins and from core", () => {
     }
   });
 });
+
+// Every other place core writes site.json or a page fires the same hooks as the main saves (spec/06): the site
+// settings screens are manifest saves, and block edits, restored revisions, item details and the slug clean-up
+// are page saves.
+describe("settings screens and the other page writes fire the manifest and page hooks", () => {
+  const saveEditorSettings = require("../../src/siteRoutes/v1/routes/saveEditorSettings.js");
+  const siteRoutes = require("../../src/siteRoutes/v1/site.js");
+  const probeConfig = path.join(
+    testRoot,
+    "_config",
+    "plugins",
+    "config",
+    "fx-probe-a.json",
+  );
+  const hooksSite = () => HAXCMS.loadSite("plugin-settings");
+  const heardBy = async (s, id, hook) =>
+    (await pluginSystem.host(s, { user: null })).log.filter(
+      (l) => l.message === id + ":" + hook,
+    ).length;
+  const setProbe = (settings) => {
+    fs.ensureDirSync(path.dirname(probeConfig));
+    fs.writeFileSync(probeConfig, JSON.stringify(settings));
+    pluginSystem.reset();
+  };
+
+  before(async () => {
+    assert.ok(await HAXCMS.loadSite("plugin-settings", true));
+    for (const id of ["fx-probe-a", "fx-vetoer"]) {
+      fs.copySync(
+        path.join(spec, "conformance", "fixtures", id),
+        path.join(testRoot, "_plugins", id),
+      );
+      pluginSystem.reset();
+      const on = await pluginSystem.enable(null, id, {});
+      assert.ok(on.status === 200 || on.status === 409, JSON.stringify(on));
+    }
+    setProbe({});
+  });
+
+  test("a theme changed on any screen fires theme.before.change, and a veto refuses the write", async () => {
+    const s = await hooksSite();
+    const stored = () => HAXCMS.loadSite("plugin-settings");
+    const from = await heardBy(s, "fx-probe-a", "theme.before.change");
+    // a save that leaves the theme alone is a manifest save and not a theme change
+    s.manifest.metadata.site.updated = 1;
+    const plain = await pluginSystem.siteSave(s, { stored });
+    assert.equal(plain.veto, null);
+    await plain.after();
+    assert.equal(await heardBy(s, "fx-probe-a", "theme.before.change"), from);
+    // the theme changes
+    const t = await hooksSite();
+    t.manifest.metadata.theme = Object.assign({}, t.manifest.metadata.theme, {
+      element: "clean-two",
+    });
+    const themed = await pluginSystem.siteSave(t, { stored });
+    assert.equal(themed.veto, null);
+    assert.equal(
+      await heardBy(t, "fx-probe-a", "theme.before.change"),
+      from + 1,
+    );
+    // and a plugin can refuse it
+    setProbe({ "theme.before.change": "veto" });
+    const u = await hooksSite();
+    u.manifest.metadata.theme = Object.assign({}, u.manifest.metadata.theme, {
+      element: "clean-two",
+    });
+    const refused = await pluginSystem.siteSave(u, { stored });
+    assert.equal(refused.veto.message, "fx-probe-a says no");
+  });
+
+  test("a settings screen goes through the manifest hooks and still saves", async (t) => {
+    t.mock.method(HAXCMS, "validateRequestToken", () => true);
+    // the probe would refuse a theme change; this screen does not change the theme
+    setProbe({ "theme.before.change": "veto" });
+    const s = await hooksSite();
+    const res = stubRes();
+    await saveEditorSettings(
+      siteReq(s, { platform: { audience: "expert" } }),
+      res,
+    );
+    assert.equal(res.statusCode, null, JSON.stringify(res.body));
+    assert.equal(res.body.status, 200);
+    assert.equal(
+      (await hooksSite()).manifest.metadata.platform.audience,
+      "expert",
+    );
+    setProbe({});
+  });
+
+  test("a page write outside the page save fires the page hooks; a veto refuses it", async () => {
+    const s = await hooksSite();
+    const page = s.manifest.items[0];
+    const from = await heardBy(s, "fx-probe-a", "page.before.save");
+    const ok = await pluginSystem.pageSave(
+      s,
+      Object.assign({}, page, { content: "<p>new</p>" }),
+      page,
+    );
+    assert.equal(ok.veto, null);
+    await ok.after();
+    assert.equal(await heardBy(s, "fx-probe-a", "page.before.save"), from + 1);
+    assert.equal((await heardBy(s, "fx-probe-a", "page.after.save")) > 0, true);
+    const no = await pluginSystem.pageSave(
+      s,
+      Object.assign({}, page, { title: "forbidden" }),
+      page,
+    );
+    assert.equal(no.veto.message, "fx-vetoer: forbidden");
+  });
+
+  test("the slug clean-up fires one bulk transaction of page saves, and a veto leaves site.json alone", async (t) => {
+    t.mock.method(HAXCMS, "validateRequestToken", () => true);
+    const s = await hooksSite();
+    const file = path.join(s.siteDirectory, "site.json");
+    // two pages with slugs the clean-up will change
+    const json = JSON.parse(fs.readFileSync(file, "utf8"));
+    // a second page next to the one a new site starts with
+    json.items.push(
+      Object.assign({}, json.items[0], {
+        id: "item-second-page",
+        title: "Second page",
+        order: 1,
+      }),
+    );
+    json.items[0].slug = "stale-slug-one";
+    json.items[1].slug = "stale-slug-two";
+    fs.writeFileSync(file, JSON.stringify(json, null, 2));
+    const req = async (body) => {
+      const site = await hooksSite();
+      const r = siteReq(site, body || {});
+      r.params = {};
+      // the route resolves its site from the multisite path
+      r.originalUrl =
+        "/" + HAXCMS.sitesDirectory + "/plugin-settings/x/api/v1/site";
+      return r;
+    };
+    const res = stubRes();
+    await siteRoutes.normalizeSiteSlugs(await req(), res);
+    assert.equal(res.statusCode, null, JSON.stringify(res.body));
+    const changed = res.body.data.changes.length;
+    assert.ok(changed >= 2, JSON.stringify(res.body.data));
+    const log = (await pluginSystem.host(await hooksSite(), { user: null }))
+      .log;
+    const starts = log.filter(
+      (l) => l.message === "fx-probe-a:transaction.before.start",
+    ).length;
+    assert.ok(starts >= 2);
+    // a page a plugin refuses stops the whole clean-up
+    const again = JSON.parse(fs.readFileSync(file, "utf8"));
+    again.items[0].slug = "stale-again";
+    again.items[0].title = "forbidden";
+    fs.writeFileSync(file, JSON.stringify(again, null, 2));
+    const before = fs.readFileSync(file, "utf8");
+    const no = stubRes();
+    await siteRoutes.normalizeSiteSlugs(await req(), no);
+    assert.equal(no.statusCode, 409, JSON.stringify(no.body));
+    assert.equal(no.body.data.message, "fx-vetoer: forbidden");
+    assert.equal(fs.readFileSync(file, "utf8"), before);
+  });
+});

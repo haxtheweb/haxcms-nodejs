@@ -1,6 +1,8 @@
 const fs = require("fs-extra");
 const path = require("path");
 const { HAXCMS, systemStructureContext } = require("../../lib/HAXCMS.js");
+// DRAFT plugin platform: the slug clean-up changes many pages, so it fires the page hooks (spec/06)
+const pluginSystem = require("../../lib/plugins/pluginSystem.js");
 const saveManifestRoute = require("./routes/saveManifest.js");
 const saveAppearanceSettingsRoute = require("./routes/saveAppearanceSettings.js");
 const savePlatformSettingsRoute = require("./routes/savePlatformSettings.js");
@@ -794,6 +796,36 @@ async function normalizeSiteSlugs(req, res) {
     }
     remaining = nextBatch;
   }
+  // DRAFT plugin platform: every page whose slug will change goes to the page before hooks, in one bulk
+  // transaction whose origin is "normalizeSlugs"; a veto refuses the clean-up before anything is written
+  let pluginChanges = [];
+  const pluginOpts = {
+    origin: "normalizeSlugs",
+    user: pluginSystem.userRecord(activeUserName),
+  };
+  if (
+    !isPreview &&
+    changes.length > 0 &&
+    process.env.HAXCMS_PLUGINS !== "off" &&
+    (await pluginSystem.listening(site))
+  ) {
+    const plain = (v) => JSON.parse(JSON.stringify(v));
+    pluginChanges = changes.map((c) => ({
+      op: "update",
+      record: plain(items.find((i) => String(i.id) === c.id)),
+      previous: plain(originalItems.find((i) => String(i.id) === c.id)),
+    }));
+    const pre = await pluginSystem.beforeMany(
+      site,
+      "page",
+      pluginChanges,
+      pluginOpts,
+    );
+    if (pre.veto) {
+      site.manifest.items = originalItems;
+      return pluginSystem.refuse(res, pre.veto);
+    }
+  }
   if (isPreview) {
     site.manifest.items = originalItems;
   } else {
@@ -807,6 +839,13 @@ async function normalizeSiteSlugs(req, res) {
         skipped.length +
         " skipped",
     );
+    if (pluginChanges.length) {
+      try {
+        await pluginSystem.afterMany(site, "page", pluginChanges, pluginOpts);
+      } catch {
+        // the slugs are saved; a plugin failing afterwards never undoes it
+      }
+    }
   }
   return res.json({
     status: 200,

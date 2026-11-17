@@ -34,6 +34,15 @@ const { ITEM_EXPORT_FORMATS } = require("./exports.js");
 // Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../lib/clientErrorMessage.js");
 
+// DRAFT plugin platform: this route writes a page, so it fires the page hooks (spec/06)
+const pluginSystem = require("../../lib/plugins/pluginSystem.js");
+const pluginActor = (req) =>
+  pluginSystem.userRecord(
+    req && req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "",
+  );
+
 function ensureSiteTokenHeader(req) {
   const headerToken = getRequestHeaderValue(req, "x-haxcms-site-token");
   if (headerToken === "") {
@@ -522,11 +531,22 @@ async function updateItem(req, res) {
     });
   }
   try {
+    // DRAFT plugin platform: a change to a page's details is a page save; a veto refuses it before it is applied
+    const pluginSave = await pluginSystem.pageSave(
+      site,
+      Object.assign({}, existingItem, { operation: operation }),
+      existingItem,
+      { user: pluginActor(req) },
+    );
+    if (pluginSave.veto) {
+      return pluginSystem.refuse(res, pluginSave.veto);
+    }
     const result = await applyNodeDetailOperation(
       site,
       existingItem.id,
       payload,
     );
+    await pluginSave.after(result.item);
     const apiBasePath = getApiBasePath(req);
     const navigationMap = buildItemNavigationMap(
       getOrderedItems(site),
