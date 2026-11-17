@@ -936,6 +936,71 @@ describe("settings, assets, rate limits and stores over the routes", () => {
     assert.equal(off.statusCode, 404);
   });
 
+  test("the contract: a plugin's operations at their mounted paths, as JSON or YAML, to a signed-in caller only", async () => {
+    const one = await run("/x/api/v1/plugins/:plugin/openapi.json", {
+      path: "/x/api/v1/plugins/fx-tally/openapi.json",
+      params: { plugin: "fx-tally" },
+    });
+    assert.equal(one.statusCode, 200, JSON.stringify(one.body));
+    assert.deepEqual(Object.keys(one.body.paths), [
+      "/x/api/v1/plugins/fx-tally/burst",
+      "/x/api/v1/plugins/fx-tally/careless",
+      "/x/api/v1/plugins/fx-tally/vote",
+    ]);
+    assert.equal(
+      one.body.paths["/x/api/v1/plugins/fx-tally/vote"].post.operationId,
+      "fxTallyVote",
+    );
+    const asYaml = await run("/x/api/v1/plugins/:plugin/openapi.yaml", {
+      path: "/x/api/v1/plugins/fx-tally/openapi.yaml",
+      params: { plugin: "fx-tally" },
+    });
+    assert.equal(asYaml.statusCode, 200);
+    assert.equal(
+      asYaml.headers["Content-Type"],
+      "application/yaml; charset=utf-8",
+    );
+    assert.match(String(asYaml.sent), /fxTallyVote/);
+    // every plugin that is on, for the scope asked: fx-tally has nothing at system scope
+    const site = await run("/x/api/v1/plugins/openapi.json", {
+      path: "/x/api/v1/plugins/openapi.json",
+    });
+    assert.equal(site.statusCode, 200);
+    assert.ok(site.body.paths["/x/api/v1/plugins/fx-tally/vote"]);
+    const system = await run("/system/api/v1/plugins/openapi.json", {
+      path: "/system/api/v1/plugins/openapi.json",
+    });
+    assert.equal(system.statusCode, 200);
+    assert.ok(
+      Object.keys(system.body.paths).every(
+        (k) => k.indexOf("/system/api/v1/plugins/") === 0,
+      ),
+    );
+    for (const missing of [
+      ["/x/api/v1/plugins/:plugin/openapi.json", "fx-absent"],
+      ["/system/api/v1/plugins/:plugin/openapi.json", "fx-tally"],
+    ]) {
+      const res = await run(missing[0], {
+        path: "/openapi.json",
+        params: { plugin: missing[1] },
+      });
+      assert.equal(res.statusCode, 404, missing.join(" "));
+    }
+    auth = { userName: "", jwt: false, userToken: false, siteToken: false };
+    for (const p of [
+      "/x/api/v1/plugins/openapi.json",
+      "/system/api/v1/plugins/openapi.json",
+      "/x/api/v1/plugins/:plugin/openapi.json",
+    ]) {
+      const res = await run(p, {
+        path: "/openapi.json",
+        params: { plugin: "fx-tally" },
+      });
+      assert.equal(res.statusCode, 401, p);
+    }
+    auth = authAll;
+  });
+
   test("an anonymous caller is limited per address; the store file is written whole", async () => {
     auth = { userName: "", jwt: false, userToken: false, siteToken: false };
     const vote = (ip) =>

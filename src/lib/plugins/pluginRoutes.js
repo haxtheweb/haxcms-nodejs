@@ -13,7 +13,10 @@
 //   POST /x/api/v1/plugins/<id>/disable
 //   GET, POST .../plugins/<id>/settings          a plugin's settings form and values; secrets are write-only
 //   GET  .../plugins/<id>/assets/<path>          one of its front-end files (frontend/dist), no credentials
-// assets, enable, disable and settings are reserved sub-paths: a plugin operation cannot take them.
+//   GET  .../plugins/openapi.json|yaml           what the plugins that are on add to the API, for that scope
+//   GET  .../plugins/<id>/openapi.json|yaml      the same for one plugin
+// assets, openapi.json, openapi.yaml, enable, disable and settings are reserved sub-paths: a plugin operation cannot
+// take them. PLATFORM_ROUTES below is the list, and src/openapi documents each entry.
 const pluginSystem = require("./pluginSystem.js");
 const fs = require("fs");
 const path = require("path");
@@ -45,6 +48,74 @@ function readRegistry(dir, name) {
     .map((f) => readYaml(path.join(d, f)))
     .filter(Boolean);
 }
+
+/**
+ * The routes core answers itself under .../plugins, the same at system scope (/system/api/v1/plugins) and site scope
+ * (/x/api/v1/plugins). Both OpenAPI specs document exactly these; "credentials" false means no sign-in is asked for.
+ */
+const PLATFORM_ROUTES = [
+  { method: "get", path: "", handler: "registry", credentials: true },
+  {
+    method: "get",
+    path: "/contributions",
+    handler: "contributions",
+    credentials: true,
+  },
+  {
+    method: "get",
+    path: "/openapi.json",
+    handler: "contract",
+    credentials: true,
+  },
+  {
+    method: "get",
+    path: "/openapi.yaml",
+    handler: "contract",
+    credentials: true,
+  },
+  {
+    method: "post",
+    path: "/{plugin}/enable",
+    handler: "enable",
+    credentials: true,
+  },
+  {
+    method: "post",
+    path: "/{plugin}/disable",
+    handler: "disable",
+    credentials: true,
+  },
+  {
+    method: "get",
+    path: "/{plugin}/settings",
+    handler: "settings",
+    credentials: true,
+  },
+  {
+    method: "post",
+    path: "/{plugin}/settings",
+    handler: "saveSettings",
+    credentials: true,
+  },
+  {
+    method: "get",
+    path: "/{plugin}/openapi.json",
+    handler: "pluginContract",
+    credentials: true,
+  },
+  {
+    method: "get",
+    path: "/{plugin}/openapi.yaml",
+    handler: "pluginContract",
+    credentials: true,
+  },
+  {
+    method: "get",
+    path: "/{plugin}/assets/{assetPath}",
+    handler: "asset",
+    credentials: false,
+  },
+];
 
 /**
  * @param {object} app      the express app
@@ -203,16 +274,6 @@ function mountPluginRoutes(app, deps) {
       data: { contributions: items, contracts: h.advertisedContracts() },
     });
   };
-  app.get(`${base}x/api/v1/plugins/contributions`, contributions("site"));
-  app.get(
-    `${base}${deps.sitesDirectory}/*/x/api/v1/plugins/contributions`,
-    contributions("site"),
-  );
-  app.get(
-    `${base}system/api/v1/plugins/contributions`,
-    contributions("dashboard"),
-  );
-
   // GET /.well-known/<name> (spec/05): a public, system-scope GET a plugin marks with x-hax-well-known, served at the
   // standard location too. Only reserved names; the first active plugin that declares one serves it.
   const WELL_KNOWN = new Set([
@@ -374,33 +435,69 @@ function mountPluginRoutes(app, deps) {
       return refuse(res, 500, "server error");
     }
   };
+  // ---- the contract (spec/13 section 5): what the plugins that are on add to the API, for one scope ----
+  const contract = (scope, one) => async (req, res) => {
+    try {
+      const site =
+        scope === "site" ? await deps.resolveSite(req).catch(() => null) : null;
+      const auth = deps.resolveAuth(req, site);
+      const allowed =
+        scope === "site"
+          ? !!site && auth.jwt && auth.siteToken
+          : auth.jwt && auth.userToken;
+      if (!allowed) {
+        return refuse(res, 401, "access denied");
+      }
+      const h =
+        scope === "site"
+          ? await pluginSystem.host(site, { user: userOf(auth) })
+          : await pluginSystem.systemHost({ user: userOf(auth) });
+      const opts = one
+        ? { scope, plugin: String(req.params.plugin) }
+        : { scope };
+      const doc = h
+        ? h.unifiedContract(opts)
+        : { openapi: "3.1.0", info: { title: "HAXcms plugins" }, paths: {} };
+      // one plugin's document exists only while that plugin is on and has operations in this scope
+      if (one && Object.keys(doc.paths || {}).length === 0) {
+        return refuse(res, 404, "not found");
+      }
+      if (/\.yaml$/.test(req.path)) {
+        res.set("Content-Type", "application/yaml; charset=utf-8");
+        return res.status(200).send(loadYaml().stringify(doc));
+      }
+      return res.status(200).json(doc);
+    } catch {
+      return refuse(res, 500, "server error");
+    }
+  };
+  const handlers = {
+    registry: (scope) => (scope === "site" ? siteRegistry : systemRegistry),
+    contributions: (scope) =>
+      contributions(scope === "site" ? "site" : "dashboard"),
+    contract: (scope) => contract(scope, false),
+    pluginContract: (scope) => contract(scope, true),
+    enable: (scope) => toggle(scope, "enable"),
+    disable: (scope) => toggle(scope, "disable"),
+    settings: (scope) => settingsRoute(scope, false),
+    saveSettings: (scope) => settingsRoute(scope, true),
+    asset: (scope) => assetRoute(scope),
+  };
   for (const [prefix, scope] of [
     [`${base}system/api/v1/plugins`, "system"],
     [`${base}x/api/v1/plugins`, "site"],
     [`${base}${deps.sitesDirectory}/*/x/api/v1/plugins`, "site"],
   ]) {
-    app.get(`${prefix}/:plugin/settings`, settingsRoute(scope, false));
-    app.post(`${prefix}/:plugin/settings`, settingsRoute(scope, true));
-    app.get(`${prefix}/:plugin/assets/*`, assetRoute(scope));
-  }
-  app.get(`${base}system/api/v1/plugins`, systemRegistry);
-  app.get(`${base}x/api/v1/plugins`, siteRegistry);
-  app.get(`${base}${deps.sitesDirectory}/*/x/api/v1/plugins`, siteRegistry);
-  for (const action of ["enable", "disable"]) {
-    app.post(
-      `${base}system/api/v1/plugins/:plugin/${action}`,
-      toggle("system", action),
-    );
-    app.post(
-      `${base}x/api/v1/plugins/:plugin/${action}`,
-      toggle("site", action),
-    );
-    app.post(
-      `${base}${deps.sitesDirectory}/*/x/api/v1/plugins/:plugin/${action}`,
-      toggle("site", action),
-    );
+    for (const route of PLATFORM_ROUTES) {
+      app[route.method](
+        prefix +
+          route.path.replace("{plugin}", ":plugin").replace("{assetPath}", "*"),
+        handlers[route.handler](scope),
+      );
+    }
   }
 
+  // everything else under .../plugins/<id>/ is that plugin's own operations
   app.all(`${base}x/api/v1/plugins/:plugin/*`, handle("site"));
   app.all(
     `${base}${deps.sitesDirectory}/*/x/api/v1/plugins/:plugin/*`,
@@ -409,4 +506,4 @@ function mountPluginRoutes(app, deps) {
   app.all(`${base}system/api/v1/plugins/:plugin/*`, handle("system"));
 }
 
-module.exports = { mountPluginRoutes };
+module.exports = { mountPluginRoutes, PLATFORM_ROUTES };
