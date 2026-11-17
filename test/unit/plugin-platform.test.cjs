@@ -1401,3 +1401,70 @@ describe("without the plugin engine, plugins are off and saves go on", () => {
     }
   });
 });
+
+// The log (spec/13, log.sink): what plugins and core write reaches a plugin that implements log.sink when one is
+// on, and costs nothing when none is.
+describe("the log reaches a log sink, from plugins and from core", () => {
+  const got = async () =>
+    (await pluginSystem.systemHost({ user: null })).log
+      .map((l) => l.message)
+      .filter((m) => m.indexOf("fx-log-sink got") === 0);
+
+  test("with no sink on, core's entry goes nowhere", async () => {
+    pluginSystem.reset();
+    assert.equal(
+      await pluginSystem.log(null, "warn", "nobody is listening"),
+      true,
+      "a plugin is on, so the entry was taken",
+    );
+    assert.deepEqual(await got(), []);
+  });
+
+  test("with a sink on, it receives core's entries and what other plugins log in hooks", async () => {
+    fs.copySync(
+      path.join(spec, "conformance", "fixtures", "fx-log-sink"),
+      path.join(testRoot, "_plugins", "fx-log-sink"),
+    );
+    pluginSystem.reset();
+    const on = await pluginSystem.enable(null, "fx-log-sink", {});
+    assert.equal(on.status, 200, JSON.stringify(on));
+    assert.equal(
+      await pluginSystem.log(null, "error", "site.json could not be written"),
+      true,
+    );
+    await pluginSystem.event(null, "site.before.create", { name: "logged" });
+    const lines = await got();
+    assert.ok(
+      lines.includes(
+        "fx-log-sink got [error] core: site.json could not be written",
+      ),
+      lines.join("\n"),
+    );
+    assert.ok(
+      lines.includes(
+        "fx-log-sink got [info] fx-core-events: fx-core-events:site.before.create",
+      ),
+      lines.join("\n"),
+    );
+    // the sink never receives its own entries
+    assert.ok(!lines.some((l) => l.indexOf("] fx-log-sink:") !== -1));
+  });
+
+  test("the engine's in-memory log stays bounded", async () => {
+    const h = await pluginSystem.systemHost({ user: null });
+    for (let i = 0; i < 1200; i++) {
+      h.log.push({ level: "info", plugin: "core", message: "filler " + i });
+    }
+    await pluginSystem.settle(h);
+    assert.ok(h.log.length <= 1000, String(h.log.length));
+  });
+
+  test("with plugins off nothing is logged", async () => {
+    process.env.HAXCMS_PLUGINS = "off";
+    try {
+      assert.equal(await pluginSystem.log(null, "info", "x"), false);
+    } finally {
+      delete process.env.HAXCMS_PLUGINS;
+    }
+  });
+});

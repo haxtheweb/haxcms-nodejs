@@ -333,6 +333,63 @@ async function listening(site, opts = {}) {
   return (await rootHost(site, opts.root)).hasActive();
 }
 
+// how many log entries an engine keeps in memory; older ones have already gone to the log sinks
+const LOG_KEEP = 1000;
+
+/**
+ * After core has fired hooks or run an operation: hand what was logged since last time to the plugins that
+ * implement log.sink (spec/13), and keep the engine's in-memory log bounded, since an engine lives as long as the
+ * process. Never fails the operation.
+ */
+async function settle(h) {
+  if (!h) {
+    return;
+  }
+  try {
+    await h.flushLog();
+  } catch {
+    // a log sink failing never fails what was logged about
+  }
+  if (h.log.length > LOG_KEEP) {
+    const drop = h.log.length - LOG_KEEP;
+    h.log.splice(0, drop);
+    h.flushed = Math.max(0, (h.flushed || 0) - drop);
+  }
+}
+
+/**
+ * Write an entry to the log from core: a failure path, a sign-in, anything worth keeping. It reaches whichever
+ * plugin implements log.sink, when one is on; with none, nothing happens and nothing is kept. `site` null writes
+ * to the system log. Returns whether a plugin was there to receive it.
+ */
+async function log(site, level, message, extra = {}) {
+  if (process.env.HAXCMS_PLUGINS === "off" || !(await engineAvailable())) {
+    return false;
+  }
+  try {
+    const root = await rootHost(
+      site && site.manifest ? site : null,
+      extra.root,
+    );
+    if (!root.hasActive()) {
+      return false;
+    }
+    const entry = {
+      level: String(level || "info"),
+      plugin: "core",
+      message: String(message),
+    };
+    if (extra.scope) {
+      entry.scope = extra.scope;
+    }
+    root.log.push(entry);
+    await settle(root);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fire the before hooks for a save core is about to make. Returns { record, veto, warnings }: when `veto` is set,
  * core must not write; otherwise it writes `record` (plugins may have changed it).
@@ -352,6 +409,7 @@ async function before(site, type, record, previous, opts = {}) {
     ...(r.warnings || []),
     ...(!r.veto && !opts.delete ? h.checkPluginMetadata(type, r.subject) : []),
   ];
+  await settle(h);
   return {
     record: opts.delete ? record : r.subject,
     veto: r.veto || null,
@@ -370,6 +428,7 @@ async function after(site, type, record, previous, opts = {}) {
     entity: type,
     previous,
   });
+  await settle(h);
   return { warnings: r.warnings || [] };
 }
 
@@ -396,6 +455,7 @@ async function event(site, hook, subject, opts = {}) {
     const h =
       site && site.manifest ? await host(site, opts) : await systemHost(opts);
     const r = await h.fire(hook, subject, opts.extra || {});
+    await settle(h);
     return { veto: r.veto || null, warnings: r.warnings || [] };
   } catch {
     return none;
@@ -455,6 +515,7 @@ async function beforeMany(site, type, changes, opts = {}) {
     },
     { bulk: true, origin: opts.origin || "core" },
   );
+  await settle(h);
   return { veto, warnings };
 }
 
@@ -477,6 +538,7 @@ async function afterMany(site, type, changes, opts = {}) {
     },
     { bulk: true, origin: opts.origin || "core" },
   );
+  await settle(h);
   return { warnings };
 }
 
@@ -528,7 +590,9 @@ async function rebuild(site, reason = "save", opts = {}) {
     return null;
   }
   const h = await host(site, opts);
-  return h.rebuild(reason);
+  const result = await h.rebuild(reason);
+  await settle(h);
+  return result;
 }
 
 // ---- the registry (spec/03) ----
@@ -729,6 +793,8 @@ async function saveSettings(site, id, values, opts = {}) {
 }
 
 module.exports = {
+  log,
+  settle,
   engineAvailable,
   // for tests: `loadEngine` replaces how the engine is loaded, `engine` and `engineMissing` are what was found
   _state: state,

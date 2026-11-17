@@ -220,6 +220,8 @@ function mountPluginRoutes(app, deps) {
         // an anonymous call is counted against the caller's address (spec/05)
         { credentials: credentialsOf(auth), client: req.ip || null },
       );
+      // what the operation logged goes to the log sinks
+      await pluginSystem.settle(h);
       for (const [k, v] of Object.entries(r.headers || {})) {
         res.set(k, v);
       }
