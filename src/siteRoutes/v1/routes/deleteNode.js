@@ -5,6 +5,8 @@ const {
 } = require("../../../lib/outlineUpkeep.js");
 const { reslugPageAndBranch } = require("../../../lib/nodeDetailOperations.js");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
+// DRAFT plugin platform: page.before.delete / page.after.delete around the delete
+const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
 const {
   getRequestHeaderValue,
   assertSiteFeature,
@@ -70,6 +72,22 @@ async function deleteNode(req, res) {
           data: { message: "Page is locked", reason: "locked" },
         });
       }
+      const pluginRecord = JSON.parse(JSON.stringify(page));
+      if (process.env.HAXCMS_PLUGINS !== "off") {
+        const pre = await pluginSystem.before(
+          site,
+          "page",
+          pluginRecord,
+          null,
+          { delete: true },
+        );
+        if (pre.veto) {
+          return res.status(pre.veto.status || 409).json({
+            status: pre.veto.status || 409,
+            data: { message: pre.veto.message, plugin: pre.veto.plugin },
+          });
+        }
+      }
       if ((await site.deleteNode(page)) === false) {
         res
           .status(500)
@@ -110,6 +128,11 @@ async function deleteNode(req, res) {
         await site.gitCommit(
           "Page deleted: " + page.title + " (" + page.id + ")",
         );
+        if (process.env.HAXCMS_PLUGINS !== "off") {
+          await pluginSystem.after(site, "page", pluginRecord, null, {
+            delete: true,
+          });
+        }
         res.send({
           status: 200,
           data: page,

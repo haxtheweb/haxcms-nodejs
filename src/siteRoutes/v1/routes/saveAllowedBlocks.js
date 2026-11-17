@@ -1,4 +1,5 @@
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
 const {
   platformAllows,
   featureDisabledResponse,
@@ -128,7 +129,23 @@ async function saveAllowedBlocks(req, res) {
     site.manifest.metadata.site.updated = Math.floor(Date.now() / 1000);
 
     // don't reorganize the structure
+    // DRAFT plugin platform: this screen writes site.json, so it is a manifest save (manifest.before.save, and
+    // theme.before.change when the theme changed). A veto refuses it before anything is written.
+    const pluginSave = await pluginSystem.siteSave(site, {
+      stored: () => HAXCMS.loadSite(site.manifest.metadata.site.name),
+      user: pluginSystem.userRecord(activeUserName),
+    });
+    if (pluginSave.veto) {
+      return res.status(pluginSave.veto.status || 409).json({
+        status: pluginSave.veto.status || 409,
+        data: {
+          message: pluginSave.veto.message,
+          plugin: pluginSave.veto.plugin,
+        },
+      });
+    }
     await site.manifest.save(false);
+    await pluginSave.after();
     await site.gitCommit("Allowed blocks updated");
 
     res.json({ status: 200, data: site.manifest });

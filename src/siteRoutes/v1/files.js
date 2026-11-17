@@ -1249,7 +1249,91 @@ function readOperationPayload(req, operationOverride = "") {
   };
 }
 
-async function performFileOperation(site, requestedPath, payload, jpegQuality) {
+// DRAFT plugin platform (spec/06): file.before.save / file.after.save around a change to an existing file and
+// file.before.delete / file.after.delete around a delete. A veto refuses the operation before the file is touched.
+// With no active plugin nothing runs; what a hook returns is not applied.
+const pluginSystem = require("../../lib/plugins/pluginSystem.js");
+function pluginActor(req) {
+  return pluginSystem.userRecord(
+    req && req.haxcmsSiteApiAuth && req.haxcmsSiteApiAuth.userName
+      ? req.haxcmsSiteApiAuth.userName
+      : "",
+  );
+}
+function pluginFileRecord(record, extra) {
+  return Object.assign(
+    {
+      id: record.uuid || null,
+      name: record.name || "",
+      path: record.path || "",
+      mimeType: record.mimetype || record.mimeType || "",
+      size: record.size || 0,
+    },
+    extra || {},
+  );
+}
+async function pluginFileSubject(site, requestedPath, payload) {
+  if (
+    process.env.HAXCMS_PLUGINS === "off" ||
+    !(await pluginSystem.listening(site))
+  ) {
+    return null;
+  }
+  try {
+    const info = resolveSiteFilePath(site, requestedPath);
+    const resolved = ensureExistingRegularFile(
+      info.resolvedPath,
+      info.filesRootPath,
+    );
+    return pluginFileRecord(buildFileRecord(site, resolved), {
+      operation: payload.operation,
+    });
+  } catch {
+    // the operation itself reports a missing or invalid file
+    return null;
+  }
+}
+async function performFileOperation(
+  site,
+  requestedPath,
+  payload,
+  jpegQuality,
+  actor = null,
+) {
+  const subject = await pluginFileSubject(site, requestedPath, payload || {});
+  const gone = !!subject && payload.operation === "delete";
+  if (subject) {
+    const pre = await pluginSystem.before(
+      site,
+      "file",
+      subject,
+      gone ? null : subject,
+      { delete: gone, user: actor },
+    );
+    if (pre.veto) {
+      throw createStatusError(pre.veto.message, pre.veto.status || 409);
+    }
+  }
+  const result = await runFileOperation(
+    site,
+    requestedPath,
+    payload,
+    jpegQuality,
+  );
+  if (subject) {
+    try {
+      await pluginSystem.after(site, "file", subject, gone ? null : subject, {
+        delete: gone,
+        user: actor,
+      });
+    } catch {
+      // the file operation is done; a plugin failing afterwards never undoes it
+    }
+  }
+  return result;
+}
+
+async function runFileOperation(site, requestedPath, payload, jpegQuality) {
   const operation = payload.operation;
   if (
     ![
@@ -1656,6 +1740,27 @@ async function createFile(req, res) {
   }
   upload.name = upload.originalname || upload.name || "";
   upload.tmp_name = path.join("./", upload.path);
+  // DRAFT plugin platform: file.before.save for the upload; a veto refuses it before it is stored
+  const pluginUpload =
+    process.env.HAXCMS_PLUGINS !== "off" && (await pluginSystem.listening(site))
+      ? pluginFileRecord({
+          name: upload.name,
+          mimetype: upload.mimetype || "",
+          size: upload.size || 0,
+        })
+      : null;
+  if (pluginUpload) {
+    const pre = await pluginSystem.before(site, "file", pluginUpload, null, {
+      user: pluginActor(req),
+    });
+    if (pre.veto) {
+      const status = pre.veto.status || 409;
+      return res.status(status).json({
+        status: status,
+        data: { message: pre.veto.message, plugin: pre.veto.plugin },
+      });
+    }
+  }
   const file = new HAXCMSFile();
   let fileResult = null;
   try {
@@ -1696,6 +1801,20 @@ async function createFile(req, res) {
     await site.gitCommit("File added: " + savedFileName);
   } catch {
     // intentionally ignored
+  }
+  if (pluginUpload) {
+    try {
+      const stored = (fileResult.data && fileResult.data.file) || {};
+      await pluginSystem.after(
+        site,
+        "file",
+        pluginFileRecord(Object.assign({}, pluginUpload, stored)),
+        null,
+        { user: pluginActor(req) },
+      );
+    } catch {
+      // the file is stored; a plugin failing afterwards never undoes it
+    }
   }
   return res.status(200).json(fileResult);
 }
@@ -1824,6 +1943,7 @@ async function updateFile(req, res) {
       requestedPath,
       payload,
       jpegQuality,
+      pluginActor(req),
     );
     await site.gitCommit(result.commitMessage);
     return res.status(200).json({
@@ -1904,6 +2024,22 @@ async function replaceFileContent(req, res) {
       fileInfo.resolvedPath,
       fileInfo.filesRootPath,
     );
+    // DRAFT plugin platform: file.before.save for the file whose content is about to be replaced
+    const pluginSubject = await pluginFileSubject(site, requestedPath, {
+      operation: "replace-content",
+    });
+    if (pluginSubject) {
+      const pre = await pluginSystem.before(
+        site,
+        "file",
+        pluginSubject,
+        pluginSubject,
+        { user: pluginActor(req) },
+      );
+      if (pre.veto) {
+        throw createStatusError(pre.veto.message, pre.veto.status || 409);
+      }
+    }
     await replaceImageContentInPlace(
       fileInfo.resolvedPath,
       upload.path,
@@ -1923,6 +2059,19 @@ async function replaceFileContent(req, res) {
       replacedFile.uuid = upsertedRecord.uuid;
     }
     await site.gitCommit("File content replaced: " + fileInfo.normalizedPath);
+    if (pluginSubject) {
+      try {
+        await pluginSystem.after(
+          site,
+          "file",
+          pluginFileRecord(replacedFile, { operation: "replace-content" }),
+          pluginSubject,
+          { user: pluginActor(req) },
+        );
+      } catch {
+        // the content is replaced; a plugin failing afterwards never undoes it
+      }
+    }
     return res.status(200).json({
       status: 200,
       data: {
@@ -2002,6 +2151,7 @@ async function deleteFile(req, res) {
       requestedPath,
       readOperationPayload(req, "delete"),
       jpegQuality,
+      pluginActor(req),
     );
     await site.gitCommit(result.commitMessage);
     // #3043: on DELETE, scrub the uuid from every page's

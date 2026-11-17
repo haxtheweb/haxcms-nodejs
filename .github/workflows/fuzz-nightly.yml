@@ -45,6 +45,8 @@ jobs:
         id: install
         run: |
           set -o pipefail
+          # a cached git dependency is keyed by name and version only (see build.yml)
+          yarn cache clean @haxtheweb/haxcms-plugin-spec
           yarn install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/install.log"
       - name: Fuzz hunt
         id: fuzz

@@ -51,7 +51,22 @@ const { SiteRoutesMap } = require("../../src/lib/SiteRoutesMap.js");
 const systemOpenapi = require("../../src/systemRoutes/discovery/openapi.js");
 const siteOpenapi = require("../../src/siteRoutes/discovery/openapi.js");
 
+const {
+  mountPluginRoutes,
+  PLATFORM_ROUTES,
+} = require("../../src/lib/plugins/pluginRoutes.js");
+
 const HTTP_METHODS = ["get", "post", "put", "patch", "delete"];
+// the plugin platform's routes are mounted by src/lib/plugins/pluginRoutes.js,
+// not through the route maps; PLATFORM_ROUTES is their registry and has its
+// own checks below
+const SYSTEM_PLUGINS_BASE = "/system/api/v1/plugins";
+const SITE_PLUGINS_BASE = "/x/api/v1/plugins";
+function isPluginPath(specPath) {
+  return [SYSTEM_PLUGINS_BASE, SITE_PLUGINS_BASE].some(
+    (base) => specPath === base || specPath.indexOf(base + "/") === 0,
+  );
+}
 const SYSTEM_BASE = "/system/api/v1";
 // documented for cross-platform parity, implemented only by haxcms-php
 // (HAXiam-managed deployments); see its description in system-spec.yaml
@@ -161,6 +176,7 @@ describe("OpenAPI contract: route map vs system-spec", () => {
   test("every documented system operation is registered (PHP-only listed)", () => {
     const registered = registeredSystemOps();
     const missing = specOperations(systemSpec)
+      .filter((o) => !isPluginPath(o.path))
       .filter(
         (o) =>
           !registered.some(
@@ -194,6 +210,7 @@ describe("OpenAPI contract: route map vs system-spec", () => {
             o.path.replace(/^\/system\/api\/v1\/?/, ""),
           ) === -1,
       )
+      .filter((o) => !isPluginPath(o.path))
       .filter((o) => !requiresBearer(o.op))
       .map((o) => o.method + " " + o.path);
     assert.deepEqual(offenders, []);
@@ -245,6 +262,7 @@ describe("OpenAPI contract: route map vs site-spec", () => {
     });
     const missing = specOperations(siteSpec)
       .filter((o) => o.path.indexOf("/x/api/v1/") === 0)
+      .filter((o) => !isPluginPath(o.path))
       .filter(
         (o) =>
           !registered.some(
@@ -255,6 +273,107 @@ describe("OpenAPI contract: route map vs site-spec", () => {
       )
       .map((o) => o.method + " " + o.path);
     assert.deepEqual(missing, []);
+  });
+});
+
+describe("OpenAPI contract: plugin platform routes vs both specs", () => {
+  const cases = [
+    { name: "system", spec: systemSpec, base: SYSTEM_PLUGINS_BASE },
+    { name: "site", spec: siteSpec, base: SITE_PLUGINS_BASE },
+  ];
+  const listed = (base) =>
+    PLATFORM_ROUTES.map((r) => r.method + " " + base + r.path).sort();
+
+  cases.forEach((c) => {
+    test(
+      c.name + "-spec documents exactly the routes core answers under plugins",
+      () => {
+        const documented = specOperations(c.spec)
+          .filter((o) => isPluginPath(o.path))
+          .map((o) => o.method + " " + o.path)
+          .sort();
+        assert.deepEqual(documented, listed(c.base));
+      },
+    );
+
+    test(
+      c.name + "-spec asks for credentials exactly where the routes do",
+      () => {
+        const token =
+          c.name === "system" ? "userTokenHeader" : "siteTokenHeader";
+        PLATFORM_ROUTES.forEach((r) => {
+          const op = c.spec.paths[c.base + r.path][r.method];
+          const label = r.method + " " + c.base + r.path;
+          if (r.credentials) {
+            assert.equal(requiresBearer(op), true, label);
+            assert.ok(
+              op.security.some((req) =>
+                Object.prototype.hasOwnProperty.call(req, token),
+              ),
+              label + " asks for the " + c.name + " token",
+            );
+          } else {
+            assert.deepEqual(op.security, [], label);
+          }
+        });
+      },
+    );
+  });
+
+  test("every listed route is mounted at the system, site and multisite prefixes", () => {
+    const mounted = [];
+    const record = (method) => (routePath) =>
+      mounted.push(method + " " + routePath);
+    mountPluginRoutes(
+      { get: record("get"), post: record("post"), all: record("all") },
+      {
+        basePath: "/",
+        sitesDirectory: "_sites",
+        resolveSite: async () => null,
+        resolveAuth: () => ({}),
+      },
+    );
+    [
+      "/system/api/v1/plugins",
+      "/x/api/v1/plugins",
+      "/_sites/*/x/api/v1/plugins",
+    ].forEach((prefix) => {
+      PLATFORM_ROUTES.forEach((r) => {
+        const expressPath =
+          prefix +
+          r.path.replace("{plugin}", ":plugin").replace("{assetPath}", "*");
+        assert.ok(
+          mounted.indexOf(r.method + " " + expressPath) !== -1,
+          r.method + " " + expressPath,
+        );
+      });
+      // core's own routes are mounted before the plugin catch-all, so a
+      // plugin can never answer one of them
+      assert.ok(
+        mounted.indexOf("get " + prefix + "/:plugin/settings") <
+          mounted.indexOf("all " + prefix + "/:plugin/*"),
+      );
+    });
+  });
+
+  test("the two specs describe the plugin routes the same way", () => {
+    PLATFORM_ROUTES.forEach((r) => {
+      // wording differs by scope; parameters, bodies and responses must not
+      const strip = (op) =>
+        JSON.stringify(op, (key, value) =>
+          ["operationId", "summary", "description", "security"].indexOf(key) !==
+          -1
+            ? undefined
+            : value,
+        )
+          .split("ErrorEnvelope")
+          .join("ApiError");
+      assert.equal(
+        strip(systemSpec.paths[SYSTEM_PLUGINS_BASE + r.path][r.method]),
+        strip(siteSpec.paths[SITE_PLUGINS_BASE + r.path][r.method]),
+        r.method + " " + r.path,
+      );
+    });
   });
 });
 

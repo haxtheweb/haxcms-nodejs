@@ -1,6 +1,7 @@
 const fs = require("fs-extra");
 const path = require("path");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
 const { reserveSlugRoutes } = require("../../../lib/slugRules.js");
 const { sanitizeHTMLForStorage } = require("../../../lib/sanitizeContent.js");
 const { isPathautoEnabled } = require("../../../lib/nodeDetailOperations.js");
@@ -71,6 +72,38 @@ async function saveOutline(req, res) {
     const invalid = validateOutlineItems(site, req.body["items"]);
     if (invalid) {
       return saveOutlineError(res, 400, invalid);
+    }
+    // DRAFT plugin platform. An outline save is page events: each page it will add, change or remove goes to the
+    // page before hooks, in one bulk transaction whose origin is "saveOutline". A veto refuses the whole save here,
+    // before anything is written, like an invalid outline. With no active plugin none of this runs, and what the
+    // hooks return is never applied, so the save itself is unchanged.
+    const pluginOpts = {
+      origin: "saveOutline",
+      user: activeUserName
+        ? {
+            id: activeUserName,
+            name: activeUserName,
+            displayName: activeUserName,
+            roles: ["admin"],
+            avatar: null,
+          }
+        : null,
+    };
+    const pluginChanges =
+      process.env.HAXCMS_PLUGINS !== "off" &&
+      (await pluginSystem.listening(site))
+        ? pluginSystem.outlineChanges(site.manifest.items, req.body["items"])
+        : [];
+    if (pluginChanges.length) {
+      const pre = await pluginSystem.beforeMany(
+        site,
+        "page",
+        pluginChanges,
+        pluginOpts,
+      );
+      if (pre.veto) {
+        return saveOutlineError(res, pre.veto.status || 409, pre.veto.message);
+      }
     }
     let original = [...site.manifest.items];
     let originalLocationMap = {};
@@ -509,6 +542,27 @@ async function saveOutline(req, res) {
     // update alt formats like rss as we did massive changes
     await site.updateAlternateFormats();
     await site.gitCommit("Outline updated in bulk");
+    // DRAFT plugin platform: the page after hooks, with each page as it was stored (a new page under its server id)
+    if (pluginChanges.length) {
+      try {
+        await pluginSystem.afterMany(
+          site,
+          "page",
+          pluginChanges.map((c) => {
+            if (c.op === "delete") {
+              return c;
+            }
+            const stored = site.loadNode(itemMap[c.record.id] || c.record.id);
+            return stored
+              ? { ...c, record: JSON.parse(JSON.stringify(stored)) }
+              : c;
+          }),
+          pluginOpts,
+        );
+      } catch {
+        // the outline is saved; a plugin failing afterwards never turns that into an error
+      }
+    }
     // new items get server ids; idMap (client id -> server id) lets
     // clients update their own references to the pages they created
     res.json({

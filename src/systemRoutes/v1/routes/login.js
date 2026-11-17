@@ -37,6 +37,25 @@ async function loginRoute(req, res) {
       });
     }
     attempt.clear();
+    // DRAFT plugin platform: user.before.login (spec/06), once the password is verified and before any token
+    // is issued. A veto refuses the sign-in.
+    const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
+    const pluginUser = pluginSystem.userRecord(String(u));
+    const pluginPre = await pluginSystem.event(
+      null,
+      "user.before.login",
+      pluginUser,
+      { user: null },
+    );
+    if (pluginPre.veto) {
+      return res.status(403).json({
+        status: 403,
+        data: {
+          message: pluginPre.veto.message,
+          plugin: pluginPre.veto.plugin,
+        },
+      });
+    }
     // set a refresh_token COOKIE that will ship w/ all calls automatically
     // Security (SEC-SESSION), PHP parity: use the centralized helper so
     // Secure/SameSite/HttpOnly/path flags are consistent at every call site.
@@ -56,6 +75,9 @@ async function loginRoute(req, res) {
     } catch {
       sessionTokens = {};
     }
+    await pluginSystem.event(null, "user.after.login", pluginUser, {
+      user: pluginUser,
+    });
     if (!sessionTokens || typeof sessionTokens.userToken !== "string") {
       // Security: `u` is the identity just verified by HAXCMS.testLogin above
       // for this request, so mint the fallback token against it rather than

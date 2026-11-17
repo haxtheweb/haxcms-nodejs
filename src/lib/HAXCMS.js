@@ -1523,6 +1523,23 @@ class HAXCMSSite {
       if (scope === "parent") {
         return true;
       }
+      // DRAFT plugin platform: git.before.commit / git.after.commit (spec/06). A veto leaves the work tree
+      // uncommitted; the message a hook returns is not used, so plugin text never reaches git.
+      const pluginSystem = require("./plugins/pluginSystem.js");
+      const pluginCommit = {
+        siteId: this.manifest && this.manifest.id ? this.manifest.id : null,
+        message: safeMsg,
+        files: [],
+        author: null,
+      };
+      const pluginPre = await pluginSystem.event(
+        this,
+        "git.before.commit",
+        pluginCommit,
+      );
+      if (pluginPre.veto) {
+        return true;
+      }
       const git = new GitPlus({
         dir: this.siteDirectory,
         cliVersion: await this.gitTest(),
@@ -1533,6 +1550,7 @@ class HAXCMSSite {
       }
       await git.add();
       await git.commit(safeMsg);
+      await pluginSystem.event(this, "git.after.commit", pluginCommit);
       // commit should execute the automatic push flag if it's on
       if (
         this.manifest.metadata.site.git.autoPush &&
@@ -1909,6 +1927,21 @@ class HAXCMSSite {
         );
       } catch {
         // keep parity with PHP behavior: never hard fail a save on llms serialization
+      }
+    }
+    // DRAFT plugin platform: rebuild.before / rebuild.after so plugins write their managed files
+    // (https://github.com/haxtheweb/haxcms-plugins/pull/15). A plugin failure never fails the save.
+    if (process.env.HAXCMS_PLUGINS !== "off" && !this.__pluginRebuilding) {
+      this.__pluginRebuilding = true;
+      try {
+        await require("./plugins/pluginSystem.js").rebuild(
+          this,
+          format || "save",
+        );
+      } catch {
+        // logged by the plugin engine; core keeps going
+      } finally {
+        this.__pluginRebuilding = false;
       }
     }
   }
