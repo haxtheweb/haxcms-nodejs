@@ -237,7 +237,7 @@ test("deleting a parent costs a fixed number of rebuilds too", async (t) => {
     mockAuth(t);
     const name = "batch-count-delete-" + size;
     await buildSite(t, name, size);
-    // Page 0 is deleted and its child is rescued as an orphan
+    // Page 0 is deleted and its child moves up one level into its place
     results[size] = (await runCounted(t, name, false, true)).counts;
   }
   assert.deepEqual(
@@ -246,7 +246,7 @@ test("deleting a parent costs a fixed number of rebuilds too", async (t) => {
     "cost does not grow with item count",
   );
   // as above, plus the deleted page's own rebuild in deleteNode (1) and one
-  // rebuild for all rescued orphans (1), so a failure after the orphan pass
-  // leaves the feeds per-item saving left
+  // rebuild for all the children that moved up (1), so a failure after that
+  // pass leaves feeds that match site.json
   assert.equal(results[12].alternateFormats, 5);
 });
