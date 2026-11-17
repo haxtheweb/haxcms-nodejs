@@ -30,6 +30,7 @@ const {
   cascadeSlugUpdates,
 } = require("../../../lib/nodeDetailOperations.js");
 const FileContentScanner = require("../../../lib/FileContentScanner.js");
+const { cutFramings } = require("../../../lib/imageFraming.js");
 /**
  * @OA\Post(
  *    path="/saveNode",
@@ -218,6 +219,13 @@ async function saveNode(req, res) {
               data: { message: "failed to write" },
             });
           } else {
+            // framed photos (ddd-hero) are served from cuts made at save
+            // time; a photo that can't be cut falls back to CSS framing
+            try {
+              await cutFramings(site.siteDirectory, sanitizedContent);
+            } catch {
+              // never fail a save over a cut
+            }
             // sanity check
             if (!page.metadata) {
               page.metadata = {};
@@ -341,6 +349,15 @@ async function saveNode(req, res) {
               page.metadata.hideInMenu = true;
             } else {
               page.metadata.hideInMenu = false;
+            }
+            // "Hide page title" (page-break hide-title): the title shows unless
+            // the page hides it, so it is only stored while it is on
+            if (typeof data["attributes"]["hide-title"] !== "undefined") {
+              page.metadata.hideTitle = true;
+            } else if (
+              Object.prototype.hasOwnProperty.call(page.metadata, "hideTitle")
+            ) {
+              delete page.metadata.hideTitle;
             }
             // support for defining and updating related-items
             if (
