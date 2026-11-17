@@ -142,7 +142,14 @@ var cspBaseDirectives = {
     "'sha256-8eohedfRaQoWnH7igD20HvjedM7lPcYbqukJ7DEpMOk='",
   ],
   styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
-  mediaSrc: ["'self'", "data:", "https:"],
+  // blob: is the in-browser recorders' own output: voice-recorder and
+  // screen-recorder preview a recording from an object URL before it uploads.
+  mediaSrc: ["'self'", "data:", "https:", "blob:"],
+  // Without worker-src, workers fall back to script-src and a blob: worker is
+  // refused. voice-recorder's mp3 encoder runs in a blob: worker because the
+  // element can be served from a CDN and a worker script must be same-origin.
+  // A blob: worker inherits this policy, so script-src is not widened.
+  workerSrc: ["'self'", "blob:"],
   imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
   connectSrc: ["'self'", "https:", "ws:", "wss:"],
   defaultSrc: ["'self'", "data:", "https:"],
