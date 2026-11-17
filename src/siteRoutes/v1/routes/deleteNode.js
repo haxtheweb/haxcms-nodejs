@@ -2,6 +2,7 @@ const {
   isLocked,
   compactSiblingOrders,
   syncIndentToDepth,
+  adoptChildren,
 } = require("../../../lib/outlineUpkeep.js");
 const { reslugPageAndBranch } = require("../../../lib/nodeDetailOperations.js");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
@@ -75,35 +76,37 @@ async function deleteNode(req, res) {
           .status(500)
           .json({ status: 500, data: { message: "Server error" } });
       } else {
-        // now, we need to look for orphans if we deleted anything
-        const orphans = [];
-        for (var key in site.manifest.items) {
-          // just to be safe..
-          let pageUpdate;
-          if ((pageUpdate = site.loadNode(site.manifest.items[key].id))) {
-            // ensure that parent is valid to rescue orphan items
-            if (
-              pageUpdate.parent != null &&
-              !site.loadNode(pageUpdate.parent)
-            ) {
-              pageUpdate.parent = null;
-              // force to bottom of things while still being in old order if lots of things got axed
-              pageUpdate.order =
-                parseInt(pageUpdate.order) + site.manifest.items.length - 1;
-              orphans.push(pageUpdate);
-            }
+        const items = site.manifest.items;
+        // the deleted page's children move up one level, into its place
+        const moved = adoptChildren(items, {
+          id: page.id,
+          parent: page.parent,
+          order: page.order,
+        });
+        // any other page whose parent is gone (left by an older save) goes
+        // to the end of the top level, as before
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (
+            item &&
+            item.parent != null &&
+            item.parent !== "" &&
+            !site.loadNode(item.parent)
+          ) {
+            item.parent = null;
+            item.order = parseInt(item.order) + items.length - 1;
+            moved.push(item);
           }
         }
-        // the rescued pages now live at the top level: their addresses (and
-        // their branches') drop the deleted parent's slug, and indent follows
-        // the new depth. The deleted page leaves no gap among its siblings:
-        // every group is numbered 0..n-1 again.
-        const items = site.manifest.items;
-        for (let i = 0; i < orphans.length; i++) {
-          reslugPageAndBranch(site, orphans[i], items);
+        // the moved pages' addresses (and their branches') drop the deleted
+        // parent's slug, and indent follows the new depth. The deleted page
+        // leaves no gap among its siblings: every group is numbered 0..n-1
+        // again, in the order a reader sees them.
+        for (let i = 0; i < moved.length; i++) {
+          reslugPageAndBranch(site, moved[i], items);
         }
         const renumbered = compactSiblingOrders(items);
-        if (orphans.length > 0 || renumbered) {
+        if (moved.length > 0 || renumbered) {
           syncIndentToDepth(items);
           await site.manifest.save(false);
           await site.updateAlternateFormats();

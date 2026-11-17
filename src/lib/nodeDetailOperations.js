@@ -53,24 +53,6 @@ function createStatusError(
   return statusError;
 }
 
-function getLastChildOrder(items = [], parentId = null) {
-  let max = -1;
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    if (!item) {
-      continue;
-    }
-    const parentValue = item.parent !== undefined ? item.parent : null;
-    if (parentValue === parentId && item.order !== undefined) {
-      const orderValue = parseInt(item.order);
-      if (orderValue > max) {
-        max = orderValue;
-      }
-    }
-  }
-  return max;
-}
-
 function normalizeOperation(operationValue) {
   if (typeof operationValue === "string") {
     const cleanOperation = operationValue.trim();
@@ -320,7 +302,9 @@ function applyOutlineMutation(
       if (position > 0) {
         const previous = siblings[position - 1];
         page.parent = previous.id;
-        page.order = getLastChildOrder(items, previous.id) + 1;
+        // the page is now one of previous's children: leave it out, or its
+        // own old order counts as the last child's
+        page.order = lastSiblingOrder(items, previous.id, page) + 1;
       }
       reslugPageAndBranch(site, page, items);
       break;

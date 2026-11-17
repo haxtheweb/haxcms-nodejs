@@ -902,6 +902,36 @@ describe("saveNode", () => {
     assert.equal(site.calls.gitCommits.length, 1);
   });
 
+  test("hide-title stores hideTitle, and dropping it clears it", async (t) => {
+    const page = makeFakePage();
+    const site = makeFakeSite();
+    site.loadNode = (id) => (id === "item-1" ? page : null);
+    mockNodeExtras(t, site);
+    mockSiteAuth(t, site);
+    const save = async (attrs) => {
+      const res = stubRes();
+      await saveNode(
+        siteReq({
+          site: { name: "demo" },
+          node: {
+            id: "item-1",
+            body: `<page-break title="Page One" published ${attrs}></page-break><p>x</p>`,
+          },
+        }),
+        res,
+      );
+      assert.equal(res.body.status, 200);
+    };
+    await save("hide-title");
+    assert.equal(page.metadata.hideTitle, true);
+    // the title shows by default, so nothing is stored once it is shown again
+    await save("");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(page.metadata, "hideTitle"),
+      false,
+    );
+  });
+
   test("a slug of exactly x is forced to x-x", async (t) => {
     const page = makeFakePage();
     const site = makeFakeSite();
