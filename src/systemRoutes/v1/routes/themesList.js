@@ -1,45 +1,45 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const {
   normalizeBoolean,
   discoverThemes,
   readEnabledThemeMap,
-  writeEnabledThemeMap,
+  persistDetectedThemeDefaults,
   applyDetectedThemeDefaults,
   isThemeEnabled,
   isThemeHidden,
   isThemeTerrible,
   getThemeScreenshot,
-} = require('../../../lib/themeSettings.js');
+} = require("../../../lib/themeSettings.js");
 
 function resolveEnabledFilter(req) {
-  const hasEnabledQuery = (
+  const hasEnabledQuery =
     req &&
     req.query &&
-    Object.prototype.hasOwnProperty.call(req.query, 'enabled')
-  );
-  const hasEnabledBody = (
+    Object.prototype.hasOwnProperty.call(req.query, "enabled");
+  const hasEnabledBody =
     req &&
     req.body &&
-    Object.prototype.hasOwnProperty.call(req.body, 'enabled')
-  );
+    Object.prototype.hasOwnProperty.call(req.body, "enabled");
   if (hasEnabledQuery || hasEnabledBody) {
     const rawEnabled = hasEnabledQuery ? req.query.enabled : req.body.enabled;
-    return normalizeBoolean(rawEnabled, true) ? 'enabled' : 'disabled';
+    return normalizeBoolean(rawEnabled, true) ? "enabled" : "disabled";
   }
-  const fromQuery = (
+  const fromQuery =
     req &&
     req.query &&
-    Object.prototype.hasOwnProperty.call(req.query, 'includeDisabled')
-  ) ? normalizeBoolean(req.query.includeDisabled, false) : false;
-  const fromBody = (
+    Object.prototype.hasOwnProperty.call(req.query, "includeDisabled")
+      ? normalizeBoolean(req.query.includeDisabled, false)
+      : false;
+  const fromBody =
     req &&
     req.body &&
-    Object.prototype.hasOwnProperty.call(req.body, 'includeDisabled')
-  ) ? normalizeBoolean(req.body.includeDisabled, false) : false;
+    Object.prototype.hasOwnProperty.call(req.body, "includeDisabled")
+      ? normalizeBoolean(req.body.includeDisabled, false)
+      : false;
   if (fromQuery || fromBody) {
-    return 'all';
+    return "all";
   }
-  return 'enabled';
+  return "enabled";
 }
 
 /**
@@ -68,7 +68,7 @@ async function themesList(req, res) {
     );
     enabledThemes = withDefaults.enabledThemes;
     if (withDefaults.changed) {
-      await writeEnabledThemeMap(HAXCMS, enabledThemes);
+      await persistDetectedThemeDefaults(HAXCMS, enabledThemes);
     }
 
     const items = [];
@@ -77,15 +77,11 @@ async function themesList(req, res) {
       if (isThemeHidden(item) || isThemeTerrible(item)) {
         continue;
       }
-      const enabled = isThemeEnabled(
-        HAXCMS,
-        item.machineName,
-        enabledThemes,
-      );
-      if (enabledFilter === 'enabled' && !enabled) {
+      const enabled = isThemeEnabled(HAXCMS, item.machineName, enabledThemes);
+      if (enabledFilter === "enabled" && !enabled) {
         continue;
       }
-      if (enabledFilter === 'disabled' && enabled) {
+      if (enabledFilter === "disabled" && enabled) {
         continue;
       }
       items.push({
@@ -100,12 +96,11 @@ async function themesList(req, res) {
       status: 200,
       data: items,
     });
-  }
-  catch {
+  } catch {
     return res.status(500).json({
       status: 500,
       data: {
-        message: 'Unable to load theme settings',
+        message: "Unable to load theme settings",
       },
     });
   }
