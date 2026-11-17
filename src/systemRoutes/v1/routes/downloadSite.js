@@ -87,6 +87,25 @@ function createArchiver(format, options = {}) {
 async function downloadSite(req, res) {
   // load site
   let site = await HAXCMS.loadSite(req.body["site"]["name"]);
+  // DRAFT plugin platform: site.before.export / site.after.export (spec/06), format zip
+  const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
+  const pluginOpts = {
+    user: pluginSystem.userRecord(HAXCMS.getActiveUserName()),
+    extra: { format: "zip" },
+  };
+  const pre = await pluginSystem.event(
+    site,
+    "site.before.export",
+    pluginSystem.siteSummary(site),
+    pluginOpts,
+  );
+  if (pre.veto) {
+    const status = pre.veto.status || 409;
+    return res.status(status).json({
+      status: status,
+      data: { message: pre.veto.message, plugin: pre.veto.plugin },
+    });
+  }
   // create archived directory in this tree if it doesn't exist already
   if (!fs.existsSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory)) {
     fs.mkdirSync(HAXCMS.HAXCMS_ROOT + HAXCMS.publishedDirectory);
@@ -103,6 +122,12 @@ async function downloadSite(req, res) {
   let rootPath = await fs.realpath(dir);
   // Initialize archive object
   await zipDirectory(rootPath, zip_file);
+  await pluginSystem.event(
+    site,
+    "site.after.export",
+    pluginSystem.siteSummary(site),
+    pluginOpts,
+  );
   res.send({
     status: 200,
     data: {

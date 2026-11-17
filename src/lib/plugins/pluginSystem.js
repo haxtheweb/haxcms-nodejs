@@ -25,7 +25,7 @@ const fs = require("fs");
 const YAML = require("yaml");
 
 const state = { hosts: new Map(), engine: null, version: null };
-const TARGETS = ["server", "desktop", "browser"];
+const TARGETS = ["server", "desktop", "cli", "browser"];
 const ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 
 function readJson(file, fallback) {
@@ -172,9 +172,32 @@ function enabledFor(site, root, dev) {
 
 async function engine() {
   if (!state.engine) {
-    state.engine = await import("./HaxcmsPluginHost.mjs");
+    state.engine = await (state.loadEngine
+      ? state.loadEngine()
+      : import("./HaxcmsPluginHost.mjs"));
   }
   return state.engine;
+}
+
+/**
+ * Whether the plugin engine can be loaded here at all. Where it cannot (a build of haxcms-nodejs that leaves the
+ * engine out, such as a browser bundle that does not carry it yet), the plugin system is off: core's save points
+ * go on as if no plugin were installed instead of failing every save. Said once in the log.
+ */
+async function engineAvailable() {
+  if (state.engineMissing === undefined) {
+    try {
+      await engine();
+      state.engineMissing = false;
+    } catch (e) {
+      state.engineMissing = true;
+      console.error(
+        "HAXcms plugins: the plugin engine could not be loaded, so plugins are off: " +
+          (e && e.message ? e.message : String(e)),
+      );
+    }
+  }
+  return !state.engineMissing;
 }
 
 function haxcmsVersion() {
@@ -304,7 +327,7 @@ function reset() {
 
 /** Whether any plugin is active for the site, without reading a page. */
 async function listening(site, opts = {}) {
-  if (!site || !site.manifest) {
+  if (!site || !site.manifest || !(await engineAvailable())) {
     return false;
   }
   return (await rootHost(site, opts.root)).hasActive();
@@ -348,6 +371,57 @@ async function after(site, type, record, previous, opts = {}) {
     previous,
   });
   return { warnings: r.warnings || [] };
+}
+
+/**
+ * An event that is not a record save (spec/06): a site about to be created, duplicated, archived or exported, a
+ * sign-in or sign-out, a git commit. With `site` the site's engine answers (system plugins and that site's own);
+ * with null the system engine does. Returns { veto, warnings }: when `veto` is set on a before hook, core must not
+ * go on. What a hook returns is not applied. With no active plugin nothing runs, and a failure in the engine never
+ * fails the operation.
+ */
+async function event(site, hook, subject, opts = {}) {
+  const none = { veto: null, warnings: [] };
+  if (process.env.HAXCMS_PLUGINS === "off") {
+    return none;
+  }
+  try {
+    if (!(await engineAvailable())) {
+      return none;
+    }
+    const root = await rootHost(site && site.manifest ? site : null, opts.root);
+    if (!root.hasActive()) {
+      return none;
+    }
+    const h =
+      site && site.manifest ? await host(site, opts) : await systemHost(opts);
+    const r = await h.fire(hook, subject, opts.extra || {});
+    return { veto: r.veto || null, warnings: r.warnings || [] };
+  } catch {
+    return none;
+  }
+}
+
+/** The signed-in user as plugins see it (limited fields; spec/08), or null for a visitor. */
+function userRecord(name) {
+  return name
+    ? { id: name, name, displayName: name, roles: ["admin"], avatar: null }
+    : null;
+}
+
+/** The site summary the site lifecycle hooks carry: { id, name, title, path, theme, owner }. */
+function siteSummary(site, extra = {}) {
+  const m = (site && site.manifest) || {};
+  const meta = m.metadata || {};
+  return {
+    id: m.id || null,
+    name: (meta.site && meta.site.name) || (site && site.name) || null,
+    title: m.title || null,
+    path: (site && site.siteDirectory) || null,
+    theme: (meta.theme && meta.theme.element) || null,
+    owner: (meta.author && meta.author.name) || m.author || null,
+    ...extra,
+  };
 }
 
 /**
@@ -655,6 +729,12 @@ async function saveSettings(site, id, values, opts = {}) {
 }
 
 module.exports = {
+  engineAvailable,
+  // for tests: `loadEngine` replaces how the engine is loaded, `engine` and `engineMissing` are what was found
+  _state: state,
+  event,
+  userRecord,
+  siteSummary,
   beforeMany,
   afterMany,
   outlineChanges,

@@ -670,6 +670,38 @@ async function createSite(req, res) {
       isObjectLike(trustedSkeleton);
     // sanitize name
     let name = HAXCMS.generateMachineName(req.body["site"]["name"]);
+    // DRAFT plugin platform: site.before.create on the system engine (the site does not exist yet); a veto
+    // refuses the request before a folder is made
+    const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
+    const pluginOpts = {
+      user: pluginSystem.userRecord(HAXCMS.getActiveUserName()),
+    };
+    const pluginPre = await pluginSystem.event(
+      null,
+      "site.before.create",
+      {
+        id: null,
+        name: name.toLowerCase(),
+        title:
+          typeof req.body["site"]["title"] === "string"
+            ? req.body["site"]["title"]
+            : name,
+        path: null,
+        theme: null,
+        owner: HAXCMS.getActiveUserName() || null,
+      },
+      pluginOpts,
+    );
+    if (pluginPre.veto) {
+      const vetoStatus = pluginPre.veto.status || 409;
+      return res.status(vetoStatus).json({
+        status: vetoStatus,
+        data: {
+          message: pluginPre.veto.message,
+          plugin: pluginPre.veto.plugin,
+        },
+      });
+    }
     let site = await HAXCMS.loadSite(name.toLowerCase(), true, domain, build);
     // Security (SEC-PATH), PHP parity: newSite returns false when the boilerplate
     // copy is refused (traversal / escaping destination); answer with an
@@ -1022,6 +1054,12 @@ async function createSite(req, res) {
     } catch {
       // intentionally ignored
     }
+    await pluginSystem.event(
+      null,
+      "site.after.create",
+      pluginSystem.siteSummary(site),
+      pluginOpts,
+    );
     res.send({
       status: 200,
       data: schema,

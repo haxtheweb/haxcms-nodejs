@@ -680,6 +680,7 @@ describe("the plugin registry: installed is not enabled", () => {
     assert.deepEqual(e.targets, {
       server: "full",
       desktop: "full",
+      cli: "full",
       browser: "no",
     });
     const res = stubRes();
@@ -1148,5 +1149,255 @@ describe("outline saves and new pages fire the page hooks", () => {
     );
     assert.equal(no.statusCode, 409, JSON.stringify(no.body || no.sent));
     assert.equal((await outlineSite()).manifest.items.length, before + 1);
+  });
+});
+
+// Files, site lifecycle, sign-in and git commits fire their hooks from core (spec/06): a before hook can refuse,
+// an after hook is told, and with the plugin off nothing fires.
+describe("files, site lifecycle, sign-in and git commits fire their hooks", () => {
+  const files = require("../../src/siteRoutes/v1/files.js");
+  const archiveSite = require("../../src/systemRoutes/v1/routes/archiveSite.js");
+  const cloneSite = require("../../src/systemRoutes/v1/routes/cloneSite.js");
+  const downloadSite = require("../../src/systemRoutes/v1/routes/downloadSite.js");
+  const loginRoute = require("../../src/systemRoutes/v1/routes/login.js");
+  const logoutRoute = require("../../src/systemRoutes/v1/routes/logout.js");
+  const eventSite = () => HAXCMS.loadSite("plugin-events");
+  const siteLog = async (s) => (await pluginSystem.host(s, { user: null })).log;
+  const systemLog = async () =>
+    (await pluginSystem.systemHost({ user: null })).log;
+  const heard = (log, hook) =>
+    log.filter((l) => l.message === "fx-core-events:" + hook).length;
+  const put = (s, name) => {
+    const dir = path.join(s.siteDirectory, "files");
+    fs.ensureDirSync(dir);
+    fs.writeFileSync(path.join(dir, name), "data");
+    return "files/" + name;
+  };
+
+  before(async () => {
+    assert.ok(await HAXCMS.loadSite("plugin-events", true));
+    fs.copySync(
+      path.join(spec, "conformance", "fixtures", "fx-core-events"),
+      path.join(testRoot, "_plugins", "fx-core-events"),
+    );
+    pluginSystem.reset();
+    const on = await pluginSystem.enable(null, "fx-core-events", {});
+    assert.equal(on.status, 200, JSON.stringify(on));
+  });
+
+  test("a file operation fires the file hooks; a veto leaves the file alone", async () => {
+    const s = await eventSite();
+    const kept = put(s, "forbidden.txt");
+    await assert.rejects(
+      () => files.performFileOperation(s, kept, { operation: "delete" }, 90),
+      (e) => e.status === 409 && e.message === "fx-core-events: forbidden",
+    );
+    assert.ok(fs.existsSync(path.join(s.siteDirectory, kept)));
+    const from = (await siteLog(s)).length;
+    const gone = put(s, "plain.txt");
+    const result = await files.performFileOperation(
+      s,
+      gone,
+      { operation: "delete" },
+      90,
+    );
+    assert.equal(result.data.deleted, true);
+    assert.ok(!fs.existsSync(path.join(s.siteDirectory, gone)));
+    const log = (await siteLog(await eventSite())).slice(from);
+    assert.equal(heard(log, "file.before.delete"), 1);
+    assert.equal(heard(log, "file.after.delete"), 1);
+    // a change to a file that stays is a save
+    const renamed = put(s, "before.txt");
+    await files.performFileOperation(
+      s,
+      renamed,
+      { operation: "rename", newName: "after" },
+      90,
+    );
+    const log2 = (await siteLog(await eventSite())).slice(from);
+    assert.equal(heard(log2, "file.before.save"), 1);
+    assert.equal(heard(log2, "file.after.save"), 1);
+  });
+
+  test("a git commit fires git.before.commit and git.after.commit; a veto leaves the work uncommitted", async () => {
+    const s = await eventSite();
+    const from = (await siteLog(s)).length;
+    // something to commit, and an identity to commit as
+    put(s, "committed.txt");
+    for (const k of ["AUTHOR", "COMMITTER"]) {
+      process.env["GIT_" + k + "_NAME"] = "Test";
+      process.env["GIT_" + k + "_EMAIL"] = "test@example.invalid";
+    }
+    await s.gitCommit("Page added");
+    const log = (await siteLog(await eventSite())).slice(from);
+    assert.equal(heard(log, "git.before.commit"), 1);
+    assert.equal(heard(log, "git.after.commit"), 1);
+    await s.gitCommit("forbidden");
+    const log2 = (await siteLog(await eventSite())).slice(from);
+    assert.equal(heard(log2, "git.before.commit"), 2);
+    assert.equal(heard(log2, "git.after.commit"), 1);
+  });
+
+  test("duplicate and export tell the site's plugins; create, sign-in and sign-out tell the system's", async (t) => {
+    const s = await eventSite();
+    const from = (await siteLog(s)).length;
+    const zip = stubRes();
+    await downloadSite({ body: { site: { name: "plugin-events" } } }, zip);
+    assert.equal(zip.sent && zip.sent.status, 200, JSON.stringify(zip.body));
+    const copy = stubRes();
+    await cloneSite({ body: { site: { name: "plugin-events" } } }, copy);
+    assert.equal(copy.sent && copy.sent.status, 200, JSON.stringify(copy.body));
+    const log = (await siteLog(await eventSite())).slice(from);
+    assert.equal(heard(log, "site.before.export"), 1);
+    assert.equal(heard(log, "site.after.export"), 1);
+    assert.equal(heard(log, "site.before.duplicate"), 1);
+    const copyLog = await siteLog(await HAXCMS.loadSite(copy.sent.data.name));
+    assert.equal(heard(copyLog, "site.after.duplicate"), 1);
+
+    const sysFrom = (await systemLog()).length;
+    const made = await pluginSystem.event(null, "site.before.create", {
+      name: "fine",
+      title: "Fine",
+    });
+    assert.equal(made.veto, null);
+    const refused = await pluginSystem.event(null, "site.before.create", {
+      name: "forbidden",
+      title: "No",
+    });
+    assert.equal(refused.veto.message, "fx-core-events: forbidden");
+
+    t.mock.method(HAXCMS, "testLoginAsync", async () => true);
+    t.mock.method(HAXCMS, "setRefreshTokenCookie", () => {});
+    t.mock.method(HAXCMS, "getSessionRequestTokens", async () => ({
+      userToken: "t",
+    }));
+    const ok = stubRes();
+    await loginRoute({ body: { username: "ada", password: "x" } }, ok);
+    assert.equal(ok.statusCode, null, JSON.stringify(ok.body));
+    assert.ok(ok.body && ok.body.jwt);
+    const no = stubRes();
+    await loginRoute({ body: { username: "forbidden", password: "x" } }, no);
+    assert.equal(no.statusCode, 403, JSON.stringify(no.body));
+    assert.equal(no.body.data.message, "fx-core-events: forbidden");
+    assert.equal(no.body.jwt, undefined);
+    const sysLog = (await systemLog()).slice(sysFrom);
+    assert.equal(heard(sysLog, "site.before.create"), 2);
+    assert.equal(heard(sysLog, "user.before.login"), 2);
+    assert.equal(heard(sysLog, "user.after.login"), 1);
+
+    // sign-out ends the session before any plugin hears of it
+    t.mock.method(HAXCMS, "decodeRefreshToken", () => ({
+      user: "ada",
+      family: "f1",
+    }));
+    let revoked = 0;
+    t.mock.method(HAXCMS, "revokeRefreshSession", () => {
+      revoked += 1;
+    });
+    const out = stubRes();
+    logoutRoute({ cookies: { haxcms_refresh_token: "r" } }, out);
+    assert.equal(revoked, 1);
+    assert.equal(out.sent.data, "loggedout");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(
+      heard((await systemLog()).slice(sysFrom), "user.after.logout"),
+      1,
+    );
+  });
+
+  test("archive: a veto keeps the site where it is; otherwise the system hears it is archived", async () => {
+    assert.ok(await HAXCMS.loadSite("forbidden-archive", true));
+    const no = stubRes();
+    await archiveSite({ body: { site: { name: "forbidden-archive" } } }, no);
+    assert.equal(no.statusCode, 409, JSON.stringify(no.body || no.sent));
+    assert.ok(
+      fs.existsSync(
+        path.join(
+          HAXCMS.HAXCMS_ROOT,
+          HAXCMS.sitesDirectory,
+          "forbidden-archive",
+        ),
+      ),
+    );
+    assert.ok(await HAXCMS.loadSite("plain-archive", true));
+    const sysFrom = (await systemLog()).length;
+    const ok = stubRes();
+    await archiveSite({ body: { site: { name: "plain-archive" } } }, ok);
+    assert.equal(ok.sent && ok.sent.status, 200, JSON.stringify(ok.body));
+    assert.equal(
+      heard((await systemLog()).slice(sysFrom), "site.after.archive"),
+      1,
+    );
+  });
+
+  test("with plugins off nothing fires and nothing is refused", async () => {
+    process.env.HAXCMS_PLUGINS = "off";
+    try {
+      const r = await pluginSystem.event(null, "site.before.create", {
+        name: "forbidden",
+      });
+      assert.equal(r.veto, null);
+      const s = await eventSite();
+      const kept = "files/forbidden.txt";
+      const result = await files.performFileOperation(
+        s,
+        kept,
+        { operation: "delete" },
+        90,
+      );
+      assert.equal(result.data.deleted, true);
+    } finally {
+      delete process.env.HAXCMS_PLUGINS;
+    }
+  });
+});
+
+// A build that cannot load the plugin engine (a bundle that leaves it out) has the plugin system off: saves go on
+// as if nothing were installed, instead of every save failing.
+describe("without the plugin engine, plugins are off and saves go on", () => {
+  test("nothing listens, nothing is refused, and it is said once", async (t) => {
+    const state = pluginSystem._state;
+    const saved = {
+      engine: state.engine,
+      engineMissing: state.engineMissing,
+      loadEngine: state.loadEngine,
+    };
+    const said = [];
+    t.mock.method(console, "error", (m) => said.push(String(m)));
+    pluginSystem.reset();
+    state.engine = null;
+    state.engineMissing = undefined;
+    state.loadEngine = async () => {
+      throw new Error("Cannot find module HaxcmsPluginHost.mjs");
+    };
+    try {
+      const s = await HAXCMS.loadSite("plugin-events");
+      assert.equal(await pluginSystem.engineAvailable(), false);
+      assert.equal(await pluginSystem.listening(s), false);
+      const pre = await pluginSystem.before(
+        s,
+        "page",
+        { id: "p", title: "forbidden" },
+        null,
+      );
+      assert.equal(pre.veto, null);
+      assert.equal(pre.record.title, "forbidden");
+      const many = await pluginSystem.beforeMany(s, "page", [
+        { op: "create", record: { id: "p", title: "forbidden" } },
+      ]);
+      assert.equal(many.veto, null);
+      const ev = await pluginSystem.event(null, "site.before.create", {
+        name: "forbidden",
+      });
+      assert.equal(ev.veto, null);
+      assert.equal(await pluginSystem.rebuild(s), null);
+      assert.equal(said.length, 1);
+      assert.match(said[0], /plugins are off/);
+    } finally {
+      state.engine = saved.engine;
+      state.engineMissing = saved.engineMissing;
+      state.loadEngine = saved.loadEngine;
+      pluginSystem.reset();
+    }
   });
 });
