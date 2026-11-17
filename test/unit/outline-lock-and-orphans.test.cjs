@@ -489,3 +489,105 @@ test("lock: a new page sent as locked gets its title and content", async (t) => 
   assert.ok(made);
   assert.match(pageContent(siteName, made), /<p>x<\/p>/);
 });
+
+// ---------------------------------------------------------------------------
+// bulk save: a page listed before the ancestor the save renames or moves
+// ---------------------------------------------------------------------------
+
+test("slug order: a page listed before its renamed parent gets the parent's new address", async (t) => {
+  const siteName = "slug-order-rename";
+  await buildCourse(t, siteName);
+  const items = readItems(siteName);
+  const unit = byTitle(siteName, "Unit");
+  // children first, the renamed parent last
+  const res = await save(
+    siteName,
+    items
+      .filter((i) => i.id !== unit.id)
+      .map((i) => sent(i))
+      .concat([sent(unit, { title: "Unit one" })]),
+  );
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  assert.deepEqual(shape(siteName), [
+    ["Activity", "Lesson", 0, 2, "unit-one/lesson/activity"],
+    ["Lesson", "Unit one", 0, 1, "unit-one/lesson"],
+    ["Next unit", null, 1, 0, "next-unit"],
+    ["Quiz", "Unit one", 1, 1, "unit-one/quiz"],
+    ["Unit one", null, 0, 0, "unit-one"],
+  ]);
+});
+
+test("slug order: a page moved under a parent renamed later in the same save", async (t) => {
+  const siteName = "slug-order-move";
+  await buildCourse(t, siteName);
+  const items = readItems(siteName);
+  const next = byTitle(siteName, "Next unit");
+  const quiz = byTitle(siteName, "Quiz");
+  const res = await save(
+    siteName,
+    items
+      .filter((i) => i.id !== next.id)
+      .map((i) =>
+        i.id === quiz.id ? sent(i, { parent: next.id, order: 0 }) : sent(i),
+      )
+      .concat([sent(next, { title: "Unit two" })]),
+  );
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  const after = readItems(siteName).find((i) => i.id === quiz.id);
+  assert.equal(after.slug, "unit-two/quiz");
+});
+
+test("slug order: a custom address is left alone when its parent is renamed later", async (t) => {
+  const siteName = "slug-order-override";
+  await buildCourse(t, siteName);
+  const items = readItems(siteName);
+  const unit = byTitle(siteName, "Unit");
+  const quiz = byTitle(siteName, "Quiz");
+  const res = await save(
+    siteName,
+    items
+      .filter((i) => i.id !== unit.id)
+      .map((i) =>
+        i.id === quiz.id
+          ? sent(i, {
+              slug: "my-quiz",
+              metadata: Object.assign({}, i.metadata, {
+                overridePathauto: true,
+              }),
+            })
+          : sent(i),
+      )
+      .concat([sent(unit, { title: "Unit one" })]),
+  );
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  assert.equal(
+    readItems(siteName).find((i) => i.id === quiz.id).slug,
+    "my-quiz",
+  );
+});
+
+test("slug order: a parents-first save keeps numbered addresses as they are", async (t) => {
+  const siteName = "slug-order-stable";
+  await buildCourse(t, siteName);
+  // two pages with one title under Unit: the second is numbered
+  let res = await save(
+    siteName,
+    readItems(siteName)
+      .map((i) => sent(i))
+      .concat([
+        newPage("q2", "Quiz", {
+          parent: byTitle(siteName, "Unit").id,
+          indent: 1,
+          order: 2,
+        }),
+      ]),
+  );
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  const before = shape(siteName);
+  res = await save(
+    siteName,
+    readItems(siteName).map((i) => sent(i)),
+  );
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  assert.deepEqual(shape(siteName), before);
+});
