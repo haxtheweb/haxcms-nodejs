@@ -310,6 +310,20 @@ test("the single-site root renders the index with the CSP nonce", async () => {
     !/script-src[^;]*'unsafe-inline'/.test(csp),
     "script-src does not fall back to 'unsafe-inline'",
   );
+  // the in-browser recorders encode in a blob: worker and preview from an
+  // object URL; blob: stays out of script-src
+  assert.ok(
+    /(^|;\s*)worker-src 'self' blob:(;|$)/.test(csp),
+    "worker-src allows same-origin and blob: workers",
+  );
+  assert.ok(
+    /(^|;\s*)media-src [^;]*\bblob:/.test(csp),
+    "media-src allows blob: recording previews",
+  );
+  assert.ok(
+    !/script-src[^;]*\bblob:/.test(csp),
+    "script-src does not allow blob:",
+  );
   assert.ok(
     result.bodyText.indexOf('<script nonce="' + nonce + '">window.app') !== -1,
     "template inline script on the root carries the real CSP nonce",
