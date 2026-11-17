@@ -312,6 +312,47 @@ async function saveOutline(req, res) {
           feedItems = savedItems;
         }
       }
+      // a page's address is built from its ancestors' as they were when the
+      // page was processed. A save that lists a page before an ancestor it
+      // renames or moves leaves that page under the ancestor's old address:
+      // re-slug those, top-down. outline-designer sends parents first, so
+      // its saves have nothing stale here and are written as before.
+      if (isPathautoEnabled(site)) {
+        const sentIds = new Set(
+          req.body["items"].map((sent) =>
+            String(
+              typeof itemMap[sent.id] !== "undefined"
+                ? itemMap[sent.id]
+                : sent.id,
+            ),
+          ),
+        );
+        const live = site.manifest.items;
+        const depthOf = (item) => {
+          let depth = 0;
+          const seen = new Set([String(item.id)]);
+          let up = item;
+          while (
+            up.parent != null &&
+            up.parent !== "" &&
+            (up = site.loadNode(up.parent)) &&
+            !seen.has(String(up.id))
+          ) {
+            seen.add(String(up.id));
+            depth++;
+          }
+          return depth;
+        };
+        live
+          .filter((item) => item && sentIds.has(String(item.id)))
+          .map((item, position) => ({ item, position, depth: depthOf(item) }))
+          .sort((x, y) => x.depth - y.depth || x.position - y.position)
+          .forEach((entry) => {
+            if (hasStaleAncestorSlug(site, entry.item)) {
+              reslugPageAndBranch(site, entry.item, live);
+            }
+          });
+      }
       // siblings that share an order are told apart by their position in
       // the manifest; keep the order the request sent them in (the order the
       // outline showed), so a tie never depends on how the save ran. Only
@@ -666,6 +707,40 @@ function lockedAfterSave(page, item) {
     return isLocked({ metadata: { locked: item.metadata.locked } });
   }
   return isLocked(page);
+}
+// whether the ancestor part of a page's address no longer matches its
+// ancestors: every segment before the last is an ancestor's last segment,
+// nearest last (how getUniqueSlugName builds a pathauto address)
+function hasStaleAncestorSlug(site, page) {
+  if (page.parent == null || page.parent === "") {
+    return false;
+  }
+  if (page.metadata && page.metadata.overridePathauto === true) {
+    return false;
+  }
+  if (typeof page.slug !== "string" || page.slug === "") {
+    return false;
+  }
+  const expected = [];
+  const seen = new Set([String(page.id)]);
+  let up = page;
+  while ((up = site.loadNode(up.parent))) {
+    if (seen.has(String(up.id))) {
+      break;
+    }
+    seen.add(String(up.id));
+    const segment = String(up.slug == null ? "" : up.slug)
+      .split("/")
+      .pop();
+    if (segment !== "") {
+      expected.unshift(segment);
+    }
+    if (up.parent == null || up.parent === "") {
+      break;
+    }
+  }
+  const actual = page.slug.split("/").slice(0, -1);
+  return actual.join("/") !== expected.join("/");
 }
 function validateOutlineItems(site, items) {
   if (!Array.isArray(items)) {
