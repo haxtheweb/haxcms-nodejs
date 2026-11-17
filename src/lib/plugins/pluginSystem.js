@@ -350,6 +350,104 @@ async function after(site, type, record, previous, opts = {}) {
   return { warnings: r.warnings || [] };
 }
 
+/**
+ * Several records changed by one core operation (the outline save, a bulk page create): the before hooks for all of
+ * them, in one bulk transaction whose origin names the operation, so a plugin sees one transaction and can tell
+ * which operation it is (transaction.before.start, ctx.transaction.origin). `changes` is a list of
+ * { op: "create" | "update" | "delete", record, previous }. Returns { veto, warnings }: the first veto stops the
+ * rest, and core must then write nothing. What the hooks return is not applied: these operations change structure,
+ * and a plugin that changes a page does it on that page's own save.
+ */
+async function beforeMany(site, type, changes, opts = {}) {
+  if (!changes.length || !(await listening(site, opts))) {
+    return { veto: null, warnings: [] };
+  }
+  const h = await host(site, opts);
+  let veto = null;
+  const warnings = [];
+  await h.transaction(
+    async () => {
+      for (const c of changes) {
+        const r = await h.fire(`entity.before.${c.op}`, c.record, {
+          entity: type,
+          previous: c.previous || undefined,
+        });
+        warnings.push(...(r.warnings || []));
+        if (r.veto) {
+          veto = r.veto;
+          return;
+        }
+      }
+    },
+    { bulk: true, origin: opts.origin || "core" },
+  );
+  return { veto, warnings };
+}
+
+/** The after hooks for the same changes, once core has written all of them, again as one bulk transaction. */
+async function afterMany(site, type, changes, opts = {}) {
+  if (!changes.length || !(await listening(site, opts))) {
+    return { warnings: [] };
+  }
+  const h = await host(site, opts);
+  const warnings = [];
+  await h.transaction(
+    async () => {
+      for (const c of changes) {
+        const r = await h.fire(`entity.after.${c.op}`, c.record, {
+          entity: type,
+          previous: c.previous || undefined,
+        });
+        warnings.push(...(r.warnings || []));
+      }
+    },
+    { bulk: true, origin: opts.origin || "core" },
+  );
+  return { warnings };
+}
+
+/**
+ * What an outline save is about to do to each page, from the stored items and the submitted ones: a submitted item
+ * marked delete whose page exists is a delete, one whose id is stored is an update, any other is a create.
+ */
+function outlineChanges(stored, submitted) {
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const byId = new Map();
+  for (const it of stored || []) {
+    if (it && it.id !== undefined && it.id !== null) {
+      byId.set(String(it.id), it);
+    }
+  }
+  const out = [];
+  for (const raw of submitted || []) {
+    if (!raw || typeof raw !== "object") {
+      continue;
+    }
+    const before = byId.get(String(raw.id));
+    const gone = raw.delete === true || raw.delete === "true";
+    if (gone) {
+      if (before) {
+        out.push({ op: "delete", record: plain(before), previous: null });
+      }
+      continue;
+    }
+    const record = plain(raw);
+    delete record.delete;
+    delete record.content;
+    delete record.contents;
+    out.push(
+      before
+        ? {
+            op: "update",
+            record: { ...plain(before), ...record },
+            previous: plain(before),
+          }
+        : { op: "create", record, previous: null },
+    );
+  }
+  return out;
+}
+
 /** rebuild.before / rebuild.after around core's managed-file rewrite (updateAlternateFormats). */
 async function rebuild(site, reason = "save", opts = {}) {
   if (!(await listening(site, opts))) {
@@ -557,6 +655,10 @@ async function saveSettings(site, id, values, opts = {}) {
 }
 
 module.exports = {
+  beforeMany,
+  afterMany,
+  outlineChanges,
+  listening,
   settings,
   saveSettings,
   host,

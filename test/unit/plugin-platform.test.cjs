@@ -977,3 +977,111 @@ describe("settings, assets, rate limits and stores over the routes", () => {
     );
   });
 });
+
+// An outline save and a new page are page events (spec/06): the page hooks fire for each page inside one bulk
+// transaction whose origin names the operation, a veto refuses the whole save before anything is written, and
+// what the hooks return is not applied.
+describe("outline saves and new pages fire the page hooks", () => {
+  const saveOutline = require("../../src/siteRoutes/v1/routes/saveOutline.js");
+  const createNode = require("../../src/siteRoutes/v1/routes/createNode.js");
+  const logOf = async (s) => (await pluginSystem.host(s, { user: null })).log;
+  const count = (log, text) => log.filter((l) => l.message === text).length;
+
+  // its own site: earlier tests leave a page named "forbidden" in the shared one
+  const outlineSite = () => HAXCMS.loadSite("plugin-outline");
+
+  before(async () => {
+    assert.ok(await HAXCMS.loadSite("plugin-outline", true));
+    fs.copySync(
+      path.join(spec, "conformance", "fixtures", "fx-probe-a"),
+      path.join(testRoot, "_plugins", "fx-probe-a"),
+    );
+    pluginSystem.reset();
+    const on = await pluginSystem.enable(null, "fx-probe-a", {});
+    assert.equal(on.status, 200, JSON.stringify(on));
+  });
+
+  test("saveOutline: one transaction, a before and an after hook per page, and the outline saved as sent", async (t) => {
+    t.mock.method(HAXCMS, "validateRequestToken", () => true);
+    const s = await outlineSite();
+    const items = JSON.parse(JSON.stringify(s.manifest.items));
+    items.push({
+      id: "item-new-from-outline",
+      title: "Added in the outline",
+      parent: null,
+      order: items.length,
+      indent: 0,
+    });
+    const from = (await logOf(s)).length;
+    const res = stubRes();
+    await saveOutline(siteReq(s, { items }), res);
+    assert.equal(res.statusCode, null, JSON.stringify(res.body));
+    assert.equal(res.body.status, 200);
+    const after = await outlineSite();
+    assert.equal(after.manifest.items.length, items.length);
+    assert.ok(
+      after.manifest.items.some((i) => i.title === "Added in the outline"),
+    );
+    const log = (await logOf(after)).slice(from);
+    assert.equal(count(log, "fx-probe-a:page.before.save"), items.length);
+    assert.equal(count(log, "fx-probe-a:page.after.save"), items.length);
+    // two transactions: the before hooks, then the after hooks, each started once
+    assert.equal(count(log, "fx-probe-a:transaction.before.start"), 2);
+    const order = log
+      .map((l) => l.message)
+      .filter((m) => /fx-probe-a:(page|transaction\.before\.start)/.test(m));
+    assert.equal(order[0], "fx-probe-a:transaction.before.start");
+    assert.ok(
+      order.lastIndexOf("fx-probe-a:page.before.save") <
+        order.indexOf("fx-probe-a:page.after.save"),
+    );
+  });
+
+  test("saveOutline: a veto refuses the whole save and site.json is untouched", async (t) => {
+    t.mock.method(HAXCMS, "validateRequestToken", () => true);
+    const s = await outlineSite();
+    const file = path.join(s.siteDirectory, "site.json");
+    const stored = fs.readFileSync(file, "utf8");
+    const items = JSON.parse(JSON.stringify(s.manifest.items));
+    items[0].title = "Renamed, and should not be";
+    items.push({
+      id: "item-forbidden",
+      title: "forbidden page",
+      parent: null,
+      order: items.length,
+      indent: 0,
+    });
+    const res = stubRes();
+    await saveOutline(siteReq(s, { items }), res);
+    assert.equal(res.statusCode, 409, JSON.stringify(res.body));
+    assert.equal(res.body.data.message, "fx-vetoer: forbidden");
+    assert.equal(fs.readFileSync(file, "utf8"), stored);
+    assert.ok(
+      !fs.existsSync(path.join(s.siteDirectory, "pages", "forbidden-page")),
+    );
+  });
+
+  test("createNode: the new page goes through page.before.save and a veto refuses it", async (t) => {
+    t.mock.method(HAXCMS, "validateRequestToken", () => true);
+    const s = await outlineSite();
+    const before = s.manifest.items.length;
+    const from = (await logOf(s)).length;
+    const ok = stubRes();
+    await createNode(siteReq(s, { node: { title: "Made by createNode" } }), ok);
+    assert.equal(
+      ok.sent && ok.sent.status,
+      200,
+      JSON.stringify(ok.body || ok.sent),
+    );
+    const log = (await logOf(await outlineSite())).slice(from);
+    assert.equal(count(log, "fx-probe-a:page.before.save"), 1);
+    assert.equal(count(log, "fx-probe-a:page.after.save"), 1);
+    const no = stubRes();
+    await createNode(
+      siteReq(await outlineSite(), { node: { title: "forbidden" } }),
+      no,
+    );
+    assert.equal(no.statusCode, 409, JSON.stringify(no.body || no.sent));
+    assert.equal((await outlineSite()).manifest.items.length, before + 1);
+  });
+});
