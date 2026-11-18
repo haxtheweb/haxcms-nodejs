@@ -1776,7 +1776,38 @@ test("managedTemplateVarsFor escapes title/description per managed format", () =
   const json = managedTemplateVarsFor("manifest.json", vars);
   assert.equal(json.title, 'Tom\'s R&D \\"x\\" ');
   assert.equal(json.description, "");
-  assert.equal(json.other, "<keep>");
+  // every other value a non-HTML managed template prints is HTML-escaped
+  // (the text PHP Twig's autoescape gives), so it cannot close the JSON
+  // string or XML node around it
+  assert.equal(json.other, "&lt;keep&gt;");
+  const settings = {
+    title: "T",
+    description: "D",
+    short: 'a","start_url":"x',
+    hexCode: '#000"/><x>',
+    domain: "https://example.com/<a>",
+    logo72x72: "assets/icon-72x72.png",
+    basePath: "/",
+    count: 3,
+  };
+  [
+    "manifest.json",
+    "package.json",
+    "imsmanifest.xml",
+    "browserconfig.xml",
+    "robots.txt",
+    "llms.txt",
+  ].forEach((file) => {
+    const out = managedTemplateVarsFor(file, settings);
+    assert.equal(out.short, "a&quot;,&quot;start_url&quot;:&quot;x");
+    assert.equal(out.hexCode, "#000&quot;/&gt;&lt;x&gt;");
+    assert.equal(out.domain, "https://example.com/&lt;a&gt;");
+    assert.equal(out.logo72x72, "assets/icon-72x72.png");
+    assert.equal(out.basePath, "/");
+    assert.equal(out.count, 3);
+  });
+  // the shared vars object is never changed in place
+  assert.equal(settings.short, 'a","start_url":"x');
   assert.equal(managedTemplateVarsFor("package.json", vars).title, json.title);
   assert.equal(
     managedTemplateVarsFor("imsmanifest.xml", vars).title,
