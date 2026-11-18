@@ -1378,17 +1378,10 @@ test("getSiteMetadata social cards, preconnects and the canonical default", asyn
     }
     // twitter:site is an @handle, never a URL; HAXcms has none to give
     assert.equal(homeMeta.indexOf("twitter:site"), -1);
-    // the font CSS host (no CORS) and the font file host (CORS) only
-    assert.ok(
-      homeMeta.indexOf(
-        '<link rel="preconnect" href="https://fonts.googleapis.com">',
-      ) !== -1,
-    );
-    assert.ok(
-      homeMeta.indexOf(
-        '<link rel="preconnect" crossorigin href="https://fonts.gstatic.com">',
-      ) !== -1,
-    );
+    // HAX serves its own fonts (webcomponents d-d-d/lib/fonts): a site
+    // never opens a connection to Google Fonts
+    assert.equal(homeMeta.indexOf("fonts.googleapis.com"), -1);
+    assert.equal(homeMeta.indexOf("fonts.gstatic.com"), -1);
     for (const host of [
       "cdnjs.cloudflare.com",
       "i.creativecommons.org",
