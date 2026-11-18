@@ -224,7 +224,6 @@ const {
   DEFAULT_PAGE_TITLE,
 } = require("./sanitizePageMetadata.js");
 const { readDefaultStarterItems } = require("./skeletonSettings.js");
-const exec = util.promisify(child_process.exec);
 // Security (SEC-EXEC): argument-array git calls (no shell string)
 const execFile = util.promisify(child_process.execFile);
 // scrypt parameters for stored password hashes (hashPassword / verify*)
@@ -354,7 +353,7 @@ async function gitVersionCached() {
     return cachedGitVersion;
   }
   try {
-    const { stdout } = await exec("git --version");
+    const { stdout } = await execFile("git", ["--version"]);
     cachedGitVersion = stdout;
     return stdout;
   } catch {
@@ -417,6 +416,19 @@ const MANAGED_HTML_TEMPLATE_KEYS = [
   "metaDescription",
   "socialImage",
 ];
+// Security (SEC-SANITIZE): managed templates that are not HTML pages. Every
+// other string value they print (short name, theme color, icon paths, lang,
+// domain, base path) is HTML-escaped, the output PHP Twig's autoescape gives
+// those same values, so a quote or angle bracket in site settings cannot
+// close the JSON string or XML node it is printed in.
+const MANAGED_ESCAPE_ALL_TEMPLATES = [
+  "manifest.json",
+  "package.json",
+  "imsmanifest.xml",
+  "browserconfig.xml",
+  "robots.txt",
+  "llms.txt",
+];
 /**
  * Security (SEC-SANITIZE): parity contract with PHP: before rendering managed
  * JSON/XML, title/description have CR, LF and TAB replaced by a space and every
@@ -462,13 +474,25 @@ function managedTemplateVarsFor(fileName, templateVars) {
   )
     ? MANAGED_TEMPLATE_TEXT_FORMATS[fileName]
     : null;
-  if (!format) {
+  const escapeAll = MANAGED_ESCAPE_ALL_TEMPLATES.indexOf(fileName) !== -1;
+  if (!format && !escapeAll) {
     return templateVars;
   }
-  const vars = Object.assign({}, templateVars, {
-    title: escapeManagedTemplateText(templateVars.title, format),
-    description: escapeManagedTemplateText(templateVars.description, format),
-  });
+  const vars = Object.assign({}, templateVars);
+  if (escapeAll) {
+    Object.keys(vars).forEach((key) => {
+      if (typeof vars[key] === "string") {
+        vars[key] = escapeHTMLAttribute(vars[key]);
+      }
+    });
+  }
+  if (format) {
+    vars.title = escapeManagedTemplateText(templateVars.title, format);
+    vars.description = escapeManagedTemplateText(
+      templateVars.description,
+      format,
+    );
+  }
   if (format === "html") {
     MANAGED_HTML_TEMPLATE_KEYS.forEach((key) => {
       vars[key] = escapeManagedTemplateText(templateVars[key], format);
@@ -1291,7 +1315,8 @@ class HAXCMSSite {
           let template = Twig.twig({ data: output, async: false });
           // Security (SEC-SANITIZE): title/description pre-escaped per format
           // (JSON string / XML / plain text) for the managed files that
-          // embed them; see MANAGED_TEMPLATE_TEXT_FORMATS.
+          // embed them, and every other value escaped in the non-HTML ones;
+          // see MANAGED_TEMPLATE_TEXT_FORMATS and MANAGED_ESCAPE_ALL_TEMPLATES.
           output = template.render(
             managedTemplateVarsFor(templates[key], templateVars),
           );
