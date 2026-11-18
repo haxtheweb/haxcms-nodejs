@@ -3592,6 +3592,19 @@ class HAXCMSSite {
         escapeHtml(pageLocation) +
         '" as="fetch" crossorigin="anonymous" fetchpriority="high" />';
     }
+    // DDD sets body text in Roboto, which @haxtheweb/d-d-d ships under
+    // lib/fonts; preload its Latin face so text doesn't wait on the boot
+    // JavaScript to discover it. Fonts are always fetched in CORS mode, so
+    // crossorigin is required for the preload to be reused.
+    let fontPreload = "";
+    if (HAXCMS.siteUsesDDDFonts(this)) {
+      fontPreload =
+        '\n  <link rel="preload" href="' +
+        base +
+        "build/es6/node_modules/" +
+        HAXCMS.DDD_FONT_PRELOAD +
+        '" as="font" type="font/woff2" crossorigin="anonymous" />';
+    }
     let metadata = `<meta charset="utf-8" />
   ${preconnect}
   <link rel="preload" href="${base}build.js" as="script" />
@@ -3599,7 +3612,7 @@ class HAXCMSSite {
   <link rel="preload" href="${base}wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
 ${shellModulepreload}
 ${themePreload}${contentPreload}${pageDataPreload}
-  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
+  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />${fontPreload}
   <link rel="llms" href="llms.txt" title="LLM Content Map" />
   <link rel="alternate" type="text/markdown" href="llms.txt" title="Markdown Summary" />
   <link rel="alternate" type="text/markdown" href="llms-full.txt" title="Full Site as Markdown" />
@@ -5047,6 +5060,10 @@ class HAXCMSClass {
       slot: "",
     };
     this.basePath = "/";
+    // DDD's Latin Roboto face, under build/es6/node_modules; preloaded by
+    // getSiteMetadata for sites that render on DDD's fonts
+    this.DDD_FONT_PRELOAD =
+      "@haxtheweb/d-d-d/lib/fonts/roboto/roboto-latin-wght-normal.woff2";
     this.config = {};
     /**
      * @todo need a way to define these on node side as PHP settings won't carry
@@ -6426,6 +6443,87 @@ class HAXCMSClass {
       }
     }
     return graph;
+  }
+  /**
+   * Load designSystems.json (the design system bridge registry shipped in
+   * @haxtheweb/haxcms-elements/lib) from the local build. Read from disk
+   * whatever the site's base is: the CDN serves the same release. {} when
+   * the build has none (older builds). Mirrors the PHP getDesignSystemsJson.
+   */
+  getDesignSystemsJson(site) {
+    const candidatePath = this.localBuildFile(
+      site,
+      "@haxtheweb/haxcms-elements/lib/designSystems.json",
+    );
+    if (candidatePath) {
+      try {
+        const data = readJsonFileCached(candidatePath);
+        return data && typeof data === "object" ? data : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  }
+  /**
+   * Absolute path of a file in the local build (build/es6/node_modules),
+   * looked up for the site first, then the HAXcms root; null when absent.
+   * @param {Object} site
+   * @param {String} rel path under build/es6/node_modules
+   */
+  localBuildFile(site, rel) {
+    const buildRel = path.join("build/es6/node_modules", rel);
+    const candidates = [];
+    if (site && site.siteDirectory) {
+      candidates.push(path.join(site.siteDirectory, buildRel));
+    }
+    candidates.push(path.join(HAXCMS_ROOT, buildRel));
+    candidates.push(path.join(HAXCMS_ROOT, "src/public", buildRel));
+    candidates.push(path.join(__dirname, "../public", buildRel));
+    for (const candidatePath of candidates) {
+      if (fs.existsSync(candidatePath)) {
+        return candidatePath;
+      }
+    }
+    return null;
+  }
+  /**
+   * Whether a site renders on DDD's own fonts (Roboto), so the page can
+   * preload DDD's Latin Roboto. False when the site picked another design
+   * system or its theme is a bridged one (the bridge brings its own fonts),
+   * and when the build has no design system registry to check against or
+   * doesn't ship the font (builds before d-d-d vendored its fonts).
+   */
+  siteUsesDDDFonts(site) {
+    const theme =
+      site && site.manifest && site.manifest.metadata
+        ? site.manifest.metadata.theme
+        : null;
+    if (!theme) {
+      return false;
+    }
+    if (
+      typeof theme.designSystem === "string" &&
+      theme.designSystem !== "" &&
+      theme.designSystem !== "ddd"
+    ) {
+      return false;
+    }
+    if (!this.localBuildFile(site, HAXCMS.DDD_FONT_PRELOAD)) {
+      return false;
+    }
+    const systems = this.getDesignSystemsJson(site);
+    const names = Object.keys(systems);
+    if (names.length === 0) {
+      return false;
+    }
+    const element = String(theme.element || "");
+    return !names.some(
+      (name) =>
+        systems[name] &&
+        typeof systems[name] === "object" &&
+        systems[name].theme === element,
+    );
   }
   /**
    * Build the ordered, deduped list of registry-relative module paths to

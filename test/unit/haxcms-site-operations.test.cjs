@@ -1145,6 +1145,68 @@ test("getSiteMetadata preloads the active page's HTML, site-relative", async () 
   assert.equal(/href="\.\/pages\//.test(none), false);
 });
 
+test("getSiteMetadata preloads DDD's Latin Roboto only for sites on DDD fonts", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const page = site.manifest.items[0];
+  const before = JSON.parse(JSON.stringify(site.manifest.metadata));
+  const tmpBuild = fs.mkdtempSync(path.join(os.tmpdir(), "haxcms-font-"));
+  const fontFile = path.join(tmpBuild, "roboto-latin-wght-normal.woff2");
+  const registryFile = path.join(tmpBuild, "designSystems.json");
+  fs.writeFileSync(fontFile, "");
+  fs.writeJsonSync(registryFile, {
+    carbon: { name: "carbon", theme: "carbon-theme" },
+  });
+  const originalLocal = HAXCMS.localBuildFile;
+  let shipsFont = true;
+  HAXCMS.localBuildFile = (s, rel) => {
+    if (rel === HAXCMS.DDD_FONT_PRELOAD) {
+      return shipsFont ? fontFile : null;
+    }
+    if (rel === "@haxtheweb/haxcms-elements/lib/designSystems.json") {
+      return registryFile;
+    }
+    return originalLocal.call(HAXCMS, s, rel);
+  };
+  const preload = (base) =>
+    '<link rel="preload" href="' +
+    base +
+    "build/es6/node_modules/@haxtheweb/d-d-d/lib/fonts/roboto/roboto-latin-wght-normal.woff2" +
+    '" as="font" type="font/woff2" crossorigin="anonymous" />';
+  const render = (cdn = "") =>
+    site.getSiteMetadata(page, "https://unit.example", cdn);
+  try {
+    site.manifest.metadata.theme = Object.assign(
+      {},
+      site.manifest.metadata.theme,
+      { element: "clean-one", designSystem: "" },
+    );
+    assert.ok((await render()).indexOf(preload("./")) !== -1);
+    // served from the CDN: the font comes from there too
+    assert.ok(
+      (await render("https://cdn.example/")).indexOf(
+        preload("https://cdn.example/"),
+      ) !== -1,
+    );
+    site.manifest.metadata.theme.designSystem = "ddd";
+    assert.ok((await render()).indexOf(preload("./")) !== -1);
+    // another design system brings its own fonts
+    site.manifest.metadata.theme.designSystem = "carbon";
+    assert.equal((await render()).indexOf('as="font"'), -1);
+    // so does a bridged theme
+    site.manifest.metadata.theme.designSystem = "";
+    site.manifest.metadata.theme.element = "carbon-theme";
+    assert.equal((await render()).indexOf('as="font"'), -1);
+    // a build without the font gets no preload (no 404)
+    site.manifest.metadata.theme.element = "clean-one";
+    shipsFont = false;
+    assert.equal((await render()).indexOf('as="font"'), -1);
+  } finally {
+    HAXCMS.localBuildFile = originalLocal;
+    site.manifest.metadata = before;
+    fs.removeSync(tmpBuild);
+  }
+});
+
 test("getPreloadablePageLocation only allows plain relative page paths", () => {
   const { getPreloadablePageLocation } = require("../../src/lib/HAXCMS.js");
   assert.equal(
