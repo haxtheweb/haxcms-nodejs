@@ -1156,16 +1156,16 @@ test("getSiteMetadata preloads DDD's Latin Roboto only for sites on DDD fonts", 
   fs.writeJsonSync(registryFile, {
     carbon: { name: "carbon", theme: "carbon-theme" },
   });
-  const originalLocal = HAXCMS.localBuildFile;
+  const { DDD_FONT_PRELOAD } = require("../../src/lib/HAXCMS.js");
   let shipsFont = true;
-  HAXCMS.localBuildFile = (s, rel) => {
-    if (rel === HAXCMS.DDD_FONT_PRELOAD) {
+  site.localBuildFile = (rel) => {
+    if (rel === DDD_FONT_PRELOAD) {
       return shipsFont ? fontFile : null;
     }
     if (rel === "@haxtheweb/haxcms-elements/lib/designSystems.json") {
       return registryFile;
     }
-    return originalLocal.call(HAXCMS, s, rel);
+    return null;
   };
   const preload = (base) =>
     '<link rel="preload" href="' +
@@ -1201,7 +1201,7 @@ test("getSiteMetadata preloads DDD's Latin Roboto only for sites on DDD fonts", 
     shipsFont = false;
     assert.equal((await render()).indexOf('as="font"'), -1);
   } finally {
-    HAXCMS.localBuildFile = originalLocal;
+    delete site.localBuildFile;
     site.manifest.metadata = before;
     fs.removeSync(tmpBuild);
   }
