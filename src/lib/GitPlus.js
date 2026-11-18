@@ -1,7 +1,7 @@
 const { Git } = require('git-interface');
 const util  = require('node:util');
 const child_process  = require('child_process');
-const exec = util.promisify(child_process.exec);
+const execFile = util.promisify(child_process.execFile);
 class GitPlus extends Git {
   constructor(options) {
     super(options);
@@ -10,7 +10,7 @@ class GitPlus extends Git {
   }
   async gitTest() {
     try {
-      const { stdout } = await exec('git --version');
+      const { stdout } = await execFile('git', ['--version']);
       this.cliVersion = stdout;
     } catch {
       this.cliVersion = null;
