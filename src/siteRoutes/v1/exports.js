@@ -662,9 +662,6 @@ async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
       `<link rel="preconnect" crossorigin href="${escapeHtmlValue(magic)}">`,
     );
     sections.push(
-      `<link rel="preconnect" crossorigin href="https://fonts.googleapis.com">`,
-    );
-    sections.push(
       `<link rel="preload" href="${escapeHtmlValue(magic)}build.js" as="script" />`,
     );
     sections.push(
