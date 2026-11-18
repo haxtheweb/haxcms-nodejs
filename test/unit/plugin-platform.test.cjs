@@ -419,14 +419,11 @@ describe("system-scope routes run on the system engine", () => {
         };
       },
     });
-    const call = async (path) => {
+    const call = async (path, query = {}) => {
       const res = stubRes();
       await routes
         .find((r) => r.p === path)
-        .h(
-          { method: "GET", params: {}, query: {}, body: {}, headers: {} },
-          res,
-        );
+        .h({ method: "GET", params: {}, query, body: {}, headers: {} }, res);
       return res;
     };
     const list = await call("/system/api/v1/plugins");
@@ -475,6 +472,17 @@ describe("system-scope routes run on the system engine", () => {
           },
         ],
       });
+      // the CLI and MCP ask for their own surface; anything else is the admin screens
+      for (const surface of ["cli", "mcp", "nonsense"]) {
+        const other = await call("/system/api/v1/plugins/contributions", {
+          surface,
+        });
+        assert.deepEqual(
+          other.body.data.choices,
+          on.body.data.choices,
+          surface,
+        );
+      }
       const h = await pluginSystem.systemHost({ user: null });
       assert.equal(h.get("fx-pick-hidden").status, "active");
       assert.deepEqual(

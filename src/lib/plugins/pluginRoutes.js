@@ -239,6 +239,11 @@ function mountPluginRoutes(app, deps) {
 
   // GET .../plugins/contributions (spec/07): declarative UI from enabled plugins for one surface, plus the advertised
   // core contracts by contract and result name, so core screens enable features without naming a plugin.
+  // ?surface=cli or mcp gives what the hax CLI or haxcms-mcp offers (spec/07, Choices); admin screens by default
+  const choiceSurface = (req) => {
+    const v = req && req.query ? String(req.query.surface || "") : "";
+    return ["admin", "cli", "mcp"].includes(v) ? v : "admin";
+  };
   const contributions = (surface) => async (req, res) => {
     const site = surface === "site" ? await deps.resolveSite(req) : null;
     const auth = deps.resolveAuth(req, site);
@@ -277,7 +282,7 @@ function mountPluginRoutes(app, deps) {
       // admin screens, with what each asks for, so the import screen builds its form without naming a plugin
       data: {
         contributions: items,
-        choices: h.contractChoices("admin"),
+        choices: h.contractChoices(choiceSurface(req)),
         contracts: h.advertisedContracts(),
       },
     });
