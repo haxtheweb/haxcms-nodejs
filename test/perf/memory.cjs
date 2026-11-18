@@ -19,6 +19,7 @@
 //
 // Constraints honored: CommonJS (.cjs), NO optional chaining.
 
+const { siteBaseUrl } = require("./fixture.cjs");
 const { median, perVisit } = require("./budgets.cjs");
 
 const WARMUP_VISITS = 10;
@@ -277,7 +278,7 @@ function round(value, places) {
 /**
  * @param {object} browser puppeteer browser
  * @param {object} opts {
- *   baseUrl, site, items: [{id, slug}], visits, idleSeconds,
+ *   baseUrl, sitesDir, site, items: [{id, slug}], visits, idleSeconds,
  *   editor: boolean, credentials: {username, password}
  * }
  */
@@ -292,7 +293,7 @@ async function runMemoryScenario(browser, opts) {
     await page.evaluateOnNewDocument(PAGE_PROBES);
     const cdp = await page.createCDPSession();
     await cdp.send("HeapProfiler.enable");
-    const siteBase = opts.baseUrl + "/_sites/" + opts.site + "/";
+    const siteBase = siteBaseUrl(opts.baseUrl, opts.sitesDir, opts.site);
     const first = opts.items[0];
     await page.goto(siteBase + first.slug, {
       waitUntil: "networkidle0",
