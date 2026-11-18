@@ -27,10 +27,10 @@ test("writing skeleton uses the registered writing-theme", () => {
   assert.equal(skeleton.build.structure, "from-skeleton");
 });
 
-test("top level is Home, About, Archive, then Posts out of the menu", () => {
+test("top level is Home, About, Archive, Contact, then Posts out of the menu", () => {
   assert.deepEqual(
     top.sort((a, b) => a.order - b.order).map((item) => item.slug),
-    ["home", "about", "archive", "posts"],
+    ["home", "about", "archive", "contact", "posts"],
   );
   assert.equal(bySlug("posts").metadata.hideInMenu, true);
   // the home page's content stands in for a title, so the title is hidden

@@ -19,7 +19,15 @@ const CASES = [
     name: "academic",
     theme: "al-folio-theme",
     themePath: "@haxtheweb/papermod-theme/lib/al-folio-theme.js",
-    top: ["about", "publications", "projects", "teaching", "people"],
+    top: [
+      "about",
+      "publications",
+      "projects",
+      "teaching",
+      "people",
+      "contact",
+      "privacy",
+    ],
     section: "projects",
   },
   {
@@ -27,7 +35,7 @@ const CASES = [
     name: "landing-page",
     theme: "astrowind-theme",
     themePath: "@haxtheweb/papermod-theme/lib/astrowind-theme.js",
-    top: ["home", "services", "pricing", "about", "contact"],
+    top: ["home", "services", "pricing", "about", "contact", "privacy"],
     section: "services",
   },
 ];
@@ -58,6 +66,14 @@ for (const c of CASES) {
         .map((item) => item.slug),
       c.top,
     );
+  });
+
+  // haxtheweb/issues#3368: Privacy stays out of the menu; Contact links to it
+  test(`${c.name}: Privacy is out of the menu and linked from Contact`, () => {
+    assert.equal(bySlug("privacy").metadata.hideInMenu, true);
+    assert.equal(bySlug("contact").metadata.hideInMenu, false);
+    assert.ok(bySlug("contact").content.includes('href="privacy"'));
+    assert.ok(bySlug("privacy").content.includes('href="contact"'));
   });
 
   test(`${c.name}: the ${c.section} page has the pages the theme lists`, () => {
