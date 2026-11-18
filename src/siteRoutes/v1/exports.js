@@ -11,6 +11,7 @@ const {
   serializePayload,
   isAnonymousSiteApiRequest,
   isItemVisibleToAnonymous,
+  getSiteLanguage,
 } = require("./siteRouteUtils.js");
 const fs = require("fs");
 const path = require("path");
@@ -93,6 +94,40 @@ function getSystemApiBasePath(apiBasePath = "/x/api") {
     /\/x\/api$/,
     `/${normalizedSystemRequestBase}`,
   );
+}
+
+// Accessibility: every exported HTML document declares the site's language
+// (WCAG 3.1.1) and its text direction, so screen readers pick the right voice
+// and right-to-left sites read in order. Only BCP 47 characters are kept.
+const RTL_LANGUAGES = new Set([
+  "ar",
+  "arc",
+  "ckb",
+  "dv",
+  "fa",
+  "he",
+  "ks",
+  "ku",
+  "ps",
+  "sd",
+  "ug",
+  "ur",
+  "yi",
+]);
+
+function getSiteExportLang(site) {
+  const lang = String(getSiteLanguage(site) || "")
+    .replace(/[^A-Za-z0-9-]/g, "")
+    .slice(0, 35);
+  return lang || "en";
+}
+
+function getExportLangDirAttributes(lang) {
+  const primary = String(lang || "en")
+    .split("-")[0]
+    .toLowerCase();
+  const dir = RTL_LANGUAGES.has(primary) ? "rtl" : "ltr";
+  return `lang="${escapeHtmlValue(lang)}" dir="${dir}"`;
 }
 
 function escapeHtmlValue(value = "") {
@@ -618,7 +653,9 @@ async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
     );
     const sections = [];
     sections.push("<!DOCTYPE html>");
-    sections.push('<html lang="en">');
+    sections.push(
+      `<html ${getExportLangDirAttributes(getSiteExportLang(site))}>`,
+    );
     sections.push("<head>");
     sections.push('<meta charset="utf-8">');
     sections.push(
@@ -667,7 +704,9 @@ async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
 
   const sections = [];
   sections.push("<!doctype html>");
-  sections.push("<html>");
+  sections.push(
+    `<html ${getExportLangDirAttributes(getSiteExportLang(site))}>`,
+  );
   sections.push("<head>");
   sections.push('<meta charset="utf-8" />');
   sections.push(`<title>${escapeHtmlValue(siteTitle)}</title>`);
@@ -781,7 +820,15 @@ function normalizeHtmlForDocumentExport(html, basePath, items, mode = "epub") {
       }
 
       if (videoId) {
-        const embed = `<div class="responsive-iframe-container"><iframe class="responsive-iframe" width="100%" height="100%" frameborder="0" src="${escapeHtmlValue(videoId)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>`;
+        // Accessibility: an embedded frame needs a title (WCAG 4.1.2); use
+        // the video's own title or caption, else a generic "Video" label.
+        const videoTitle =
+          el.getAttribute("title") ||
+          el.getAttribute("media-title") ||
+          el.getAttribute("caption") ||
+          el.getAttribute("aria-label") ||
+          "Video";
+        const embed = `<div class="responsive-iframe-container"><iframe class="responsive-iframe" title="${escapeHtmlValue(videoTitle)}" width="100%" height="100%" frameborder="0" src="${escapeHtmlValue(videoId)}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>`;
         el.replaceWith(embed);
       } else {
         el.remove();
@@ -1064,14 +1111,7 @@ async function buildSiteExportEpubBuffer(site, basePath = "/", ancestor) {
         site.manifest.metadata.site.updated
           ? new Date(site.manifest.metadata.site.updated * 1000).toISOString()
           : new Date().toISOString(),
-      lang:
-        site &&
-        site.manifest &&
-        site.manifest.metadata &&
-        site.manifest.metadata.site &&
-        site.manifest.metadata.site.lang
-          ? String(site.manifest.metadata.site.lang)
-          : "en",
+      lang: getSiteExportLang(site),
       fetchTimeout: 3000,
       ignoreFailedDownloads: true,
     };
@@ -1146,14 +1186,7 @@ async function buildItemExportEpubBuffer(site, item, basePath = "/") {
         site.manifest.metadata.site.updated
           ? new Date(site.manifest.metadata.site.updated * 1000).toISOString()
           : new Date().toISOString(),
-      lang:
-        site &&
-        site.manifest &&
-        site.manifest.metadata &&
-        site.manifest.metadata.site &&
-        site.manifest.metadata.site.lang
-          ? String(site.manifest.metadata.site.lang)
-          : "en",
+      lang: getSiteExportLang(site),
       fetchTimeout: 3000,
       ignoreFailedDownloads: true,
     };
@@ -1173,7 +1206,9 @@ async function buildItemExportHtml(site, item) {
   const itemContent = await getItemContent(site, item);
   const sections = [];
   sections.push("<!doctype html>");
-  sections.push("<html>");
+  sections.push(
+    `<html ${getExportLangDirAttributes(getSiteExportLang(site))}>`,
+  );
   sections.push("<head>");
   sections.push('<meta charset="utf-8" />');
   sections.push(`<title>${escapeHtmlValue(itemTitle)}</title>`);
@@ -1714,6 +1749,8 @@ async function siteExportMutation(req, res) {
 }
 
 module.exports = {
+  getSiteExportLang,
+  getExportLangDirAttributes,
   buildSiteExportMarkdown,
   buildSiteExportMarkdownCached,
   sendCacheableText,
