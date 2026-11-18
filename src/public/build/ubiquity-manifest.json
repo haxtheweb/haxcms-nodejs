@@ -19823,7 +19823,7 @@
         "lib/theme-screenshots/theme-writing-theme.jpg": ["e269fcac8f6f6e7f8f52c9fa03f26898", "e269fcac8f6f6e7f8f52c9fa03f26898"],
         "lib/theme-screenshots/theme-wysiwyg96-theme-thumb.jpg": ["9c8204c6966d0ae91703f4b4c155f8f6", "9c8204c6966d0ae91703f4b4c155f8f6"],
         "lib/theme-screenshots/theme-wysiwyg96-theme.jpg": ["cd438057366a9a33f627082209f9ed9e", "cd438057366a9a33f627082209f9ed9e"],
-        "lib/themes.json": ["d5809b6794e659af67dd31afeedcc8a8", "6fb1bfee00653f04fb15f4e577b45f5b"],
+        "lib/themes.json": ["0071009921d7f47912f0f93e7c1885ca", "6fb1bfee00653f04fb15f4e577b45f5b"],
         "lib/ui-components/active-item/site-active-fields.js": ["a9034f6b665bf120a3a0050d1d8356fa", "1ee20b8004778af80a19b4d244c44814"],
         "lib/ui-components/active-item/site-active-media-banner.js": ["a45b2dabcaf081b76cbe21652ae965a5", "d4c7093b0dc7f09c9006882c56966415"],
         "lib/ui-components/active-item/site-active-tags.js": ["0f384ac356a19dd9cf507457a0f3708d", "f55486683d1f51babdfe78793a6d1cef"],
@@ -25807,7 +25807,7 @@
         "lib/LanguageRegistry.js": ["006e1442b4cc51740a212d7a526ff160", "4e57be5c0cc885060fca139af50a6087"],
         "lib/i18n-manager.docs.json": ["87695d8bb001a38e9f7c6126aa623a97", "87695d8bb001a38e9f7c6126aa623a97"],
         "lib/languages.json": ["a822d83983b7338a83dcd23c42cf350c", "a822d83983b7338a83dcd23c42cf350c"],
-        "lib/translation-manifest.json": ["a02572e6fb139d9d78d5dc59d5243326", "f6169545a4f1c783f70c476cf0320fc9"]
+        "lib/translation-manifest.json": ["0ecb48b8d3ffcf67737509875a3fa4bf", "f6169545a4f1c783f70c476cf0320fc9"]
       },
       "source": "elements/i18n-manager",
       "version": "26.8.0"
@@ -47883,7 +47883,7 @@
     }
   },
   "source": {
-    "commit": "8d5a1603ff594da8699566ef7a5147deb6508e7d",
+    "commit": "8c65c3b0dc140ea70dd089b7e1b04378d8c26b7e",
     "repository": "haxtheweb/webcomponents",
     "version": "26.8.0"
   },
