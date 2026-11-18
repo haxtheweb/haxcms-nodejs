@@ -35,7 +35,21 @@ auth) and builds the fixture site in it, then throws it away.
 | `site`          | only build the fixture (use with `--base-url` to keep it on a dev server)                          |
 
 Options: `--short` (fewer visits, one load run), `--size <n>` (default 500),
-`--sizes a,b,c`, `--check`, `--out`, `--report`, `--base-url`.
+`--sizes a,b,c`, `--check`, `--out`, `--report`, `--base-url`,
+`--sites-dir <dir>` (the URL folder sites are served from; default `_sites`).
+
+## Against haxcms-php
+
+The harness builds its fixture through the HTTP API only, so it runs against
+a haxcms-php server too. haxcms-php serves sites from `/sites/`, not `/_sites/`:
+
+```bash
+HAXCMS_PERF_PASSWORD=admin node test/perf/run.cjs all \
+  --base-url http://haxcms.ddev.site --sites-dir sites
+```
+
+`budgets.json` is tuned for haxcms-nodejs, so run without `--check` until
+haxcms-php has a baseline of its own (haxtheweb/issues#3355).
 
 ## Fixtures
 

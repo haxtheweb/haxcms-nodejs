@@ -8,6 +8,7 @@
 //
 // Constraints honored: CommonJS (.cjs), NO optional chaining.
 
+const { siteBaseUrl } = require("./fixture.cjs");
 const OPEN_TIMEOUT_MS = 120000;
 
 // Installs globalThis.__perfDeepQuery(selector): find an element anywhere in
@@ -42,7 +43,7 @@ function wait(ms) {
 
 /**
  * @param {object} browser puppeteer browser
- * @param {object} opts { baseUrl, site, items, credentials }
+ * @param {object} opts { baseUrl, sitesDir, site, items, credentials }
  */
 async function runOutlineScenario(browser, opts) {
   const context = await browser.createBrowserContext();
@@ -52,7 +53,7 @@ async function runOutlineScenario(browser, opts) {
     const cdp = await page.createCDPSession();
     await cdp.send("HeapProfiler.enable");
     const url =
-      opts.baseUrl + "/_sites/" + opts.site + "/" + opts.items[0].slug;
+      siteBaseUrl(opts.baseUrl, opts.sitesDir, opts.site) + opts.items[0].slug;
     await page.goto(url, { waitUntil: "networkidle0", timeout: 180000 });
     const status = await page.evaluate(
       async function (username, password, siteName) {

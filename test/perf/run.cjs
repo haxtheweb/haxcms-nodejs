@@ -23,6 +23,8 @@
 //   --base-url <url>  use a running server instead of booting an isolated one;
 //                     credentials come from HAXCMS_PERF_USERNAME (default admin)
 //                     and HAXCMS_PERF_PASSWORD
+//   --sites-dir <dir> URL folder sites are served from (default _sites;
+//                     haxcms-php uses sites)
 //
 // Without --base-url the harness boots the same isolated server the e2e suite
 // uses (temp HAXCMS_ROOT, ephemeral port, real auth) and builds fixture sites
@@ -42,7 +44,11 @@ const {
   median,
   selectBudgets,
 } = require("./budgets.cjs");
-const { ensureFixtureSite } = require("./fixture.cjs");
+const {
+  ensureFixtureSite,
+  normalizeSitesDir,
+  siteBaseUrl,
+} = require("./fixture.cjs");
 const { runMemoryScenario } = require("./memory.cjs");
 const { runLighthouse, runLoadScenario } = require("./load.cjs");
 const { runOutlineScenario } = require("./outline.cjs");
@@ -104,8 +110,8 @@ function frontEndVersion() {
   }
 }
 
-function pageUrl(baseUrl, fixture, which) {
-  const siteBase = baseUrl + "/_sites/" + fixture.name + "/";
+function pageUrl(server, fixture, which) {
+  const siteBase = siteBaseUrl(server.baseUrl, server.sitesDir, fixture.name);
   if (which === "home") {
     return siteBase;
   }
@@ -158,6 +164,7 @@ async function runMemory(browser, server, fixture, profile, scenarios) {
   );
   scenarios["reader." + fixture.name] = await runMemoryScenario(browser, {
     baseUrl: server.baseUrl,
+    sitesDir: server.sitesDir,
     site: fixture.name,
     items: fixture.items,
     visits: profile.reader.visits,
@@ -172,6 +179,7 @@ async function runMemory(browser, server, fixture, profile, scenarios) {
   );
   scenarios["editor." + fixture.name] = await runMemoryScenario(browser, {
     baseUrl: server.baseUrl,
+    sitesDir: server.sitesDir,
     site: fixture.name,
     items: fixture.items,
     visits: profile.editor.visits,
@@ -194,7 +202,7 @@ async function runLoad(
     for (let p = 0; p < profile.pages.length; p++) {
       const formFactor = profile.formFactors[f];
       const which = profile.pages[p];
-      const url = pageUrl(server.baseUrl, fixture, which);
+      const url = pageUrl(server, fixture, which);
       const key = formFactor + "." + which + "." + fixture.name;
       log("load: " + key + " (" + profile.loadRuns + " run(s))");
       const lab = await runLoadScenario(browser, {
@@ -217,6 +225,7 @@ async function runOutline(browser, server, fixture, scenarios) {
   log("outline: open outline designer (" + fixture.name + ")");
   scenarios["outline." + fixture.name] = await runOutlineScenario(browser, {
     baseUrl: server.baseUrl,
+    sitesDir: server.sitesDir,
     site: fixture.name,
     items: fixture.items,
     credentials: server.credentials,
@@ -226,7 +235,8 @@ async function runOutline(browser, server, fixture, scenarios) {
 // What the server hands every visitor, before any script runs: site.json
 // (raw and gzip) and the server-rendered HTML of the deep page.
 async function runSiteMetrics(server, fixture, scenarios) {
-  const siteJsonUrl = server.baseUrl + "/_sites/" + fixture.name + "/site.json";
+  const siteJsonUrl =
+    siteBaseUrl(server.baseUrl, server.sitesDir, fixture.name) + "site.json";
   const timed = async function (url, gzip) {
     const times = [];
     let bytes = 0;
@@ -248,7 +258,7 @@ async function runSiteMetrics(server, fixture, scenarios) {
   };
   const raw = await timed(siteJsonUrl, false);
   const gz = await timed(siteJsonUrl, true);
-  const html = await timed(pageUrl(server.baseUrl, fixture, "deep"), false);
+  const html = await timed(pageUrl(server, fixture, "deep"), false);
   scenarios["site." + fixture.name] = Object.assign(
     // server time to build the site through the API (fresh fixtures only)
     typeof fixture.createSeconds === "number"
@@ -294,14 +304,14 @@ function writeOutputs(argv, command, profileName, results, markdown) {
 async function main() {
   const argv = minimist(process.argv.slice(2), {
     boolean: ["short", "check", "help"],
-    string: ["out", "report", "base-url", "sizes", "size"],
+    string: ["out", "report", "base-url", "sizes", "size", "sites-dir"],
   });
   const command = argv._[0] || "all";
   if (argv.help || COMMANDS.indexOf(command) === -1) {
     process.stdout.write(
       "usage: node test/perf/run.cjs <" +
         COMMANDS.join("|") +
-        "> [--short] [--size n] [--sizes a,b,c] [--check] [--out file] [--report file] [--base-url url]\n",
+        "> [--short] [--size n] [--sizes a,b,c] [--check] [--out file] [--report file] [--base-url url] [--sites-dir dir]\n",
     );
     return argv.help ? 0 : 2;
   }
@@ -313,7 +323,10 @@ async function main() {
   }
   const profile = PROFILES[profileName];
   const started = Date.now();
+  // validate before booting anything
+  const sitesDir = normalizeSitesDir(argv["sites-dir"]);
   const server = await startServer(argv);
+  server.sitesDir = sitesDir;
   let browser = null;
   try {
     const fixtures = [];
@@ -325,6 +338,7 @@ async function main() {
         server.baseUrl,
         server.credentials,
         name,
+        server.sitesDir,
       );
       if (!fixture.reused) {
         fixture.createSeconds =
