@@ -747,6 +747,48 @@ describe("saveSeoSettings", () => {
     assert.equal(site.calls.gitCommits.length, 2);
   });
 
+  test("seo.sameAs is normalized into metadata.site.sameAs; empty removes it", async (t) => {
+    const site = makeFakeSite();
+    mockSiteAuth(t, site);
+    let res = stubRes();
+    await saveSeoSettings(
+      siteReq({
+        site: { name: "demo" },
+        seo: {
+          sameAs:
+            "https://github.com/haxtheweb\njavascript:alert(1)\nhttps://github.com/haxtheweb\nhttps://www.youtube.com/@haxtheweb",
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.deepEqual(site.manifest.metadata.site.sameAs, [
+      "https://github.com/haxtheweb",
+      "https://www.youtube.com/@haxtheweb",
+    ]);
+    // the legacy manifest.* key works too, and an empty list removes it
+    res = stubRes();
+    await saveSeoSettings(
+      siteReq({
+        site: { name: "demo" },
+        manifest: { seo: { "manifest.metadata.site.sameAs": [] } },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal("sameAs" in site.manifest.metadata.site, false);
+    // a save that doesn't send sameAs leaves it alone
+    site.manifest.metadata.site.sameAs = ["https://github.com/haxtheweb"];
+    res = stubRes();
+    await saveSeoSettings(
+      siteReq({ site: { name: "demo" }, seo: { lang: "en" } }),
+      res,
+    );
+    assert.deepEqual(site.manifest.metadata.site.sameAs, [
+      "https://github.com/haxtheweb",
+    ]);
+  });
+
   test("legacy manifest.* keys still write fields", async (t) => {
     const site = makeFakeSite();
     mockSiteAuth(t, site);

@@ -224,6 +224,7 @@ const {
   DEFAULT_PAGE_TITLE,
 } = require("./sanitizePageMetadata.js");
 const { readDefaultStarterItems } = require("./skeletonSettings.js");
+const { normalizeSameAsList } = require("./sameAs.js");
 // Security (SEC-EXEC): argument-array git calls (no shell string)
 const execFile = util.promisify(child_process.execFile);
 // scrypt parameters for stored password hashes (hashPassword / verify*)
@@ -3381,6 +3382,20 @@ class HAXCMSSite {
         String(this.manifest.author.socialLink).trim(),
       );
     }
+    let authorSocialLink2 = "";
+    if (manifestAuthor && manifestAuthor.socialLink2) {
+      authorSocialLink2 = sanitizeUrl(
+        String(manifestAuthor.socialLink2).trim(),
+      );
+    } else if (
+      this.manifest &&
+      this.manifest.author &&
+      this.manifest.author.socialLink2
+    ) {
+      authorSocialLink2 = sanitizeUrl(
+        String(this.manifest.author.socialLink2).trim(),
+      );
+    }
     let authorImageForStructuredData = "";
     if (manifestAuthor && manifestAuthor.image) {
       authorImageForStructuredData = toAbsoluteStructuredDataUrl(
@@ -3661,6 +3676,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     if (
       authorName != "" ||
       authorSocialLink != "" ||
+      authorSocialLink2 != "" ||
       authorImageForStructuredData != ""
     ) {
       authorNode = {
@@ -3670,8 +3686,13 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       if (authorName != "") {
         authorNode.name = authorName;
       }
-      if (authorSocialLink != "") {
-        authorNode.sameAs = [authorSocialLink];
+      // both social links the SEO form collects; https only
+      const authorSameAs = normalizeSameAsList([
+        authorSocialLink,
+        authorSocialLink2,
+      ]);
+      if (authorSameAs.length > 0) {
+        authorNode.sameAs = authorSameAs;
       }
       if (authorImageForStructuredData != "") {
         authorNode.image = {
@@ -3696,6 +3717,15 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
           "@type": "ImageObject",
           url: siteLogoForStructuredData,
         };
+      }
+      // the site's profiles elsewhere (metadata.site.sameAs)
+      const siteSameAs = normalizeSameAsList(
+        this.manifest && this.manifest.metadata && this.manifest.metadata.site
+          ? this.manifest.metadata.site.sameAs
+          : null,
+      );
+      if (siteSameAs.length > 0) {
+        publisherNode.sameAs = siteSameAs;
       }
       if (authorNode && authorNode["@id"]) {
         publisherNode.founder = {

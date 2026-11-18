@@ -1066,6 +1066,58 @@ test("getSiteMetadata renders head tags, structured data, and social metadata", 
   assert.ok(metadata.indexOf("robots") !== -1);
 });
 
+test("getSiteMetadata publishes site and author sameAs in JSON-LD (#3367)", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const page = site.manifest.items[0];
+  const before = JSON.parse(JSON.stringify(site.manifest.metadata));
+  try {
+    site.manifest.metadata.site.sameAs = [
+      "https://github.com/haxtheweb",
+      "javascript:alert(1)",
+      "https://www.linkedin.com/company/haxtheweb",
+    ];
+    site.manifest.metadata.author = Object.assign(
+      {},
+      site.manifest.metadata.author,
+      {
+        name: "Author",
+        socialLink: "https://mastodon.social/@author",
+        socialLink2: "https://github.com/author",
+      },
+    );
+    const metadata = await site.getSiteMetadata(page, "https://unit.example");
+    const match = metadata.match(
+      /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+    );
+    assert.ok(match, "JSON-LD present");
+    const graph = JSON.parse(match[1])["@graph"];
+    const org = graph.find((node) => node["@type"] === "Organization");
+    const person = graph.find((node) => node["@type"] === "Person");
+    assert.deepEqual(org.sameAs, [
+      "https://github.com/haxtheweb",
+      "https://www.linkedin.com/company/haxtheweb",
+    ]);
+    assert.deepEqual(person.sameAs, [
+      "https://mastodon.social/@author",
+      "https://github.com/author",
+    ]);
+    // no sameAs on the site: the Organization node has none
+    delete site.manifest.metadata.site.sameAs;
+    const plain = await site.getSiteMetadata(page, "https://unit.example");
+    const plainGraph = JSON.parse(
+      plain.match(
+        /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+      )[1],
+    )["@graph"];
+    assert.equal(
+      "sameAs" in plainGraph.find((node) => node["@type"] === "Organization"),
+      false,
+    );
+  } finally {
+    site.manifest.metadata = before;
+  }
+});
+
 test("getSiteMetadata preloads the active page's HTML, site-relative", async () => {
   const site = await HAXCMS.loadSite("unit-import");
   const page = site.manifest.items[0];
