@@ -167,3 +167,35 @@ test("renderTag can prepend the primitive stylesheet", async () => {
   assert.ok(r.html.includes(SSR_PRIMITIVE_CSS));
   assert.ok(SSR_PRIMITIVE_CSS.length > 500);
 });
+
+test("publishUrls maps file: URLs into the build to the published path", async () => {
+  const { publishUrls, hasLocalPath } = await kit();
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), "ssr-build-"));
+  const inBuild =
+    pathToFileURL(buildDir).href +
+    "/@haxtheweb/simple-icon/lib/simple-icons.js/../svgs/code.svg";
+  const local = publishUrls(
+    `<image href="${inBuild}">`,
+    buildDir,
+    "./build/es6/node_modules/",
+  );
+  assert.equal(
+    local,
+    '<image href="./build/es6/node_modules/@haxtheweb/simple-icon/lib/svgs/code.svg">',
+  );
+  assert.equal(hasLocalPath(local), false);
+  const cdn = publishUrls(
+    `<img src='${inBuild}'>`,
+    buildDir,
+    "https://cdn.example/build/es6/node_modules/",
+  );
+  assert.equal(
+    cdn,
+    "<img src='https://cdn.example/build/es6/node_modules/@haxtheweb/simple-icon/lib/svgs/code.svg'>",
+  );
+  const elsewhere = '<img src="file:///etc/hosts">';
+  assert.equal(publishUrls(elsewhere, buildDir, "./"), elsewhere);
+  assert.equal(hasLocalPath(elsewhere), true);
+});

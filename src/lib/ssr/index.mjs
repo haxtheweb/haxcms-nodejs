@@ -9,10 +9,13 @@
  *                       progressive-enhancement fallback, primitive styles
  *   SSR_SKIP            elements known not to server-render
  *   SSR_PRIMITIVE_CSS   stylesheet for plain HTML primitives in fallback markup
+ *   publishUrls()       rewrite file: URLs into the build to the published path
+ *   hasLocalPath()      rendered markup still names a file on this machine
  */
 export { installInertDom } from "./inertDom.mjs";
 export { SSR_PRIMITIVE_CSS, withPrimitives } from "./primitives.mjs";
 export { SSR_SKIP, ssrSkipReason } from "./skip.mjs";
+export { publishUrls, hasLocalPath } from "./publishUrls.mjs";
 export {
   MAX_HTML_BYTES,
   buildTemplate,
