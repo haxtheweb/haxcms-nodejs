@@ -67,6 +67,26 @@ const slugify = (t) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "") || "page";
 
+// the core contracts a caller picks one implementer for (dispatch: chosen), read once from the spec's contract list
+let chosenNames = null;
+const chosenContracts = () => {
+  if (!chosenNames) {
+    const YAML = require("yaml");
+    const file = join(
+      dirname(require.resolve("@haxtheweb/haxcms-plugin-spec/package.json")),
+      "schema",
+      "core-contracts.yaml",
+    );
+    const all = YAML.parse(readFileSync(file, "utf8")).contracts || {};
+    chosenNames = Object.keys(all).filter((n) => all[n].dispatch === "chosen");
+  }
+  return chosenNames;
+};
+const implementsEntry = (m, name) =>
+  (m.implements || [])
+    .map((e) => (typeof e === "string" ? { name: e } : e))
+    .find((e) => e.name === name) || null;
+
 export class HaxcmsPluginHost extends MemoryBackend {
   /**
    * @param {object} o
@@ -129,6 +149,64 @@ export class HaxcmsPluginHost extends MemoryBackend {
     if (hydrate) {
       this.hydrate();
     }
+  }
+
+  /**
+   * Choices (spec/07): what a contract the caller picks one implementer for (import.platform) offers on one surface
+   * (admin, cli, mcp), with what each implementer asks for. The engine supplies both methods from spec 0.1.0 drafts
+   * that define them; until this backend's spec pin carries them, the same rules run here (haxcms-php's engine has
+   * its own copy, HAXCMSPluginEngine::contractImplementers / contractChoices).
+   */
+  contractImplementers(name, opts = {}) {
+    if (super.contractChoices) {
+      return super.contractImplementers(name, opts);
+    }
+    const chosen = chosenContracts().includes(name);
+    const surface = opts && opts.surface;
+    const out = [];
+    for (const x of this.plugins) {
+      const e =
+        x.status === "active" ? implementsEntry(x.manifest, name) : null;
+      if (!e || (chosen && x.manifest.hidden === true)) {
+        continue;
+      }
+      if (
+        surface &&
+        !(e.surfaces || ["admin", "cli", "mcp"]).includes(surface)
+      ) {
+        continue;
+      }
+      const row = {
+        id: x.id,
+        title: x.manifest.title,
+        description: x.manifest.description,
+      };
+      for (const k of ["accepts", "provides", "input", "uploads", "surfaces"]) {
+        if (e[k]) {
+          row[k] = e[k];
+        }
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
+  contractChoices(surface) {
+    if (super.contractChoices) {
+      return super.contractChoices(surface);
+    }
+    const out = {};
+    for (const name of chosenContracts()) {
+      const impl = this.contractImplementers(name, { surface }).map((row) => {
+        const { surfaces, ...rest } = row;
+        void surfaces;
+        return rest;
+      });
+      if (impl.length) {
+        out[name] = impl;
+      }
+    }
+    return out;
   }
 
   /** Whether any plugin is active: when none is, nothing listens and core's saves need no engine work at all. */

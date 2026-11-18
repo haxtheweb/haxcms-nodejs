@@ -438,6 +438,55 @@ describe("system-scope routes run on the system engine", () => {
         (c) => (c.surface || "dashboard") === "dashboard",
       ),
     );
+    assert.deepEqual(dash.body.data.choices, {}, "no importer is on yet");
+    // choices (spec/07): an importer is offered on the dashboard by title and description, with what it asks for;
+    // a hidden plugin never is. The core importers' own inputs
+    // are checked by the spec's conformance cases (plat-017) on this engine. Mirrors haxcms-php's
+    // PluginPlatformTest::testSystemEngineOffersImporterChoices.
+    const dirs = [];
+    const pick = {
+      "fx-pick": "implements: [import.platform]",
+      "fx-pick-hidden": "hidden: true\nimplements: [import.platform]",
+    };
+    for (const [id, extra] of Object.entries(pick)) {
+      const dir = path.join(testRoot, "pick-plugins", id);
+      fs.mkdirSync(path.join(dir, "src", "nodejs"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "plugin.yaml"),
+        `specVersion: "0.1.0"\nid: ${id}\nuuid: ${id === "fx-pick" ? "a5b1e0c3-6928-4d47-8bf0-2c4d7e1f5a69" : "b6c2f1d4-7a39-4e58-9c01-3d5e8f2a6b70"}\ntitle: Pick ${id}\ndescription: An importer to choose.\nversion: 0.1.0\nruntimes: [nodejs]\nentry: { nodejs: src/nodejs/index.js }\n${extra}\n`,
+      );
+      fs.writeFileSync(
+        path.join(dir, "src", "nodejs", "index.js"),
+        'export default { contracts: { "import.platform": { async convert() { return { title: "x", items: [] }; } } } };\n',
+      );
+      dirs.push(dir);
+    }
+    const before = process.env.HAXCMS_PLUGIN_DIRS;
+    process.env.HAXCMS_PLUGIN_DIRS = [before, ...dirs].join(path.delimiter);
+    pluginSystem.reset();
+    try {
+      const on = await call("/system/api/v1/plugins/contributions");
+      assert.deepEqual(on.body.data.choices, {
+        "import.platform": [
+          {
+            id: "fx-pick",
+            title: "Pick fx-pick",
+            description: "An importer to choose.",
+          },
+        ],
+      });
+      const h = await pluginSystem.systemHost({ user: null });
+      assert.equal(h.get("fx-pick-hidden").status, "active");
+      assert.deepEqual(
+        h
+          .contractImplementers("import.platform", { surface: "cli" })
+          .map((x) => x.id),
+        ["fx-pick"],
+      );
+    } finally {
+      process.env.HAXCMS_PLUGIN_DIRS = before;
+      pluginSystem.reset();
+    }
   });
 
   test("the system engine has no site: site stores, records and rendering refuse", async () => {

@@ -259,7 +259,7 @@ function mountPluginRoutes(app, deps) {
     if (!h) {
       return res.json({
         status: 200,
-        data: { contributions: [], contracts: {} },
+        data: { contributions: [], choices: {}, contracts: {} },
       });
     }
     const items = [];
@@ -273,7 +273,13 @@ function mountPluginRoutes(app, deps) {
     items.sort((a, b) => (a.order || 0) - (b.order || 0));
     return res.json({
       status: 200,
-      data: { contributions: items, contracts: h.advertisedContracts() },
+      // choices (spec/07): the importers (and any other contract a person picks one implementer for) offered on
+      // admin screens, with what each asks for, so the import screen builds its form without naming a plugin
+      data: {
+        contributions: items,
+        choices: h.contractChoices("admin"),
+        contracts: h.advertisedContracts(),
+      },
     });
   };
   // GET /.well-known/<name> (spec/05): a public, system-scope GET a plugin marks with x-hax-well-known, served at the
