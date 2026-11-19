@@ -65,6 +65,10 @@ const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskil
  * no leading slash or backslash, no parent-directory segments, no query.
  * Mirrors HAXCMSSite::getPreloadablePageLocation in haxcms-php.
  */
+// DDD's Latin Roboto face, under build/es6/node_modules; preloaded by
+// getSiteMetadata for sites that render on DDD's fonts
+const DDD_FONT_PRELOAD =
+  "@haxtheweb/d-d-d/lib/fonts/roboto/roboto-latin-wght-normal.woff2";
 function getPreloadablePageLocation(page) {
   if (!page || typeof page.location !== "string") {
     return "";
@@ -3074,6 +3078,86 @@ class HAXCMSSite {
     return item;
   }
   /**
+   * Absolute path of a file in the local build (build/es6/node_modules),
+   * looked up for the site first, then the HAXcms root; null when absent.
+   * Read from disk whatever the site's base is: the CDN serves the same
+   * release. Mirrors the PHP HAXCMSSite::localBuildFile.
+   * @param {String} rel path under build/es6/node_modules
+   */
+  localBuildFile(rel) {
+    const buildRel = path.join("build/es6/node_modules", rel);
+    const candidates = [];
+    if (this.siteDirectory) {
+      candidates.push(path.join(this.siteDirectory, buildRel));
+    }
+    candidates.push(path.join(HAXCMS_ROOT, buildRel));
+    candidates.push(path.join(HAXCMS_ROOT, "src/public", buildRel));
+    candidates.push(path.join(__dirname, "../public", buildRel));
+    for (const candidatePath of candidates) {
+      if (fs.existsSync(candidatePath)) {
+        return candidatePath;
+      }
+    }
+    return null;
+  }
+  /**
+   * designSystems.json (the design system bridge registry shipped in
+   * @haxtheweb/haxcms-elements/lib) from the local build; {} when the build
+   * has none (older builds).
+   */
+  getDesignSystemsJson() {
+    const registryPath = this.localBuildFile(
+      "@haxtheweb/haxcms-elements/lib/designSystems.json",
+    );
+    if (registryPath) {
+      try {
+        const data = readJsonFileCached(registryPath);
+        return data && typeof data === "object" ? data : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  }
+  /**
+   * Whether this site renders on DDD's own fonts (Roboto), so its pages can
+   * preload DDD's Latin Roboto. False when the site picked another design
+   * system or its theme is a bridged one (the bridge brings its own fonts),
+   * and when the local build has no design system registry to check against
+   * or doesn't ship the font (builds before d-d-d vendored its fonts).
+   */
+  usesDDDFonts() {
+    const theme =
+      this.manifest && this.manifest.metadata
+        ? this.manifest.metadata.theme
+        : null;
+    if (!theme) {
+      return false;
+    }
+    if (
+      typeof theme.designSystem === "string" &&
+      theme.designSystem !== "" &&
+      theme.designSystem !== "ddd"
+    ) {
+      return false;
+    }
+    if (!this.localBuildFile(DDD_FONT_PRELOAD)) {
+      return false;
+    }
+    const systems = this.getDesignSystemsJson();
+    const names = Object.keys(systems);
+    if (names.length === 0) {
+      return false;
+    }
+    const element = String(theme.element || "");
+    return !names.some(
+      (name) =>
+        systems[name] &&
+        typeof systems[name] === "object" &&
+        systems[name].theme === element,
+    );
+  }
+  /**
    * Return accurate, rendered site metadata
    * @var JSONOutlineSchemaItem page - a loaded page object, most likely whats active
    * @return string an html chunk of tags for the head section
@@ -3592,6 +3676,19 @@ class HAXCMSSite {
         escapeHtml(pageLocation) +
         '" as="fetch" crossorigin="anonymous" fetchpriority="high" />';
     }
+    // DDD sets body text in Roboto, which @haxtheweb/d-d-d ships under
+    // lib/fonts; preload its Latin face so text doesn't wait on the boot
+    // JavaScript to discover it. Fonts are always fetched in CORS mode, so
+    // crossorigin is required for the preload to be reused.
+    let fontPreload = "";
+    if (this.usesDDDFonts()) {
+      fontPreload =
+        '\n  <link rel="preload" href="' +
+        base +
+        "build/es6/node_modules/" +
+        DDD_FONT_PRELOAD +
+        '" as="font" type="font/woff2" crossorigin="anonymous" />';
+    }
     let metadata = `<meta charset="utf-8" />
   ${preconnect}
   <link rel="preload" href="${base}build.js" as="script" />
@@ -3599,7 +3696,7 @@ class HAXCMSSite {
   <link rel="preload" href="${base}wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
 ${shellModulepreload}
 ${themePreload}${contentPreload}${pageDataPreload}
-  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
+  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />${fontPreload}
   <link rel="llms" href="llms.txt" title="LLM Content Map" />
   <link rel="alternate" type="text/markdown" href="llms.txt" title="Markdown Summary" />
   <link rel="alternate" type="text/markdown" href="llms-full.txt" title="Full Site as Markdown" />
@@ -7770,4 +7867,5 @@ module.exports = {
   managedTemplateVarsFor,
   MANAGED_TEMPLATE_TEXT_FORMATS,
   getPreloadablePageLocation,
+  DDD_FONT_PRELOAD,
 };
