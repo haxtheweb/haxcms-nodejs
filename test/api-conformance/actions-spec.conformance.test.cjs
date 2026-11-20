@@ -404,6 +404,9 @@ test('system actions endpoints conformance', async (t) => {
       { path: '/system/api/v1/actions/pptx-to-html', method: 'POST', body: buildMultipartBody({ fileName: 't.pptx', fileContents: Buffer.alloc(0), mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }).body },
       { path: '/system/api/v1/actions/import-docx', method: 'POST', body: buildMultipartBody({ fileName: 't.docx', fileContents: Buffer.alloc(0) }).body },
       { path: '/system/api/v1/actions/import-pptx', method: 'POST', body: buildMultipartBody({ fileName: 't.pptx', fileContents: Buffer.alloc(0), mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }).body },
+      { path: '/system/api/v1/actions/import-md', method: 'POST', body: buildMultipartBody({ fileName: 't.md', fileContents: Buffer.alloc(0), mimeType: 'text/markdown' }).body },
+      { path: '/system/api/v1/actions/import-odt', method: 'POST', body: buildMultipartBody({ fileName: 't.odt', fileContents: Buffer.alloc(0), mimeType: 'application/vnd.oasis.opendocument.text' }).body },
+      { path: '/system/api/v1/actions/odt-to-html', method: 'POST', body: buildMultipartBody({ fileName: 't.odt', fileContents: Buffer.alloc(0), mimeType: 'application/vnd.oasis.opendocument.text' }).body },
       { path: '/system/api/v1/actions/docx-to-pdf', method: 'POST', body: buildMultipartBody({ fileName: 't.docx', fileContents: Buffer.alloc(0) }).body },
       { path: '/system/api/v1/site/import/haxcms', method: 'POST', body: JSON.stringify({ repoUrl: 'https://example.com' }) },
     ]
@@ -1146,6 +1149,113 @@ test('system actions endpoints conformance', async (t) => {
     )
   })
 
+  await t.test('import-md turns markdown headings into site schema items', async () => {
+    const multipart = buildMultipartBody({
+      fileName: 'notes.md',
+      fileContents: '# One\n\nFirst.\n\n## One A\n\nNested.\n\n# Two\n\nSecond.\n',
+      mimeType: 'text/markdown',
+    })
+    const result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-md`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 200, `Expected 200, got ${result.status}: ${result.bodyText}`)
+    const body = JSON.parse(result.bodyText)
+    assert.deepEqual(
+      body.data.items.map((item) => item.title),
+      ['One', 'One A', 'Two'],
+    )
+    assert.equal(body.data.filename, 'notes.md')
+  })
+
+  await t.test('import-md accepts .txt and refuses other types', async () => {
+    let multipart = buildMultipartBody({
+      fileName: 'plain.txt',
+      fileContents: 'Just text.\n',
+      mimeType: 'text/plain',
+    })
+    let result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-md`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 200, `Expected 200, got ${result.status}: ${result.bodyText}`)
+    assert.equal(JSON.parse(result.bodyText).data.items[0].title, 'plain')
+    multipart = buildMultipartBody({
+      fileName: 'plain.pdf',
+      fileContents: 'Just text.\n',
+      mimeType: 'application/pdf',
+    })
+    result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-md`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 400, `Expected 400, got ${result.status}: ${result.bodyText}`)
+  })
+
+  await t.test('import-odt and odt-to-html convert a valid .odt', async () => {
+    const zip = new JSZip()
+    zip.file('mimetype', 'application/vnd.oasis.opendocument.text', { compression: 'STORE' })
+    zip.file(
+      'content.xml',
+      '<?xml version="1.0" encoding="UTF-8"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text><text:h text:outline-level="1">One</text:h><text:p>First.</text:p><text:h text:outline-level="1">Two</text:h><text:p>Second.</text:p></office:text></office:body></office:document-content>',
+    )
+    const odtBuffer = await zip.generateAsync({ type: 'nodebuffer' })
+    let multipart = buildMultipartBody({
+      fileName: 'doc.odt',
+      fileContents: odtBuffer,
+      mimeType: 'application/vnd.oasis.opendocument.text',
+    })
+    let result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-odt`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 200, `Expected 200, got ${result.status}: ${result.bodyText}`)
+    let body = JSON.parse(result.bodyText)
+    assert.deepEqual(
+      body.data.items.map((item) => item.title),
+      ['One', 'Two'],
+    )
+    multipart = buildMultipartBody({
+      fileName: 'doc.odt',
+      fileContents: odtBuffer,
+      mimeType: 'application/vnd.oasis.opendocument.text',
+    })
+    result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/odt-to-html`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 200, `Expected 200, got ${result.status}: ${result.bodyText}`)
+    body = JSON.parse(result.bodyText)
+    assert.equal(body.data.contents, '<h1>One</h1>\n<p>First.</p>\n<h1>Two</h1>\n<p>Second.</p>')
+  })
+
+  await t.test('import-odt returns 400 for missing ZIP signature', async () => {
+    const multipart = buildMultipartBody({
+      fileName: 'fake.odt',
+      fileContents: Buffer.from('not a zip'),
+      mimeType: 'application/vnd.oasis.opendocument.text',
+    })
+    const result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-odt`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 400, `Expected 400, got ${result.status}: ${result.bodyText}`)
+    const body = JSON.parse(result.bodyText)
+    assert.ok(String(body.data.error).toLowerCase().indexOf('zip') !== -1)
+  })
+
   await t.test('import-pptx-deck system route has been removed (now a file operation)', async () => {
     // The standalone import-pptx-deck system route was replaced by the
     // convert-pptx-deck file operation (PATCH /x/api/v1/files/:fileUuid).
@@ -1191,6 +1301,9 @@ test('system actions endpoints conformance', async (t) => {
       '/system/api/v1/actions/pptx-to-html',
       '/system/api/v1/actions/import-docx',
       '/system/api/v1/actions/import-pptx',
+      '/system/api/v1/actions/import-md',
+      '/system/api/v1/actions/import-odt',
+      '/system/api/v1/actions/odt-to-html',
       '/system/api/v1/actions/docx-to-pdf',
       '/system/api/v1/site/import/{platform}',
     ]
@@ -1228,6 +1341,9 @@ test('system actions endpoints conformance', async (t) => {
       '/system/api/v1/actions/pptx-to-html',
       '/system/api/v1/actions/import-docx',
       '/system/api/v1/actions/import-pptx',
+      '/system/api/v1/actions/import-md',
+      '/system/api/v1/actions/import-odt',
+      '/system/api/v1/actions/odt-to-html',
       '/system/api/v1/actions/docx-to-pdf',
       '/system/api/v1/site/import/{platform}',
     ]
