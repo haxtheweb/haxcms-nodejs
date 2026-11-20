@@ -1,6 +1,10 @@
 // security (DF1): vendored patched SheetJS 0.20.3 from https://cdn.sheetjs.com/
 // replaces xlsx@0.18.5 (npm) which has prototype pollution + ReDoS with NO npm fix
 const XLSX = require("../../../lib/vendor/xlsx/xlsx.js");
+const {
+  boundZipBuffer,
+  hasZipSignature,
+} = require("../../../lib/boundedZip.js");
 const fs = require("fs-extra");
 // Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
@@ -166,7 +170,15 @@ async function convertXlsxToCsv(req, res) {
       });
     }
 
-    const workbook = XLSX.read(buffer, { type: "buffer" });
+    // Security (SEC-DOS, SEC-UPLOAD): xlsx and ods are zips; inflate them
+    // under the shared byte limits before SheetJS reads them (.xls is not a zip)
+    const workbookInput = hasZipSignature(buffer)
+      ? await boundZipBuffer(
+          buffer,
+          (/\.([a-z]+)$/i.exec(originalname || "") || [])[1] || "xlsx",
+        )
+      : buffer;
+    const workbook = XLSX.read(workbookInput, { type: "buffer" });
     const sheetNames = workbook.SheetNames;
     const sheetName = req.query && req.query.sheet ? req.query.sheet : null;
     let selectedSheetName = sheetName;

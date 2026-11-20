@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs-extra');
 const FilesDataStore = require('./FilesDataStore.js');
+const { boundZipBuffer } = require('./boundedZip.js');
 
 /**
  * Convert an uploaded .pptx file into a deck.json manifest + stored media,
@@ -43,7 +44,9 @@ async function convertPptxToDeck(site, resolvedPath, normalizedPath) {
   const { PPTXInHTMLOut } = await import(
     './vendor/pptx-in-html-out/src/index.js'
   );
-  const converter = new PPTXInHTMLOut(buffer);
+  // Security (SEC-DOS, SEC-UPLOAD): inflate under real byte limits before
+  // the converter reads the zip
+  const converter = new PPTXInHTMLOut(await boundZipBuffer(buffer, 'pptx'));
   const manifest = await converter.toDeckManifest({
     includeStyles: false,
     inlineImages: false,
