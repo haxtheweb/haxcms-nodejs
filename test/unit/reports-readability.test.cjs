@@ -12,6 +12,8 @@
 //      `rs = require('text-readability')` throws and the hardcoded fallback
 //      object is used — every metric answers 0 and gradeLevel always lands
 //      in the '4th grade or lower' band.
+//   3. Real module: the last band test reloads reports.js against the real
+//      text-readability so the metrics are counted, not stubbed.
 //   2. Bound-metric variants: the require cache entry for
 //      'text-readability' is replaced with a stub (exercising the
 //      rs.default unwrapping) whose daleChallReadabilityScore answers a
@@ -35,6 +37,8 @@ let courseStatsFixture = {}
 let siteHtmlFixture = ''
 josHelpers.courseStatsFromOutline = async () => courseStatsFixture
 josHelpers.siteHTMLContent = async () => siteHtmlFixture
+// the overview report scores the published pages' HTML
+josHelpers.siteReadabilityPages = async () => [siteHtmlFixture]
 
 const { HAXCMS } = require('../../src/lib/HAXCMS.js')
 
@@ -231,19 +235,17 @@ describe('reports routes — grade-level bands from the stubbed module', () => {
     })
   }
 
-  test('the real text-readability module answers zeroed metrics (unbound methods throw)', async (t) => {
-    // Characterization documented by site-schemas-blocks-reports-routes
-    // already at the handler level: the REAL module's instance methods are
-    // invoked unbound so every metric throws and answers 0. Here the same
-    // shape is asserted through the stubbed-reports seam with the REAL
-    // module loaded fresh, proving the fallback contract again.
+  test('the real text-readability module answers real metrics (methods run on the instance)', async (t) => {
+    // text-readability exports a class instance whose methods read `this`.
+    // reports.js must call them on the instance; called detached, every
+    // metric threw and answered 0, so every site reported 0 words.
     delete require.cache[textReadabilityId]
     delete require.cache[reportsPath]
     const realReports = require(reportsPath)
     const site = makeFakeSite(t)
     mockSite(t, site)
     courseStatsFixture = {}
-    siteHtmlFixture = 'Fixture body text.'
+    siteHtmlFixture = 'Some fixture text for the readability metrics.'
     t.after(() => {
       courseStatsFixture = {}
       siteHtmlFixture = ''
@@ -258,9 +260,12 @@ describe('reports routes — grade-level bands from the stubbed module', () => {
     )
     assert.equal(res.statusCode, 200)
     const readability = res.body.data.data.readability
-    assert.equal(readability.gradeLevel, '4th grade or lower')
-    assert.equal(readability.difficultWords, 0)
-    assert.equal(readability.sentenceCount, 0)
+    assert.equal(readability.lexiconCount, 7)
+    assert.equal(readability.sentenceCount, 1)
+    assert.equal(readability.syllableCount, 13)
+    assert.equal(readability.difficultWords, 3)
+    // dale-chall 10.75 for this text
+    assert.equal(readability.gradeLevel, 'college level reading')
   })
 })
 
