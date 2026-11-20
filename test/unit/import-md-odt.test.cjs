@@ -25,12 +25,22 @@ const {
   splitFrontMatter,
   renderMarkdown,
 } = require("../../src/lib/markdownImport.js");
-const { convertOdtBufferToHtml } = require("../../src/lib/odtToHtml.js");
+const {
+  convertOdtBufferToHtml,
+  convertOdpBufferToHtml,
+} = require("../../src/lib/odtToHtml.js");
 const { importMd } = require("../../src/systemRoutes/v1/routes/importMd.js");
 const { importOdt } = require("../../src/systemRoutes/v1/routes/importOdt.js");
 const {
   convertOdtToHtml,
 } = require("../../src/systemRoutes/v1/routes/convertOdtToHtml.js");
+const { importOdp } = require("../../src/systemRoutes/v1/routes/importOdp.js");
+const {
+  convertOdpToHtml,
+} = require("../../src/systemRoutes/v1/routes/convertOdpToHtml.js");
+const {
+  importXlsx,
+} = require("../../src/systemRoutes/v1/routes/importXlsx.js");
 
 const NS =
   'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" ' +
@@ -322,4 +332,132 @@ test("convertOdtToHtml: returns the document as one HTML string", async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data.contents, EXPECTED_HTML);
   assert.equal(res.body.data.filename, "a.odt");
+});
+
+// ---- OpenDocument Presentation (.odp) ----
+// Each slide is an <h1> (title frame, else first text, else "Slide N") then
+// its content; notes, page numbers and empty slides are left out.
+
+const ODP_SLIDES = `<draw:page><draw:frame presentation:class="title"><draw:text-box><text:p>Course Intro</text:p></draw:text-box></draw:frame><draw:frame presentation:class="subtitle"><draw:text-box><text:p>Welcome</text:p></draw:text-box></draw:frame><presentation:notes><draw:frame presentation:class="notes"><draw:text-box><text:p>Speaker notes</text:p></draw:text-box></draw:frame></presentation:notes></draw:page><draw:page><draw:frame presentation:class="title"><draw:text-box><text:p>Unit One</text:p></draw:text-box></draw:frame><draw:frame presentation:class="outline"><draw:text-box><text:list text:style-name="L2"><text:list-item><text:p>First</text:p></text:list-item></text:list><text:list text:style-name="L2"><text:list-item><text:list><text:list-item><text:p>Nested</text:p></text:list-item></text:list></text:list-item></text:list></draw:text-box></draw:frame><draw:frame presentation:class="page-number"><draw:text-box><text:p>2</text:p></draw:text-box></draw:frame></draw:page><draw:page><draw:frame presentation:class="title"><draw:text-box><text:p>Table slide</text:p></draw:text-box></draw:frame><draw:frame><table:table><table:table-row><table:table-cell><text:p>A</text:p></table:table-cell><table:table-cell><text:p>1</text:p></table:table-cell></table:table-row></table:table><draw:image xlink:href="Pictures/preview.svm"/></draw:frame></draw:page><draw:page><draw:g><draw:custom-shape><text:p>Grouped heading</text:p><text:p><text:span text:style-name="T2"><text:a xlink:href="https://hax.psu.edu">a link</text:a></text:span></text:p></draw:custom-shape></draw:g></draw:page><draw:page><draw:frame><draw:image xlink:href="Pictures/a.png"/><svg:desc>A dot</svg:desc></draw:frame></draw:page><draw:page/>`;
+
+const ODP_EXPECTED =
+  "<h1>Course Intro</h1>\n" +
+  "<p>Welcome</p>\n" +
+  "<h1>Unit One</h1>\n" +
+  "<ul><li>First<ul><li>Nested</li></ul></li></ul>\n" +
+  "<h1>Table slide</h1>\n" +
+  "<table><tbody><tr><td>A</td><td>1</td></tr></tbody></table>\n" +
+  "<h1>Grouped heading</h1>\n" +
+  '<p><a href="https://hax.psu.edu">a link</a></p>\n' +
+  "<h1>Slide 5</h1>\n" +
+  `<p><img src="data:image/png;base64,${PNG.toString("base64")}" alt="A dot"></p>`;
+
+async function buildOdp(mimetype) {
+  const zip = new JSZip();
+  zip.file(
+    "mimetype",
+    mimetype || "application/vnd.oasis.opendocument.presentation",
+    {
+      compression: "STORE",
+    },
+  );
+  zip.file(
+    "content.xml",
+    `<?xml version="1.0" encoding="UTF-8"?><office:document-content ${NS} xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0">${AUTO_STYLES}<office:body><office:presentation>${ODP_SLIDES}</office:presentation></office:body></office:document-content>`,
+  );
+  zip.file("styles.xml", STYLES_XML);
+  zip.file("Pictures/a.png", PNG);
+  zip.file("Pictures/preview.svm", "not an image");
+  return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
+test("odpToHtml: one h1 per slide, notes and empty slides left out", async () => {
+  assert.equal(await convertOdpBufferToHtml(await buildOdp()), ODP_EXPECTED);
+});
+
+test("odpToHtml: refuses an .odt and a non-zip", async () => {
+  await assert.rejects(
+    convertOdpBufferToHtml(
+      await buildOdp("application/vnd.oasis.opendocument.text"),
+    ),
+    /not an OpenDocument presentation file/,
+  );
+  await assert.rejects(
+    convertOdpBufferToHtml(Buffer.from("nope")),
+    /valid \.odp file/,
+  );
+});
+
+test("importOdp: each slide is a page", async () => {
+  const res = stubRes();
+  await importOdp(await uploadReq("deck.odp", await buildOdp()), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(
+    res.body.data.items.map((item) => item.title),
+    ["Course Intro", "Unit One", "Table slide", "Grouped heading", "Slide 5"],
+  );
+  const wrong = stubRes();
+  await importOdp(await uploadReq("deck.pptx", "x"), wrong);
+  assert.equal(wrong.statusCode, 400);
+  assert.match(wrong.body.data.error, /Expected \.odp/);
+});
+
+test("convertOdpToHtml: returns the deck as one HTML string", async () => {
+  const res = stubRes();
+  await convertOdpToHtml(await uploadReq("deck.odp", await buildOdp()), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.contents, ODP_EXPECTED);
+});
+
+// ---- OpenDocument Spreadsheet (.ods) through the spreadsheet importer ----
+
+async function buildOds() {
+  const cell = (text) =>
+    `<table:table-cell office:value-type="string"><text:p>${text}</text:p></table:table-cell>`;
+  const row = (cells) =>
+    `<table:table-row>${cells.map(cell).join("")}</table:table-row>`;
+  const zip = new JSZip();
+  zip.file("mimetype", "application/vnd.oasis.opendocument.spreadsheet", {
+    compression: "STORE",
+  });
+  zip.file(
+    "content.xml",
+    `<?xml version="1.0" encoding="UTF-8"?><office:document-content ${NS}><office:body><office:spreadsheet><table:table table:name="Outline">` +
+      row(["Title", "Slug", "Parent", "Content"]) +
+      row(["Unit One", "unit-one", "", "&lt;p&gt;One&lt;/p&gt;"]) +
+      row(["Lesson A", "lesson-a", "unit-one", "&lt;p&gt;A&lt;/p&gt;"]) +
+      `</table:table></office:spreadsheet></office:body></office:document-content>`,
+  );
+  zip.file(
+    "styles.xml",
+    `<?xml version="1.0" encoding="UTF-8"?><office:document-styles ${NS}/>`,
+  );
+  zip.file(
+    "meta.xml",
+    '<?xml version="1.0" encoding="UTF-8"?><office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" office:version="1.2"><office:meta/></office:document-meta>',
+  );
+  zip.file(
+    "META-INF/manifest.xml",
+    '<?xml version="1.0" encoding="UTF-8"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0"><manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.spreadsheet"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/></manifest:manifest>',
+  );
+  return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
+test("importXlsx: reads an .ods outline like an .xlsx one", async () => {
+  const res = stubRes();
+  await importXlsx(await uploadReq("outline.ods", await buildOds()), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(
+    res.body.data.items.map((item) => [
+      item.title,
+      item.slug,
+      item.indent || 0,
+      item.contents,
+    ]),
+    [
+      ["Unit One", "unit-one", 0, "<p>One</p>"],
+      ["Lesson A", "lesson-a", 1, "<p>A</p>"],
+    ],
+  );
+  assert.equal(res.body.data.items[1].parent, res.body.data.items[0].id);
 });

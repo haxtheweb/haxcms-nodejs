@@ -73,7 +73,7 @@ test('a non-xlsx extension returns 400 with the filename echoed', async () => {
   const res = stubRes()
   await importXlsx(uploadReq({ originalname: 'notes.txt', path: '/tmp/x.txt' }), res)
   assert.equal(res.statusCode, 400)
-  assert.equal(res.body.data.error, 'Invalid file type. Expected .xlsx or .xls, got: notes.txt')
+  assert.equal(res.body.data.error, 'Invalid file type. Expected .xlsx, .xls or .ods, got: notes.txt')
 })
 
 test('an unreadable upload returns 400 with a read error', async () => {

@@ -1,3 +1,4 @@
+const { convertPptxBufferToHtml } = require("../../../lib/pptxToHtml.js");
 // Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 /**
@@ -83,16 +84,11 @@ async function convertPptxToHtml(req, res) {
       });
     }
 
-    const { PPTXInHTMLOut } = await import(
-      "../../../lib/vendor/pptx-in-html-out/src/index.js"
-    );
-    const converter = new PPTXInHTMLOut(buffer);
-    const html = await converter.toHTML({
-      includeStyles: false,
-      inlineImages: false,
-      fullDocument: false,
-    });
-    const files = (await converter.getExtractedFiles()) || {};
+    // one <h1> per slide then its content, pictures as data URIs that
+    // createNode / addPage turn into files (the .odp importer's shape)
+    const html = await convertPptxBufferToHtml(buffer);
+    // pictures are inline in contents now; kept so the response keeps its shape
+    const files = {};
 
     return res.json({
       status: 200,
