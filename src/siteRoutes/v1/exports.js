@@ -613,6 +613,28 @@ async function buildSiteExportHtmlContent(site, ancestor, visibleOnly = false) {
   return sections.join("\n");
 }
 
+/**
+ * The CDN base an html export may load its build from: an absolute http(s)
+ * URL of a host, optional port and plain path (no credentials, query,
+ * fragment, quotes or other markup characters), answered ending in "/".
+ * Anything else answers "" (no wrapping). haxcms-php keeps the same rule
+ * (ExportConverters::exportMagicCdn).
+ * @param {string} raw - the magic query value
+ * @returns {string}
+ */
+const EXPORT_MAGIC_CDN_PATTERN =
+  /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?(\/[A-Za-z0-9._~%/-]*)?$/;
+function exportMagicCdn(raw) {
+  if (typeof raw !== "string") {
+    return "";
+  }
+  const value = raw.trim();
+  if (value.length > 2048 || !EXPORT_MAGIC_CDN_PATTERN.test(value)) {
+    return "";
+  }
+  return value.endsWith("/") ? value : `${value}/`;
+}
+
 async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
   const orderedItems = getOrderedItems(site);
   const siteTitle = buildSiteExportDocumentTitle(site);
@@ -1331,8 +1353,13 @@ async function siteExport(req, res) {
     });
   }
   const ancestor = getQueryValue(req, "filter.ancestor", "");
-  const magic = getQueryValue(req, "magic", "");
   const isAnonymousRequest = isAnonymousSiteApiRequest(req);
+  // Security: the magic CDN becomes a <script src> in the wrapped document,
+  // so anonymous callers can't choose it and it is only ever an absolute
+  // http(s) base URL (see exportMagicCdn)
+  const magic = isAnonymousRequest
+    ? ""
+    : exportMagicCdn(getQueryValue(req, "magic", ""));
   if (format === "pdf" || format === "docx" || format === "epub") {
     // Binary whole-site exports render the entire site on every request
     // (500+ page sites are common), so they are reserved for logged-in users.
@@ -1752,6 +1779,7 @@ module.exports = {
   buildSiteExportMarkdownCached,
   sendCacheableText,
   siteExport,
+  exportMagicCdn,
   siteExportMutation,
   itemExport,
   ITEM_EXPORT_FORMATS,

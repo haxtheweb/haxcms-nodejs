@@ -36,6 +36,7 @@ convertUtils.htmlToPdfBuffer = async () => toFixtureResult(pdfFixture);
 const { HAXCMS } = require("../../src/lib/HAXCMS.js");
 const {
   siteExport,
+  exportMagicCdn,
   siteExportMutation,
   itemExport,
 } = require("../../src/siteRoutes/v1/exports.js");
@@ -460,6 +461,54 @@ describe("exports routes — siteExport", () => {
       html.indexOf('window.__appCDN="https://cdn.example.com/"') !== -1,
     );
     assert.ok(html.indexOf("First page <strong>bold</strong> content") !== -1);
+  });
+
+  test("an anonymous magic html export ignores the caller's CDN", async (t) => {
+    mockSite(t, makeFakeSite());
+    const res = stubRes();
+    await siteExport(
+      makeReq({
+        params: { format: "html" },
+        headers: { referer: "http://cms.example.com/_sites/demo/" },
+        query: { magic: "https://evil.example.com/" },
+        haxcmsSiteApiAuth: null,
+      }),
+      res,
+    );
+    assert.equal(res.statusCode, 200);
+    const html = res.sent.toString();
+    assert.equal(html.indexOf("evil.example.com"), -1);
+    assert.equal(html.indexOf("<haxcms-print-theme>"), -1);
+  });
+
+  test("a magic CDN must be a plain absolute http(s) base URL", () => {
+    assert.equal(
+      exportMagicCdn("https://cdn.hax.cloud/cdn/"),
+      "https://cdn.hax.cloud/cdn/",
+    );
+    assert.equal(
+      exportMagicCdn("https://cdn.example.com/cdn"),
+      "https://cdn.example.com/cdn/",
+    );
+    assert.equal(
+      exportMagicCdn("http://localhost:8080/"),
+      "http://localhost:8080/",
+    );
+    for (const bad of [
+      "",
+      "./",
+      "//evil.example.com/",
+      "javascript:alert(1)//",
+      "data:text/javascript,alert(1)//",
+      "https://user:pass@cdn.example.com/",
+      "https://cdn.example.com/?x=1",
+      "https://cdn.example.com/#x",
+      null,
+    ]) {
+      assert.equal(exportMagicCdn(bad), "", `rejects ${bad}`);
+    }
+    assert.equal(exportMagicCdn('https://cdn.example.com/"><script>'), "");
+    assert.equal(exportMagicCdn("https://cdn.example.com/a b/"), "");
   });
 
   test("an epub export answers an epub zip buffer", async (t) => {
