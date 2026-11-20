@@ -217,6 +217,23 @@ test("markdownImport: front matter, BOM, CRLF and Windows-1252", () => {
   assert.match(renderMarkdown("```js\nx\n```"), /class="language-js"/);
 });
 
+test("markdownImport: front matter title is linear-time (SEC-DOS)", () => {
+  // a long run of spaces inside the title line used to backtrack
+  // quadratically and block the event loop
+  const md = "---\ntitle: a" + " ".repeat(400000) + "b\u000b\n---\nbody";
+  const start = Date.now();
+  const split = splitFrontMatter(md);
+  assert.ok(Date.now() - start < 250);
+  assert.ok(split.title === "a" + " ".repeat(400000) + "b");
+  assert.equal(split.body, "body");
+  // a bare "title:" is skipped; spaces and tabs around a value are trimmed
+  assert.equal(
+    splitFrontMatter("---\ntitle:\ntitle: \tz \t\n---\n").title,
+    "z",
+  );
+  assert.equal(splitFrontMatter("---\ntitle: \t \n---\n").title, "");
+});
+
 test("importMd: builds pages from headings and strips scripts", async () => {
   const md =
     "---\ntitle: Notes\n---\n# Chapter One\n\nIntro.\n\n## Part A\n\nA text.\n\n# Chapter Two\n\n<script>alert(1)</script><p>ok</p>\n";

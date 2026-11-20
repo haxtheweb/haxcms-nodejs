@@ -38,6 +38,23 @@ function decodeTextBuffer(buffer) {
 }
 
 /**
+ * Trim spaces and tabs (only) from both ends, without a regex.
+ * @param {string} value
+ * @returns {string}
+ */
+function trimSpacesAndTabs(value) {
+  let start = 0;
+  let end = value.length;
+  while (start < end && (value[start] === " " || value[start] === "\t")) {
+    start++;
+  }
+  while (end > start && (value[end - 1] === " " || value[end - 1] === "\t")) {
+    end--;
+  }
+  return value.slice(start, end);
+}
+
+/**
  * Take a leading YAML front matter block off; its `title:` (if any) is
  * returned so a single-page import can use it.
  * @param {string} markdown
@@ -51,9 +68,19 @@ function splitFrontMatter(markdown) {
     return { title: "", body: markdown };
   }
   let title = "";
-  const titleLine = /^title:[ \t]*(.+?)[ \t]*$/m.exec(match[1]);
-  if (titleLine) {
-    title = titleLine[1].replace(/^(["'])(.*)\1$/, "$2").trim();
+  // Security (SEC-DOS): linear-time. The rest of the line is taken whole and
+  // spaces/tabs are trimmed in code; a lazy span followed by [ \t]*$ is
+  // quadratic on a long run of spaces and would block the event loop.
+  // A bare "title:" with nothing after it is skipped, as before.
+  const titleLines = /^title:(.*)$/gm;
+  let titleLine;
+  while ((titleLine = titleLines.exec(match[1])) !== null) {
+    if (titleLine[1] !== "") {
+      title = trimSpacesAndTabs(titleLine[1])
+        .replace(/^(["'])(.*)\1$/, "$2")
+        .trim();
+      break;
+    }
   }
   return { title: title, body: markdown.slice(match[0].length) };
 }

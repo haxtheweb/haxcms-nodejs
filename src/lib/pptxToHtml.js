@@ -1,4 +1,5 @@
 const JSZip = require("jszip");
+const { boundZipBuffer } = require("./boundedZip.js");
 const { parseDocument } = require("htmlparser2");
 
 /**
@@ -23,9 +24,8 @@ const { parseDocument } = require("htmlparser2");
  * HTML for the same deck.
  */
 
-// Security (SEC-UPLOAD): the zip directory states each entry's uncompressed
-// size; refuse to inflate past these, so a small upload can't expand into a
-// huge string or buffer (zip bomb).
+// Security (SEC-UPLOAD): per-entry limits. The archive is inflated by
+// boundZipBuffer first, so the sizes checked against these are true sizes.
 const MAX_XML_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 50 * 1024 * 1024;
@@ -577,8 +577,13 @@ async function convertPptxBufferToHtml(buffer) {
   }
   let zip;
   try {
-    zip = await JSZip.loadAsync(buffer);
-  } catch {
+    // Security (SEC-DOS, SEC-UPLOAD): inflate under real byte limits first,
+    // so the per-entry size checks below read true sizes
+    zip = await JSZip.loadAsync(await boundZipBuffer(buffer, "pptx"));
+  } catch (e) {
+    if (e && e.code === "ZIP_BUDGET") {
+      throw e;
+    }
     throw new Error(
       "Uploaded file is not a valid .pptx file (unreadable ZIP).",
     );
