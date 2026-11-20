@@ -299,10 +299,10 @@ test.after(async () => {
 
 test('createSite siteFiles SSRF + extension guards', async (t) => {
   // The runtime's own origin is a loopback address that DOES serve content
-  // (the dashboard index, text/html). Pointing a siteFiles download at it
-  // isolates the SSRF IP guard: without the guard the .html target would pass
-  // the content-type check and the dashboard HTML would be written to disk;
-  // with the guard safeFetch rejects 127.0.0.1 before any fetch, so no file.
+  // (the dashboard index). Pointing a siteFiles download at it checks the
+  // SSRF IP guard: safeFetch rejects 127.0.0.1 before any fetch, so no file.
+  // (Markup targets such as .html are refused even earlier, by the siteFiles
+  // extension allowlist, so a non-markup custom/ target is used here.)
   await t.test('loopback download URL is blocked (file not written)', async () => {
     const siteName = `ssrf-loop-${runtime.testStartTimestamp}`
     const result = await sendHttpRequest({
@@ -314,7 +314,7 @@ test('createSite siteFiles SSRF + extension guards', async (t) => {
         build: {
           structure: 'website',
           siteFiles: {
-            'theme/loop.html': `${runtime.baseUrl}/`,
+            'custom/loop.txt': `${runtime.baseUrl}/`,
           },
         },
       }),
@@ -330,7 +330,7 @@ test('createSite siteFiles SSRF + extension guards', async (t) => {
         ? body.data.metadata.site.name
         : siteName
     const siteDir = path.join(runtime.runtimeRoot, SITE_DIRECTORY_NAME, createdName)
-    const targetFile = path.join(siteDir, 'theme', 'loop.html')
+    const targetFile = path.join(siteDir, 'custom', 'loop.txt')
     assert.ok(
       fs.pathExistsSync(siteDir),
       'expected the created site directory to exist',

@@ -470,3 +470,83 @@ test("resolved-file guard keys on the file served, relative to the static root",
   );
   assert.equal(uploadSecurity.shouldForceDownloadResolvedFile(root, ""), false);
 });
+
+test("custom/ and theme/ markup is forced to download, theme.html is not", () => {
+  const yes = [
+    "/_sites/s/custom/logo.svg",
+    "/_sites/s/custom/build/feed.XML",
+    "/_sites/s/theme/x.xhtml",
+    "/_sites/s/custom/x%2esvg",
+  ];
+  for (let i = 0; i < yes.length; i++) {
+    assert.equal(
+      uploadSecurity.shouldForceDownloadFilesRequest(yes[i]),
+      true,
+      yes[i],
+    );
+  }
+  const no = [
+    "/_sites/s/theme/theme.html",
+    "/_sites/s/custom/build/custom.es6.js",
+    "/_sites/s/custom/build/custom.css",
+    "/_sites/s/customx/logo.svg",
+  ];
+  for (let i = 0; i < no.length; i++) {
+    assert.equal(
+      uploadSecurity.shouldForceDownloadFilesRequest(no[i]),
+      false,
+      no[i],
+    );
+  }
+  const root = path.join(path.sep, "srv", "haxcms");
+  assert.equal(
+    uploadSecurity.shouldForceDownloadResolvedFile(
+      root,
+      path.join(root, "_sites", "s", "custom", "logo.svg"),
+    ),
+    true,
+  );
+  assert.equal(
+    uploadSecurity.shouldForceDownloadResolvedFile(
+      root,
+      path.join(root, "_sites", "s", "theme", "theme.html"),
+    ),
+    false,
+  );
+  assert.deepEqual(uploadSecurity.FORCE_DOWNLOAD_SITE_ASSET_EXTENSIONS, [
+    "xhtml",
+    "xml",
+    "svg",
+  ]);
+});
+
+test("forced downloads are sandboxed and keep an existing CSP", () => {
+  const make = (initial) => {
+    const headers = {};
+    if (initial !== undefined) {
+      headers["content-security-policy"] = initial;
+    }
+    return {
+      headers,
+      setHeader(name, value) {
+        headers[String(name).toLowerCase()] = value;
+      },
+      getHeader(name) {
+        return headers[String(name).toLowerCase()];
+      },
+    };
+  };
+  const bare = make();
+  uploadSecurity.setForcedDownloadHeaders(bare);
+  assert.equal(bare.headers["content-disposition"], "attachment");
+  assert.equal(bare.headers["content-security-policy"], "sandbox");
+  const withNonce = make("default-src 'self'; script-src 'nonce-abc'");
+  uploadSecurity.setForcedDownloadHeaders(withNonce);
+  // both the request middleware and the static hook call it: idempotent
+  uploadSecurity.setForcedDownloadHeaders(withNonce);
+  assert.equal(
+    withNonce.headers["content-security-policy"],
+    "default-src 'self'; script-src 'nonce-abc'; sandbox",
+  );
+  uploadSecurity.setForcedDownloadHeaders(null);
+});

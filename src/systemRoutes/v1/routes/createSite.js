@@ -28,25 +28,23 @@ const SAFE_BULK_IMPORT_EXTENSION_REGEX = SAFE_UPLOAD_EXTENSION_REGEX;
 const DEFAULT_CREATE_SITE_THEME_ICON = "icons:record-voice-over";
 const DEFAULT_CREATE_SITE_THEME_CSS_VARIABLE =
   "--simple-colors-default-theme-light-blue-7";
-// Extensions permitted for build.siteFiles downloads (theme/ and custom/
-// assets imported from another HAXcms instance). Allow-listing rather than
-// deny-listing executable extensions blocks php/phtml/phar/cgi/pl/py/rb/sh/
-// asp/aspx/jsp/exe/etc. from being written into the web-served site tree
-// (CWE-434). Mirrors the SAFE_BULK_IMPORT_EXTENSION_REGEX gate on build.files.
+// Security (SEC-UPLOAD): build.siteFiles only writes a site's custom/ build
+// assets (imported from another HAXcms instance), and only extensions on this
+// allowlist, so nothing executable (php/phtml/phar/cgi/...) and no
+// browser-renderable markup (html/htm/xhtml/xml/svg) is ever fetched from a
+// remote URL into the web-served site tree. theme/ is not a siteFiles target:
+// it left the site boilerplate (haxtheweb/issues#3337). Same list and path
+// rule as the PHP Operations::$safeSiteFileExtensionPattern.
 const SAFE_SITE_FILE_EXTENSION_REGEX =
-  /\.(css|js|html?|json|md|txt|svg|png|jpe?g|gif|webp|webm|mp4|mp3|mov|vtt|woff2?|ttf|eot|csv|pdf|xml)$/i;
+  /\.(css|js|json|md|txt|png|jpe?g|gif|webp|webm|mp4|mp3|mov|vtt|woff2?|ttf|eot|csv|pdf)$/i;
 const SAFE_SITE_FILE_TEXT_EXTENSIONS = [
   "css",
   "js",
-  "html",
-  "htm",
   "json",
   "md",
   "txt",
   "vtt",
   "csv",
-  "svg",
-  "xml",
 ];
 
 function normalizeSiteFilePath(relativePath) {
@@ -59,7 +57,7 @@ function normalizeSiteFilePath(relativePath) {
     normalized.indexOf("\0") !== -1 ||
     normalized.includes("..") ||
     normalized.startsWith("/") ||
-    !(normalized.startsWith("theme/") || normalized.startsWith("custom/"))
+    !normalized.startsWith("custom/")
   ) {
     return null;
   }
@@ -83,11 +81,10 @@ function normalizeSiteFilePath(relativePath) {
 // SSRF IP validation in safeFetch already confirmed a public target; some
 // legitimate servers omit Content-Type for static assets. text/plain is
 // accepted for text-type extensions since misconfigured servers commonly
-// serve css/js/html/json as text/plain.
+// serve css/js/json as text/plain.
 function siteFileContentTypeAcceptable(response, normalizedPath) {
   const ext = path.extname(normalizedPath).replace(".", "").toLowerCase();
-  const mappedExt = ext === "htm" ? "html" : ext;
-  const allowedMimes = HAXCMSFile.ALLOWED_MIME_BY_EXTENSION[mappedExt];
+  const allowedMimes = HAXCMSFile.ALLOWED_MIME_BY_EXTENSION[ext];
   if (!allowedMimes || !allowedMimes.length) {
     return true;
   }
@@ -107,7 +104,7 @@ function siteFileContentTypeAcceptable(response, normalizedPath) {
   }
   if (
     contentType === "text/plain" &&
-    SAFE_SITE_FILE_TEXT_EXTENSIONS.indexOf(mappedExt) !== -1
+    SAFE_SITE_FILE_TEXT_EXTENSIONS.indexOf(ext) !== -1
   ) {
     return true;
   }
@@ -1205,6 +1202,7 @@ async function linkImportedPageFiles(site) {
 module.exports = createSite;
 // exported for direct unit testing
 module.exports.importBuildFile = importBuildFile;
+module.exports.normalizeSiteFilePath = normalizeSiteFilePath;
 module.exports.linkImportedPageFiles = linkImportedPageFiles;
 module.exports.getSupportedSiteLicenseCodes = getSupportedSiteLicenseCodes;
 module.exports.normalizeSiteLicenseValue = normalizeSiteLicenseValue;

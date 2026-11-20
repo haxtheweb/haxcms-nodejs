@@ -207,9 +207,9 @@ describe('createSite latent branches — build.siteFiles gates', () => {
         site: { name: 'Latent Site Files' },
         build: {
           siteFiles: {
-            'theme//double-slash.css': 'https://cdn.example.com/double.css',
-            'theme/evil.php': 'https://cdn.example.com/evil.php',
-            'theme/headerless.css': 'https://cdn.example.com/headerless.css',
+            'custom//double-slash.css': 'https://cdn.example.com/double.css',
+            'custom/evil.php': 'https://cdn.example.com/evil.php',
+            'custom/headerless.css': 'https://cdn.example.com/headerless.css',
             'custom/nonstring.css': 42,
           },
         },
@@ -219,7 +219,7 @@ describe('createSite latent branches — build.siteFiles gates', () => {
     assert.equal(res.sent.status, 200)
     const siteDirectory = siteDirectoryFor('latent-site-files')
     // absent Content-Type is accepted, so the headerless file is written
-    assert.ok(fs.pathExistsSync(path.join(siteDirectory, 'theme', 'headerless.css')))
+    assert.ok(fs.pathExistsSync(path.join(siteDirectory, 'custom', 'headerless.css')))
     // double-slash segment and denied extension are rejected before any fetch
     assert.deepEqual(fetched, ['https://cdn.example.com/headerless.css'])
   })

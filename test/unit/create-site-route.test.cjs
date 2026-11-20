@@ -494,12 +494,19 @@ describe('createSite route handler', () => {
         site: { name: 'Site Files Site' },
         build: {
           siteFiles: {
-            'theme/theme.css': 'https://cdn.example.com/theme.css',
-            'theme/bad.png': 'https://cdn.example.com/bad.png',
+            'custom/build/custom.css': 'https://cdn.example.com/theme.css',
+            'custom/bad.png': 'https://cdn.example.com/bad.png',
             'custom/good.js': 'https://cdn.example.com/good.js',
-            'theme/not-ok.css': 'https://cdn.example.com/not-ok.css',
-            'theme/../escape.css': 'https://cdn.example.com/escape.css',
+            'custom/not-ok.css': 'https://cdn.example.com/not-ok.css',
+            'custom/../escape.css': 'https://cdn.example.com/escape.css',
             'custom/nonstring.css': 42,
+            // theme/ is not a siteFiles target (haxtheweb/issues#3337)
+            'theme/theme.css': 'https://cdn.example.com/theme.css',
+            // browser-renderable markup is never fetched into the site tree
+            'custom/page.html': 'https://cdn.example.com/page.html',
+            'custom/page.htm': 'https://cdn.example.com/page.htm',
+            'custom/logo.svg': 'https://cdn.example.com/logo.svg',
+            'custom/feed.xml': 'https://cdn.example.com/feed.xml',
           },
         },
       }),
@@ -508,13 +515,35 @@ describe('createSite route handler', () => {
     assert.equal(res.statusCode, null)
     assert.equal(res.sent.status, 200)
     const siteDirectory = siteDirectoryFor('site-files-site')
-    assert.ok(fs.pathExistsSync(path.join(siteDirectory, 'theme', 'theme.css')))
+    assert.ok(fs.pathExistsSync(path.join(siteDirectory, 'custom', 'build', 'custom.css')))
     assert.ok(fs.pathExistsSync(path.join(siteDirectory, 'custom', 'good.js')))
     // mismatched content-type and failed responses write nothing
-    assert.equal(fs.pathExistsSync(path.join(siteDirectory, 'theme', 'bad.png')), false)
-    assert.equal(fs.pathExistsSync(path.join(siteDirectory, 'theme', 'not-ok.css')), false)
-    // unsafe paths and non-string URLs are skipped before any fetch
+    assert.equal(fs.pathExistsSync(path.join(siteDirectory, 'custom', 'bad.png')), false)
+    assert.equal(fs.pathExistsSync(path.join(siteDirectory, 'custom', 'not-ok.css')), false)
+    assert.equal(fs.pathExistsSync(path.join(siteDirectory, 'theme')), false)
+    assert.equal(fs.pathExistsSync(path.join(siteDirectory, 'custom', 'page.html')), false)
+    // unsafe paths, theme/, markup and non-string URLs are skipped before any fetch
     assert.equal(fetchCount, 4)
+  })
+  test('normalizeSiteFilePath allows only non-markup custom/ assets', () => {
+    const normalize = createSiteRoute.normalizeSiteFilePath
+    assert.equal(normalize('custom/build/custom.es6.js'), 'custom/build/custom.es6.js')
+    assert.equal(normalize('custom\\build\\custom.css'), 'custom/build/custom.css')
+    for (const rejected of [
+      'theme/theme.css',
+      'theme/theme.html',
+      'customx/a.js',
+      'custom/x.html',
+      'custom/x.HTM',
+      'custom/x.xhtml',
+      'custom/x.xml',
+      'custom/x.svg',
+      'custom/x.php',
+      'custom//x.css',
+      'files/x.png',
+    ]) {
+      assert.equal(normalize(rejected), null, rejected)
+    }
   })
   test('theme edits on one site never leak into the next createSite (regions)', async (t) => {
     useTempConfigDirectory(t)
