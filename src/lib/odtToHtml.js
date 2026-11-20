@@ -744,11 +744,34 @@ function hasContent(html) {
     return true;
   }
   return (
-    html
-      .replace(/<[^>]*>/g, "")
+    textOutsideTags(html)
       .replace(/&nbsp;|\u00a0/g, " ")
       .trim() !== ""
   );
+}
+
+/**
+ * The text between tags, for the emptiness check only (never output): a
+ * "<" with no ">" after it is kept as text.
+ */
+function textOutsideTags(html) {
+  let text = "";
+  let at = 0;
+  while (at < html.length) {
+    const open = html.indexOf("<", at);
+    if (open === -1) {
+      text += html.slice(at);
+      break;
+    }
+    const close = html.indexOf(">", open);
+    if (close === -1) {
+      text += html.slice(at);
+      break;
+    }
+    text += html.slice(at, open);
+    at = close + 1;
+  }
+  return text;
 }
 
 function entryUncompressedSize(entry) {
