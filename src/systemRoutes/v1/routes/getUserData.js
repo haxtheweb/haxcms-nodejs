@@ -1,4 +1,4 @@
-const { HAXCMS } = require('../../../lib/HAXCMS.js');
+const { HAXCMS } = require("../../../lib/HAXCMS.js");
 /**
  * @OA\Post(
  *    path="/getUserData",
@@ -17,9 +17,17 @@ const { HAXCMS } = require('../../../lib/HAXCMS.js');
  * )
  */
 function getUserData(req, res) {
+  // userData.json is shared by the install and its boilerplate has no
+  // userName, so the signed-in name fills it in. The dashboard and the site
+  // label the user menu with it and key the saved character to it (parity
+  // with haxcms-php OperationsRouteGetUserData).
+  const data = Object.assign({}, HAXCMS.userData);
+  if (typeof data.userName !== "string" || data.userName === "") {
+    data.userName = HAXCMS.getRequestTokenUserName(req) || "";
+  }
   const returnData = {
     status: 200,
-    data: HAXCMS.userData,
+    data: data,
   };
   res.send(returnData);
 }
