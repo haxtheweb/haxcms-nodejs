@@ -490,6 +490,30 @@ async function siteHTMLContent(
   return siteContent;
 }
 
+/**
+ * Page HTML of the published pages in the branch (or the whole site), in
+ * outline order: what the overview report scores for readability. Same
+ * pages haxcms-php reads in siteRoutes/v1/reports.php.
+ */
+async function siteReadabilityPages(
+  siteLocation,
+  siteData = null,
+  ancestor = null,
+) {
+  const site = await resolveSiteData(siteLocation, siteData);
+  if (!site || !site.manifest) {
+    return [];
+  }
+  const items = getBranchItems(site, ancestor);
+  const pages = [];
+  for (let i = 0; i < items.length; i++) {
+    if (items[i] && isItemPublished(items[i])) {
+      pages.push(await getItemHTML(site, items[i]));
+    }
+  }
+  return pages;
+}
+
 function isItemPublished(el) {
   if (el && el.metadata && el.metadata.published === false) {
     return false;
@@ -798,6 +822,7 @@ module.exports = {
   resolveSiteData,
   courseStatsFromOutline,
   siteHTMLContent,
+  siteReadabilityPages,
   resolveLocalFile,
   typeFromElement,
   mediaStatus,

@@ -29,6 +29,8 @@ let courseStatsFixture = {}
 let siteHtmlFixture = ''
 josHelpers.courseStatsFromOutline = async () => courseStatsFixture
 josHelpers.siteHTMLContent = async () => siteHtmlFixture
+// the overview report scores the published pages' HTML
+josHelpers.siteReadabilityPages = async () => [siteHtmlFixture]
 
 const { HAXCMS } = require('../../src/lib/HAXCMS.js')
 const schemasRoute = require('../../src/siteRoutes/v1/schemas.js')
@@ -624,16 +626,14 @@ describe('reports routes', () => {
     assert.equal(res.statusCode, 200)
     assert.equal(res.body.data.id, 'overview')
     assert.equal(res.body.data.data.totalWords, 500)
-    // Characterization: safeReadabilityMetric invokes the text-readability
-    // instance methods unbound (no `this`), so every metric currently throws
-    // and answers 0 — gradeLevel then lands in the lowest band. If this
-    // assertion fails after a fix, update it to the fixed contract.
+    // The real text-readability module counts the fixture text: its
+    // methods run on the instance, so none of them throw and answer 0.
     const readability = res.body.data.data.readability
     assert.equal(readability.gradeLevel, '4th grade or lower')
     assert.equal(readability.difficultWords, 0)
-    assert.equal(readability.syllableCount, 0)
-    assert.equal(readability.lexiconCount, 0)
-    assert.equal(readability.sentenceCount, 0)
+    assert.equal(readability.syllableCount, 14)
+    assert.equal(readability.lexiconCount, 13)
+    assert.equal(readability.sentenceCount, 2)
   })
 
   test('reportDetail honors fields projection and answers 404s', async (t) => {

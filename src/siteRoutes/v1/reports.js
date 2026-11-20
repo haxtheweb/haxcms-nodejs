@@ -1,4 +1,5 @@
-const { courseStatsFromOutline, siteHTMLContent } = require('../../lib/JOSHelpers.js');
+const { courseStatsFromOutline, siteReadabilityPages } = require('../../lib/JOSHelpers.js');
+const { readabilityTextFromHTML } = require('../../lib/readabilityText.js');
 const {
   getApiBasePath,
   getCsvQuery,
@@ -60,9 +61,12 @@ const REPORT_DEFINITIONS = {
   },
 };
 
+// text-readability exports a class instance whose methods read `this`
+// (this.removePunctuation, this.lexiconCount...), so each metric is called
+// on the instance, never as a detached function.
 function safeReadabilityMetric(method, text) {
   try {
-    return method(text);
+    return method.call(rs, text);
   }
   catch {
     return 0;
@@ -159,8 +163,9 @@ async function reportDetail(req, res) {
       : null;
   const data = await courseStatsFromOutline('', site, ancestor, includes);
   if (reportName === 'overview') {
-    const text = await siteHTMLContent(site, null, ancestor, true, true);
-    const readabilityText = typeof text === 'string' ? text : '';
+    // same text and metrics as haxcms-php (ReadabilityScore.php)
+    const pages = await siteReadabilityPages(site, null, ancestor);
+    const readabilityText = readabilityTextFromHTML(pages);
     data.readability = {
       gradeLevel: getGradeLevel(readabilityText),
       difficultWords: safeReadabilityMetric(rs.difficultWords, readabilityText),
