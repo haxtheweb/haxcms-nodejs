@@ -1,8 +1,6 @@
-const SITE_FILES_TO_IMPORT = [
-  "theme/theme.css",
-  "theme/theme.html",
-  "custom/build/custom.es6.js",
-];
+// theme/ left the site boilerplate (haxtheweb/issues#3337) and is not a
+// createSite siteFiles target; only the custom build carries over.
+const SITE_FILES_TO_IMPORT = ["custom/build/custom.es6.js"];
 const BOILERPLATE_CUSTOM_ES6 = "// custom comment script here";
 const { safeFetch } = require("../../../../lib/safeFetch.js");
 // files are staged locally so createSite can ingest them as file entities

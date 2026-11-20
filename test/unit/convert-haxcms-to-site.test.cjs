@@ -64,7 +64,7 @@ async function mockSafeFetch(url) {
   if (url.length - '.jpg'.length >= 0 && url.indexOf('.jpg') === url.length - '.jpg'.length) {
     return mockResp({ buf: Buffer.from('JPGFAKE') })
   }
-  // theme/custom siteFiles + the .gif file -> 404 (skipped)
+  // custom siteFiles + the .gif file -> 404 (skipped)
   return mockResp({ ok: false, status: 404 })
 }
 
@@ -170,8 +170,14 @@ test('root domain: files staged locally, fetch URLs single-slash, failed file sk
     'files/missing.gif was skipped (fetch failed)',
   )
 
-  // siteFiles (theme/custom) all 404'd -> empty
+  // siteFiles (custom build) 404'd -> empty
   assert.deepEqual(res.body.data.siteFiles, {})
+  // theme/ is never requested: it is not a siteFiles target (issues#3337)
+  assert.equal(
+    fetchedUrls.filter((u) => u.indexOf('/theme/') !== -1).length,
+    0,
+    'theme/ files are not fetched',
+  )
 
   // no double-slash in any fetched URL; specific single-slash URLs present
   assertNoDoubleSlash(fetchedUrls)

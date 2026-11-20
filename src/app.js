@@ -1215,11 +1215,13 @@ app.use((req, res, next) => {
 // Security (SEC-UPLOAD): decided on the DECODED path (the raw req.url let
 // /files/x%2ehtml through, since send decodes it before reading the disk) and
 // extended to every active-content type in the PHP parity contract:
-// html, htm, xhtml, xml, svg (uploadSecurity.FORCE_DOWNLOAD_FILES_EXTENSIONS).
+// html, htm, xhtml, xml, svg (uploadSecurity.FORCE_DOWNLOAD_FILES_EXTENSIONS),
+// plus xhtml/xml/svg under custom/ and theme/, and sandboxed with
+// Content-Security-Policy: sandbox (uploadSecurity.setForcedDownloadHeaders).
 // X-Content-Type-Options: nosniff is set on every response by helmet.
 app.use((req, res, next) => {
   if (uploadSecurity.shouldForceDownloadFilesRequest(req.url)) {
-    res.setHeader("Content-Disposition", "attachment");
+    uploadSecurity.setForcedDownloadHeaders(res);
   }
   next();
 });
@@ -3801,7 +3803,7 @@ function setManagedStaticHeaders(res, filePath = "") {
     setBuildAssetCacheHeader(res, filePath.substring(publicDir.length));
   }
   if (uploadSecurity.shouldForceDownloadResolvedFile(publicDir, filePath)) {
-    res.setHeader("Content-Disposition", "attachment");
+    uploadSecurity.setForcedDownloadHeaders(res);
   }
 }
 // D60: 405+Allow dispatch helpers. These support the catch-all middleware

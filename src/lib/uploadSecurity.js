@@ -55,6 +55,18 @@ const FORCE_DOWNLOAD_FILES_EXTENSION_PATTERN = new RegExp(
   "\\.(" + FORCE_DOWNLOAD_FILES_EXTENSIONS.join("|") + ")$",
   "i",
 );
+// Markup under a site's custom/ and (legacy) theme/ directories is forced to
+// download too. .html is not listed there: sites created before theme/ left
+// the boilerplate (haxtheweb/issues#3337) may still render theme/theme.html
+// on purpose, and createSite build.siteFiles writes no markup there. Parity
+// with the PHP root .htaccess and scripts/nginx/haxcms-nginx.conf.
+const FORCE_DOWNLOAD_SITE_ASSET_EXTENSIONS = ["xhtml", "xml", "svg"];
+const FORCE_DOWNLOAD_SITE_ASSET_PATTERN = new RegExp(
+  "/(?:custom|theme)/.*\\.(" +
+    FORCE_DOWNLOAD_SITE_ASSET_EXTENSIONS.join("|") +
+    ")$",
+  "i",
+);
 
 function isUploadTempFileName(name = "") {
   const value = String(name || "");
@@ -369,6 +381,9 @@ function isFilesDirectoryRequestPath(decodedPath = "") {
 // evaluated on the decoded path.
 function shouldForceDownloadFilesRequest(url = "") {
   const decodedPath = decodeRequestPathForFilesGuard(url);
+  if (FORCE_DOWNLOAD_SITE_ASSET_PATTERN.test(decodedPath)) {
+    return true;
+  }
   if (!isFilesDirectoryRequestPath(decodedPath)) {
     return false;
   }
@@ -397,12 +412,42 @@ function shouldForceDownloadResolvedFile(rootDir = "", filePath = "") {
     return false;
   }
   const relativePosix = "/" + relative.split(path.sep).join("/");
+  if (FORCE_DOWNLOAD_SITE_ASSET_PATTERN.test(relativePosix)) {
+    return true;
+  }
   if (!isFilesDirectoryRequestPath(relativePosix)) {
     return false;
   }
   const segments = relativePosix.split("/");
   const lastSegment = segments[segments.length - 1] || "";
   return FORCE_DOWNLOAD_FILES_EXTENSION_PATTERN.test(lastSegment);
+}
+
+// Security (SEC-UPLOAD): headers for a forced markup download. Besides
+// Content-Disposition: attachment (X-Content-Type-Options: nosniff is on every
+// response via helmet), the response carries Content-Security-Policy: sandbox:
+// if a browser or proxy ever renders the file inline anyway, it runs in an
+// opaque origin with scripts, forms and same-origin access off, so it cannot
+// reach HAXcms sessions or site data. A CSP already on the response (the
+// per-request nonce policy) is kept and sandbox is added to it, so both hold.
+// Parity with the PHP .htaccess "Header always append Content-Security-Policy".
+function setForcedDownloadHeaders(res) {
+  if (!res || typeof res.setHeader !== "function") {
+    return;
+  }
+  res.setHeader("Content-Disposition", "attachment");
+  const existing =
+    typeof res.getHeader === "function"
+      ? res.getHeader("Content-Security-Policy")
+      : undefined;
+  const current = Array.isArray(existing)
+    ? existing.join(", ")
+    : String(existing || "").trim();
+  if (current === "") {
+    res.setHeader("Content-Security-Policy", "sandbox");
+  } else if (!/(^|[;,]\s*)sandbox(\s*($|[;,]))/i.test(current)) {
+    res.setHeader("Content-Security-Policy", current + "; sandbox");
+  }
 }
 
 module.exports = {
@@ -412,6 +457,8 @@ module.exports = {
   PUBLISHED_ARCHIVE_MAX_AGE_MS,
   DEFAULT_CONVERSION_MAX_UPLOAD_MB,
   FORCE_DOWNLOAD_FILES_EXTENSIONS,
+  FORCE_DOWNLOAD_SITE_ASSET_EXTENSIONS,
+  setForcedDownloadHeaders,
   isUploadTempFileName,
   collectUploadedTempPaths,
   removeUploadedTempFiles,
