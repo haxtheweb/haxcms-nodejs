@@ -407,6 +407,8 @@ test('system actions endpoints conformance', async (t) => {
       { path: '/system/api/v1/actions/import-md', method: 'POST', body: buildMultipartBody({ fileName: 't.md', fileContents: Buffer.alloc(0), mimeType: 'text/markdown' }).body },
       { path: '/system/api/v1/actions/import-odt', method: 'POST', body: buildMultipartBody({ fileName: 't.odt', fileContents: Buffer.alloc(0), mimeType: 'application/vnd.oasis.opendocument.text' }).body },
       { path: '/system/api/v1/actions/odt-to-html', method: 'POST', body: buildMultipartBody({ fileName: 't.odt', fileContents: Buffer.alloc(0), mimeType: 'application/vnd.oasis.opendocument.text' }).body },
+      { path: '/system/api/v1/actions/import-odp', method: 'POST', body: buildMultipartBody({ fileName: 't.odp', fileContents: Buffer.alloc(0), mimeType: 'application/vnd.oasis.opendocument.presentation' }).body },
+      { path: '/system/api/v1/actions/odp-to-html', method: 'POST', body: buildMultipartBody({ fileName: 't.odp', fileContents: Buffer.alloc(0), mimeType: 'application/vnd.oasis.opendocument.presentation' }).body },
       { path: '/system/api/v1/actions/docx-to-pdf', method: 'POST', body: buildMultipartBody({ fileName: 't.docx', fileContents: Buffer.alloc(0) }).body },
       { path: '/system/api/v1/site/import/haxcms', method: 'POST', body: JSON.stringify({ repoUrl: 'https://example.com' }) },
     ]
@@ -1239,6 +1241,32 @@ test('system actions endpoints conformance', async (t) => {
     assert.equal(body.data.contents, '<h1>One</h1>\n<p>First.</p>\n<h1>Two</h1>\n<p>Second.</p>')
   })
 
+  await t.test('import-odp makes a page per slide', async () => {
+    const zip = new JSZip()
+    zip.file('mimetype', 'application/vnd.oasis.opendocument.presentation', { compression: 'STORE' })
+    zip.file(
+      'content.xml',
+      '<?xml version="1.0" encoding="UTF-8"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:presentation="urn:oasis:names:tc:opendocument:xmlns:presentation:1.0"><office:body><office:presentation><draw:page><draw:frame presentation:class="title"><draw:text-box><text:p>One</text:p></draw:text-box></draw:frame></draw:page><draw:page><draw:frame presentation:class="title"><draw:text-box><text:p>Two</text:p></draw:text-box></draw:frame><draw:frame presentation:class="outline"><draw:text-box><text:p>Body</text:p></draw:text-box></draw:frame></draw:page></office:presentation></office:body></office:document-content>',
+    )
+    const multipart = buildMultipartBody({
+      fileName: 'deck.odp',
+      fileContents: await zip.generateAsync({ type: 'nodebuffer' }),
+      mimeType: 'application/vnd.oasis.opendocument.presentation',
+    })
+    const result = await sendHttpRequest({
+      method: 'POST',
+      url: `${runtime.baseUrl}/system/api/v1/actions/import-odp`,
+      headers: multipartAuthHeaders(runtime.jwt, multipart.boundary),
+      data: multipart.body,
+    })
+    assert.equal(result.status, 200, `Expected 200, got ${result.status}: ${result.bodyText}`)
+    const body = JSON.parse(result.bodyText)
+    assert.deepEqual(
+      body.data.items.map((item) => item.title),
+      ['One', 'Two'],
+    )
+  })
+
   await t.test('import-odt returns 400 for missing ZIP signature', async () => {
     const multipart = buildMultipartBody({
       fileName: 'fake.odt',
@@ -1304,6 +1332,8 @@ test('system actions endpoints conformance', async (t) => {
       '/system/api/v1/actions/import-md',
       '/system/api/v1/actions/import-odt',
       '/system/api/v1/actions/odt-to-html',
+      '/system/api/v1/actions/import-odp',
+      '/system/api/v1/actions/odp-to-html',
       '/system/api/v1/actions/docx-to-pdf',
       '/system/api/v1/site/import/{platform}',
     ]
@@ -1344,6 +1374,8 @@ test('system actions endpoints conformance', async (t) => {
       '/system/api/v1/actions/import-md',
       '/system/api/v1/actions/import-odt',
       '/system/api/v1/actions/odt-to-html',
+      '/system/api/v1/actions/import-odp',
+      '/system/api/v1/actions/odp-to-html',
       '/system/api/v1/actions/docx-to-pdf',
       '/system/api/v1/site/import/{platform}',
     ]

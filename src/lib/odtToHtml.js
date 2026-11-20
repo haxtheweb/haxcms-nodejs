@@ -23,6 +23,7 @@ const { parseDocument } = require("htmlparser2");
  */
 
 const ODT_MIMETYPE = "application/vnd.oasis.opendocument.text";
+const ODP_MIMETYPE = "application/vnd.oasis.opendocument.presentation";
 // Security (SEC-UPLOAD): the zip directory states each entry's uncompressed
 // size; refuse to inflate past these, so a small upload can't expand into a
 // huge string or buffer (zip bomb).
@@ -293,6 +294,8 @@ class OdtConverter {
     this.styles = styles;
     this.imageBytes = 0;
     this.images = {};
+    // nodes already used elsewhere (a slide's fallback title)
+    this.skipNodes = new Set();
   }
 
   /** read every Pictures/* the document points at, before the sync walk */
@@ -413,6 +416,11 @@ class OdtConverter {
             format,
             resolveFormat(this.styles, attr(child, "text:style-name")),
           );
+          // underline is how links look, not emphasis: a span that only
+          // wraps a link does not add it
+          if (onlyWrapsLinks(child)) {
+            spanFormat.underline = format.underline;
+          }
           out += wrapFormat(
             this.inline(child, spanFormat),
             diffFormat(format, spanFormat),
@@ -421,7 +429,11 @@ class OdtConverter {
         }
         case "text:a": {
           const href = safeHref(attr(child, "xlink:href"));
-          const inner = this.inline(child, format);
+          // link text is underlined already; that is not emphasis
+          const inner = this.inline(
+            child,
+            mergeFormat(format, { underline: true }),
+          );
           out += href ? `<a href="${escapeAttr(href)}">${inner}</a>` : inner;
           break;
         }
@@ -430,7 +442,11 @@ class OdtConverter {
           break;
         case "draw:a": {
           const href = safeHref(attr(child, "xlink:href"));
-          const inner = this.inline(child, format);
+          // link text is underlined already; that is not emphasis
+          const inner = this.inline(
+            child,
+            mergeFormat(format, { underline: true }),
+          );
           out += href ? `<a href="${escapeAttr(href)}">${inner}</a>` : inner;
           break;
         }
@@ -487,7 +503,7 @@ class OdtConverter {
   }
 
   block(node) {
-    if (SKIP_BLOCKS.has(node.name)) {
+    if (SKIP_BLOCKS.has(node.name) || this.skipNodes.has(node)) {
       return "";
     }
     switch (node.name) {
@@ -563,7 +579,7 @@ class OdtConverter {
         continue;
       }
       const children = elementChildren(item).filter(
-        (child) => !SKIP_BLOCKS.has(child.name),
+        (child) => !SKIP_BLOCKS.has(child.name) && !this.skipNodes.has(child),
       );
       const paragraphs = children.filter((child) => child.name === "text:p");
       const others = children.filter(
@@ -587,6 +603,85 @@ class OdtConverter {
       }
     }
     return parts;
+  }
+
+  /**
+   * One presentation slide (draw:page) as `<h1>title</h1>` plus its content,
+   * the shape the .pptx importer gives, so each slide becomes a page. The
+   * title comes from the title frame, else the slide's first line of text
+   * (taken out of the body), else "Slide N". Speaker notes, page numbers,
+   * dates, headers and footers are left out.
+   */
+  slide(page, number) {
+    const shapes = [];
+    collectSlideShapes(page, shapes);
+    let title = "";
+    for (const shape of shapes) {
+      if (attr(shape, "presentation:class") === "title") {
+        const lines = [];
+        for (const para of textParagraphs(shape)) {
+          const inner = this.inline(para, {}).trim();
+          if (hasContent(inner)) {
+            lines.push(inner);
+          }
+        }
+        if (lines.length) {
+          title = lines.join(" ");
+          break;
+        }
+      }
+    }
+    if (title === "") {
+      for (const shape of shapes) {
+        if (attr(shape, "presentation:class") === "title") {
+          continue;
+        }
+        for (const para of textParagraphs(shape)) {
+          const inner = this.inline(para, {}).trim();
+          if (hasContent(inner)) {
+            title = inner;
+            this.skipNodes.add(para);
+            break;
+          }
+        }
+        if (title !== "") {
+          break;
+        }
+      }
+    }
+    let body = "";
+    for (const shape of shapes) {
+      if (attr(shape, "presentation:class") === "title") {
+        continue;
+      }
+      body += this.shapeHtml(shape);
+    }
+    if (title === "" && body === "") {
+      return "";
+    }
+    if (title === "") {
+      title = `Slide ${number}`;
+    }
+    return `<h1>${title}</h1>\n${body}`;
+  }
+
+  shapeHtml(shape) {
+    if (shape.name !== "draw:frame") {
+      // text in a drawn shape (draw:custom-shape, draw:rect, ...)
+      return this.blocks(shape);
+    }
+    const children = elementChildren(shape);
+    const table = children.find((child) => child.name === "table:table");
+    if (table) {
+      // a table frame also carries a preview image of the table
+      return this.table(table);
+    }
+    const box = children.find((child) => child.name === "draw:text-box");
+    if (box) {
+      return this.blocks(box);
+    }
+    const inner = this.frameHtml(shape);
+    return hasContent(inner) ? `<p>${inner}</p>\n` : "";
   }
 
   table(node) {
@@ -669,6 +764,75 @@ class OdtConverter {
     html += "</table>\n";
     return head.length || body.length ? html : "";
   }
+}
+
+// presentation:class values that are not slide content
+const SKIP_SLIDE_CLASSES = new Set([
+  "notes",
+  "page-number",
+  "date-time",
+  "footer",
+  "header",
+  "handout",
+  "page",
+]);
+// drawn shapes that can hold text
+const TEXT_SHAPES = new Set([
+  "draw:custom-shape",
+  "draw:rect",
+  "draw:ellipse",
+  "draw:circle",
+  "draw:polygon",
+  "draw:path",
+  "draw:caption",
+]);
+
+/** a slide's content shapes in document order, groups opened */
+function collectSlideShapes(node, shapes) {
+  for (const child of elementChildren(node)) {
+    if (child.name === "draw:g") {
+      collectSlideShapes(child, shapes);
+    } else if (
+      (child.name === "draw:frame" || TEXT_SHAPES.has(child.name)) &&
+      !SKIP_SLIDE_CLASSES.has(attr(child, "presentation:class"))
+    ) {
+      shapes.push(child);
+    }
+  }
+}
+
+/** text:p / text:h below a shape, in document order */
+function textParagraphs(node) {
+  const found = [];
+  const visit = (parent) => {
+    for (const child of elementChildren(parent)) {
+      if (child.name === "text:p" || child.name === "text:h") {
+        found.push(child);
+      } else if (!SKIP_BLOCKS.has(child.name)) {
+        visit(child);
+      }
+    }
+  };
+  visit(node);
+  return found;
+}
+
+/** a span whose content is only links (and whitespace) */
+function onlyWrapsLinks(span) {
+  let links = 0;
+  for (const child of span.children || []) {
+    if (child.type === "text") {
+      if (child.data.trim() !== "") {
+        return false;
+      }
+    } else if (child.type === "tag") {
+      if (child.name !== "text:a") {
+        return false;
+      }
+      links += 1;
+    }
+  }
+  return links > 0;
 }
 
 function renderList(parts) {
@@ -783,24 +947,26 @@ function entryUncompressedSize(entry) {
     : 0;
 }
 
-async function readXml(zip, path, required) {
+async function readXml(zip, path, required, ext) {
   const entry = zip.file(path);
   if (!entry) {
     if (required) {
-      throw new Error(`The .odt file has no ${path}.`);
+      throw new Error(`The .${ext} file has no ${path}.`);
     }
     return null;
   }
   if (entryUncompressedSize(entry) > MAX_XML_BYTES) {
-    throw new Error(`The .odt file's ${path} is too large to import.`);
+    throw new Error(`The .${ext} file's ${path} is too large to import.`);
   }
   const xml = await entry.async("string");
   if (xml.length > MAX_XML_BYTES) {
-    throw new Error(`The .odt file's ${path} is too large to import.`);
+    throw new Error(`The .${ext} file's ${path} is too large to import.`);
   }
   // Security: no DTD / entity declarations (billion laughs); ODF never needs them
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) {
-    throw new Error(`The .odt file's ${path} is not valid OpenDocument XML.`);
+    throw new Error(
+      `The .${ext} file's ${path} is not valid OpenDocument XML.`,
+    );
   }
   return parseDocument(xml, { xmlMode: true });
 }
@@ -821,35 +987,37 @@ function hasZipSignature(buffer) {
 }
 
 /**
- * Convert an .odt buffer to HTML.
+ * Open an OpenDocument zip: checks the signature and mimetype, then reads
+ * content.xml and the styles of styles.xml and content.xml.
  * @param {Buffer} buffer
- * @returns {Promise<string>}
+ * @param {{ ext: string, mimetype: string, kind: string }} format
  */
-async function convertOdtBufferToHtml(buffer) {
+async function openOdf(buffer, format) {
   if (!hasZipSignature(buffer)) {
     throw new Error(
-      "Uploaded file is not a valid .odt file (missing ZIP signature).",
+      `Uploaded file is not a valid .${format.ext} file (missing ZIP signature).`,
     );
   }
   let zip;
   try {
     zip = await JSZip.loadAsync(buffer);
   } catch {
-    throw new Error("Uploaded file is not a valid .odt file (unreadable ZIP).");
+    throw new Error(
+      `Uploaded file is not a valid .${format.ext} file (unreadable ZIP).`,
+    );
   }
   const mimeEntry = zip.file("mimetype");
   if (mimeEntry && entryUncompressedSize(mimeEntry) <= 256) {
     const mime = (await mimeEntry.async("string")).trim();
-    // .odt, plus Writer's web / master / template variants, all keep
-    // their body in office:text
-    if (mime !== ODT_MIMETYPE && mime.indexOf(`${ODT_MIMETYPE}-`) !== 0) {
+    // the type, plus its web / master / template variants
+    if (mime !== format.mimetype && mime.indexOf(`${format.mimetype}-`) !== 0) {
       throw new Error(
-        `Uploaded file is not an OpenDocument text file (${mime || "unknown type"}).`,
+        `Uploaded file is not an OpenDocument ${format.kind} file (${mime || "unknown type"}).`,
       );
     }
   }
-  const content = await readXml(zip, "content.xml", true);
-  const stylesDoc = await readXml(zip, "styles.xml", false);
+  const content = await readXml(zip, "content.xml", true, format.ext);
+  const stylesDoc = await readXml(zip, "styles.xml", false, format.ext);
   const styles = { text: {}, lists: {} };
   if (stylesDoc) {
     const named = findFirst(stylesDoc, "office:styles");
@@ -865,17 +1033,62 @@ async function convertOdtBufferToHtml(buffer) {
   if (contentAuto) {
     collectStyles(contentAuto, styles);
   }
-  const body = findFirst(content, "office:text");
+  return { zip: zip, content: content, styles: styles };
+}
+
+/**
+ * Convert an .odt buffer to HTML.
+ * @param {Buffer} buffer
+ * @returns {Promise<string>}
+ */
+async function convertOdtBufferToHtml(buffer) {
+  const doc = await openOdf(buffer, {
+    ext: "odt",
+    mimetype: ODT_MIMETYPE,
+    kind: "text",
+  });
+  const body = findFirst(doc.content, "office:text");
   if (!body) {
     throw new Error("The .odt file has no text body.");
   }
-  const converter = new OdtConverter(zip, styles);
+  const converter = new OdtConverter(doc.zip, doc.styles);
   await converter.loadImages(body);
   return converter.blocks(body).trim();
 }
 
+/**
+ * Convert an .odp buffer to HTML: one `<h1>` per slide, then its content.
+ * @param {Buffer} buffer
+ * @returns {Promise<string>}
+ */
+async function convertOdpBufferToHtml(buffer) {
+  const doc = await openOdf(buffer, {
+    ext: "odp",
+    mimetype: ODP_MIMETYPE,
+    kind: "presentation",
+  });
+  const body = findFirst(doc.content, "office:presentation");
+  if (!body) {
+    throw new Error("The .odp file has no slides.");
+  }
+  const converter = new OdtConverter(doc.zip, doc.styles);
+  await converter.loadImages(body);
+  let html = "";
+  let number = 0;
+  for (const page of elementChildren(body)) {
+    if (page.name !== "draw:page") {
+      continue;
+    }
+    number += 1;
+    html += converter.slide(page, number);
+  }
+  return html.trim();
+}
+
 module.exports = {
   convertOdtBufferToHtml,
+  convertOdpBufferToHtml,
   hasZipSignature,
   ODT_MIMETYPE,
+  ODP_MIMETYPE,
 };

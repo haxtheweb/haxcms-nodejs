@@ -428,6 +428,8 @@ function getSystemV1RouteParser(method = "get", route = "") {
       normalizedRoute === "actions/import-md" ||
       normalizedRoute === "actions/import-odt" ||
       normalizedRoute === "actions/odt-to-html" ||
+      normalizedRoute === "actions/import-odp" ||
+      normalizedRoute === "actions/odp-to-html" ||
       normalizedRoute === "actions/xlsx-to-csv" ||
       normalizedRoute === "actions/pdf-to-html" ||
       normalizedRoute === "actions/pptx-to-html" ||

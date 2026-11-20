@@ -7,7 +7,7 @@ const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/actions/import-xlsx
- * Convert an uploaded .xlsx or .xls file into a HAXcms site schema (items array).
+ * Convert an uploaded .xlsx, .xls or .ods (OpenDocument Spreadsheet) file into a HAXcms site schema (items array).
  *
  * Expects multipart/form-data with a file field (any field name is accepted).
  * Also accepts form fields: method (site|branch|page), type (course|portfolio|''), parentId.
@@ -29,11 +29,11 @@ async function importXlsx(req, res) {
 
     const file = req.files[0];
     filename = file.originalname;
-    if (!/\.(xlsx|xls)$/i.test(filename)) {
+    if (!/\.(xlsx|xls|ods)$/i.test(filename)) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Invalid file type. Expected .xlsx or .xls, got: ${filename}`,
+          error: `Invalid file type. Expected .xlsx, .xls or .ods, got: ${filename}`,
           items: [],
           filename: filename,
         },
