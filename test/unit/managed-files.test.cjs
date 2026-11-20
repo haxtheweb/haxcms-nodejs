@@ -225,3 +225,17 @@ test("golden: security.txt Expires matches the cross-backend fixture", () => {
     );
   });
 });
+
+// Security (SEC-UPLOAD): this boilerplate is the copy the release sync writes
+// into haxcms-php, so it carries the full rule: uploaded markup is always a
+// download, and if rendered inline anyway it runs sandboxed.
+test("site boilerplate files/.htaccess forces markup downloads and sandboxes them", () => {
+  const body = fs.readFileSync(
+    path.join(__dirname, "../../src/boilerplate/site/files/.htaccess"),
+    "utf8",
+  );
+  const block = body.slice(body.indexOf("<FilesMatch"));
+  assert.match(block, /Header always set Content-Disposition "attachment"/);
+  assert.match(block, /Header always set X-Content-Type-Options nosniff/);
+  assert.match(block, /Header always append Content-Security-Policy "sandbox"/);
+});
