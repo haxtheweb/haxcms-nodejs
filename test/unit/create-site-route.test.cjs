@@ -602,4 +602,32 @@ describe('createSite route handler', () => {
     const manifest = readSiteJson('after-appearance')
     assert.equal(Object.prototype.hasOwnProperty.call(manifest.metadata.theme, 'regions'), false)
   })
+
+  test('site.title sets the site title; markup is removed and a blank title keeps the name', async (t) => {
+    useTempConfigDirectory(t)
+    const originalGit = HAXCMS.config.site.git
+    HAXCMS.config.site.git = {}
+    t.after(() => {
+      HAXCMS.config.site.git = originalGit
+    })
+    const res = stubRes()
+    await createSiteRoute(
+      makeReq({ site: { name: 'night-draft', title: 'Night <b>Draft</b>' } }),
+      res,
+    )
+    assert.equal(res.sent.status, 200)
+    assert.equal(res.sent.data.title, 'Night Draft')
+    assert.equal(readSiteJson('night-draft').title, 'Night Draft')
+    // blank (after markup is removed) or not text: the machine name, as before
+    for (const [name, title] of [
+      ['blank-title', '  <i></i> '],
+      ['null-title', 'null'],
+      ['object-title', { text: 'x' }],
+    ]) {
+      const blank = stubRes()
+      await createSiteRoute(makeReq({ site: { name: name, title: title } }), blank)
+      assert.equal(blank.sent.status, 200)
+      assert.equal(readSiteJson(name).title, name)
+    }
+  })
 })

@@ -353,6 +353,35 @@ function applyPageMetadata(page, incoming, options = {}) {
   return page;
 }
 
+/**
+ * created / updated for a page being added. A page brought in from somewhere
+ * else (an import, a migration) keeps the times it already had when they are
+ * whole seconds since 1970 and not in the future; anything else, and every
+ * page made from scratch, gets `now`. updated is never earlier than created.
+ * Same rule as PHP SanitizeContent::pageTimestamps.
+ */
+function pageTimestamps(metadata, now) {
+  const valid = (value) => {
+    const n =
+      typeof value === "number"
+        ? value
+        : typeof value === "string" && /^[0-9]{1,12}$/.test(value)
+          ? Number(value)
+          : NaN;
+    return Number.isInteger(n) && n > 0 && n <= now ? n : null;
+  };
+  const given = metadata && typeof metadata === "object" ? metadata : {};
+  const created = valid(given.created);
+  const updated = valid(given.updated);
+  if (created === null) {
+    return { created: now, updated: now };
+  }
+  return {
+    created: created,
+    updated: updated !== null && updated >= created ? updated : created,
+  };
+}
+
 module.exports = {
   toPlainText,
   DEFAULT_PAGE_TITLE,
@@ -362,6 +391,7 @@ module.exports = {
   AUTO_DESCRIPTION_MAX_CHARS,
   sanitizePageMetadata,
   applyPageMetadata,
+  pageTimestamps,
   FORBIDDEN_METADATA_KEYS,
   URL_METADATA_FIELDS,
   TEXT_METADATA_FIELDS,
