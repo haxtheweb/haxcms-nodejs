@@ -62,7 +62,10 @@ const ALLOWED_MIME_BY_EXTENSION = {
   rtf: ["application/rtf", "text/rtf", "text/plain"],
   txt: ["text/plain"],
   vtt: ["text/vtt", "text/plain"],
-  html: ["text/html", "application/xhtml+xml"],
+  // an .html file is stored and only ever served as a download (attachment,
+  // sandboxed), so a fragment with no <html> or <body>, which reads as plain
+  // text here and as text/html to libmagic in haxcms-php, is accepted too
+  html: ["text/html", "application/xhtml+xml", "text/plain"],
   md: ["text/markdown", "text/plain"],
   xml: ["application/xml", "text/xml"],
   // calendars and contact cards are plain text, so the content
@@ -1438,6 +1441,30 @@ HAXCMSFile.isPrivateOrReservedIP = isPrivateOrReservedIP;
 HAXCMSFile.validateUrlNotSSRF = validateUrlNotSSRF;
 HAXCMSFile.downloadAndSaveFile = downloadAndSaveFile;
 HAXCMSFile.mimeMatchesAllowed = mimeMatchesAllowed;
+// The HTTP status for a save() failure, from its message. A file the caller
+// sent that is refused for what it is (its type, its content, its size, where
+// it was asked to go) is the caller's to fix: 400. Anything else (a write
+// that failed, a source that could not be checked) stays a 500.
+// Mirrors haxcms-php HAXCMSFile::uploadRejectionStatus.
+const UPLOAD_REJECTION_PATTERNS = [
+  /^File type not allowed$/,
+  /^Detected MIME type .+ does not match allowed type for \..+$/,
+  /^Unable to determine uploaded file MIME type$/,
+  /^Invalid image file content$/,
+  /^Invalid subfolder$/,
+  /^Invalid upload source$/,
+  /^File exceeds the maximum upload size of .+$/,
+];
+function uploadRejectionStatus(message) {
+  const text = typeof message === "string" ? message : "";
+  for (let i = 0; i < UPLOAD_REJECTION_PATTERNS.length; i++) {
+    if (UPLOAD_REJECTION_PATTERNS[i].test(text)) {
+      return 400;
+    }
+  }
+  return 500;
+}
+HAXCMSFile.uploadRejectionStatus = uploadRejectionStatus;
 HAXCMSFile.detectMimeTypeFromContent = detectMimeTypeFromContent;
 HAXCMSFile.ALLOWED_MIME_BY_EXTENSION = ALLOWED_MIME_BY_EXTENSION;
 HAXCMSFile.IMAGE_EXTENSIONS = IMAGE_EXTENSIONS;

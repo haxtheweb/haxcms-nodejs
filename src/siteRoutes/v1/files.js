@@ -1671,16 +1671,17 @@ async function createFile(req, res) {
   if (!fileResult || Number(fileResult.status) !== 200) {
     // D58: HAXCMSFile.save now returns D1 error shape {status, data:{message}}
     // instead of the internal {status, __failed:{status, message}} wrapper.
-    return res.status(500).json({
-      status: 500,
-      data: {
-        message:
-          fileResult &&
-          fileResult.data &&
-          typeof fileResult.data.message === "string"
-            ? fileResult.data.message
-            : "Unable to save file",
-      },
+    const failureMessage =
+      fileResult &&
+      fileResult.data &&
+      typeof fileResult.data.message === "string"
+        ? fileResult.data.message
+        : "Unable to save file";
+    // a file refused for what it is answers 400; a failed write stays 500
+    const failureStatus = HAXCMSFile.uploadRejectionStatus(failureMessage);
+    return res.status(failureStatus).json({
+      status: failureStatus,
+      data: { message: failureMessage },
     });
   }
   try {

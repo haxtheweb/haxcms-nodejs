@@ -488,7 +488,7 @@ describe('files routes — createFile', () => {
     assert.deepEqual(site.loadNodeCalls, ['page-7'])
   })
 
-  test('a disallowed extension answers 500 File type not allowed', async (t) => {
+  test('a disallowed extension answers 400 File type not allowed', async (t) => {
     const site = await makeTempSite(t)
     mockSite(t, site)
     const res = stubRes()
@@ -496,7 +496,7 @@ describe('files routes — createFile', () => {
       makeReq({ file: { path: '/tmp/stage', originalname: 'evil.exe', size: 10 } }),
       res,
     )
-    assert.equal(res.statusCode, 500)
+    assert.equal(res.statusCode, 400)
     assert.equal(res.body.data.message, 'File type not allowed')
     assert.deepEqual(site.commits, [])
   })
