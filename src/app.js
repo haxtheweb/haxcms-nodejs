@@ -121,7 +121,8 @@ var helmetPolicies = {
   // frame-ancestors directive (configuredFrameAncestors). helmet's default
   // X-Frame-Options: SAMEORIGIN would refuse every cross-origin embed and so
   // undo the default below (HAX sites are embeddable, e.g. in an LMS).
-  // haxcms-php sends no X-Frame-Options either.
+  // haxcms-php sends no X-Frame-Options on site pages either. The dashboard
+  // keeps its own rule (limitDashboardFraming).
   xFrameOptions: false,
 };
 // Base CSP directives used by the per-request nonce middleware. 'unsafe-eval'
@@ -211,6 +212,32 @@ function cspNonceMiddleware(req, res, next) {
   }
   res.setHeader("Content-Security-Policy", formatCspDirectives(directives));
   next();
+}
+
+// Security (SEC-HEADERS): the dashboard (login, site list) is only ever
+// framed by its own origin, whatever config.security.frameAncestors allows
+// for sites: a login or site list framed by another origin is a click-jacking
+// target and nothing embeds it. Same-origin stays allowed because
+// haxcms-browser shows this server inside a frame of its own host page.
+// Replaces any frame-ancestors already on the response with 'self';
+// X-Frame-Options covers the case where no CSP is sent (local development).
+// haxcms-php's root index.php is stricter still (frame-ancestors 'none').
+function limitDashboardFraming(res) {
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  var csp = res.getHeader("Content-Security-Policy");
+  if (typeof csp !== "string" || csp === "") {
+    return;
+  }
+  var kept = csp
+    .split(";")
+    .map(function (directive) {
+      return directive.trim();
+    })
+    .filter(function (directive) {
+      return directive !== "" && directive.indexOf("frame-ancestors") !== 0;
+    });
+  kept.push("frame-ancestors 'self'");
+  res.setHeader("Content-Security-Policy", kept.join("; "));
 }
 
 // config.security.frameAncestors as a clean list of CSP source expressions,
@@ -1692,6 +1719,7 @@ const appReady = systemStructureContext().then((site) => {
       if (!isDashboardIndexRequest) {
         next();
       } else {
+        limitDashboardFraming(res);
         setStaticContentTypeWithCharset(res, requestPath);
         if (process.env.NODE_ENV === "development") {
           try {
@@ -2260,6 +2288,7 @@ const appReady = systemStructureContext().then((site) => {
         !req.url.startsWith("/robots.txt") &&
         !req.url.startsWith("/llms.txt")
       ) {
+        limitDashboardFraming(res);
         if (process.env.NODE_ENV === "development") {
           try {
             let indexFile = fs.readFileSync(

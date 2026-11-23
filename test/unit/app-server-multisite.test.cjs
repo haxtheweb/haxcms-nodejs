@@ -398,20 +398,41 @@ test("CSP carries base-uri and form-action self", async () => {
 });
 
 test("CSP sends no frame-ancestors by default so LMS tools can iframe sites", async () => {
-  const result = await request("GET", runtime.baseUrl + "/", {});
+  const result = await request(
+    "GET",
+    runtime.baseUrl + "/_sites/" + SITE_NAME + "/",
+    { headers: { accept: "text/html" } },
+  );
   const csp = String(result.headers["content-security-policy"] || "");
   assert.ok(!/frame-ancestors/.test(csp), csp);
 });
 
-test("no X-Frame-Options is sent: framing is decided by frame-ancestors alone", async () => {
-  const dashboard = await request("GET", runtime.baseUrl + "/", {});
-  assert.equal(dashboard.headers["x-frame-options"], undefined);
+test("site pages send no X-Frame-Options; the dashboard only by its own origin", async () => {
   const sitePage = await request(
     "GET",
     runtime.baseUrl + "/_sites/" + SITE_NAME + "/",
     { headers: { accept: "text/html" } },
   );
   assert.equal(sitePage.headers["x-frame-options"], undefined);
+  assert.ok(
+    !/frame-ancestors/.test(
+      String(sitePage.headers["content-security-policy"] || ""),
+    ),
+  );
+  for (const dashboardPath of ["/", "/home", "/some-unknown-dashboard-path"]) {
+    const dashboard = await request("GET", runtime.baseUrl + dashboardPath, {
+      headers: { accept: "text/html" },
+    });
+    assert.equal(
+      dashboard.headers["x-frame-options"],
+      "SAMEORIGIN",
+      dashboardPath,
+    );
+    const csp = String(dashboard.headers["content-security-policy"] || "");
+    assert.ok(/(^|;\s*)frame-ancestors 'self'(;|$)/.test(csp), csp);
+    assert.equal(csp.match(/frame-ancestors/g).length, 1, csp);
+    assert.ok(/script-src [^;]*'nonce-/.test(csp), csp);
+  }
 });
 
 test("config.security.frameAncestors is sanitized into a CSP source list", () => {
