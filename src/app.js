@@ -350,6 +350,7 @@ const upload = multer({
 // Security (SEC-UPLOAD): upload temp-file lifecycle helpers (per-request
 // cleanup, stale temp sweeper, conversion cap, files/ force-download guard).
 const uploadSecurity = require("./lib/uploadSecurity.js");
+const compressedFileCache = require("./lib/compressedFileCache.js");
 const uploadTempCleanup = uploadSecurity.createUploadTempCleanupMiddleware(
   UPLOAD_TEMP_DIRECTORY,
 );
@@ -1572,8 +1573,22 @@ const appReady = systemStructureContext().then((site) => {
         if (!setWellKnownContentType(res, req.url)) {
           setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
         }
+        const singleSiteFilePath = decodeStaticRequestPath(
+          req.url.split("?")[0],
+        );
+        // site.json is answered from its compressed copy when possible
+        if (
+          await compressedFileCache.trySend(
+            req,
+            res,
+            publicDir,
+            singleSiteFilePath,
+          )
+        ) {
+          return;
+        }
         res.sendFile(
-          decodeStaticRequestPath(req.url.split("?")[0]),
+          singleSiteFilePath,
           getStaticSendFileOptions(publicDir, req.url),
         );
       } else {
@@ -1855,8 +1870,22 @@ const appReady = systemStructureContext().then((site) => {
           if (!setWellKnownContentType(res, req.url)) {
             setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
           }
+          const multisiteFilePath = decodeStaticRequestPath(
+            req.url.split("?")[0],
+          );
+          // site.json is answered from its compressed copy when possible
+          if (
+            await compressedFileCache.trySend(
+              req,
+              res,
+              process.cwd() + `/${HAXCMS.sitesDirectory}`,
+              multisiteFilePath,
+            )
+          ) {
+            return;
+          }
           res.sendFile(
-            decodeStaticRequestPath(req.url.split("?")[0]),
+            multisiteFilePath,
             getStaticSendFileOptions(
               process.cwd() + `/${HAXCMS.sitesDirectory}`,
               req.url,
