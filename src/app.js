@@ -82,6 +82,7 @@ const {
 } = require("./lib/indexMarkup.js");
 const { resolveContainedPath } = require("./lib/pathConfinement.js");
 const { stampDashboardBasePath } = require("./lib/dashboardBasePath.js");
+const { isDashboardRoutePath } = require("./lib/dashboardRoutes.js");
 const { legacySlugMatches } = require("./lib/slugRules.js");
 const {
   createRequestCommitContext,
@@ -1711,16 +1712,14 @@ const appReady = systemStructureContext().then((site) => {
       );
       // dynamic step routes in HAXcms site list UI
       const requestPath = getRequestPathWithoutQuery(req.url);
-      const isDashboardIndexRequest =
-        requestPath === "/" ||
-        requestPath === "/home" ||
-        requestPath === "/index.html" ||
-        requestPath.indexOf("/createSite-step-") === 0;
+      const isDashboardIndexRequest = isDashboardRoutePath(requestPath);
       if (!isDashboardIndexRequest) {
         next();
       } else {
         limitDashboardFraming(res);
-        setStaticContentTypeWithCharset(res, requestPath);
+        // the dashboard pages are HTML, whatever their path looks like
+        // (index.php, search, createSite-step-1)
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
         if (process.env.NODE_ENV === "development") {
           try {
             let indexFile = fs.readFileSync(
@@ -2289,6 +2288,14 @@ const appReady = systemStructureContext().then((site) => {
         !req.url.startsWith("/llms.txt")
       ) {
         limitDashboardFraming(res);
+        // the dashboard shell still renders its own "not found" view, but a
+        // path it has no page for answers 404 as an HTML page (the API
+        // middleware above had labelled it JSON). Mirrors haxcms-php
+        // index.php via lib/dashboardRoutes.js.
+        if (!isDashboardRoutePath(getRequestPathWithoutQuery(req.url))) {
+          res.status(404);
+        }
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
         if (process.env.NODE_ENV === "development") {
           try {
             let indexFile = fs.readFileSync(
