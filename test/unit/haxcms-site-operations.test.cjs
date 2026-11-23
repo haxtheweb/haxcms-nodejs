@@ -1996,71 +1996,83 @@ test("maybeUpgradeLegacyBootstrap still upgrades an index.html replaced after a 
   );
 });
 
-test("cleanSearchData dedupes words exactly like the previous array_unique + implode", async () => {
+test("cleanSearchData matches the vectors shared with haxcms-php", async () => {
   const site = await HAXCMS.loadSite("unit-import");
-  const utf8 = require("utf8");
-  const { stripAngleTags } = require("../../src/lib/linearText.js");
-  const arrayUniqueImport = require("locutus/php/array/array_unique");
-  const implodeImport = require("locutus/php/strings/implode");
-  const explodeImport = require("locutus/php/strings/explode");
-  const array_unique = arrayUniqueImport.array_unique || arrayUniqueImport;
-  const implode = implodeImport.implode || implodeImport;
-  const explode = explodeImport.explode || explodeImport;
-  // the pre-change implementation, verbatim apart from the helper imports
-  const previousCleanSearchData = (text) => {
-    if (text == "" || text == null || !text) {
-      return "";
-    }
-    text = utf8.encode(
-      stripAngleTags(text, "").replace(/\n/g, " ").toLowerCase().trim(),
-    );
-    text = text.replace("/[^a-z0-9']/", " ");
-    text = text.replace(/'/g, "");
-    text = text.replace("~\b[a-z]{1,4}\bs*~", "");
-    text = text.replace("/s+/", " ");
-    text = implode(" ", array_unique(explode(" ", text)));
-    return text;
-  };
-  const words = [
-    "alpha",
-    "Beta",
-    "gamma",
-    "delta",
-    "0",
-    "00",
-    "1",
-    "it's",
-    "naïve",
-    "",
-    "  ",
-    "<b>bold</b>",
-    "toString",
-    "constructor",
-    "__proto__",
-  ];
-  let seed = 7;
-  const next = () => {
-    seed = (seed * 1103515245 + 12345) % 2147483648;
-    return seed;
-  };
-  for (let run = 0; run < 500; run++) {
-    const count = next() % 60;
-    const parts = [];
-    for (let i = 0; i < count; i++) {
-      parts.push(words[next() % words.length]);
-    }
-    const input = "<p>" + parts.join(next() % 2 ? " " : "\n") + "</p>";
+  const vectors = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "fixtures", "search-index-vectors.json"),
+      "utf8",
+    ),
+  );
+  assert.ok(vectors.cases.length > 10);
+  for (const vector of vectors.cases) {
     assert.equal(
-      site.cleanSearchData(input),
-      previousCleanSearchData(input),
-      input,
+      site.cleanSearchData(vector.input),
+      vector.expected,
+      vector.name,
     );
   }
-  // order is first-occurrence order and duplicates are dropped
-  assert.equal(
-    site.cleanSearchData("zulu alpha zulu bravo alpha"),
-    "zulu alpha bravo",
-  );
+  // not text: nothing to index
+  assert.equal(site.cleanSearchData(null), "");
+  assert.equal(site.cleanSearchData(undefined), "");
+  assert.equal(site.cleanSearchData(42), "");
+});
+
+test("cleanSearchData keeps each word once, in first-seen order, on a large page", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const words = [];
+  for (let i = 0; i < 20000; i++) {
+    words.push("word" + (i % 5000));
+  }
+  const started = Date.now();
+  const cleaned = site.cleanSearchData("<p>" + words.join("</p><p>") + "</p>");
+  assert.ok(Date.now() - started < 2000);
+  const out = cleaned.split(" ");
+  assert.equal(out.length, 5000);
+  assert.equal(out[0], "word0");
+  assert.equal(out[4999], "word4999");
+});
+
+test("lunrSearchIndex: one entry per published page, in the shape haxcms-php writes", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const first = site.manifest.items[0];
+  const items = [
+    first,
+    Object.assign({}, first, {
+      id: "item-aaaa-bbbb-cccc-dddd-eeee-ffff-0000-1111",
+      title: "Draft page",
+      slug: "draft-page",
+      description: "<b>Not</b> ready",
+      metadata: Object.assign({}, first.metadata, { published: false }),
+    }),
+    Object.assign({}, first, {
+      id: "item-aaaa-bbbb-cccc-dddd-eeee-ffff-0000-2222",
+      title: "No file",
+      slug: "no-file",
+      description: "<b>Bold</b> summary",
+      location: "pages/does-not-exist/index.html",
+      metadata: { created: 1234 },
+    }),
+  ];
+  const index = await site.lunrSearchIndex(items);
+  // the unpublished page is not in the public index at all
+  assert.equal(index.length, 2);
+  assert.equal(JSON.stringify(index).indexOf("Draft page"), -1);
+  assert.deepEqual(Object.keys(index[0]), [
+    "id",
+    "title",
+    "created",
+    "location",
+    "description",
+    "text",
+  ]);
+  // "item-" and every dash removed, 29 characters at most
+  assert.equal(index[1].id, "aaaabbbbccccddddeeeeffff00002");
+  assert.equal(index[1].created, 1234);
+  assert.equal(index[1].location, "no-file");
+  assert.equal(index[1].description, "Bold summary");
+  // a page whose file cannot be read is still listed, found by its title
+  assert.equal(index[1].text, "");
 });
 
 // ---------------------------------------------------------------------------
