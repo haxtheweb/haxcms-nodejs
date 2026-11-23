@@ -618,6 +618,12 @@ describe('createSite route handler', () => {
     assert.equal(res.sent.status, 200)
     assert.equal(res.sent.data.title, 'Night Draft')
     assert.equal(readSiteJson('night-draft').title, 'Night Draft')
+    // index.html is rendered again after the title is set
+    const indexHtml = fs.readFileSync(
+      path.join(siteDirectoryFor('night-draft'), 'index.html'),
+      'utf8',
+    )
+    assert.match(indexHtml, /<title>Night Draft/)
     // blank (after markup is removed) or not text: the machine name, as before
     for (const [name, title] of [
       ['blank-title', '  <i></i> '],
