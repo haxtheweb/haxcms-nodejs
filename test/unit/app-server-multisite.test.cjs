@@ -403,6 +403,17 @@ test("CSP sends no frame-ancestors by default so LMS tools can iframe sites", as
   assert.ok(!/frame-ancestors/.test(csp), csp);
 });
 
+test("no X-Frame-Options is sent: framing is decided by frame-ancestors alone", async () => {
+  const dashboard = await request("GET", runtime.baseUrl + "/", {});
+  assert.equal(dashboard.headers["x-frame-options"], undefined);
+  const sitePage = await request(
+    "GET",
+    runtime.baseUrl + "/_sites/" + SITE_NAME + "/",
+    { headers: { accept: "text/html" } },
+  );
+  assert.equal(sitePage.headers["x-frame-options"], undefined);
+});
+
 test("config.security.frameAncestors is sanitized into a CSP source list", () => {
   const saved = HAXCMS.config.security;
   try {
@@ -835,6 +846,69 @@ test("a missing page without an extension renders the page-miss shell at 404", a
   assert.equal(result.status, 404);
   assert.ok(result.bodyText.indexOf("haxcms-page-miss") !== -1);
   assert.ok(result.bodyText.indexOf("The page miss, it burns!") !== -1);
+});
+
+test("an unpublished page gives nothing about itself in the shell or its variants", async () => {
+  const site = await HAXCMS.loadSite(SITE_NAME);
+  const item = site.manifest.items.find(function (i) {
+    return i.slug === "home";
+  });
+  const marker = "unpublished-shell-marker-3391";
+  const pageFile = path.join(site.siteDirectory, item.location);
+  const savedBody = fs.readFileSync(pageFile, "utf8");
+  const savedTitle = item.title;
+  fs.writeFileSync(pageFile, "<p>" + marker + "</p>");
+  item.title = "Title " + marker;
+  item.description = "Description " + marker;
+  item.metadata = Object.assign({}, item.metadata || {}, { published: false });
+  await site.manifest.save(false);
+  const base = runtime.baseUrl + "/_sites/" + SITE_NAME + "/home";
+  try {
+    // the shell still answers 200 (an editor reloading the page gets the app)
+    // but carries no body, title or description of the page, and is noindex
+    const shell = await request("GET", base, {
+      headers: { accept: "text/html" },
+    });
+    assert.equal(shell.status, 200);
+    assert.ok(shell.bodyText.indexOf("<haxcms-site-builder") !== -1);
+    assert.equal(shell.bodyText.indexOf(marker), -1);
+    assert.ok(
+      shell.bodyText.indexOf('<meta name="robots" content="noindex') !== -1,
+    );
+    assert.equal(String(shell.headers.link || "").indexOf("home."), -1);
+    // explicit and negotiated variants do not serve it either
+    for (const ext of [".md", ".json", ".yaml", ".xml"]) {
+      const variant = await request("GET", base + ext, {});
+      assert.equal(variant.status, 404, ext);
+      assert.equal(variant.bodyText, "Not found");
+    }
+    const negotiated = await request("GET", base, {
+      headers: { accept: "text/markdown" },
+    });
+    assert.equal(negotiated.bodyText.indexOf(marker), -1);
+    assert.ok(
+      String(negotiated.headers["content-type"] || "").indexOf("text/html") !==
+        -1,
+    );
+  } finally {
+    fs.writeFileSync(pageFile, savedBody);
+    const restored = await HAXCMS.loadSite(SITE_NAME);
+    const restoredItem = restored.manifest.items.find(function (i) {
+      return i.slug === "home";
+    });
+    restoredItem.title = savedTitle;
+    delete restoredItem.description;
+    restoredItem.metadata = Object.assign({}, restoredItem.metadata || {}, {
+      published: true,
+    });
+    await restored.manifest.save(false);
+  }
+  // published again: the shell inlines the page as before
+  const again = await request("GET", base, {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(again.status, 200);
+  assert.ok(again.bodyText.indexOf('content="index, follow') !== -1);
 });
 
 // ---------------------------------------------------------------------------

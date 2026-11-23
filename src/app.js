@@ -117,6 +117,12 @@ var helmetPolicies = {
   referrerPolicy: {
     policy: "same-origin",
   },
+  // Security (SEC-HEADERS): framing is decided in one place, the CSP
+  // frame-ancestors directive (configuredFrameAncestors). helmet's default
+  // X-Frame-Options: SAMEORIGIN would refuse every cross-origin embed and so
+  // undo the default below (HAX sites are embeddable, e.g. in an LMS).
+  // haxcms-php sends no X-Frame-Options either.
+  xFrameOptions: false,
 };
 // Base CSP directives used by the per-request nonce middleware. 'unsafe-eval'
 // is still required because several third-party libs bundled into the build
@@ -1590,6 +1596,7 @@ const appReady = systemStructureContext().then((site) => {
             variantResponse.canonicalPath,
             pageMiss,
             path.join(publicDir, "index.html"),
+            variantResponse.unpublished === true,
           );
           // injects a websocket for livereload support when developing custom components
           indexFile = injectLinkedDevDedupingFix(indexFile);
@@ -1878,6 +1885,7 @@ const appReady = systemStructureContext().then((site) => {
                 variantResponse.canonicalPath,
                 pageMiss,
                 path.join(siteContext.siteDirectory, "index.html"),
+                variantResponse.unpublished === true,
               );
               indexFile = injectLinkedDevDedupingFix(indexFile);
               indexFile = injectLinkedDevImportMap(indexFile);
@@ -4263,6 +4271,33 @@ async function tryServePageVariantRequest(
     };
   }
   const canonicalPath = buildCanonicalPagePath(routePrefix, slug);
+  // Security: the shell and the page variants are served without a login, so
+  // they follow the anonymous rule of the site API: an unpublished page gives
+  // nothing about itself here (no body, title, description or alternate
+  // format). The shell still answers 200 so an editor reloading the page
+  // gets the app, which loads the page once they are signed in.
+  // Mirrors haxcms-php HAXSiteConfig / respondWithRequestedPageVariant.
+  const { isItemPublished } = require("./siteRoutes/v1/siteRouteUtils.js");
+  if (!isItemPublished(item)) {
+    if (explicitInfo.format) {
+      res.status(404);
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.send("Not found");
+      return {
+        served: true,
+        item: null,
+        canonicalPath,
+        notFound: true,
+      };
+    }
+    return {
+      served: false,
+      item: null,
+      canonicalPath,
+      notFound: false,
+      unpublished: true,
+    };
+  }
   if (explicitInfo.format) {
     const servedExplicit = await servePageVariantFile(
       res,
@@ -4400,6 +4435,7 @@ async function renderDynamicSiteIndexResponse(
   canonicalPath = "",
   pageMiss = false,
   indexFilePath = "",
+  noindex = false,
 ) {
   let indexFile = fs.readFileSync(indexFilePath, "utf8");
   const absoluteUrl = getRequestAbsoluteUrl(req, canonicalPath || "/");
@@ -4416,7 +4452,7 @@ async function renderDynamicSiteIndexResponse(
   );
   indexFile = replaceManagedHeadMarkup(
     indexFile,
-    pageMiss ? noindexRobotsMeta(metadata) : metadata,
+    pageMiss || noindex ? noindexRobotsMeta(metadata) : metadata,
     serviceWorkerScript,
   );
   let pageContent = "";

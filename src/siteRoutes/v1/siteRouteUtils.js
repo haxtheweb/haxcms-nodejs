@@ -764,6 +764,26 @@ function findItemByIdOrSlug(site, idOrSlug) {
   return null;
 }
 
+// Reading a page is synchronous work (path checks, file read, filtering), so
+// a loop over every page of a large site would hold the event loop for its
+// whole length and every other request would wait behind it. Loops that read
+// each page call this between pages; every YIELD_EVERY_PAGES pages it lets
+// waiting requests run. It changes no result, only when the work happens.
+const YIELD_EVERY_PAGES = 25;
+function yieldEveryFewPages(index) {
+  if (index === 0 || index % YIELD_EVERY_PAGES !== 0) {
+    return null;
+  }
+  return new Promise((resolve) => {
+    if (typeof setImmediate === 'function') {
+      setImmediate(resolve);
+    }
+    else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
 async function getItemContent(site, item) {
   if (!site || !item || !item.id || typeof site.loadNode !== 'function') {
     return '';
@@ -803,6 +823,7 @@ async function collectCustomElementUsage(site, items = []) {
   const usage = {};
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
+    await yieldEveryFewPages(i);
     const html = await getItemContent(site, item);
     const matches = extractCustomElementTagsFromHtml(html);
     for (const key in matches) {
@@ -1421,6 +1442,7 @@ module.exports = {
   projectCollection,
   findItemByIdOrSlug,
   getItemContent,
+  yieldEveryFewPages,
   extractCustomElementTagsFromHtml,
   collectCustomElementUsage,
   collectSiteFiles,
