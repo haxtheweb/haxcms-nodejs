@@ -10,6 +10,7 @@ const {
   applyItemFilters,
   normalizeTagList,
   getItemContent,
+  yieldEveryFewPages,
   sendFormattedResponse,
 } = require('./siteRouteUtils.js');
 
@@ -110,9 +111,11 @@ async function search(req, res) {
   const results = [];
   for (let i = 0; i < filteredItems.length; i++) {
     const item = filteredItems[i];
-    const content = searchFields.indexOf('content') !== -1
-      ? await getItemContent(site, item)
-      : '';
+    let content = '';
+    if (searchFields.indexOf('content') !== -1) {
+      await yieldEveryFewPages(i);
+      content = await getItemContent(site, item);
+    }
     const matches = [];
     let score = 0;
     for (let f = 0; f < searchFields.length; f++) {

@@ -117,6 +117,13 @@ var helmetPolicies = {
   referrerPolicy: {
     policy: "same-origin",
   },
+  // Security (SEC-HEADERS): framing is decided in one place, the CSP
+  // frame-ancestors directive (configuredFrameAncestors). helmet's default
+  // X-Frame-Options: SAMEORIGIN would refuse every cross-origin embed and so
+  // undo the default below (HAX sites are embeddable, e.g. in an LMS).
+  // haxcms-php sends no X-Frame-Options on site pages either. The dashboard
+  // keeps its own rule (limitDashboardFraming).
+  xFrameOptions: false,
 };
 // Base CSP directives used by the per-request nonce middleware. 'unsafe-eval'
 // is still required because several third-party libs bundled into the build
@@ -205,6 +212,32 @@ function cspNonceMiddleware(req, res, next) {
   }
   res.setHeader("Content-Security-Policy", formatCspDirectives(directives));
   next();
+}
+
+// Security (SEC-HEADERS): the dashboard (login, site list) is only ever
+// framed by its own origin, whatever config.security.frameAncestors allows
+// for sites: a login or site list framed by another origin is a click-jacking
+// target and nothing embeds it. Same-origin stays allowed because
+// haxcms-browser shows this server inside a frame of its own host page.
+// Replaces any frame-ancestors already on the response with 'self';
+// X-Frame-Options covers the case where no CSP is sent (local development).
+// haxcms-php's root index.php is stricter still (frame-ancestors 'none').
+function limitDashboardFraming(res) {
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  var csp = res.getHeader("Content-Security-Policy");
+  if (typeof csp !== "string" || csp === "") {
+    return;
+  }
+  var kept = csp
+    .split(";")
+    .map(function (directive) {
+      return directive.trim();
+    })
+    .filter(function (directive) {
+      return directive !== "" && directive.indexOf("frame-ancestors") !== 0;
+    });
+  kept.push("frame-ancestors 'self'");
+  res.setHeader("Content-Security-Policy", kept.join("; "));
 }
 
 // config.security.frameAncestors as a clean list of CSP source expressions,
@@ -1590,6 +1623,7 @@ const appReady = systemStructureContext().then((site) => {
             variantResponse.canonicalPath,
             pageMiss,
             path.join(publicDir, "index.html"),
+            variantResponse.unpublished === true,
           );
           // injects a websocket for livereload support when developing custom components
           indexFile = injectLinkedDevDedupingFix(indexFile);
@@ -1685,6 +1719,7 @@ const appReady = systemStructureContext().then((site) => {
       if (!isDashboardIndexRequest) {
         next();
       } else {
+        limitDashboardFraming(res);
         setStaticContentTypeWithCharset(res, requestPath);
         if (process.env.NODE_ENV === "development") {
           try {
@@ -1878,6 +1913,7 @@ const appReady = systemStructureContext().then((site) => {
                 variantResponse.canonicalPath,
                 pageMiss,
                 path.join(siteContext.siteDirectory, "index.html"),
+                variantResponse.unpublished === true,
               );
               indexFile = injectLinkedDevDedupingFix(indexFile);
               indexFile = injectLinkedDevImportMap(indexFile);
@@ -2252,6 +2288,7 @@ const appReady = systemStructureContext().then((site) => {
         !req.url.startsWith("/robots.txt") &&
         !req.url.startsWith("/llms.txt")
       ) {
+        limitDashboardFraming(res);
         if (process.env.NODE_ENV === "development") {
           try {
             let indexFile = fs.readFileSync(
@@ -4263,6 +4300,33 @@ async function tryServePageVariantRequest(
     };
   }
   const canonicalPath = buildCanonicalPagePath(routePrefix, slug);
+  // Security: the shell and the page variants are served without a login, so
+  // they follow the anonymous rule of the site API: an unpublished page gives
+  // nothing about itself here (no body, title, description or alternate
+  // format). The shell still answers 200 so an editor reloading the page
+  // gets the app, which loads the page once they are signed in.
+  // Mirrors haxcms-php HAXSiteConfig / respondWithRequestedPageVariant.
+  const { isItemPublished } = require("./siteRoutes/v1/siteRouteUtils.js");
+  if (!isItemPublished(item)) {
+    if (explicitInfo.format) {
+      res.status(404);
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.send("Not found");
+      return {
+        served: true,
+        item: null,
+        canonicalPath,
+        notFound: true,
+      };
+    }
+    return {
+      served: false,
+      item: null,
+      canonicalPath,
+      notFound: false,
+      unpublished: true,
+    };
+  }
   if (explicitInfo.format) {
     const servedExplicit = await servePageVariantFile(
       res,
@@ -4400,6 +4464,7 @@ async function renderDynamicSiteIndexResponse(
   canonicalPath = "",
   pageMiss = false,
   indexFilePath = "",
+  noindex = false,
 ) {
   let indexFile = fs.readFileSync(indexFilePath, "utf8");
   const absoluteUrl = getRequestAbsoluteUrl(req, canonicalPath || "/");
@@ -4416,7 +4481,7 @@ async function renderDynamicSiteIndexResponse(
   );
   indexFile = replaceManagedHeadMarkup(
     indexFile,
-    pageMiss ? noindexRobotsMeta(metadata) : metadata,
+    pageMiss || noindex ? noindexRobotsMeta(metadata) : metadata,
     serviceWorkerScript,
   );
   let pageContent = "";
