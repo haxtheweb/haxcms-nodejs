@@ -14,8 +14,15 @@ const path = require("path");
 const zlib = require("zlib");
 const { promisify } = require("util");
 
-const brotliCompress = promisify(zlib.brotliCompress);
-const gzip = promisify(zlib.gzip);
+// Brotli is offered only where zlib has it: Node always does, but the browser
+// build of this server (haxcms-browser) swaps zlib for a version without it,
+// and promisify() throws on a missing function while this file loads, which
+// stopped the whole server from starting. Without brotli, gzip is used.
+const brotliCompress =
+  typeof zlib.brotliCompress === "function"
+    ? promisify(zlib.brotliCompress)
+    : null;
+const gzip = typeof zlib.gzip === "function" ? promisify(zlib.gzip) : null;
 
 // below this the compression middleware does not compress either
 const MIN_BYTES = 1024;
@@ -53,10 +60,10 @@ function pickEncoding(acceptEncoding = "") {
       }
       accepted[name] = q;
     });
-  if (accepted.br > 0) {
+  if (accepted.br > 0 && brotliCompress) {
     return "br";
   }
-  if (accepted.gzip > 0) {
+  if (accepted.gzip > 0 && gzip) {
     return "gzip";
   }
   return "";

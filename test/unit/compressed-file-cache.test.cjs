@@ -286,3 +286,42 @@ test("requests arriving together share one compression", async () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// haxcms-browser bundles this server with a zlib that has no brotli; loading
+// this file there must not throw, and br must not be offered
+test("loads and falls back to gzip when zlib has no brotli", () => {
+  const modulePath = require.resolve("../../src/lib/compressedFileCache.js");
+  const zlibPath = require.resolve("zlib");
+  const realZlib = require.cache[zlibPath];
+  const savedModule = require.cache[modulePath];
+  const noBrotli = Object.assign({}, zlib, {
+    brotliCompress: undefined,
+    brotliCompressSync: undefined,
+  });
+  delete require.cache[modulePath];
+  const Module = require("module");
+  const realLoad = Module._load;
+  Module._load = function (request, ...rest) {
+    if (request === "zlib") {
+      return noBrotli;
+    }
+    return realLoad.call(this, request, ...rest);
+  };
+  try {
+    let browserCache;
+    assert.doesNotThrow(() => {
+      browserCache = require(modulePath);
+    });
+    assert.equal(browserCache.pickEncoding("br, gzip"), "gzip");
+    assert.equal(browserCache.pickEncoding("br"), "");
+  } finally {
+    Module._load = realLoad;
+    delete require.cache[modulePath];
+    if (savedModule) {
+      require.cache[modulePath] = savedModule;
+    }
+    if (realZlib) {
+      require.cache[zlibPath] = realZlib;
+    }
+  }
+});
