@@ -24,6 +24,7 @@ const { HAXCMS } = require('../../src/lib/HAXCMS.js')
 const {
   listItemRevisions,
   itemRevisionDetail,
+  compareItemRevisions,
   restoreItemRevision,
 } = require('../../src/siteRoutes/v1/revisions.js')
 
@@ -527,5 +528,35 @@ describe('revisions routes — restoreItemRevision', () => {
       resNoSite,
     )
     assert.equal(resNoSite.statusCode, 404)
+  })
+})
+
+describe('revisions routes — git failures', () => {
+  test('answer the route message, never git output or server paths', async (t) => {
+    const site = await makeGitSite(t)
+    mockSite(t, site)
+    // point the site's .git at a missing directory: git then fails with
+    // "fatal: not a git repository: <server path>"
+    const secret = path.join(os.tmpdir(), 'haxcms-secret-path-' + Date.now())
+    fs.renameSync(path.join(site.siteDirectory, '.git'), path.join(site.siteDirectory, '.git-moved'))
+    fs.writeFileSync(path.join(site.siteDirectory, '.git'), 'gitdir: ' + secret + '\n')
+    t.mock.method(console, 'warn', () => {})
+    const cases = [
+      [listItemRevisions, {}, 'Unable to load item revisions'],
+      [itemRevisionDetail, { revisionId: site.hashes.created }, 'Unable to load item revision detail'],
+      [
+        compareItemRevisions,
+        { revisionId: site.hashes.created, compareRevisionId: site.hashes.updated },
+        'Unable to compare item revisions',
+      ],
+    ]
+    for (const [handler, params, message] of cases) {
+      const res = stubRes()
+      await handler(makeReq({ params: Object.assign({ idOrSlug: 'first-page' }, params) }), res)
+      assert.equal(res.statusCode, 500, message)
+      assert.equal(res.body.data.message, message)
+      assert.ok(JSON.stringify(res.body).indexOf(secret) === -1, message)
+      assert.ok(JSON.stringify(res.body).indexOf('Command failed') === -1, message)
+    }
   })
 })

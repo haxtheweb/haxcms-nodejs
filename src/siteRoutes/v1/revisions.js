@@ -30,6 +30,46 @@ const {
  * Subjects without a valid prefix (manual commits, history from before op
  * codes) come back as actor "X" with the subject as the summary.
  */
+
+// Security (SEC-ROUTE): a failed git read answers with the route's fixed
+// message; git's own text (the command line, page paths, stderr) is logged on
+// the server and only used to tell a missing revision (404) apart, the same
+// checks as haxcms-php operations/nodeRevisions.php.
+function gitFailureReason(e) {
+  const message = e && typeof e.message === "string" ? e.message : "";
+  const stderr = e && typeof e.stderr === "string" ? e.stderr : "";
+  return message + " " + stderr;
+}
+
+function isMissingRevisionError(e) {
+  const reason = gitFailureReason(e);
+  return (
+    reason.indexOf("does not exist") !== -1 ||
+    reason.indexOf("exists on disk, but not in") !== -1 ||
+    reason.indexOf("bad object") !== -1 ||
+    reason.indexOf("unknown revision") !== -1
+  );
+}
+
+function sendRevisionFailure(res, e, fallback) {
+  if (isMissingRevisionError(e)) {
+    return res.status(404).json({
+      status: 404,
+      data: { message: "Revision content for this page was not found" },
+    });
+  }
+  console.warn(
+    "revisions: " +
+      fallback +
+      ": " +
+      clientSafeErrorDetail(gitFailureReason(e).trim(), ""),
+  );
+  return res.status(500).json({
+    status: 500,
+    data: { message: fallback },
+  });
+}
+
 function getCommitOpFields(message = "") {
   return parseCommitMessage(message);
 }
@@ -591,12 +631,7 @@ async function listItemRevisions(req, res) {
       },
     );
   } catch (e) {
-    return res.status(500).json({
-      status: 500,
-      data: {
-        message: clientSafeErrorDetail(e, "Unable to load item revisions"),
-      },
-    });
+    return sendRevisionFailure(res, e, "Unable to load item revisions");
   }
 }
 
@@ -730,17 +765,7 @@ async function itemRevisionDetail(req, res) {
       },
     );
   } catch (e) {
-    const message = clientSafeErrorDetail(e, "");
-    if (message.indexOf("does not exist") !== -1) {
-      return res.status(404).json({
-        status: 404,
-        data: { message: "Revision content for this page was not found" },
-      });
-    }
-    return res.status(500).json({
-      status: 500,
-      data: { message: message || "Unable to load item revision detail" },
-    });
+    return sendRevisionFailure(res, e, "Unable to load item revision detail");
   }
 }
 
@@ -863,26 +888,7 @@ async function compareItemRevisions(req, res) {
       },
     );
   } catch (e) {
-    const message = clientSafeErrorDetail(e, "");
-    // git's reason is in stderr; the client-safe message keeps only the
-    // first line ("Command failed: ...")
-    const reason =
-      message + " " + (e && typeof e.stderr === "string" ? e.stderr : "");
-    if (
-      reason.indexOf("does not exist") !== -1 ||
-      reason.indexOf("exists on disk, but not in") !== -1 ||
-      reason.indexOf("bad object") !== -1 ||
-      reason.indexOf("unknown revision") !== -1
-    ) {
-      return res.status(404).json({
-        status: 404,
-        data: { message: "Revision content for this page was not found" },
-      });
-    }
-    return res.status(500).json({
-      status: 500,
-      data: { message: message || "Unable to compare item revisions" },
-    });
+    return sendRevisionFailure(res, e, "Unable to compare item revisions");
   }
 }
 

@@ -114,3 +114,18 @@ test("CI dependency audit is blocking on high/critical runtime advisories", () =
   );
   assert.equal(workflow.indexOf("Dependency audit (reporting only)"), -1);
 });
+
+test("the Docker build context excludes local working notes", () => {
+  const lines = read(".dockerignore")
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  [
+    "security_best_practices_report*",
+    "security_jwt_refresh_review.md",
+    "file_operations_security_report.md",
+    "test",
+    ".env",
+  ].forEach((pattern) => {
+    assert.ok(lines.indexOf(pattern) !== -1, pattern);
+  });
+});
