@@ -3751,6 +3751,19 @@ function getStaticSendFileOptions(rootPath = "", requestPath = "") {
   if (shouldAllowWellKnownDotfiles(requestPath)) {
     options.dotfiles = "allow";
   }
+  // Security (SEC-UPLOAD): a folder address under files/ never answers with
+  // an index.html someone uploaded there. Without this the folder address
+  // served that file as a page, past the forced download every other address
+  // of it gets. haxcms-php covers the same case in the files/.htaccess.
+  if (
+    uploadSecurity.isFilesDirectoryRequestPath(
+      uploadSecurity.decodeRequestPathForFilesGuard(
+        getRequestPathWithoutQuery(requestPath),
+      ),
+    )
+  ) {
+    options.index = false;
+  }
   return options;
 }
 // Extensions whose static files must be tagged charset=utf-8 so clients
