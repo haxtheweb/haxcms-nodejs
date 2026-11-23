@@ -318,14 +318,37 @@ test("dashboard index also serves /home, /index.html, and createSite steps", asy
   assert.ok(indexHtml.bodyText.indexOf("<") !== -1);
 });
 
-test("unknown non-API paths fall through to the dashboard catch-all", async () => {
+test("unknown non-API paths get the dashboard shell as an HTML 404", async () => {
   const result = await request(
     "GET",
     runtime.baseUrl + "/totally-random-page",
     {},
   );
-  assert.equal(result.status, 200);
+  // the shell renders the dashboard's own not-found view, but the status
+  // says the page does not exist (haxcms-php index.php does the same)
+  assert.equal(result.status, 404);
   assert.ok(result.bodyText.indexOf("<") !== -1);
+  assert.equal(
+    String(result.headers["content-type"]).split(";")[0],
+    "text/html",
+  );
+});
+
+test("dashboard pages answer 200 as HTML, including search and index.php", async () => {
+  for (const entry of [
+    "/search",
+    "/index.php",
+    "/home/",
+    "/createSite-step-2",
+  ]) {
+    const result = await request("GET", runtime.baseUrl + entry, {});
+    assert.equal(result.status, 200, entry);
+    assert.equal(
+      String(result.headers["content-type"]).split(";")[0],
+      "text/html",
+      entry,
+    );
+  }
 });
 
 test("OPTIONS preflight answers 200 for any path", async () => {
