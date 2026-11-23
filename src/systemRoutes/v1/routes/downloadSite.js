@@ -169,6 +169,9 @@ async function zipDirectory(sourceDir, outPath) {
     archive
       .glob("**/*", {
         cwd: sourceDir,
+        // the site's dotfiles (.htaccess, .nojekyll, .github/workflows/...)
+        // are part of a deployable site; haxcms-php's export has them too
+        dot: true,
         ignore: [
           "node_modules/**",
           "node_modules",

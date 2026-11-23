@@ -82,6 +82,14 @@ describe("downloadSite route", () => {
       "ref: refs/heads/main",
     );
     fs.writeFileSync(path.join(siteDirectory, ".git", "objects", "pack"), "x");
+    // the dotfiles that make the folder deployable as it is
+    fs.writeFileSync(path.join(siteDirectory, ".htaccess"), "Options -Indexes");
+    fs.writeFileSync(path.join(siteDirectory, ".nojekyll"), "");
+    fs.ensureDirSync(path.join(siteDirectory, ".github", "workflows"));
+    fs.writeFileSync(
+      path.join(siteDirectory, ".github", "workflows", "deploy.yml"),
+      "on: push",
+    );
     t.mock.method(HAXCMS, "loadSite", async () => ({
       name: "demosite",
       manifest: { metadata: { site: { name: "demosite" } } },
@@ -123,6 +131,15 @@ describe("downloadSite route", () => {
       names.some((name) => name === ".git" || name.indexOf(".git/") === 0),
       false,
     );
+    // the site's dotfiles ship (haxcms-php's export has them too); before,
+    // the glob skipped every dotfile, so an exported site lost .htaccess,
+    // .nojekyll and its GitHub Pages workflow
+    for (const dotfile of [
+      ".htaccess",
+      ".nojekyll",
+      ".github/workflows/deploy.yml",
+    ])
+      assert.ok(names.indexOf(dotfile) !== -1, dotfile + " in the zip");
     // two downloads of the same site never collide on disk
     const res2 = stubRes();
     await downloadSite({ body: { site: { name: "demosite" } } }, res2);
