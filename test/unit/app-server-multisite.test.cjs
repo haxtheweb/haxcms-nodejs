@@ -991,6 +991,83 @@ test("site API files route enforces the full auth matrix", async () => {
   assert.equal(allowed.status, 200, allowed.bodyText);
 });
 
+// A page's id is its folder, so a second page under the same id would share
+// the first page's file and replace its content.
+test("creating a page under an id the site already has is refused and writes nothing", async () => {
+  const itemsUrl = runtime.baseUrl + "/_sites/" + SITE_NAME + "/x/api/v1/items";
+  const headers = {
+    authorization: "Bearer " + runtime.jwt,
+    "X-HAXCMS-Site-Token": runtime.siteToken,
+  };
+  const create = function (body) {
+    return request("POST", itemsUrl, {
+      headers: headers,
+      data: Object.assign({ site: { name: SITE_NAME } }, body),
+    });
+  };
+  const idsNamed = async function (id) {
+    const site = await HAXCMS.loadSite(SITE_NAME);
+    return site.manifest.items.filter(function (item) {
+      return item.id === id;
+    });
+  };
+  const first = await create({
+    node: { id: "dup-check", title: "First", contents: "<p>first-body</p>" },
+  });
+  assert.equal(first.status, 200, first.bodyText);
+  const pageFile = path.join(
+    runtimeRoot,
+    "_sites",
+    SITE_NAME,
+    "pages",
+    "dup-check",
+    "index.html",
+  );
+  const firstBody = fs.readFileSync(pageFile, "utf8");
+  // the same id again, as a single page
+  const second = await create({
+    node: { id: "dup-check", title: "Second", contents: "<p>second-body</p>" },
+  });
+  assert.equal(second.status, 400, second.bodyText);
+  assert.equal(JSON.parse(second.bodyText).data.code, "OUTLINE_INVALID");
+  // another spelling of the same stored id
+  const respelled = await create({
+    node: { id: "../dup-check", title: "Third", contents: "<p>third</p>" },
+  });
+  assert.equal(respelled.status, 400, respelled.bodyText);
+  // the same id again inside a bulk request: no page of that request is made
+  const bulkExisting = await create({
+    items: [
+      { id: "dup-bulk-new", title: "Bulk new", contents: "<p>x</p>" },
+      { id: "dup-check", title: "Bulk clash", contents: "<p>bulk-body</p>" },
+    ],
+  });
+  assert.equal(bulkExisting.status, 400, bulkExisting.bodyText);
+  // one id twice within a single bulk request
+  const bulkTwice = await create({
+    items: [
+      { id: "dup-twice", title: "One", contents: "<p>one</p>" },
+      { id: "dup-twice", title: "Two", contents: "<p>two</p>" },
+    ],
+  });
+  assert.equal(bulkTwice.status, 400, bulkTwice.bodyText);
+  assert.equal((await idsNamed("dup-check")).length, 1);
+  assert.equal((await idsNamed("dup-check"))[0].title, "First");
+  assert.equal((await idsNamed("dup-bulk-new")).length, 0);
+  assert.equal((await idsNamed("dup-twice")).length, 0);
+  assert.equal(fs.readFileSync(pageFile, "utf8"), firstBody);
+  // ids that are free, and requests that name no id, still create pages
+  const bulkOk = await create({
+    items: [
+      { id: "dup-free-a", title: "A", contents: "<p>a</p>" },
+      { title: "No id one", contents: "<p>b</p>" },
+      { title: "No id two", contents: "<p>c</p>" },
+    ],
+  });
+  assert.equal(bulkOk.status, 200, bulkOk.bodyText);
+  assert.equal((await idsNamed("dup-free-a")).length, 1);
+});
+
 // haxtheweb/issues#3211: search declares optional auth. Anonymous callers
 // (and invalid bearers, which stay public rather than 403) only search
 // published, visible pages; a logged-in editor's bearer also searches

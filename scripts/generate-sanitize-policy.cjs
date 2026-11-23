@@ -12,6 +12,25 @@ const path = require("path");
 const { JSDOM } = require("jsdom");
 
 const root = path.join(__dirname, "..");
+// Elements that run a HAXcms site or its editor. They are placed by the site
+// shell and the platform, never authored into a page: none is a HAX block.
+// Inside page content a second site builder loads another site's outline over
+// the one being viewed, and a login element calls whatever address it is
+// given. Listed with the reserved names, so the tag itself is dropped and
+// what was inside it is kept (a page imported from a published HAX site
+// arrives wrapped in <haxcms-site-builder>).
+const PLATFORM_ELEMENT_NAMES = [
+  "haxcms-backend-beaker",
+  "haxcms-backend-demo",
+  "haxcms-backend-nodejs",
+  "haxcms-backend-php",
+  "haxcms-backend-userfs",
+  "haxcms-editor-builder",
+  "haxcms-site-builder",
+  "haxcms-site-editor",
+  "haxcms-site-editor-ui",
+  "jwt-login",
+];
 function buildPolicy() {
   const purify = fs.readFileSync(
     path.join(path.dirname(require.resolve("dompurify")), "purify.cjs.js"),
@@ -118,7 +137,7 @@ function buildPolicy() {
       "font-face-src",
       "font-face-uri",
       "missing-glyph",
-    ],
+    ].concat(PLATFORM_ELEMENT_NAMES),
     attributeName: "^[a-z_:][a-z0-9_.:-]*$",
     forbiddenAttributes: ["srcdoc", "style", "is", "attributename", "xmlns"],
     unsafeAttributeValue:
