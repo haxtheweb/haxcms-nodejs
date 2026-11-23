@@ -190,7 +190,10 @@ function loadConfigJson(configDirectory) {
   }
 }
 // HAXCMSSite which overlaps heavily and is referenced here often
-const utf8 = require("utf8");
+// a short search word that is kept: it has a digit, or it is written in a
+// script that does not put spaces between words
+const SEARCH_WORD_KEPT_SHORT =
+  /[\p{N}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u;
 const {
   rebuildAlternateFormatsLogged,
 } = require("./rebuildAlternateFormatsLogged.js");
@@ -2321,69 +2324,107 @@ class HAXCMSSite {
     return text.replace(/[\\[\]]/g, "\\$&");
   }
   /**
-   * Create Lunr.js style search index
+   * Create Lunr.js style search index: one entry per published page, the
+   * same entries haxcms-php writes (HAXCMSSite::lunrSearchIndex).
    */
   async lunrSearchIndex(items) {
+    // lazy require: siteRouteUtils requires this module
+    const { isItemPublished } = require("../siteRoutes/v1/siteRouteUtils.js");
     let data = [];
-    let textData;
     for (var key in items) {
       let item = items[key];
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+      // Security: this file is served without a login, so it follows the
+      // anonymous rule of the shell and page variants: an unpublished page
+      // gives nothing about itself here.
+      if (!isItemPublished(item)) {
+        continue;
+      }
       let created = Math.floor(Date.now() / 1000);
       if (item.metadata && item.metadata.created) {
         created = item.metadata.created;
       }
-      textData = "";
+      // slug is the URL canonical; older items only have a location
+      let slug = String(item.location || "")
+        .split("/index.html")
+        .join("")
+        .split("pages/")
+        .join("");
+      if (typeof item.slug !== "undefined" && item.slug !== null) {
+        slug = item.slug;
+      }
+      // may seem silly but IDs in lunr have a size limit for some reason in our context..
+      const entry = {
+        id: String(item.id || "")
+          .split("item-")
+          .join("")
+          .split("-")
+          .join("")
+          .substring(0, 29),
+        title: typeof item.title !== "undefined" ? item.title : null,
+        created: created,
+        location: slug,
+        description: stripAngleTags(
+          typeof item.description === "string" ? item.description : "",
+          "",
+        ),
+        text: "",
+      };
       try {
         // Security (SEC-PATH), PHP parity: read via containment-checked resolver
         const resolvedLocation = this.resolvePageLocationRealPath(
           item.location,
         );
-        if (resolvedLocation === false) {
-          throw new Error("invalid page location");
+        if (resolvedLocation !== false) {
+          entry.text = this.cleanSearchData(
+            fs.readFileSync(resolvedLocation, {
+              encoding: "utf8",
+              flag: "r",
+            }),
+          );
         }
-        textData = await fs.readFileSync(resolvedLocation, {
-          encoding: "utf8",
-          flag: "r",
-        });
-        textData = this.cleanSearchData(textData);
-        // may seem silly but IDs in lunr have a size limit for some reason in our context..
-        data.push({
-          id: item.id.replace("-", "").replace("item-", "").substring(0, 29),
-          title: item.title,
-          created: created,
-          location: item.slug,
-          description: item.description,
-          text: textData,
-        });
       } catch {
-        // intentionally ignored
+        // a page whose file cannot be read is still found by its title
       }
+      data.push(entry);
     }
     return data;
   }
   /**
-   * Clean up data from a file and make it easy for us to index on the front end
+   * Turn a page's HTML into the words the front end search indexes: tags
+   * out, lower case, punctuation out, each word once in first-seen order.
+   * Words of one or two letters are dropped (nobody searches for "am" or
+   * "of"); numbers and words in scripts written without spaces are kept
+   * whatever their length. Works on any language's letters.
+   * Same output as haxcms-php HAXCMSSite::cleanSearchData; both are held to
+   * test/fixtures/search-index-vectors.json.
    */
   cleanSearchData(text) {
-    if (text == "" || text == null || !text) {
+    if (typeof text !== "string" || text === "") {
       return "";
     }
-    // clean up initial, small, trim, replace end lines, utf8 no tags
-    text = utf8.encode(
-      stripAngleTags(text, "").replace(/\n/g, " ").toLowerCase().trim(),
-    );
-    // all weird chars
-    text = text.replace("/[^a-z0-9']/", " ");
-    text = text.replace(/'/g, "");
-    // all words 1 to 4 letters long
-    text = text.replace("~\b[a-z]{1,4}\bs*~", "");
-    // all excess white space
-    text = text.replace("/s+/", " ");
-    // crush string to array and back to make an unique index. A Set keeps
-    // first occurrences in order, which is exactly what locutus
-    // array_unique + implode produced, but in O(n) instead of O(n^2).
-    text = Array.from(new Set(explode(" ", text))).join(" ");
-    return text;
+    // a tag becomes a space so the words either side of it stay two words
+    text = stripAngleTags(text, " ").toLowerCase();
+    // apostrophes close up (aren't -> arent), anything else that is not a
+    // letter or a number separates words
+    text = text.replace(/'/g, "").replace(/[^\p{L}\p{N}]+/gu, " ");
+    const seen = new Set();
+    const words = [];
+    const parts = text.split(" ");
+    for (let i = 0; i < parts.length; i++) {
+      const word = parts[i];
+      if (word === "" || seen.has(word)) {
+        continue;
+      }
+      if (Array.from(word).length < 3 && !SEARCH_WORD_KEPT_SHORT.test(word)) {
+        continue;
+      }
+      seen.add(word);
+      words.push(word);
+    }
+    return words.join(" ");
   }
   /**
    * Sort items by a certain key value. Must be in the included list for safety of the sort
