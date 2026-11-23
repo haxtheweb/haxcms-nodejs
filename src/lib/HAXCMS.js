@@ -6213,11 +6213,6 @@ class HAXCMSClass {
           "Only use this if you want to automate SSH key setup. This is not stored",
         value: "",
       },
-      cdn: {
-        name: "CDN",
-        description: "A CDN address that supports HAXCMS",
-        value: "cdn.webcomponents.psu.edu",
-      },
     };
     // publishing
     for (var key in publishing) {
