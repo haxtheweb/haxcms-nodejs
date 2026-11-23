@@ -226,6 +226,7 @@ const {
 const { materializeInlineImages } = require("./materializeInlineImages.js");
 const {
   applyPageMetadata,
+  pageTimestamps,
   toPlainText,
   isBlankPageTitle,
   DEFAULT_PAGE_TITLE,
@@ -1760,8 +1761,10 @@ class HAXCMSSite {
     if (metadata) {
       applyPageMetadata(page, metadata, { themes: HAXCMS.getThemes() });
     }
-    page.metadata.created = Math.floor(Date.now() / 1000);
-    page.metadata.updated = Math.floor(Date.now() / 1000);
+    // an imported page keeps its own created / updated times
+    const times = pageTimestamps(metadata, Math.floor(Date.now() / 1000));
+    page.metadata.created = times.created;
+    page.metadata.updated = times.updated;
     let location = path.join(this.siteDirectory, "pages", page.id);
     const folderExisted = fs.existsSync(location);
     // copy the page we use for simplicity (or later complexity if we want)

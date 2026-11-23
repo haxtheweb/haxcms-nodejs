@@ -11,6 +11,10 @@ const {
   stageRemoteFile,
 } = require("../../../lib/stageRemoteFile.js");
 const EntityRegistry = require("../../../lib/EntityRegistry.js");
+const {
+  toPlainText,
+  isBlankPageTitle,
+} = require("../../../lib/sanitizePageMetadata.js");
 const FileStorage = require("../../../lib/FileStorage.js");
 const FileContentScanner = require("../../../lib/FileContentScanner.js");
 const {
@@ -819,6 +823,16 @@ async function createSite(req, res) {
         /<\/?[^>]+(>|$)/g,
         "",
       );
+    }
+    // site title: the machine name unless the request names one. Plain text
+    // only; a title that is blank once markup is stripped keeps the name.
+    const requestedTitle =
+      typeof req.body["site"]["title"] === "string"
+        ? toPlainText(req.body["site"]["title"]).trim()
+        : "";
+    if (!isBlankPageTitle(requestedTitle)) {
+      schema.title = requestedTitle;
+      site.manifest.title = requestedTitle;
     }
     // background image / banner (request does not control this)
     if (
