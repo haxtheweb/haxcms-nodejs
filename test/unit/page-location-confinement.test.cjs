@@ -263,34 +263,52 @@ test("createNode (items[] path): traversal ids stay inside the site", async (t) 
   const fx = await makeFixture(t);
   mockAuth(t, fx.site);
   const before = fx.snapshotOutside();
-  const req = {
-    headers: { "x-haxcms-site-token": "token" },
-    haxcmsSiteApiAuth: {
-      authenticated: true,
-      securityLevel: "authenticated-site",
-      userName: "tester",
-      siteName: "mysite",
-    },
-    body: {
-      site: { name: "mysite" },
-      items: TRAVERSAL_IDS.map((id, i) => ({
-        id,
-        title: "Evil " + i,
-        slug: "evil-" + i,
-        parent: null,
-        indent: 0,
-        order: i,
-        contents: "<p>PWNED</p>",
-      })),
-    },
+  const send = async function (ids) {
+    const req = {
+      headers: { "x-haxcms-site-token": "token" },
+      haxcmsSiteApiAuth: {
+        authenticated: true,
+        securityLevel: "authenticated-site",
+        userName: "tester",
+        siteName: "mysite",
+      },
+      body: {
+        site: { name: "mysite" },
+        items: ids.map((id, i) => ({
+          id,
+          title: "Evil " + i,
+          slug: "evil-" + i,
+          parent: null,
+          indent: 0,
+          order: i,
+          contents: "<p>PWNED</p>",
+        })),
+      },
+    };
+    const res = stubRes();
+    await createNode(req, res);
+    return res;
   };
-  const res = stubRes();
-  await createNode(req, res);
-  assert.equal(res.statusCode, 200);
+  // one request per id: several of these ids are the same id once cleaned,
+  // and a page id that is already taken is refused (400), so each is created
+  // only while its cleaned id is free
+  for (const id of TRAVERSAL_IDS) {
+    const cleaned = HAXCMS.generateMachineName(id);
+    const taken = fx.site.manifest.items.some((item) => item.id === cleaned);
+    const res = await send([id]);
+    assert.equal(res.statusCode, taken ? 400 : 200, String(id));
+  }
   assert.deepEqual(fx.snapshotOutside(), before);
   for (const item of fx.site.manifest.items) {
     assert.notEqual(fx.site.resolvePageLocationRealPath(item.location), false);
   }
+  // all of them in one request: ids that clash once cleaned are refused as a
+  // whole, and nothing is written anywhere
+  const count = fx.site.manifest.items.length;
+  const together = await send(TRAVERSAL_IDS);
+  assert.equal(together.statusCode, 400);
+  assert.equal(fx.site.manifest.items.length, count);
+  assert.deepEqual(fx.snapshotOutside(), before);
 });
 
 test("saveNode page-break: traversal item-id stays inside the site", async (t) => {

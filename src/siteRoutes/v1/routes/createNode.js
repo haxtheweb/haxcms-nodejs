@@ -6,6 +6,7 @@ const {
   syncIndentToDepth,
 } = require("../../../lib/outlineUpkeep.js");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
+const JSONOutlineSchema = require("../../../lib/JSONOutlineSchema.js");
 const path = require("path");
 const fs = require("fs-extra");
 const { sanitizeHTMLForStorage } = require("../../../lib/sanitizeContent.js");
@@ -16,6 +17,58 @@ const {
   getRequestHeaderValue,
   assertSiteFeature,
 } = require("../siteRouteUtils.js");
+/**
+ * The id a create request asks for that is already taken, or "" when none is.
+ * A page's id is also its folder (pages/<id>/index.html), so creating a page
+ * under an id the site already has would leave two outline items on one file
+ * and replace the first page's content. Checked for the whole request before
+ * anything is written: against the pages the site has, and against the other
+ * new pages in the same request. Ids are compared as they are stored
+ * (generateMachineName), so two spellings of one id count as the same.
+ * Mirrors haxcms-php createNode.
+ */
+function findRequestedPageIdConflict(site, nodeParams) {
+  const taken = new Set();
+  const items =
+    site && site.manifest && Array.isArray(site.manifest.items)
+      ? site.manifest.items
+      : [];
+  for (let i = 0; i < items.length; i++) {
+    if (items[i] && items[i].id !== undefined && items[i].id !== null) {
+      taken.add(String(items[i].id));
+    }
+  }
+  const requested = [];
+  if (Array.isArray(nodeParams["items"]) && nodeParams["items"].length > 0) {
+    for (let i = 0; i < nodeParams["items"].length; i++) {
+      const entry = nodeParams["items"][i];
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+      // entries marked delete are skipped by the create loop
+      if (entry["delete"] && entry["delete"] == true) {
+        continue;
+      }
+      // same reading of the id as addPage: a whole number is its string
+      requested.push(JSONOutlineSchema.normalizeOutlineId(entry["id"]));
+    }
+  } else if (nodeParams["node"] && typeof nodeParams["node"] === "object") {
+    requested.push(nodeParams["node"]["id"]);
+  }
+  for (let i = 0; i < requested.length; i++) {
+    const raw = requested[i];
+    // no id asked for: the server makes a new one
+    if (!raw) {
+      continue;
+    }
+    const id = HAXCMS.generateMachineName(raw);
+    if (taken.has(id)) {
+      return id;
+    }
+    taken.add(id);
+  }
+  return "";
+}
 /**
  * @OA\Post(
  *     path="/createNode",
@@ -131,6 +184,14 @@ async function createNode(req, res) {
       return res.status(400).json({
         status: 400,
         data: { message: "Node payload is required" },
+      });
+    }
+    // a page id that is already taken is refused before anything is written
+    // (the same answer saveOutline gives a new id sent twice)
+    if (findRequestedPageIdConflict(site, nodeParams) !== "") {
+      return res.status(400).json({
+        status: 400,
+        data: { message: "Each new outline item requires its own id" },
       });
     }
     if (hasItems) {
