@@ -101,7 +101,11 @@ function buildKnownSite(options) {
       author: 'Test Author',
       items: items,
       metadata: {
-        site: { domain: 'https://example.com', updated: 1609459200 },
+        site: Object.assign(
+          { domain: 'https://example.com', updated: 1609459200 },
+          // the site's language setting, as HAXcms stores it
+          opts.language ? { settings: { lang: opts.language } } : {},
+        ),
         tags: ['news', 'tech'],
         author: { name: 'Meta Author' },
       },
@@ -112,7 +116,6 @@ function buildKnownSite(options) {
   const site = {
     siteDirectory: tmpRoot,
     manifest: manifest,
-    language: opts.language,
     sortItems: function (key) {
       const arr = manifest.items.slice()
       arr.sort(function (a, b) {
@@ -268,11 +271,11 @@ describe('FeedMe.getRSSFeed', () => {
         'channel description is stripped manifest.description',
       )
       assert.ok(
-        xml.indexOf('<language>en-us</language>') !== -1,
-        'channel language defaults to en-us',
+        xml.indexOf('<language>en-US</language>') !== -1,
+        'channel language defaults to en-US, as haxcms-php getLanguage()',
       )
       assert.ok(
-        xml.indexOf('<generator>HAXcms NodeJS</generator>') !== -1,
+        xml.indexOf('<generator>HAXcms</generator>') !== -1,
         'has the HAXcms generator tag',
       )
       assert.ok(
@@ -396,7 +399,7 @@ describe('FeedMe.getRSSFeed', () => {
     }
   })
 
-  test('uses site.language when set', () => {
+  test('uses the site language setting when set', () => {
     const { site, tmpRoot } = buildKnownSite({ language: 'fr-fr' })
     try {
       const feed = new FeedMe()

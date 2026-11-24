@@ -1,4 +1,5 @@
 const fs = require("fs-extra");
+const canonicalFormat = require("./canonicalFormat.js");
 const crypto = require("crypto");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
@@ -261,7 +262,9 @@ class JSONOutlineSchema {
     let output;
     let encodeError = null;
     try {
-      output = JSON.stringify(schema, null, 2);
+      // the canonical pretty JSON haxcms-php writes too (canonicalFormat.js,
+      // haxtheweb/issues#3394); still throws for what JSON cannot hold
+      output = canonicalFormat.prettyJson(schema);
     } catch (e) {
       // e.g. a circular structure or a BigInt somewhere in the outline
       encodeError = e;

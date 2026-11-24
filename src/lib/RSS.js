@@ -114,9 +114,15 @@ class FeedMe
         if (site.manifest && site.manifest.description) {
             description = this.stripHTML(site.manifest.description)
         }
-        let language = 'en-us'
-        if (site && site.language) {
-            language = site.language
+        // the site's language setting, as haxcms-php getLanguage() reads it
+        // (haxtheweb/issues#3394; site.language never existed)
+        let language = 'en-US'
+        if (
+            site && site.manifest && site.manifest.metadata &&
+            site.manifest.metadata.site && site.manifest.metadata.site.settings &&
+            site.manifest.metadata.site.settings.lang
+        ) {
+            language = String(site.manifest.metadata.site.settings.lang)
         }
         let categories = ''
         if (site.manifest && site.manifest.metadata && site.manifest.metadata.tags && Array.isArray(site.manifest.metadata.tags)) {
@@ -139,7 +145,7 @@ class FeedMe
     <description>${this.xmlEscape(description)}</description>${copyright}
     <language>${this.xmlEscape(language)}</language>
     <lastBuildDate>${new Date(this.normalizeTimestamp(updated)).toUTCString()}</lastBuildDate>
-    <generator>HAXcms NodeJS</generator>${categories}
+    <generator>HAXcms</generator>${categories}
     <atom:link href="${this.xmlEscape(domain + 'rss.xml')}" rel="self" type="application/rss+xml"/>${this.rssItems(site, domain)}
   </channel>
 </rss>`
@@ -237,8 +243,7 @@ class FeedMe
   <author>
       <name>${this.xmlEscape(author)}</name>
   </author>
-  <id>${this.xmlEscape(domain)}</id>
-  ${this.atomItems(site, domain)}
+  <id>${this.xmlEscape(domain)}</id>${this.atomItems(site, domain)}
 </feed>`
     }
     /**
@@ -309,7 +314,7 @@ class FeedMe
             domain = site.manifest.metadata.site.domain
         }
         domain = this.ensureTrailingSlash(domain)
-        return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${this.sitemapItems(site, domain)}\n</urlset>`
+        return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${this.sitemapItems(site, domain)}\n</urlset>\n`
     }
     /**
      * Generate sitemap items.
@@ -346,7 +351,7 @@ class FeedMe
     getSitemapIndex(domain = '')
     {
         domain = this.ensureTrailingSlash(domain)
-        return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <sitemap>\n    <loc>${this.xmlEscape(domain + 'sitemap.xml')}</loc>\n    <lastmod>${new Date().toISOString()}</lastmod>\n  </sitemap>\n</sitemapindex>`
+        return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <sitemap>\n    <loc>${this.xmlEscape(domain + 'sitemap.xml')}</loc>\n    <lastmod>${new Date().toISOString()}</lastmod>\n  </sitemap>\n</sitemapindex>\n`
     }
 }
 module.exports = FeedMe

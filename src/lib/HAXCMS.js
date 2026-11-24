@@ -52,7 +52,7 @@ const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskil
 </IfModule>
 # Defense in depth: the discovery index only ships .md/.json/.txt, but harden
 # so a slipped-through script file can never execute server-side here.
-<FilesMatch ".(php|phtml|php[3-7]|phps|pht|sh|cgi|pl|py)$">
+<FilesMatch "\\.(php|phtml|php[3-7]|phps|pht|sh|cgi|pl|py)$">
   php_flag engine off
   RemoveHandler .php .phtml .php3 .php4 .php5 .php7
   SetHandler text/plain
@@ -200,18 +200,16 @@ const {
 const JSONOutlineSchemaItem = require("./JSONOutlineSchemaItem.js");
 const FeedMe = require("./RSS.js");
 const TurndownService = require("turndown");
-const jsyaml = require("js-yaml");
+const canonicalFormat = require("./canonicalFormat.js");
 const arraySearchImport = require("locutus/php/array/array_search");
 const arrayUnshiftImport = require("locutus/php/array/array_unshift");
 const implodeImport = require("locutus/php/strings/implode");
-const jsonEncodeImport = require("locutus/php/json/json_encode");
 const strtrImport = require("locutus/php/strings/strtr");
 const usortImport = require("locutus/php/array/usort");
 const explode = explodeImport.explode || explodeImport;
 const array_search = arraySearchImport.array_search || arraySearchImport;
 const array_unshift = arrayUnshiftImport.array_unshift || arrayUnshiftImport;
 const implode = implodeImport.implode || implodeImport;
-const json_encode = jsonEncodeImport.json_encode || jsonEncodeImport;
 const strtr = strtrImport.strtr || strtrImport;
 const usort = usortImport.usort || usortImport;
 const sharp = require("sharp");
@@ -1243,6 +1241,8 @@ class HAXCMSSite {
       serviceWorkerScript: this.getServiceWorkerScript(this.getPWAScopePath()),
       bodyAttrs: this.getSitePageAttributes(),
       metadata: await this.getSiteMetadata(),
+      // manifest.json "lang", as haxcms-php passes it (haxtheweb/issues#3394)
+      lang: this.getLanguage(),
       logo512x512: await this.getLogoSize("512", "512"),
       logo256x256: await this.getLogoSize("256", "256"),
       logo192x192: await this.getLogoSize("192", "192"),
@@ -1300,6 +1300,11 @@ class HAXCMSSite {
         }),
       ]);
     }
+    // the shell file list as the canonical pretty JSON both backends write
+    // into service-worker.js (canonicalFormat.js)
+    templateVars["swhashJson"] = canonicalFormat.prettyJson(
+      templateVars["swhash"],
+    );
     if (
       this.manifest.metadata.theme &&
       this.manifest.metadata.theme.variables &&
@@ -1934,7 +1939,8 @@ class HAXCMSSite {
       // now generate the search index
       await fs.writeFileSync(
         this.siteDirectory + "/lunrSearchIndex.json",
-        json_encode(await this.lunrSearchIndex(this.manifest.items)),
+        // canonical compact JSON, the same file haxcms-php writes
+        canonicalFormat.json(await this.lunrSearchIndex(this.manifest.items)),
       );
     }
     if (format == null || format == "llms") {
@@ -2850,7 +2856,8 @@ class HAXCMSSite {
       let jsonPayload = this.getPageAlternatePayload(page, content, "json");
       fs.writeFileSync(
         path.join(this.siteDirectory, jsonPayload.location),
-        JSON.stringify(jsonPayload, null, 2),
+        // canonical pretty JSON (4 spaces), the same file haxcms-php writes
+        canonicalFormat.prettyJson(jsonPayload),
       );
     } catch {
       // intentionally ignored
@@ -2860,7 +2867,8 @@ class HAXCMSSite {
       let yamlPayload = this.getPageAlternatePayload(page, content, "yaml");
       fs.writeFileSync(
         path.join(this.siteDirectory, yamlPayload.location),
-        jsyaml.dump(yamlPayload),
+        // canonical YAML, the same file haxcms-php writes
+        canonicalFormat.yaml(yamlPayload),
       );
     } catch {
       // intentionally ignored
@@ -2962,6 +2970,22 @@ class HAXCMSSite {
       }
     }
     return tags;
+  }
+  /**
+   * The site's language setting, else "en-US": the same rule as
+   * HAXCMSSite::getLanguage in haxcms-php.
+   */
+  getLanguage() {
+    if (
+      this.manifest &&
+      this.manifest.metadata &&
+      this.manifest.metadata.site &&
+      this.manifest.metadata.site.settings &&
+      this.manifest.metadata.site.settings.lang
+    ) {
+      return String(this.manifest.metadata.site.settings.lang);
+    }
+    return "en-US";
   }
   /**
    * Generate XML output for per-page structured payload.

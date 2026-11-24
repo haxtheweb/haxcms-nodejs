@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const YAML = require('yaml');
+const canonicalFormat = require('../../lib/canonicalFormat.js');
 const { HAXCMS, systemStructureContext } = require('../../lib/HAXCMS.js');
 const { legacySlugMatches } = require('../../lib/slugRules.js');
 const {
@@ -1139,13 +1139,14 @@ function serializeMarkdown(payload) {
   if (typeof payload === 'string') {
     return payload;
   }
-  return JSON.stringify(payload, null, 2);
+  return canonicalFormat.prettyJson(payload);
 }
 
 function serializePayload(payload, format) {
   switch (format) {
     case 'yaml':
-      return YAML.stringify(payload);
+      // the canonical YAML both backends write (lib/canonicalFormat.js)
+      return canonicalFormat.yaml(payload);
     case 'xml':
       return `<?xml version="1.0" encoding="UTF-8"?>\n${toXmlNode('response', payload)}`;
     case 'md':
@@ -1154,12 +1155,11 @@ function serializePayload(payload, format) {
       if (typeof payload === 'string') {
         return payload;
       }
-      // 4 spaces: the indent of PHP's JSON_PRETTY_PRINT, so the html form
-      // is the same on both backends (haxtheweb/issues#3394)
-      return `<pre>${escapeHtmlValue(JSON.stringify(payload, null, 4))}</pre>`;
+      // the canonical pretty JSON both backends write (4 spaces)
+      return `<pre>${escapeHtmlValue(canonicalFormat.prettyJson(payload))}</pre>`;
     case 'json':
     default:
-      return JSON.stringify(payload, null, 2);
+      return canonicalFormat.json(payload);
   }
 }
 

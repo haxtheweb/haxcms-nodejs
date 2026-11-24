@@ -1,5 +1,6 @@
 const fs = require("node:fs/promises");
 const yaml = require("js-yaml");
+const canonicalFormat = require("../../lib/canonicalFormat.js");
 // Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../lib/clientErrorMessage.js");
 
@@ -69,7 +70,8 @@ async function openapi(req, res) {
     const parsedSpec = parseYamlOrThrow(rawSpec);
     if (format === "yaml") {
       res.setHeader("Content-Type", "application/yaml; charset=utf-8");
-      return res.send(yaml.dump(parsedSpec));
+      // the canonical YAML both backends write (lib/canonicalFormat.js)
+      return res.send(canonicalFormat.yaml(parsedSpec));
     }
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     return res.json(parsedSpec);
