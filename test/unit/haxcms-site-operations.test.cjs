@@ -1066,6 +1066,58 @@ test("getSiteMetadata renders head tags, structured data, and social metadata", 
   assert.ok(metadata.indexOf("robots") !== -1);
 });
 
+test("getSiteMetadata publishes site and author sameAs in JSON-LD (#3367)", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const page = site.manifest.items[0];
+  const before = JSON.parse(JSON.stringify(site.manifest.metadata));
+  try {
+    site.manifest.metadata.site.sameAs = [
+      "https://github.com/haxtheweb",
+      "javascript:alert(1)",
+      "https://www.linkedin.com/company/haxtheweb",
+    ];
+    site.manifest.metadata.author = Object.assign(
+      {},
+      site.manifest.metadata.author,
+      {
+        name: "Author",
+        socialLink: "https://mastodon.social/@author",
+        socialLink2: "https://github.com/author",
+      },
+    );
+    const metadata = await site.getSiteMetadata(page, "https://unit.example");
+    const match = metadata.match(
+      /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+    );
+    assert.ok(match, "JSON-LD present");
+    const graph = JSON.parse(match[1])["@graph"];
+    const org = graph.find((node) => node["@type"] === "Organization");
+    const person = graph.find((node) => node["@type"] === "Person");
+    assert.deepEqual(org.sameAs, [
+      "https://github.com/haxtheweb",
+      "https://www.linkedin.com/company/haxtheweb",
+    ]);
+    assert.deepEqual(person.sameAs, [
+      "https://mastodon.social/@author",
+      "https://github.com/author",
+    ]);
+    // no sameAs on the site: the Organization node has none
+    delete site.manifest.metadata.site.sameAs;
+    const plain = await site.getSiteMetadata(page, "https://unit.example");
+    const plainGraph = JSON.parse(
+      plain.match(
+        /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+      )[1],
+    )["@graph"];
+    assert.equal(
+      "sameAs" in plainGraph.find((node) => node["@type"] === "Organization"),
+      false,
+    );
+  } finally {
+    site.manifest.metadata = before;
+  }
+});
+
 test("getSiteMetadata preloads the active page's HTML, site-relative", async () => {
   const site = await HAXCMS.loadSite("unit-import");
   const page = site.manifest.items[0];
@@ -1091,6 +1143,68 @@ test("getSiteMetadata preloads the active page's HTML, site-relative", async () 
     -1,
   );
   assert.equal(/href="\.\/pages\//.test(none), false);
+});
+
+test("getSiteMetadata preloads DDD's Latin Roboto only for sites on DDD fonts", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const page = site.manifest.items[0];
+  const before = JSON.parse(JSON.stringify(site.manifest.metadata));
+  const tmpBuild = fs.mkdtempSync(path.join(os.tmpdir(), "haxcms-font-"));
+  const fontFile = path.join(tmpBuild, "roboto-latin-wght-normal.woff2");
+  const registryFile = path.join(tmpBuild, "designSystems.json");
+  fs.writeFileSync(fontFile, "");
+  fs.writeJsonSync(registryFile, {
+    carbon: { name: "carbon", theme: "carbon-theme" },
+  });
+  const { DDD_FONT_PRELOAD } = require("../../src/lib/HAXCMS.js");
+  let shipsFont = true;
+  site.localBuildFile = (rel) => {
+    if (rel === DDD_FONT_PRELOAD) {
+      return shipsFont ? fontFile : null;
+    }
+    if (rel === "@haxtheweb/haxcms-elements/lib/designSystems.json") {
+      return registryFile;
+    }
+    return null;
+  };
+  const preload = (base) =>
+    '<link rel="preload" href="' +
+    base +
+    "build/es6/node_modules/@haxtheweb/d-d-d/lib/fonts/roboto/roboto-latin-wght-normal.woff2" +
+    '" as="font" type="font/woff2" crossorigin="anonymous" />';
+  const render = (cdn = "") =>
+    site.getSiteMetadata(page, "https://unit.example", cdn);
+  try {
+    site.manifest.metadata.theme = Object.assign(
+      {},
+      site.manifest.metadata.theme,
+      { element: "clean-one", designSystem: "" },
+    );
+    assert.ok((await render()).indexOf(preload("./")) !== -1);
+    // served from the CDN: the font comes from there too
+    assert.ok(
+      (await render("https://cdn.example/")).indexOf(
+        preload("https://cdn.example/"),
+      ) !== -1,
+    );
+    site.manifest.metadata.theme.designSystem = "ddd";
+    assert.ok((await render()).indexOf(preload("./")) !== -1);
+    // another design system brings its own fonts
+    site.manifest.metadata.theme.designSystem = "carbon";
+    assert.equal((await render()).indexOf('as="font"'), -1);
+    // so does a bridged theme
+    site.manifest.metadata.theme.designSystem = "";
+    site.manifest.metadata.theme.element = "carbon-theme";
+    assert.equal((await render()).indexOf('as="font"'), -1);
+    // a build without the font gets no preload (no 404)
+    site.manifest.metadata.theme.element = "clean-one";
+    shipsFont = false;
+    assert.equal((await render()).indexOf('as="font"'), -1);
+  } finally {
+    delete site.localBuildFile;
+    site.manifest.metadata = before;
+    fs.removeSync(tmpBuild);
+  }
 });
 
 test("getPreloadablePageLocation only allows plain relative page paths", () => {
@@ -1326,17 +1440,10 @@ test("getSiteMetadata social cards, preconnects and the canonical default", asyn
     }
     // twitter:site is an @handle, never a URL; HAXcms has none to give
     assert.equal(homeMeta.indexOf("twitter:site"), -1);
-    // the font CSS host (no CORS) and the font file host (CORS) only
-    assert.ok(
-      homeMeta.indexOf(
-        '<link rel="preconnect" href="https://fonts.googleapis.com">',
-      ) !== -1,
-    );
-    assert.ok(
-      homeMeta.indexOf(
-        '<link rel="preconnect" crossorigin href="https://fonts.gstatic.com">',
-      ) !== -1,
-    );
+    // HAX serves its own fonts (webcomponents d-d-d/lib/fonts): a site
+    // never opens a connection to Google Fonts
+    assert.equal(homeMeta.indexOf("fonts.googleapis.com"), -1);
+    assert.equal(homeMeta.indexOf("fonts.gstatic.com"), -1);
     for (const host of [
       "cdnjs.cloudflare.com",
       "i.creativecommons.org",
@@ -1776,7 +1883,38 @@ test("managedTemplateVarsFor escapes title/description per managed format", () =
   const json = managedTemplateVarsFor("manifest.json", vars);
   assert.equal(json.title, 'Tom\'s R&D \\"x\\" ');
   assert.equal(json.description, "");
-  assert.equal(json.other, "<keep>");
+  // every other value a non-HTML managed template prints is HTML-escaped
+  // (the text PHP Twig's autoescape gives), so it cannot close the JSON
+  // string or XML node around it
+  assert.equal(json.other, "&lt;keep&gt;");
+  const settings = {
+    title: "T",
+    description: "D",
+    short: 'a","start_url":"x',
+    hexCode: '#000"/><x>',
+    domain: "https://example.com/<a>",
+    logo72x72: "assets/icon-72x72.png",
+    basePath: "/",
+    count: 3,
+  };
+  [
+    "manifest.json",
+    "package.json",
+    "imsmanifest.xml",
+    "browserconfig.xml",
+    "robots.txt",
+    "llms.txt",
+  ].forEach((file) => {
+    const out = managedTemplateVarsFor(file, settings);
+    assert.equal(out.short, "a&quot;,&quot;start_url&quot;:&quot;x");
+    assert.equal(out.hexCode, "#000&quot;/&gt;&lt;x&gt;");
+    assert.equal(out.domain, "https://example.com/&lt;a&gt;");
+    assert.equal(out.logo72x72, "assets/icon-72x72.png");
+    assert.equal(out.basePath, "/");
+    assert.equal(out.count, 3);
+  });
+  // the shared vars object is never changed in place
+  assert.equal(settings.short, 'a","start_url":"x');
   assert.equal(managedTemplateVarsFor("package.json", vars).title, json.title);
   assert.equal(
     managedTemplateVarsFor("imsmanifest.xml", vars).title,
@@ -1858,71 +1996,83 @@ test("maybeUpgradeLegacyBootstrap still upgrades an index.html replaced after a 
   );
 });
 
-test("cleanSearchData dedupes words exactly like the previous array_unique + implode", async () => {
+test("cleanSearchData matches the vectors shared with haxcms-php", async () => {
   const site = await HAXCMS.loadSite("unit-import");
-  const utf8 = require("utf8");
-  const { stripAngleTags } = require("../../src/lib/linearText.js");
-  const arrayUniqueImport = require("locutus/php/array/array_unique");
-  const implodeImport = require("locutus/php/strings/implode");
-  const explodeImport = require("locutus/php/strings/explode");
-  const array_unique = arrayUniqueImport.array_unique || arrayUniqueImport;
-  const implode = implodeImport.implode || implodeImport;
-  const explode = explodeImport.explode || explodeImport;
-  // the pre-change implementation, verbatim apart from the helper imports
-  const previousCleanSearchData = (text) => {
-    if (text == "" || text == null || !text) {
-      return "";
-    }
-    text = utf8.encode(
-      stripAngleTags(text, "").replace(/\n/g, " ").toLowerCase().trim(),
-    );
-    text = text.replace("/[^a-z0-9']/", " ");
-    text = text.replace(/'/g, "");
-    text = text.replace("~\b[a-z]{1,4}\bs*~", "");
-    text = text.replace("/s+/", " ");
-    text = implode(" ", array_unique(explode(" ", text)));
-    return text;
-  };
-  const words = [
-    "alpha",
-    "Beta",
-    "gamma",
-    "delta",
-    "0",
-    "00",
-    "1",
-    "it's",
-    "naïve",
-    "",
-    "  ",
-    "<b>bold</b>",
-    "toString",
-    "constructor",
-    "__proto__",
-  ];
-  let seed = 7;
-  const next = () => {
-    seed = (seed * 1103515245 + 12345) % 2147483648;
-    return seed;
-  };
-  for (let run = 0; run < 500; run++) {
-    const count = next() % 60;
-    const parts = [];
-    for (let i = 0; i < count; i++) {
-      parts.push(words[next() % words.length]);
-    }
-    const input = "<p>" + parts.join(next() % 2 ? " " : "\n") + "</p>";
+  const vectors = JSON.parse(
+    fs.readFileSync(
+      path.join(__dirname, "..", "fixtures", "search-index-vectors.json"),
+      "utf8",
+    ),
+  );
+  assert.ok(vectors.cases.length > 10);
+  for (const vector of vectors.cases) {
     assert.equal(
-      site.cleanSearchData(input),
-      previousCleanSearchData(input),
-      input,
+      site.cleanSearchData(vector.input),
+      vector.expected,
+      vector.name,
     );
   }
-  // order is first-occurrence order and duplicates are dropped
-  assert.equal(
-    site.cleanSearchData("zulu alpha zulu bravo alpha"),
-    "zulu alpha bravo",
-  );
+  // not text: nothing to index
+  assert.equal(site.cleanSearchData(null), "");
+  assert.equal(site.cleanSearchData(undefined), "");
+  assert.equal(site.cleanSearchData(42), "");
+});
+
+test("cleanSearchData keeps each word once, in first-seen order, on a large page", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const words = [];
+  for (let i = 0; i < 20000; i++) {
+    words.push("word" + (i % 5000));
+  }
+  const started = Date.now();
+  const cleaned = site.cleanSearchData("<p>" + words.join("</p><p>") + "</p>");
+  assert.ok(Date.now() - started < 2000);
+  const out = cleaned.split(" ");
+  assert.equal(out.length, 5000);
+  assert.equal(out[0], "word0");
+  assert.equal(out[4999], "word4999");
+});
+
+test("lunrSearchIndex: one entry per published page, in the shape haxcms-php writes", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const first = site.manifest.items[0];
+  const items = [
+    first,
+    Object.assign({}, first, {
+      id: "item-aaaa-bbbb-cccc-dddd-eeee-ffff-0000-1111",
+      title: "Draft page",
+      slug: "draft-page",
+      description: "<b>Not</b> ready",
+      metadata: Object.assign({}, first.metadata, { published: false }),
+    }),
+    Object.assign({}, first, {
+      id: "item-aaaa-bbbb-cccc-dddd-eeee-ffff-0000-2222",
+      title: "No file",
+      slug: "no-file",
+      description: "<b>Bold</b> summary",
+      location: "pages/does-not-exist/index.html",
+      metadata: { created: 1234 },
+    }),
+  ];
+  const index = await site.lunrSearchIndex(items);
+  // the unpublished page is not in the public index at all
+  assert.equal(index.length, 2);
+  assert.equal(JSON.stringify(index).indexOf("Draft page"), -1);
+  assert.deepEqual(Object.keys(index[0]), [
+    "id",
+    "title",
+    "created",
+    "location",
+    "description",
+    "text",
+  ]);
+  // "item-" and every dash removed, 29 characters at most
+  assert.equal(index[1].id, "aaaabbbbccccddddeeeeffff00002");
+  assert.equal(index[1].created, 1234);
+  assert.equal(index[1].location, "no-file");
+  assert.equal(index[1].description, "Bold summary");
+  // a page whose file cannot be read is still listed, found by its title
+  assert.equal(index[1].text, "");
 });
 
 // ---------------------------------------------------------------------------

@@ -82,6 +82,7 @@ const {
 } = require("./lib/indexMarkup.js");
 const { resolveContainedPath } = require("./lib/pathConfinement.js");
 const { stampDashboardBasePath } = require("./lib/dashboardBasePath.js");
+const { isDashboardRoutePath } = require("./lib/dashboardRoutes.js");
 const { legacySlugMatches } = require("./lib/slugRules.js");
 const {
   createRequestCommitContext,
@@ -117,6 +118,13 @@ var helmetPolicies = {
   referrerPolicy: {
     policy: "same-origin",
   },
+  // Security (SEC-HEADERS): framing is decided in one place, the CSP
+  // frame-ancestors directive (configuredFrameAncestors). helmet's default
+  // X-Frame-Options: SAMEORIGIN would refuse every cross-origin embed and so
+  // undo the default below (HAX sites are embeddable, e.g. in an LMS).
+  // haxcms-php sends no X-Frame-Options on site pages either. The dashboard
+  // keeps its own rule (limitDashboardFraming).
+  xFrameOptions: false,
 };
 // Base CSP directives used by the per-request nonce middleware. 'unsafe-eval'
 // is still required because several third-party libs bundled into the build
@@ -142,7 +150,14 @@ var cspBaseDirectives = {
     "'sha256-8eohedfRaQoWnH7igD20HvjedM7lPcYbqukJ7DEpMOk='",
   ],
   styleSrc: ["'self'", "'unsafe-inline'", "data:", "https:"],
-  mediaSrc: ["'self'", "data:", "https:"],
+  // blob: is the in-browser recorders' own output: voice-recorder and
+  // screen-recorder preview a recording from an object URL before it uploads.
+  mediaSrc: ["'self'", "data:", "https:", "blob:"],
+  // Without worker-src, workers fall back to script-src and a blob: worker is
+  // refused. voice-recorder's mp3 encoder runs in a blob: worker because the
+  // element can be served from a CDN and a worker script must be same-origin.
+  // A blob: worker inherits this policy, so script-src is not widened.
+  workerSrc: ["'self'", "blob:"],
   imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
   connectSrc: ["'self'", "https:", "ws:", "wss:"],
   defaultSrc: ["'self'", "data:", "https:"],
@@ -198,6 +213,32 @@ function cspNonceMiddleware(req, res, next) {
   }
   res.setHeader("Content-Security-Policy", formatCspDirectives(directives));
   next();
+}
+
+// Security (SEC-HEADERS): the dashboard (login, site list) is only ever
+// framed by its own origin, whatever config.security.frameAncestors allows
+// for sites: a login or site list framed by another origin is a click-jacking
+// target and nothing embeds it. Same-origin stays allowed because
+// haxcms-browser shows this server inside a frame of its own host page.
+// Replaces any frame-ancestors already on the response with 'self';
+// X-Frame-Options covers the case where no CSP is sent (local development).
+// haxcms-php's root index.php is stricter still (frame-ancestors 'none').
+function limitDashboardFraming(res) {
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  var csp = res.getHeader("Content-Security-Policy");
+  if (typeof csp !== "string" || csp === "") {
+    return;
+  }
+  var kept = csp
+    .split(";")
+    .map(function (directive) {
+      return directive.trim();
+    })
+    .filter(function (directive) {
+      return directive !== "" && directive.indexOf("frame-ancestors") !== 0;
+    });
+  kept.push("frame-ancestors 'self'");
+  res.setHeader("Content-Security-Policy", kept.join("; "));
 }
 
 // config.security.frameAncestors as a clean list of CSP source expressions,
@@ -310,6 +351,7 @@ const upload = multer({
 // Security (SEC-UPLOAD): upload temp-file lifecycle helpers (per-request
 // cleanup, stale temp sweeper, conversion cap, files/ force-download guard).
 const uploadSecurity = require("./lib/uploadSecurity.js");
+const compressedFileCache = require("./lib/compressedFileCache.js");
 const uploadTempCleanup = uploadSecurity.createUploadTempCleanupMiddleware(
   UPLOAD_TEMP_DIRECTORY,
 );
@@ -418,6 +460,11 @@ function getSystemV1RouteParser(method = "get", route = "") {
       normalizedRoute === "actions/import-html" ||
       normalizedRoute === "actions/import-xlsx" ||
       normalizedRoute === "actions/import-pdf" ||
+      normalizedRoute === "actions/import-md" ||
+      normalizedRoute === "actions/import-odt" ||
+      normalizedRoute === "actions/odt-to-html" ||
+      normalizedRoute === "actions/import-odp" ||
+      normalizedRoute === "actions/odp-to-html" ||
       normalizedRoute === "actions/xlsx-to-csv" ||
       normalizedRoute === "actions/pdf-to-html" ||
       normalizedRoute === "actions/pptx-to-html" ||
@@ -1203,11 +1250,13 @@ app.use((req, res, next) => {
 // Security (SEC-UPLOAD): decided on the DECODED path (the raw req.url let
 // /files/x%2ehtml through, since send decodes it before reading the disk) and
 // extended to every active-content type in the PHP parity contract:
-// html, htm, xhtml, xml, svg (uploadSecurity.FORCE_DOWNLOAD_FILES_EXTENSIONS).
+// html, htm, xhtml, xml, svg (uploadSecurity.FORCE_DOWNLOAD_FILES_EXTENSIONS),
+// plus xhtml/xml/svg under custom/ and theme/, and sandboxed with
+// Content-Security-Policy: sandbox (uploadSecurity.setForcedDownloadHeaders).
 // X-Content-Type-Options: nosniff is set on every response by helmet.
 app.use((req, res, next) => {
   if (uploadSecurity.shouldForceDownloadFilesRequest(req.url)) {
-    res.setHeader("Content-Disposition", "attachment");
+    uploadSecurity.setForcedDownloadHeaders(res);
   }
   next();
 });
@@ -1525,8 +1574,22 @@ const appReady = systemStructureContext().then((site) => {
         if (!setWellKnownContentType(res, req.url)) {
           setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
         }
+        const singleSiteFilePath = decodeStaticRequestPath(
+          req.url.split("?")[0],
+        );
+        // site.json is answered from its compressed copy when possible
+        if (
+          await compressedFileCache.trySend(
+            req,
+            res,
+            publicDir,
+            singleSiteFilePath,
+          )
+        ) {
+          return;
+        }
         res.sendFile(
-          decodeStaticRequestPath(req.url.split("?")[0]),
+          singleSiteFilePath,
           getStaticSendFileOptions(publicDir, req.url),
         );
       } else {
@@ -1576,6 +1639,7 @@ const appReady = systemStructureContext().then((site) => {
             variantResponse.canonicalPath,
             pageMiss,
             path.join(publicDir, "index.html"),
+            variantResponse.unpublished === true,
           );
           // injects a websocket for livereload support when developing custom components
           indexFile = injectLinkedDevDedupingFix(indexFile);
@@ -1663,15 +1727,14 @@ const appReady = systemStructureContext().then((site) => {
       );
       // dynamic step routes in HAXcms site list UI
       const requestPath = getRequestPathWithoutQuery(req.url);
-      const isDashboardIndexRequest =
-        requestPath === "/" ||
-        requestPath === "/home" ||
-        requestPath === "/index.html" ||
-        requestPath.indexOf("/createSite-step-") === 0;
+      const isDashboardIndexRequest = isDashboardRoutePath(requestPath);
       if (!isDashboardIndexRequest) {
         next();
       } else {
-        setStaticContentTypeWithCharset(res, requestPath);
+        limitDashboardFraming(res);
+        // the dashboard pages are HTML, whatever their path looks like
+        // (index.php, search, createSite-step-1)
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
         if (process.env.NODE_ENV === "development") {
           try {
             let indexFile = fs.readFileSync(
@@ -1806,8 +1869,22 @@ const appReady = systemStructureContext().then((site) => {
           if (!setWellKnownContentType(res, req.url)) {
             setStaticContentTypeWithCharset(res, req.url.split("?")[0]);
           }
+          const multisiteFilePath = decodeStaticRequestPath(
+            req.url.split("?")[0],
+          );
+          // site.json is answered from its compressed copy when possible
+          if (
+            await compressedFileCache.trySend(
+              req,
+              res,
+              process.cwd() + `/${HAXCMS.sitesDirectory}`,
+              multisiteFilePath,
+            )
+          ) {
+            return;
+          }
           res.sendFile(
-            decodeStaticRequestPath(req.url.split("?")[0]),
+            multisiteFilePath,
             getStaticSendFileOptions(
               process.cwd() + `/${HAXCMS.sitesDirectory}`,
               req.url,
@@ -1864,6 +1941,7 @@ const appReady = systemStructureContext().then((site) => {
                 variantResponse.canonicalPath,
                 pageMiss,
                 path.join(siteContext.siteDirectory, "index.html"),
+                variantResponse.unpublished === true,
               );
               indexFile = injectLinkedDevDedupingFix(indexFile);
               indexFile = injectLinkedDevImportMap(indexFile);
@@ -2291,6 +2369,15 @@ const appReady = systemStructureContext().then((site) => {
         !req.url.startsWith("/robots.txt") &&
         !req.url.startsWith("/llms.txt")
       ) {
+        limitDashboardFraming(res);
+        // the dashboard shell still renders its own "not found" view, but a
+        // path it has no page for answers 404 as an HTML page (the API
+        // middleware above had labelled it JSON). Mirrors haxcms-php
+        // index.php via lib/dashboardRoutes.js.
+        if (!isDashboardRoutePath(getRequestPathWithoutQuery(req.url))) {
+          res.status(404);
+        }
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
         if (process.env.NODE_ENV === "development") {
           try {
             let indexFile = fs.readFileSync(
@@ -3753,6 +3840,19 @@ function getStaticSendFileOptions(rootPath = "", requestPath = "") {
   if (shouldAllowWellKnownDotfiles(requestPath)) {
     options.dotfiles = "allow";
   }
+  // Security (SEC-UPLOAD): a folder address under files/ never answers with
+  // an index.html someone uploaded there. Without this the folder address
+  // served that file as a page, past the forced download every other address
+  // of it gets. haxcms-php covers the same case in the files/.htaccess.
+  if (
+    uploadSecurity.isFilesDirectoryRequestPath(
+      uploadSecurity.decodeRequestPathForFilesGuard(
+        getRequestPathWithoutQuery(requestPath),
+      ),
+    )
+  ) {
+    options.index = false;
+  }
   return options;
 }
 // Extensions whose static files must be tagged charset=utf-8 so clients
@@ -3842,7 +3942,7 @@ function setManagedStaticHeaders(res, filePath = "") {
     setBuildAssetCacheHeader(res, filePath.substring(publicDir.length));
   }
   if (uploadSecurity.shouldForceDownloadResolvedFile(publicDir, filePath)) {
-    res.setHeader("Content-Disposition", "attachment");
+    uploadSecurity.setForcedDownloadHeaders(res);
   }
 }
 // D60: 405+Allow dispatch helpers. These support the catch-all middleware
@@ -4302,6 +4402,33 @@ async function tryServePageVariantRequest(
     };
   }
   const canonicalPath = buildCanonicalPagePath(routePrefix, slug);
+  // Security: the shell and the page variants are served without a login, so
+  // they follow the anonymous rule of the site API: an unpublished page gives
+  // nothing about itself here (no body, title, description or alternate
+  // format). The shell still answers 200 so an editor reloading the page
+  // gets the app, which loads the page once they are signed in.
+  // Mirrors haxcms-php HAXSiteConfig / respondWithRequestedPageVariant.
+  const { isItemPublished } = require("./siteRoutes/v1/siteRouteUtils.js");
+  if (!isItemPublished(item)) {
+    if (explicitInfo.format) {
+      res.status(404);
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.send("Not found");
+      return {
+        served: true,
+        item: null,
+        canonicalPath,
+        notFound: true,
+      };
+    }
+    return {
+      served: false,
+      item: null,
+      canonicalPath,
+      notFound: false,
+      unpublished: true,
+    };
+  }
   if (explicitInfo.format) {
     const servedExplicit = await servePageVariantFile(
       res,
@@ -4439,6 +4566,7 @@ async function renderDynamicSiteIndexResponse(
   canonicalPath = "",
   pageMiss = false,
   indexFilePath = "",
+  noindex = false,
 ) {
   let indexFile = fs.readFileSync(indexFilePath, "utf8");
   const absoluteUrl = getRequestAbsoluteUrl(req, canonicalPath || "/");
@@ -4455,7 +4583,7 @@ async function renderDynamicSiteIndexResponse(
   );
   indexFile = replaceManagedHeadMarkup(
     indexFile,
-    pageMiss ? noindexRobotsMeta(metadata) : metadata,
+    pageMiss || noindex ? noindexRobotsMeta(metadata) : metadata,
     serviceWorkerScript,
   );
   let pageContent = "";

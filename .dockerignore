@@ -31,3 +31,8 @@ src/boilerplate/systemsetup/.user
 src/boilerplate/systemsetup/SALT.txt
 src/boilerplate/systemsetup/settings/apiKeys.json
 src/boilerplate/systemsetup/.initial-admin-password
+# Security (SEC-DEPLOY): local working notes never enter the build context
+security_best_practices_report*
+security_jwt_refresh_review.md
+security_post_fix_reaudit.md
+file_operations_security_report.md

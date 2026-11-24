@@ -11,7 +11,9 @@ const {
   batchOutline,
   buildOutline,
   fixtureShape,
+  normalizeSitesDir,
   seededRandom,
+  siteBaseUrl,
   slugify,
 } = require("../perf/fixture.cjs");
 const {
@@ -340,4 +342,31 @@ test("results report has one table per scenario", () => {
   });
   assert.match(md, /## reader\.perf500/);
   assert.match(md, /\| heapKBPerVisit \| 12\.3 \|/);
+});
+
+test("siteBaseUrl defaults to _sites and takes another sites folder", () => {
+  assert.equal(
+    siteBaseUrl("http://h", undefined, "perf500"),
+    "http://h/_sites/perf500/",
+  );
+  assert.equal(
+    siteBaseUrl("http://h", "", "perf500"),
+    "http://h/_sites/perf500/",
+  );
+  // haxcms-php serves sites from /sites/ (haxtheweb/issues#3355)
+  assert.equal(
+    siteBaseUrl("http://h", "sites", "perf500"),
+    "http://h/sites/perf500/",
+  );
+  assert.equal(
+    siteBaseUrl("http://h", "/sites/", "perf500"),
+    "http://h/sites/perf500/",
+  );
+  assert.equal(normalizeSitesDir("a//b/"), "a/b");
+});
+
+test("normalizeSitesDir refuses anything but a plain URL path", () => {
+  ["..", "../x", "a/./b", "a b", "a?b", "a#b", "%2e%2e", "/"].forEach((dir) => {
+    assert.throws(() => normalizeSitesDir(dir), /plain URL path/, dir);
+  });
 });

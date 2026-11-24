@@ -747,6 +747,48 @@ describe("saveSeoSettings", () => {
     assert.equal(site.calls.gitCommits.length, 2);
   });
 
+  test("seo.sameAs is normalized into metadata.site.sameAs; empty removes it", async (t) => {
+    const site = makeFakeSite();
+    mockSiteAuth(t, site);
+    let res = stubRes();
+    await saveSeoSettings(
+      siteReq({
+        site: { name: "demo" },
+        seo: {
+          sameAs:
+            "https://github.com/haxtheweb\njavascript:alert(1)\nhttps://github.com/haxtheweb\nhttps://www.youtube.com/@haxtheweb",
+        },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.deepEqual(site.manifest.metadata.site.sameAs, [
+      "https://github.com/haxtheweb",
+      "https://www.youtube.com/@haxtheweb",
+    ]);
+    // the legacy manifest.* key works too, and an empty list removes it
+    res = stubRes();
+    await saveSeoSettings(
+      siteReq({
+        site: { name: "demo" },
+        manifest: { seo: { "manifest.metadata.site.sameAs": [] } },
+      }),
+      res,
+    );
+    assert.equal(res.body.status, 200);
+    assert.equal("sameAs" in site.manifest.metadata.site, false);
+    // a save that doesn't send sameAs leaves it alone
+    site.manifest.metadata.site.sameAs = ["https://github.com/haxtheweb"];
+    res = stubRes();
+    await saveSeoSettings(
+      siteReq({ site: { name: "demo" }, seo: { lang: "en" } }),
+      res,
+    );
+    assert.deepEqual(site.manifest.metadata.site.sameAs, [
+      "https://github.com/haxtheweb",
+    ]);
+  });
+
   test("legacy manifest.* keys still write fields", async (t) => {
     const site = makeFakeSite();
     mockSiteAuth(t, site);
@@ -842,6 +884,7 @@ describe("saveNode", () => {
 
   test("a full page-break save updates page attributes, metadata, and schema media", async (t) => {
     const page = makeFakePage();
+    const placeBefore = { indent: page.indent, order: page.order };
     const site = makeFakeSite();
     site.loadNode = (id) => (id === "item-1" ? page : null);
     mockNodeExtras(t, site);
@@ -874,10 +917,12 @@ describe("saveNode", () => {
     assert.ok(page.writeCalls[0].content.indexOf("Hello world") !== -1);
     assert.equal(page.title, "New & Shiny");
     assert.equal(page.slug, "my-page");
-    assert.equal(page.parent, null);
+    // every detail applies except the page's place: a content save never
+    // moves the page, whatever parent, order or depth the page-break carries
+    assert.equal(page.parent, "item-0");
     assert.equal(page.description, "A page");
-    assert.equal(page.indent, 1);
-    assert.equal(page.order, 2);
+    assert.equal(page.indent, placeBefore.indent);
+    assert.equal(page.order, placeBefore.order);
     assert.equal(page.metadata.published, true);
     assert.equal(page.metadata.locked, true);
     assert.equal(page.metadata.hideInMenu, true);
@@ -897,6 +942,36 @@ describe("saveNode", () => {
     assert.equal(site.calls.writePageAlternateFormats, 1);
     assert.deepEqual(site.manifest.saveCalls, [true]);
     assert.equal(site.calls.gitCommits.length, 1);
+  });
+
+  test("hide-title stores hideTitle, and dropping it clears it", async (t) => {
+    const page = makeFakePage();
+    const site = makeFakeSite();
+    site.loadNode = (id) => (id === "item-1" ? page : null);
+    mockNodeExtras(t, site);
+    mockSiteAuth(t, site);
+    const save = async (attrs) => {
+      const res = stubRes();
+      await saveNode(
+        siteReq({
+          site: { name: "demo" },
+          node: {
+            id: "item-1",
+            body: `<page-break title="Page One" published ${attrs}></page-break><p>x</p>`,
+          },
+        }),
+        res,
+      );
+      assert.equal(res.body.status, 200);
+    };
+    await save("hide-title");
+    assert.equal(page.metadata.hideTitle, true);
+    // the title shows by default, so nothing is stored once it is shown again
+    await save("");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(page.metadata, "hideTitle"),
+      false,
+    );
   });
 
   test("a slug of exactly x is forced to x-x", async (t) => {

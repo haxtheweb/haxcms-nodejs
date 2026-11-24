@@ -23,9 +23,13 @@ const ALLOWED_MIME_BY_EXTENSION = {
   gif: ["image/gif"],
   webp: ["image/webp"],
   webm: ["video/webm", "audio/webm"],
-  mp4: ["video/mp4"],
+  // .mp4 and .mov are the same ISO media container: phones, screen
+  // recorders and editors routinely write a QuickTime brand into a .mp4
+  // (and an mp4 brand into a .mov), and audio-only files carry an M4A
+  // brand. Browsers play all of them, so each accepts the whole family
+  mp4: ["video/mp4", "video/quicktime", "audio/mp4", "audio/x-m4a"],
   mp3: ["audio/mpeg", "audio/mp3"],
-  mov: ["video/quicktime"],
+  mov: ["video/quicktime", "video/mp4"],
   csv: ["text/csv", "text/plain"],
   ppt: [
     "application/vnd.ms-powerpoint",
@@ -58,7 +62,10 @@ const ALLOWED_MIME_BY_EXTENSION = {
   rtf: ["application/rtf", "text/rtf", "text/plain"],
   txt: ["text/plain"],
   vtt: ["text/vtt", "text/plain"],
-  html: ["text/html", "application/xhtml+xml"],
+  // an .html file is stored and only ever served as a download (attachment,
+  // sandboxed), so a fragment with no <html> or <body>, which reads as plain
+  // text here and as text/html to libmagic in haxcms-php, is accepted too
+  html: ["text/html", "application/xhtml+xml", "text/plain"],
   md: ["text/markdown", "text/plain"],
   xml: ["application/xml", "text/xml"],
   // calendars and contact cards are plain text, so the content
@@ -296,6 +303,58 @@ function isLikelyTextContent(buffer) {
   return printableBytes / buffer.length >= 0.85;
 }
 
+// ISO base media (mp4 / mov / m4a): the file is a run of boxes, each a
+// 4 byte big-endian size and a 4 byte type. ftyp is normally first, but
+// some cameras and older QuickTime writers put free / wide / skip boxes
+// ahead of it, and QuickTime files may have no ftyp at all and start
+// with moov or mdat. Walk the leading boxes in the sample to find it.
+const ISO_MEDIA_LEADING_BOXES = ["free", "wide", "skip", "pnot", "junk"];
+const ISO_MEDIA_HEADLESS_BOXES = ["moov", "mdat"];
+function detectIsoMediaType(sample) {
+  let offset = 0;
+  for (let i = 0; i < 8 && offset + 8 <= sample.length; i++) {
+    const size = sample.readUInt32BE(offset);
+    const type = sample.toString("ascii", offset + 4, offset + 8);
+    if (type === "ftyp") {
+      if (offset + 12 > sample.length) {
+        return "video/mp4";
+      }
+      const majorBrand = sample.toString("ascii", offset + 8, offset + 12);
+      if (majorBrand === "qt  ") {
+        return "video/quicktime";
+      }
+      if (majorBrand === "M4A " || majorBrand === "M4B ") {
+        return "audio/mp4";
+      }
+      return "video/mp4";
+    }
+    if (offset === 0 && ISO_MEDIA_HEADLESS_BOXES.includes(type)) {
+      return "video/quicktime";
+    }
+    if (!ISO_MEDIA_LEADING_BOXES.includes(type) || size < 8) {
+      return null;
+    }
+    offset += size;
+  }
+  return null;
+}
+
+// MPEG audio without an ID3 tag starts at a frame header (11 sync bits).
+// Some encoders pad the start with zero bytes first, so skip a short run
+// of them.
+function startsWithMpegAudioFrame(sample) {
+  let offset = 0;
+  while (offset < sample.length && offset < 4096 && sample[offset] === 0) {
+    offset++;
+  }
+  if (offset + 1 >= sample.length) {
+    return false;
+  }
+  const b0 = sample[offset];
+  const b1 = sample[offset + 1];
+  return b0 === 0xff && (b1 & 0xe0) === 0xe0;
+}
+
 function detectMimeTypeFromContent(filePath) {
   const sample = readFileSample(filePath);
   if (!sample.length) {
@@ -347,17 +406,14 @@ function detectMimeTypeFromContent(filePath) {
   ) {
     return "video/webm";
   }
-  if (sample.length >= 12 && sample.toString("ascii", 4, 8) === "ftyp") {
-    const majorBrand = sample.toString("ascii", 8, 12);
-    if (majorBrand === "qt  ") {
-      return "video/quicktime";
-    }
-    return "video/mp4";
-  }
-  if (sample.length >= 2 && sample[0] === 0xff && (sample[1] & 0xe0) === 0xe0) {
-    return "audio/mpeg";
+  const isoMedia = detectIsoMediaType(sample);
+  if (isoMedia) {
+    return isoMedia;
   }
   if (sample.length >= 3 && sample.toString("ascii", 0, 3) === "ID3") {
+    return "audio/mpeg";
+  }
+  if (startsWithMpegAudioFrame(sample)) {
     return "audio/mpeg";
   }
   if (sample.length >= 5 && sample.toString("ascii", 0, 5) === "%PDF-") {
@@ -1385,6 +1441,30 @@ HAXCMSFile.isPrivateOrReservedIP = isPrivateOrReservedIP;
 HAXCMSFile.validateUrlNotSSRF = validateUrlNotSSRF;
 HAXCMSFile.downloadAndSaveFile = downloadAndSaveFile;
 HAXCMSFile.mimeMatchesAllowed = mimeMatchesAllowed;
+// The HTTP status for a save() failure, from its message. A file the caller
+// sent that is refused for what it is (its type, its content, its size, where
+// it was asked to go) is the caller's to fix: 400. Anything else (a write
+// that failed, a source that could not be checked) stays a 500.
+// Mirrors haxcms-php HAXCMSFile::uploadRejectionStatus.
+const UPLOAD_REJECTION_PATTERNS = [
+  /^File type not allowed$/,
+  /^Detected MIME type .+ does not match allowed type for \..+$/,
+  /^Unable to determine uploaded file MIME type$/,
+  /^Invalid image file content$/,
+  /^Invalid subfolder$/,
+  /^Invalid upload source$/,
+  /^File exceeds the maximum upload size of .+$/,
+];
+function uploadRejectionStatus(message) {
+  const text = typeof message === "string" ? message : "";
+  for (let i = 0; i < UPLOAD_REJECTION_PATTERNS.length; i++) {
+    if (UPLOAD_REJECTION_PATTERNS[i].test(text)) {
+      return 400;
+    }
+  }
+  return 500;
+}
+HAXCMSFile.uploadRejectionStatus = uploadRejectionStatus;
 HAXCMSFile.detectMimeTypeFromContent = detectMimeTypeFromContent;
 HAXCMSFile.ALLOWED_MIME_BY_EXTENSION = ALLOWED_MIME_BY_EXTENSION;
 HAXCMSFile.IMAGE_EXTENSIONS = IMAGE_EXTENSIONS;

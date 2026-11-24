@@ -30,7 +30,7 @@ const {
   parentOf,
   orderOf,
   sortedSiblings,
-  healSiblingOrder,
+  compactSiblingOrders,
   makeRoomFor,
   lastSiblingOrder,
   syncIndentToDepth,
@@ -51,24 +51,6 @@ function createStatusError(
     statusError.reason = options.reason;
   }
   return statusError;
-}
-
-function getLastChildOrder(items = [], parentId = null) {
-  let max = -1;
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    if (!item) {
-      continue;
-    }
-    const parentValue = item.parent !== undefined ? item.parent : null;
-    if (parentValue === parentId && item.order !== undefined) {
-      const orderValue = parseInt(item.order);
-      if (orderValue > max) {
-        max = orderValue;
-      }
-    }
-  }
-  return max;
 }
 
 function normalizeOperation(operationValue) {
@@ -294,9 +276,9 @@ function applyOutlineMutation(
   if (!OUTLINE_OPERATIONS.has(operation)) {
     return;
   }
-  // siblings that share an order value have no defined neighbour: settle the
-  // page's group first so "the one above" and "the one below" mean something
-  healSiblingOrder(items, parentOf(page));
+  // number every group 0..n-1 first: siblings that share an order have no
+  // defined neighbour, and an order the client sends counts positions
+  compactSiblingOrders(items);
   const siblings = sortedSiblings(items, parentOf(page));
   const position = siblings.indexOf(page);
   switch (operation) {
@@ -320,7 +302,9 @@ function applyOutlineMutation(
       if (position > 0) {
         const previous = siblings[position - 1];
         page.parent = previous.id;
-        page.order = getLastChildOrder(items, previous.id) + 1;
+        // the page is now one of previous's children: leave it out, or its
+        // own old order counts as the last child's
+        page.order = lastSiblingOrder(items, previous.id, page) + 1;
       }
       reslugPageAndBranch(site, page, items);
       break;
@@ -376,7 +360,9 @@ function applyOutlineMutation(
     default:
       break;
   }
-  // indent is the page's depth, for the moved page and the branch under it
+  // no gaps or repeats left behind in the old or the new group, and indent
+  // is the page's depth, for the moved page and the branch under it
+  compactSiblingOrders(items);
   syncIndentToDepth(items);
 }
 

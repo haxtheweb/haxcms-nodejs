@@ -234,12 +234,39 @@ async function login(baseUrl, credentials, siteName) {
   return response.data;
 }
 
+// URL folder sites are served from: `_sites` on haxcms-nodejs, `sites` on
+// haxcms-php. Leading and trailing slashes are ignored.
+const DEFAULT_SITES_DIR = "_sites";
+
+function normalizeSitesDir(sitesDir) {
+  const segments = String(sitesDir || DEFAULT_SITES_DIR)
+    .split("/")
+    .filter(function (segment) {
+      return segment !== "";
+    });
+  const plain = segments.every(function (segment) {
+    return /^[A-Za-z0-9._-]+$/.test(segment) && !/^\.+$/.test(segment);
+  });
+  if (!segments.length || !plain) {
+    throw new Error("perf --sites-dir must be a plain URL path: " + sitesDir);
+  }
+  return segments.join("/");
+}
+
+// Base URL of a site, with a trailing slash.
+function siteBaseUrl(baseUrl, sitesDir, name) {
+  return baseUrl + "/" + normalizeSitesDir(sitesDir) + "/" + name + "/";
+}
+
 // The site's outline as the front end sees it: [{ id, slug, indent }] in
 // outline order, or null when the site does not exist.
-async function fetchSiteItems(baseUrl, name) {
-  const response = await axios.get(baseUrl + "/_sites/" + name + "/site.json", {
-    validateStatus: () => true,
-  });
+async function fetchSiteItems(baseUrl, name, sitesDir) {
+  const response = await axios.get(
+    siteBaseUrl(baseUrl, sitesDir, name) + "site.json",
+    {
+      validateStatus: () => true,
+    },
+  );
   if (
     response.status !== 200 ||
     !response.data ||
@@ -254,8 +281,15 @@ async function fetchSiteItems(baseUrl, name) {
 
 // Create a fixture site through the API. Returns { name, items } with items
 // read back from site.json. `siteName` (optional) builds the perf<N> outline
-// under another site name, e.g. a fresh copy per fuzz run.
-async function createFixtureSite(baseUrl, credentials, name, siteName) {
+// under another site name, e.g. a fresh copy per fuzz run. `sitesDir`
+// (optional) is the URL folder sites are served from (default `_sites`).
+async function createFixtureSite(
+  baseUrl,
+  credentials,
+  name,
+  siteName,
+  sitesDir,
+) {
   const shape = fixtureShape(name);
   const target = siteName || name;
   const session = await login(baseUrl, credentials);
@@ -290,7 +324,7 @@ async function createFixtureSite(baseUrl, credentials, name, siteName) {
   const batches = batchOutline(items, 250);
   for (let i = 0; i < batches.length; i++) {
     const bulk = await axios.post(
-      baseUrl + "/_sites/" + target + "/x/api/v1/items",
+      siteBaseUrl(baseUrl, sitesDir, target) + "x/api/v1/items",
       { site: { name: target }, items: batches[i] },
       {
         headers: {
@@ -316,7 +350,7 @@ async function createFixtureSite(baseUrl, credentials, name, siteName) {
       );
     }
   }
-  const created = await fetchSiteItems(baseUrl, target);
+  const created = await fetchSiteItems(baseUrl, target, sitesDir);
   if (!created || created.length < items.length) {
     throw new Error(
       "perf fixture " + target + " is missing items after create",
@@ -327,15 +361,16 @@ async function createFixtureSite(baseUrl, credentials, name, siteName) {
 
 // Reuse the fixture when a server already has it (repeat local runs against
 // a dev server), otherwise create it.
-async function ensureFixtureSite(baseUrl, credentials, name) {
-  const existing = await fetchSiteItems(baseUrl, name);
+async function ensureFixtureSite(baseUrl, credentials, name, sitesDir) {
+  const existing = await fetchSiteItems(baseUrl, name, sitesDir);
   if (existing && existing.length > 0) {
     return { name: name, items: existing, reused: true };
   }
-  return createFixtureSite(baseUrl, credentials, name);
+  return createFixtureSite(baseUrl, credentials, name, undefined, sitesDir);
 }
 
 module.exports = {
+  DEFAULT_SITES_DIR,
   batchOutline,
   buildOutline,
   createFixtureSite,
@@ -343,6 +378,8 @@ module.exports = {
   fetchSiteItems,
   fixtureShape,
   login,
+  normalizeSitesDir,
+  siteBaseUrl,
   pageBody,
   seededRandom,
   slugify,

@@ -2,12 +2,17 @@
 /**
  * Outline upkeep shared by the single-page operations (create, move, indent,
  * outdent, set parent, delete). saveOutline writes the whole outline as the
- * outline designer sent it and does not use any of this.
+ * outline designer sent it; it uses adoptChildren only, for the pages a
+ * deleted page leaves behind.
  *
  * The rules kept here, the same in haxcms-php (lib/OutlineUpkeep.php):
- *  - siblings never share an `order` value after a single-page operation
+ *  - after a single-page operation the pages under each parent are numbered
+ *    0..n-1 with no gaps and no repeats, in the sequence a reader sees them.
+ *    The front end numbers siblings by position when it loads the outline,
+ *    so an order it sends ("after this page") means the same spot here.
  *  - `indent` is the page's depth: 0 at the top level, parent's indent + 1 below
  *  - a locked page is changed by nothing but unlocking it
+ *  - a deleted page's children move up one level, into its place
  */
 
 function parentOf(item) {
@@ -74,6 +79,36 @@ function healSiblingOrder(items = [], parentId = null) {
     siblings[i].order = i;
   }
   return true;
+}
+
+/**
+ * Number the pages under every parent 0..n-1 in the sequence they are shown
+ * in (by order, then position in the items array), so orders have no gaps
+ * and no repeats. `except` is left out and keeps its order: a page that is
+ * about to be placed by an order the client counted without it.
+ * @returns {boolean} whether any order changed
+ */
+function compactSiblingOrders(items = [], except = null) {
+  const parents = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item && item !== except && !parents.includes(parentOf(item))) {
+      parents.push(parentOf(item));
+    }
+  }
+  let changed = false;
+  for (let p = 0; p < parents.length; p++) {
+    const siblings = sortedSiblings(items, parents[p]).filter(
+      (item) => item !== except,
+    );
+    for (let i = 0; i < siblings.length; i++) {
+      if (siblings[i].order !== i) {
+        siblings[i].order = i;
+        changed = true;
+      }
+    }
+  }
+  return changed;
 }
 
 /**
@@ -176,6 +211,49 @@ function syncIndentToDepth(items = []) {
   }
 }
 
+/**
+ * A page was deleted: its children (the pages in items whose parent is its
+ * id) move up one level into the deleted page's place. They go under its
+ * parent, starting at its order and keeping their own order among
+ * themselves; the siblings after that slot move down to make room.
+ * `deleted` is { id, parent, order } as the page was before it was removed.
+ * Returns the pages that moved, so the caller can re-slug them and their
+ * branches and set indents.
+ */
+function adoptChildren(items = [], deleted = null) {
+  if (!deleted || deleted.id === undefined || deleted.id === null) {
+    return [];
+  }
+  const id = String(deleted.id);
+  const children = items
+    .filter(
+      (item) =>
+        item && parentOf(item) !== null && String(parentOf(item)) === id,
+    )
+    .sort((a, b) => orderOf(a) - orderOf(b));
+  if (children.length === 0) {
+    return [];
+  }
+  const newParent = parentOf(deleted);
+  const slot = orderOf(deleted);
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (
+      item &&
+      children.indexOf(item) === -1 &&
+      parentOf(item) === newParent &&
+      orderOf(item) > slot
+    ) {
+      item.order = orderOf(item) + children.length - 1;
+    }
+  }
+  for (let i = 0; i < children.length; i++) {
+    children[i].parent = newParent;
+    children[i].order = slot + i;
+  }
+  return children;
+}
+
 function isLocked(page) {
   return !!(
     page &&
@@ -189,8 +267,10 @@ module.exports = {
   orderOf,
   sortedSiblings,
   healSiblingOrder,
+  compactSiblingOrders,
   makeRoomFor,
   lastSiblingOrder,
   syncIndentToDepth,
+  adoptChildren,
   isLocked,
 };

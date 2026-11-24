@@ -1,10 +1,4 @@
-const {
-  isLocked,
-  parentOf,
-  orderOf,
-  makeRoomFor,
-  syncIndentToDepth,
-} = require("../../../lib/outlineUpkeep.js");
+const { isLocked } = require("../../../lib/outlineUpkeep.js");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const filter_var = require("../../../lib/filter_var.js");
 const path = require("path");
@@ -33,6 +27,7 @@ const FileContentScanner = require("../../../lib/FileContentScanner.js");
 // DRAFT plugin platform: page.before.save / page.after.save around the write
 const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
 const pluginsOn = () => process.env.HAXCMS_PLUGINS !== "off";
+const { cutFramings } = require("../../../lib/imageFraming.js");
 /**
  * @OA\Post(
  *    path="/saveNode",
@@ -269,6 +264,13 @@ async function saveNode(req, res) {
               data: { message: "failed to write" },
             });
           } else {
+            // framed photos (ddd-hero) are served from cuts made at save
+            // time; a photo that can't be cut falls back to CSS framing
+            try {
+              await cutFramings(site.siteDirectory, sanitizedContent);
+            } catch {
+              // never fail a save over a cut
+            }
             // sanity check
             if (!page.metadata) {
               page.metadata = {};
@@ -302,15 +304,10 @@ async function saveNode(req, res) {
                 HAXCMS.generateSlugName(data["attributes"]["slug"]),
               );
             }
-            // where the page sat before this save applies the page-break's
-            // parent / order, to tell whether the save moves it
-            const parentBeforeSave = parentOf(page);
-            const orderBeforeSave = orderOf(page);
-            if (data["attributes"]["parent"]) {
-              page.parent = data["attributes"]["parent"];
-            } else {
-              page.parent = null;
-            }
+            // a content save never moves the page: the page-break's parent,
+            // order and depth are ignored. The client renumbers sibling
+            // orders when it loads the outline, so those values need not
+            // match the outline; pages move through the item operations.
             // allow setting theme via page break
             if (
               data["attributes"]["developer-theme"] &&
@@ -340,22 +337,6 @@ async function saveNode(req, res) {
             } else if (page.metadata.theme) {
               delete page.metadata.theme;
             }
-            if (data["attributes"]["depth"]) {
-              page.indent = parseInt(data["attributes"]["depth"]);
-            }
-            if (data["attributes"]["order"]) {
-              page.order = parseInt(data["attributes"]["order"]);
-            }
-            // a save that moves the page keeps the outline rules the item
-            // operations keep: no two siblings share an order, and indent is
-            // the page's depth whatever depth the page-break carried
-            if (
-              parentBeforeSave !== parentOf(page) ||
-              orderBeforeSave !== orderOf(page)
-            ) {
-              makeRoomFor(site.manifest.items, page);
-            }
-            syncIndentToDepth(site.manifest.items);
             // If pathauto is enabled and overridePathauto is not set, regenerate the slug from the title
             const pathautoEnabled = isPathautoEnabled(site);
             if (pathautoEnabled && !page.metadata.overridePathauto) {
@@ -392,6 +373,15 @@ async function saveNode(req, res) {
               page.metadata.hideInMenu = true;
             } else {
               page.metadata.hideInMenu = false;
+            }
+            // "Hide page title" (page-break hide-title): the title shows unless
+            // the page hides it, so it is only stored while it is on
+            if (typeof data["attributes"]["hide-title"] !== "undefined") {
+              page.metadata.hideTitle = true;
+            } else if (
+              Object.prototype.hasOwnProperty.call(page.metadata, "hideTitle")
+            ) {
+              delete page.metadata.hideTitle;
             }
             // support for defining and updating related-items
             if (

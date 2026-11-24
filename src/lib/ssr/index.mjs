@@ -9,10 +9,22 @@
  *                       progressive-enhancement fallback, primitive styles
  *   SSR_SKIP            elements known not to server-render
  *   SSR_PRIMITIVE_CSS   stylesheet for plain HTML primitives in fallback markup
+ *   globalCss()         the page-level sheet, once per page: primitives plus
+ *                       the design system's global styles the caller passes
+ *   withGlobalStyles()  put that sheet in front of rendered markup
+ *   publishUrls()       rewrite file: URLs into the build to the published path
+ *   hasLocalPath()      rendered markup still names a file on this machine
  */
 export { installInertDom } from "./inertDom.mjs";
 export { SSR_PRIMITIVE_CSS, withPrimitives } from "./primitives.mjs";
+export {
+  cssTextOf,
+  compactCss,
+  globalCss,
+  withGlobalStyles,
+} from "./globalStyles.mjs";
 export { SSR_SKIP, ssrSkipReason } from "./skip.mjs";
+export { publishUrls, hasLocalPath } from "./publishUrls.mjs";
 export {
   MAX_HTML_BYTES,
   buildTemplate,

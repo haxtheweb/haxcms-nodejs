@@ -8,7 +8,17 @@ const puppeteer = require("puppeteer-core");
 const fs = require("fs");
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
-const DEFAULT_LAUNCH_ARGS = ["--no-sandbox", "--disable-setuid-sandbox"];
+// HttpsFirstBalancedModeAutoEnable: recent Chrome turns on HTTPS-First
+// (balanced) by itself and then refuses a plain-HTTP page on port 80 with
+// net::ERR_BLOCKED_BY_CLIENT. Test servers such as the haxcms-php DDEV project
+// (http://haxcms.ddev.site, used by its weekly perf run) are HTTP on purpose.
+// localhost and ephemeral ports were never upgraded, so local runs are
+// unchanged.
+const DEFAULT_LAUNCH_ARGS = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-features=HttpsFirstBalancedModeAutoEnable",
+];
 
 // Chrome detection. Mirrors src/lib/convertUtils.js findChromeExecutable()
 // (lines 275-296) exactly — that function is the canonical detector used by

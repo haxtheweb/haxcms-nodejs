@@ -1,13 +1,17 @@
 // security (DF1): vendored patched SheetJS 0.20.3 from https://cdn.sheetjs.com/
 // replaces xlsx@0.18.5 (npm) which has prototype pollution + ReDoS with NO npm fix
 const XLSX = require("../../../lib/vendor/xlsx/xlsx.js");
+const {
+  boundZipBuffer,
+  hasZipSignature,
+} = require("../../../lib/boundedZip.js");
 const JSONOutlineSchemaItem = require("../../../lib/JSONOutlineSchemaItem.js");
 // Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
 
 /**
  * POST /system/api/v1/actions/import-xlsx
- * Convert an uploaded .xlsx or .xls file into a HAXcms site schema (items array).
+ * Convert an uploaded .xlsx, .xls or .ods (OpenDocument Spreadsheet) file into a HAXcms site schema (items array).
  *
  * Expects multipart/form-data with a file field (any field name is accepted).
  * Also accepts form fields: method (site|branch|page), type (course|portfolio|''), parentId.
@@ -29,11 +33,11 @@ async function importXlsx(req, res) {
 
     const file = req.files[0];
     filename = file.originalname;
-    if (!/\.(xlsx|xls)$/i.test(filename)) {
+    if (!/\.(xlsx|xls|ods)$/i.test(filename)) {
       return res.status(400).json({
         status: 400,
         data: {
-          error: `Invalid file type. Expected .xlsx or .xls, got: ${filename}`,
+          error: `Invalid file type. Expected .xlsx, .xls or .ods, got: ${filename}`,
           items: [],
           filename: filename,
         },
@@ -65,7 +69,15 @@ async function importXlsx(req, res) {
       });
     }
 
-    const workbook = XLSX.read(buffer, {
+    // Security (SEC-DOS, SEC-UPLOAD): xlsx and ods are zips; inflate them
+    // under the shared byte limits before SheetJS reads them (.xls is not a zip)
+    const workbookInput = hasZipSignature(buffer)
+      ? await boundZipBuffer(
+          buffer,
+          (/\.([a-z]+)$/i.exec(filename || "") || [])[1] || "xlsx",
+        )
+      : buffer;
+    const workbook = XLSX.read(workbookInput, {
       type: "buffer",
       cellDates: false,
       cellText: true,

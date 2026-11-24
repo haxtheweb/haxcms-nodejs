@@ -585,7 +585,39 @@ const tail = [
   html,
   expect: sanitizeHTMLForStorage(html),
 }));
-const all = out.concat(pageCases, tail);
+// elements that run a site or its editor are not page content: the tag goes,
+// what was inside it stays (PLATFORM_ELEMENT_NAMES in the policy generator)
+const platformTail = [
+  [
+    "site builder pointing at another site",
+    '<p>a</p><haxcms-site-builder file="https://other.example/site.json"></haxcms-site-builder><p>b</p>',
+  ],
+  [
+    "site builder wrapping a page keeps the page",
+    '<haxcms-site-builder id="site" file="site.json"><h2>Title</h2><p>Body <a href="https://ok.example/">link</a></p></haxcms-site-builder>',
+  ],
+  [
+    "login element",
+    '<p>a</p><jwt-login auto url="https://other.example/login" refresh-url="https://other.example/refresh"></jwt-login><p>b</p>',
+  ],
+  [
+    "editor and backend elements",
+    "<haxcms-site-editor></haxcms-site-editor><haxcms-site-editor-ui></haxcms-site-editor-ui><haxcms-editor-builder></haxcms-editor-builder><haxcms-backend-php></haxcms-backend-php><haxcms-backend-nodejs></haxcms-backend-nodejs><haxcms-backend-demo></haxcms-backend-demo><haxcms-backend-userfs></haxcms-backend-userfs><haxcms-backend-beaker></haxcms-backend-beaker><p>kept</p>",
+  ],
+  [
+    "upper case and nested",
+    '<HAXCMS-SITE-BUILDER file="//other.example/site.json"><div><Jwt-Login url="//other.example"></Jwt-Login><video-player source="https://e.x/v.mp4"></video-player></div></HAXCMS-SITE-BUILDER>',
+  ],
+  [
+    "authorable elements with similar names are kept",
+    '<site-remote-content></site-remote-content><md-block source="https://ok.example/x.md"></md-block><haxcms-custom-thing>x</haxcms-custom-thing>',
+  ],
+].map(([name, html]) => ({
+  name: `platform element: ${name}`,
+  html,
+  expect: sanitizeHTMLForStorage(html),
+}));
+const all = out.concat(pageCases, tail, platformTail);
 
 if (phpDir) {
   // run haxcms-php on every case to mark where PHP 8.3 differs

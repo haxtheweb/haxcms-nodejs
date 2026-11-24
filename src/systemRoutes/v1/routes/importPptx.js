@@ -1,3 +1,4 @@
+const { convertPptxBufferToHtml } = require("../../../lib/pptxToHtml.js");
 const { importHtmlToItems } = require("../../../siteRoutes/v1/importUtils.js");
 // Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
@@ -81,15 +82,9 @@ async function importPptx(req, res) {
       });
     }
 
-    const { PPTXInHTMLOut } = await import(
-      "../../../lib/vendor/pptx-in-html-out/src/index.js"
-    );
-    const converter = new PPTXInHTMLOut(buffer);
-    const html = await converter.toHTML({
-      includeStyles: false,
-      inlineImages: false,
-      fullDocument: false,
-    });
+    // one <h1> per slide then its content, pictures as data URIs that
+    // createNode / addPage turn into files (the .odp importer's shape)
+    const html = await convertPptxBufferToHtml(buffer);
 
     const items = await importHtmlToItems(html, {
       titleValue: filename.replace(/\.pptx$/i, ""),

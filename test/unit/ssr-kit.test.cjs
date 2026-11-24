@@ -42,6 +42,37 @@ test("installInertDom adds the browser surface Lit SSR's shim lacks", async () =
   assert.equal(new FakeElement().querySelector("a"), null);
 });
 
+test("installInertDom gives elements inert children, classes and styles", async () => {
+  const { installInertDom } = await kit();
+  class FakeElement {}
+  installInertDom({ HTMLElement: FakeElement });
+  const el = new FakeElement();
+  assert.deepEqual([...el.children], []);
+  assert.equal(el.firstChild, null);
+  el.classList.add("x");
+  el.style.setProperty("--a", "b");
+  el.style = "ignored";
+  assert.equal(el.style.getPropertyValue("--a"), "");
+});
+
+test("installInertDom builds registered classes from document.createElement and aliases self", async () => {
+  const { installInertDom } = await kit();
+  class Registered {}
+  const target = {
+    HTMLElement: class {},
+    customElements: {
+      get: (tag) => (tag === "x-known" ? Registered : undefined),
+    },
+    document: { createElement: (tag) => ({ plain: tag }) },
+  };
+  installInertDom(target);
+  assert.equal(target.self, target);
+  assert.ok(target.document.createElement("X-Known") instanceof Registered);
+  assert.deepEqual(target.document.createElement("x-other"), {
+    plain: "x-other",
+  });
+});
+
 test("ssrSkipReason covers the known elements and the static opt-out", async () => {
   const { ssrSkipReason, SSR_SKIP } = await kit();
   assert.ok(ssrSkipReason("model-viewer"));
@@ -166,4 +197,110 @@ test("renderTag can prepend the primitive stylesheet", async () => {
   assert.ok(r.html.startsWith("<style data-ssr-primitives>"));
   assert.ok(r.html.includes(SSR_PRIMITIVE_CSS));
   assert.ok(SSR_PRIMITIVE_CSS.length > 500);
+});
+
+test("globalCss puts the primitives first, then the design system's styles", async () => {
+  const { globalCss, cssTextOf, SSR_PRIMITIVE_CSS } = await kit();
+  // lit CSSResults, strings and nested arrays, the shapes a styles getter returns
+  const styles = [
+    { cssText: ":root {\n  --x-a: 1px; /* note */\n}\n" },
+    [":host { --x-b: 2px }", [{ cssText: "p{margin:0}" }]],
+    null,
+    42,
+  ];
+  assert.equal(
+    cssTextOf(styles),
+    ":root {\n  --x-a: 1px; /* note */\n}\n:host { --x-b: 2px }p{margin:0}",
+  );
+  const css = globalCss(styles);
+  assert.ok(css.startsWith(SSR_PRIMITIVE_CSS));
+  assert.equal(
+    css.slice(SSR_PRIMITIVE_CSS.length),
+    ":root { --x-a: 1px; } :host { --x-b: 2px }p{margin:0}",
+  );
+  assert.equal(
+    globalCss(styles, { primitives: false }).startsWith(":root"),
+    true,
+  );
+  assert.equal(
+    globalCss("a { b: c }  /* d */", { primitives: false, compact: false }),
+    "a { b: c }  /* d */",
+  );
+  assert.equal(globalCss(), SSR_PRIMITIVE_CSS);
+});
+
+test("compactCss leaves quoted strings alone", async () => {
+  const { compactCss } = await kit();
+  assert.equal(
+    compactCss(
+      `a::before { content: "  /* kept */  "; }\n\n/* gone */ b { c: 'd  \\' e' }`,
+    ),
+    `a::before { content: "  /* kept */  "; } b { c: 'd  \\' e' }`,
+  );
+  assert.equal(compactCss("a{b:c} /* never closed"), "a{b:c}");
+  assert.equal(compactCss('a{b:"never closed'), 'a{b:"never closed');
+  assert.equal(compactCss(null), "");
+});
+
+test("withGlobalStyles emits one style element that markup cannot close early", async () => {
+  const { withGlobalStyles } = await kit();
+  assert.equal(
+    withGlobalStyles("<x-a></x-a>", ":root{--a:1}"),
+    "<style data-ssr-global>:root{--a:1}</style><x-a></x-a>",
+  );
+  const hostile = withGlobalStyles(
+    "",
+    'a{content:"</style><script>x</script>"}',
+  );
+  assert.equal(hostile.match(/<\/style>/g).length, 1);
+  assert.ok(hostile.endsWith("</style>"));
+  assert.ok(!hostile.includes("</script>"));
+});
+
+test("the build ships the kit as plain ESM", () => {
+  const fs = require("node:fs");
+  const root = path.join(__dirname, "../..");
+  const babel = require(path.join(root, "babel.config.js"));
+  // not compiled (babel would turn import() into require()) but still copied
+  assert.ok(babel.ignore.includes("./src/lib/ssr/**/*"));
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(root, "package.json"), "utf8"),
+  );
+  assert.match(pkg.scripts.build, /babel src --out-dir dist --copy-files/);
+  assert.doesNotMatch(pkg.scripts.build, /--no-copy-ignored/);
+  assert.ok(pkg.files.includes("dist"));
+  // an exports map would hide dist/lib/ssr/index.mjs from the hax CLI
+  assert.equal(pkg.exports, undefined);
+});
+
+test("publishUrls maps file: URLs into the build to the published path", async () => {
+  const { publishUrls, hasLocalPath } = await kit();
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), "ssr-build-"));
+  const inBuild =
+    pathToFileURL(buildDir).href +
+    "/@haxtheweb/simple-icon/lib/simple-icons.js/../svgs/code.svg";
+  const local = publishUrls(
+    `<image href="${inBuild}">`,
+    buildDir,
+    "./build/es6/node_modules/",
+  );
+  assert.equal(
+    local,
+    '<image href="./build/es6/node_modules/@haxtheweb/simple-icon/lib/svgs/code.svg">',
+  );
+  assert.equal(hasLocalPath(local), false);
+  const cdn = publishUrls(
+    `<img src='${inBuild}'>`,
+    buildDir,
+    "https://cdn.example/build/es6/node_modules/",
+  );
+  assert.equal(
+    cdn,
+    "<img src='https://cdn.example/build/es6/node_modules/@haxtheweb/simple-icon/lib/svgs/code.svg'>",
+  );
+  const elsewhere = '<img src="file:///etc/hosts">';
+  assert.equal(publishUrls(elsewhere, buildDir, "./"), elsewhere);
+  assert.equal(hasLocalPath(elsewhere), true);
 });

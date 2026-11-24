@@ -35,6 +35,10 @@ Two deviations from the strictest policy remain and are deliberate:
   DDD design system rely on it.
 - A single `sha256-…` hash allowlists the small inline script the YouTube
   IFrame API injects at runtime (Google's code, which cannot be nonced).
+- `blob:` is allowed in `worker-src` and `media-src` only, never in
+  `script-src`. The voice and screen recorders encode in a `blob:` worker and
+  preview the recording from an object URL before it uploads. A `blob:` worker
+  inherits the page policy.
 
 The primary XSS mitigation is the DOMPurify-based content sanitizer
 (`src/lib/sanitizeContent.js`) which strips event handlers, forbidden tags

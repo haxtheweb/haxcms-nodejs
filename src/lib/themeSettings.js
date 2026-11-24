@@ -1,30 +1,30 @@
-const fs = require('fs-extra');
-const path = require('path');
+const fs = require("fs-extra");
+const path = require("path");
 
 function normalizeBoolean(value, defaultValue = true) {
-  if (typeof value === 'boolean') {
+  if (typeof value === "boolean") {
     return value;
   }
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     return value !== 0;
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
     if (
-      normalized === 'false' ||
-      normalized === '0' ||
-      normalized === 'off' ||
-      normalized === 'no' ||
-      normalized === 'disabled'
+      normalized === "false" ||
+      normalized === "0" ||
+      normalized === "off" ||
+      normalized === "no" ||
+      normalized === "disabled"
     ) {
       return false;
     }
     if (
-      normalized === 'true' ||
-      normalized === '1' ||
-      normalized === 'on' ||
-      normalized === 'yes' ||
-      normalized === 'enabled'
+      normalized === "true" ||
+      normalized === "1" ||
+      normalized === "on" ||
+      normalized === "yes" ||
+      normalized === "enabled"
     ) {
       return true;
     }
@@ -32,12 +32,12 @@ function normalizeBoolean(value, defaultValue = true) {
   return defaultValue;
 }
 
-function normalizeMachineName(haxcms, value = '') {
-  if (!haxcms || typeof haxcms.generateMachineName !== 'function') {
-    return '';
+function normalizeMachineName(haxcms, value = "") {
+  if (!haxcms || typeof haxcms.generateMachineName !== "function") {
+    return "";
   }
   const normalized = haxcms.generateMachineName(value);
-  return typeof normalized === 'string' ? normalized : '';
+  return typeof normalized === "string" ? normalized : "";
 }
 
 function normalizeMachineNameList(haxcms, input = []) {
@@ -45,7 +45,7 @@ function normalizeMachineNameList(haxcms, input = []) {
   const list = [];
   const seen = new Set();
   for (let i = 0; i < source.length; i++) {
-    const machineName = normalizeMachineName(haxcms, `${source[i] || ''}`);
+    const machineName = normalizeMachineName(haxcms, `${source[i] || ""}`);
     if (!machineName || seen.has(machineName)) {
       continue;
     }
@@ -56,21 +56,22 @@ function normalizeMachineNameList(haxcms, input = []) {
 }
 
 function getEnabledThemesFilePath(haxcms) {
-  const configDirectory = (
+  const configDirectory =
     haxcms &&
-    typeof haxcms.configDirectory === 'string' &&
+    typeof haxcms.configDirectory === "string" &&
     haxcms.configDirectory
-  ) ? haxcms.configDirectory : path.join(process.cwd(), '_config');
-  return path.join(configDirectory, 'settings', 'enabledThemes.json');
+      ? haxcms.configDirectory
+      : path.join(process.cwd(), "_config");
+  return path.join(configDirectory, "settings", "enabledThemes.json");
 }
 
 function normalizeEnabledThemeMap(haxcms, input = {}) {
   let source = input;
   if (
     source &&
-    typeof source === 'object' &&
+    typeof source === "object" &&
     !Array.isArray(source) &&
-    Object.prototype.hasOwnProperty.call(source, 'enabledThemes')
+    Object.prototype.hasOwnProperty.call(source, "enabledThemes")
   ) {
     source = source.enabledThemes;
   }
@@ -82,7 +83,7 @@ function normalizeEnabledThemeMap(haxcms, input = {}) {
     }
     return normalized;
   }
-  if (!source || typeof source !== 'object') {
+  if (!source || typeof source !== "object") {
     return normalized;
   }
   const keys = Object.keys(source);
@@ -96,7 +97,7 @@ function normalizeEnabledThemeMap(haxcms, input = {}) {
   return normalized;
 }
 
-function isThemeEnabled(haxcms, machineName = '', enabledThemes = {}) {
+function isThemeEnabled(haxcms, machineName = "", enabledThemes = {}) {
   const normalizedMachineName = normalizeMachineName(haxcms, machineName);
   if (!normalizedMachineName) {
     return true;
@@ -135,13 +136,12 @@ async function readEnabledThemeMap(haxcms) {
     return {};
   }
   try {
-    const raw = await fs.readFile(filePath, 'utf8');
-    if (!raw || raw.trim() === '') {
+    const raw = await fs.readFile(filePath, "utf8");
+    if (!raw || raw.trim() === "") {
       return {};
     }
     return normalizeEnabledThemeMap(haxcms, JSON.parse(raw));
-  }
-  catch {
+  } catch {
     return {};
   }
 }
@@ -159,19 +159,41 @@ async function writeEnabledThemeMap(haxcms, enabledThemes = {}) {
   await fs.writeFile(
     filePath,
     `${JSON.stringify({ enabledThemes: sorted }, null, 2)}\n`,
-    'utf8',
+    "utf8",
   );
   return sorted;
+}
+
+// Listing themes fills newly detected themes into the enabled map and saves
+// it. That save is housekeeping: when the settings folder cannot be written
+// (full disk, read-only or wrongly owned config folder), the list is still
+// answered from the map in memory and the failure is logged, never a 500.
+// The enabled map is saved for real by the saveEnabledThemes route, which
+// still reports a failed write.
+async function persistDetectedThemeDefaults(haxcms, enabledThemes = {}) {
+  try {
+    await writeEnabledThemeMap(haxcms, enabledThemes);
+    return true;
+  } catch (e) {
+    console.warn(
+      "HAXcms: could not save " +
+        getEnabledThemesFilePath(haxcms) +
+        " (" +
+        (e && e.code ? e.code : "write failed") +
+        "); listing themes from memory",
+    );
+    return false;
+  }
 }
 
 function normalizeThemeCategory(value) {
   if (Array.isArray(value)) {
     return value
-      .filter((item) => typeof item === 'string')
+      .filter((item) => typeof item === "string")
       .map((item) => item.trim())
-      .filter((item) => item !== '');
+      .filter((item) => item !== "");
   }
-  if (typeof value === 'string' && value.trim() !== '') {
+  if (typeof value === "string" && value.trim() !== "") {
     return [value.trim()];
   }
   return [];
@@ -181,8 +203,8 @@ function normalizeThemePriority(value) {
   const priority = Number(value);
   return Number.isFinite(priority) ? priority : 0;
 }
-function readThemeValue(theme = {}, key = '') {
-  if (!theme || typeof theme !== 'object') {
+function readThemeValue(theme = {}, key = "") {
+  if (!theme || typeof theme !== "object") {
     return undefined;
   }
   if (Object.prototype.hasOwnProperty.call(theme, key)) {
@@ -193,80 +215,73 @@ function readThemeValue(theme = {}, key = '') {
 
 function readThemeMachineName(theme = {}) {
   const candidates = [
-    readThemeValue(theme, 'machineName'),
-    readThemeValue(theme, 'machine-name'),
-    readThemeValue(theme, 'element'),
-    readThemeValue(theme, 'name'),
+    readThemeValue(theme, "machineName"),
+    readThemeValue(theme, "machine-name"),
+    readThemeValue(theme, "element"),
+    readThemeValue(theme, "name"),
   ];
   for (let i = 0; i < candidates.length; i++) {
-    if (
-      typeof candidates[i] === 'string' &&
-      candidates[i].trim() !== ''
-    ) {
+    if (typeof candidates[i] === "string" && candidates[i].trim() !== "") {
       return candidates[i].trim();
     }
   }
-  return '';
+  return "";
 }
 
 function isThemeHidden(theme = {}) {
-  return normalizeBoolean(readThemeValue(theme, 'hidden'), false);
+  return normalizeBoolean(readThemeValue(theme, "hidden"), false);
 }
 
 function isThemeTerrible(theme = {}) {
   const machineName = readThemeMachineName(theme).toLowerCase();
   return (
-    normalizeBoolean(readThemeValue(theme, 'terrible'), false) ||
-    machineName.indexOf('terrible') === 0
+    normalizeBoolean(readThemeValue(theme, "terrible"), false) ||
+    machineName.indexOf("terrible") === 0
   );
 }
 
 function getThemeScreenshot(theme = {}) {
   const candidates = [
-    readThemeValue(theme, 'screenshot'),
-    readThemeValue(theme, 'thumbnail'),
-    readThemeValue(theme, 'preview'),
+    readThemeValue(theme, "screenshot"),
+    readThemeValue(theme, "thumbnail"),
+    readThemeValue(theme, "preview"),
   ];
   for (let i = 0; i < candidates.length; i++) {
-    if (
-      typeof candidates[i] === 'string' &&
-      candidates[i].trim() !== ''
-    ) {
+    if (typeof candidates[i] === "string" && candidates[i].trim() !== "") {
       return candidates[i].trim();
     }
   }
-  return '';
+  return "";
 }
 
-function normalizeThemeRecord(machineName = '', theme = {}, scope = 'registry') {
-  const source = (
-    theme &&
-    typeof theme === 'object' &&
-    !Array.isArray(theme)
-  ) ? JSON.parse(JSON.stringify(theme)) : {};
+function normalizeThemeRecord(
+  machineName = "",
+  theme = {},
+  scope = "registry",
+) {
+  const source =
+    theme && typeof theme === "object" && !Array.isArray(theme)
+      ? JSON.parse(JSON.stringify(theme))
+      : {};
   const normalized = {
     ...source,
     machineName,
-    'machine-name': machineName,
+    "machine-name": machineName,
     scope,
   };
-  normalized.element = (
-    typeof normalized.element === 'string' &&
-    normalized.element.trim() !== ''
-  ) ? normalized.element.trim() : machineName;
-  normalized.path = (
-    typeof normalized.path === 'string'
-  ) ? normalized.path : '';
-  normalized.name = (
-    typeof normalized.name === 'string' &&
-    normalized.name.trim() !== ''
-  ) ? normalized.name.trim() : machineName;
-  normalized.description = (
-    typeof normalized.description === 'string'
-  ) ? normalized.description : '';
-  normalized.thumbnail = (
-    typeof normalized.thumbnail === 'string'
-  ) ? normalized.thumbnail : '';
+  normalized.element =
+    typeof normalized.element === "string" && normalized.element.trim() !== ""
+      ? normalized.element.trim()
+      : machineName;
+  normalized.path = typeof normalized.path === "string" ? normalized.path : "";
+  normalized.name =
+    typeof normalized.name === "string" && normalized.name.trim() !== ""
+      ? normalized.name.trim()
+      : machineName;
+  normalized.description =
+    typeof normalized.description === "string" ? normalized.description : "";
+  normalized.thumbnail =
+    typeof normalized.thumbnail === "string" ? normalized.thumbnail : "";
   normalized.screenshot = getThemeScreenshot(normalized);
   normalized.category = normalizeThemeCategory(normalized.category);
   normalized.hidden = isThemeHidden(source);
@@ -278,11 +293,11 @@ function normalizeThemeRecord(machineName = '', theme = {}, scope = 'registry') 
   return normalized;
 }
 
-function getThemePathCandidates(haxcms, themePath = '') {
-  const relativePath = `${themePath || ''}`
+function getThemePathCandidates(haxcms, themePath = "") {
+  const relativePath = `${themePath || ""}`
     .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '');
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "");
   if (!relativePath) {
     return [];
   }
@@ -293,34 +308,53 @@ function getThemePathCandidates(haxcms, themePath = '') {
     }
     candidates.push(candidate);
   };
-  const root = (
-    haxcms &&
-    typeof haxcms.HAXCMS_ROOT === 'string' &&
-    haxcms.HAXCMS_ROOT
-  ) ? haxcms.HAXCMS_ROOT : process.cwd();
+  const root =
+    haxcms && typeof haxcms.HAXCMS_ROOT === "string" && haxcms.HAXCMS_ROOT
+      ? haxcms.HAXCMS_ROOT
+      : process.cwd();
   addCandidate(path.join(root, relativePath));
-  addCandidate(path.join(root, 'build', 'es6', 'node_modules', relativePath));
-  addCandidate(path.join(root, 'public', 'build', 'es6', 'node_modules', relativePath));
-  addCandidate(path.join(root, 'src', 'public', 'build', 'es6', 'node_modules', relativePath));
-  addCandidate(path.join(root, 'node_modules', relativePath));
+  addCandidate(path.join(root, "build", "es6", "node_modules", relativePath));
+  addCandidate(
+    path.join(root, "public", "build", "es6", "node_modules", relativePath),
+  );
+  addCandidate(
+    path.join(
+      root,
+      "src",
+      "public",
+      "build",
+      "es6",
+      "node_modules",
+      relativePath,
+    ),
+  );
+  addCandidate(path.join(root, "node_modules", relativePath));
   if (
     haxcms &&
-    typeof haxcms.coreConfigPath === 'string' &&
+    typeof haxcms.coreConfigPath === "string" &&
     haxcms.coreConfigPath
   ) {
-    const srcRoot = path.resolve(haxcms.coreConfigPath, '..');
-    addCandidate(path.join(srcRoot, 'public', 'build', 'es6', 'node_modules', relativePath));
-    addCandidate(path.join(srcRoot, '..', 'node_modules', relativePath));
+    const srcRoot = path.resolve(haxcms.coreConfigPath, "..");
+    addCandidate(
+      path.join(
+        srcRoot,
+        "public",
+        "build",
+        "es6",
+        "node_modules",
+        relativePath,
+      ),
+    );
+    addCandidate(path.join(srcRoot, "..", "node_modules", relativePath));
   }
   return candidates;
 }
 
 async function isThemeDetectedOnFileSystem(haxcms, theme = {}) {
-  const themePath = (
-    theme &&
-    typeof theme.path === 'string' &&
-    theme.path.trim() !== ''
-  ) ? theme.path.trim() : '';
+  const themePath =
+    theme && typeof theme.path === "string" && theme.path.trim() !== ""
+      ? theme.path.trim()
+      : "";
   if (!themePath) {
     return true;
   }
@@ -335,9 +369,9 @@ async function isThemeDetectedOnFileSystem(haxcms, theme = {}) {
 
 async function discoverThemes(haxcms) {
   let sourceThemes = {};
-  if (haxcms && typeof haxcms.getThemes === 'function') {
+  if (haxcms && typeof haxcms.getThemes === "function") {
     const themes = haxcms.getThemes();
-    if (themes && typeof themes === 'object' && !Array.isArray(themes)) {
+    if (themes && typeof themes === "object" && !Array.isArray(themes)) {
       sourceThemes = themes;
     }
   }
@@ -347,12 +381,12 @@ async function discoverThemes(haxcms) {
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
     const theme = sourceThemes[key];
-    if (!theme || typeof theme !== 'object' || Array.isArray(theme)) {
+    if (!theme || typeof theme !== "object" || Array.isArray(theme)) {
       continue;
     }
     const machineName = normalizeMachineName(
       haxcms,
-      key || theme.machineName || theme.element || theme.name || '',
+      key || theme.machineName || theme.element || theme.name || "",
     );
     if (!machineName || seen.has(machineName)) {
       continue;
@@ -361,7 +395,7 @@ async function discoverThemes(haxcms) {
     if (!detected) {
       continue;
     }
-    themes.push(normalizeThemeRecord(machineName, theme, 'registry'));
+    themes.push(normalizeThemeRecord(machineName, theme, "registry"));
     seen.add(machineName);
   }
   if (themes.length > 0) {
@@ -371,17 +405,17 @@ async function discoverThemes(haxcms) {
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
     const theme = sourceThemes[key];
-    if (!theme || typeof theme !== 'object' || Array.isArray(theme)) {
+    if (!theme || typeof theme !== "object" || Array.isArray(theme)) {
       continue;
     }
     const machineName = normalizeMachineName(
       haxcms,
-      key || theme.machineName || theme.element || theme.name || '',
+      key || theme.machineName || theme.element || theme.name || "",
     );
     if (!machineName || seen.has(machineName)) {
       continue;
     }
-    themes.push(normalizeThemeRecord(machineName, theme, 'registry'));
+    themes.push(normalizeThemeRecord(machineName, theme, "registry"));
     seen.add(machineName);
   }
   return themes;
@@ -390,8 +424,8 @@ async function discoverThemes(haxcms) {
 function themesToMap(themes = []) {
   const source = Array.isArray(themes) ? [...themes] : [];
   source.sort((a, b) => {
-    const aName = a && a.machineName ? `${a.machineName}` : '';
-    const bName = b && b.machineName ? `${b.machineName}` : '';
+    const aName = a && a.machineName ? `${a.machineName}` : "";
+    const bName = b && b.machineName ? `${b.machineName}` : "";
     if (aName === bName) {
       return 0;
     }
@@ -417,6 +451,7 @@ module.exports = {
   getEnabledThemesFilePath,
   readEnabledThemeMap,
   writeEnabledThemeMap,
+  persistDetectedThemeDefaults,
   discoverThemes,
   themesToMap,
   isThemeHidden,

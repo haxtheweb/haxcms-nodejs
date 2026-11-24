@@ -5,9 +5,8 @@ on:
   # No branch filter: stacked PRs (base is another feature branch) must run too.
   pull_request:
   # Nightly regression run on the latest default branch (haxtheweb/issues#3262):
-  # same unit, api-conformance and coverage steps plus the dependency audit;
-  # e2e stays report-only (continue-on-error below). A failure shows up as a
-  # failed scheduled run.
+  # same unit, api-conformance, coverage and e2e steps plus the dependency
+  # audit. A failure shows up as a failed scheduled run.
   schedule:
     - cron: "47 6 * * *" # nightly, 06:47 UTC
   workflow_dispatch:
@@ -120,9 +119,9 @@ jobs:
         node-version: [24]
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Non-gating while flakiness is characterized; flip to a hard requirement
-    # once the suite is stable so PRs are blocked on real E2E regressions.
-    continue-on-error: true
+    # Gating (haxtheweb/issues#3224): a failing e2e workflow fails the run.
+    # outline-ops is among them, the regression guard for outline-designer
+    # saving. Visual diffs still only warn (test/e2e/helpers/visual.cjs).
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

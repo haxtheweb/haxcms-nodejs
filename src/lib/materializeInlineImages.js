@@ -255,7 +255,10 @@ async function saveImage(src, site, nameBase) {
     "inline-image-" + crypto.randomUUID(),
   );
   try {
-    fs.outputFileSync(tmpPath, buffer);
+    // Security (SEC-UPLOAD): staged like every other import file
+    // (stageRemoteFile.js): exclusive create, readable by the server user only
+    fs.ensureDirSync(path.dirname(tmpPath));
+    fs.writeFileSync(tmpPath, buffer, { mode: 0o600, flag: "wx" });
     const result = await new HAXCMSFile().save(
       { path: tmpPath, originalname: name, size: buffer.length },
       site,

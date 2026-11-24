@@ -12,6 +12,7 @@
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/haxtheweb/haxcms-nodejs)
 
 # HAXcms with nodejs backend
+
 Start the server in any HAXsite or HAXcms instance
 
 ## Onboarding
@@ -29,6 +30,7 @@ New to the HAX ecosystem? **[Start here](https://github.com/haxtheweb/issues/blo
 ![HAXcms nodejs backend](screenshots/haxcms-nodejs.png)
 
 ## Run commands
+
 ```bash
 npm install
 npm start
@@ -37,6 +39,7 @@ npm start
 Visit http://localhost:3000 if it doesn't automatically open
 
 ### Network binding
+
 - `HAXCMS_HOST` sets the interface the server listens on (e.g. `127.0.0.1`,
   `0.0.0.0`, `::`, or a specific address). When unset, the server listens on
   all interfaces — **except** in no-login mode.
@@ -47,6 +50,7 @@ Visit http://localhost:3000 if it doesn't automatically open
   who can reach the port can edit every site.
 
 ### Embedding (`HAXCMS_EMBEDDED`)
+
 - `HAXCMS_EMBEDDED=1` is for hosting haxcms-nodejs inside another runtime, such
   as [haxcms-browser](https://github.com/haxtheweb/haxcms-browser), which runs
   it in a browser Worker. `src/app.js` builds the Express app and every route as
@@ -55,6 +59,7 @@ Visit http://localhost:3000 if it doesn't automatically open
   requests to the exported `app`. Unset, nothing changes.
 
 ### First-run admin credentials
+
 On first start, if the config directory (`_config/` next to your sites, or
 `~/.haxcmsconfig`) has no `.user` file, an `admin` user is created with a
 random password. Only the scrypt hash is stored in `.user`; the plaintext is
@@ -67,6 +72,7 @@ delete `.initial-admin-password`. When `HAXCMS_RUNTIME_USERNAME` /
 instead and no password file is written.
 
 ### Docker
+
 The image runs as the non-root `node` user and declares two volumes:
 `/app/_sites` (site content) and `/home/node/.haxcmsconfig` (keys, salt,
 hashed admin user, API keys). Mount both to persist data and secrets across
@@ -81,13 +87,17 @@ docker run -p 3000:3000 \
 
 Without runtime credentials, read the seeded password with
 `docker exec <container> cat /home/node/.haxcmsconfig/.initial-admin-password`.
+
 ## API conformance testing
+
 Run endpoint conformance checks against `src/openapi/site-spec.yaml`:
+
 ```bash
 npm run test:api-conformance
 ```
 
 The runner creates an isolated runtime workspace, then bootstraps a real site via API before endpoint checks run.
+
 - The first bootstrap step calls `createSite` and generates a runtime site name:
   - `haxcms-test-harness-{timestampStartOfTest}`
 - All conformance calls then run against that real site path.
@@ -96,6 +106,7 @@ The runner creates an isolated runtime workspace, then bootstraps a real site vi
   - `HAXCMS_TEST_PASSWORD`
 
 Runtime credential overrides are also supported in-process via globals:
+
 - `globalThis.HAXCMS_RUNTIME_CREDENTIALS = { username, password }`
 - `globalThis.HAXCMS_RUNTIME_USERNAME`
 - `globalThis.HAXCMS_RUNTIME_PASSWORD`
@@ -107,12 +118,15 @@ env vars) instead of JS globals. `globalThis` values always take precedence
 over the environment when both are present.
 
 ### Current coverage snapshot
+
 Current automated test coverage in this repository is the API conformance suite:
+
 - Suite file: `test/api-conformance/site-spec.conformance.test.cjs`
 - Script: `npm run test:api-conformance`
 - Additional test scripts/suites are not currently wired in `package.json`
 
 The suite currently validates:
+
 - Discovery/spec endpoints:
   - `getSiteApiDiscovery`, `getSiteOpenApi`, `getSiteOpenApiJson`, `getSiteOpenApiYaml`, `getApiCatalog`
 - Site/content graph endpoints:
@@ -125,6 +139,7 @@ The suite currently validates:
   - `listFiles`, `createFile`, `getFileByUuid`, `updateFileByUuid`, `replaceFileContent`, `deleteFileByUuid`, `listItemRevisions`
 
 Behavior coverage in the same suite includes:
+
 - OpenAPI response/schema conformance checks
 - Auth matrix checks for secured routes (no auth, bearer-only, invalid site token, valid site token)
 - Boundary/error checks (missing required params, invalid ids/slugs, pagination/query bounds)
@@ -132,6 +147,7 @@ Behavior coverage in the same suite includes:
 - End-to-end file lifecycle checks (create → list/find → get → update → delete)
 
 Temporary known skip in the suite:
+
 - `getApiCatalog returns linkset payload`
   - Reason: runtime `/.well-known/api-catalog` fixture behavior is still being finalized
 
@@ -162,12 +178,14 @@ The write invariants behind them, kept the same in haxcms-php:
 - an invalid outline payload (items that are not objects, an item without an id, a new page id sent twice, a parent cycle) is rejected with a 400 before anything is written
 - a page folder exists only for a page `site.json` lists: a request that created page folders removes them again when the `site.json` write that would list them fails
 - an error thrown inside any API route answers the 500 `ApiError` envelope (`src/lib/routeHandlerError.js`); it never leaves the request hanging or stops the server
+- listing themes or skeletons never fails because the enabled-map housekeeping save under `<configDirectory>/settings/` failed: the list is answered from memory and the failed save is logged (`persistDetectedThemeDefaults`, `persistDetectedSkeletonDefaults`); the save routes for those maps still report a failed write
 
 saveOutline is checkpointed, not atomic as a whole: the new structure is written to `site.json` once after the structure pass, so a failure in the later content or delete phase leaves that structure saved.
 
-Each scenario has an id (`FI-OUT-*`, `FI-PAY-*`, `FI-NODE-*`, `FI-SITE-*`, `FI-UP-*`, `FI-HTTP-*`) shared with haxcms-php, which mirrors these tests; keep both backends' scenarios in step. A scenario whose invariant does not hold yet is a `test.todo` whose name says what is wrong. When the product fix lands, turn it into a plain `test` in the same PR. To add a scenario, inject the fault with `t.mock.method(fs, ...)` (restore with `t.mock.restoreAll()` before checking the server still serves), give it the next free id, and add the same id to the PHP suite.
+Each scenario has an id (`FI-OUT-*`, `FI-PAY-*`, `FI-NODE-*`, `FI-SITE-*`, `FI-UP-*`, `FI-HTTP-*`, `FI-SET-*`) shared with haxcms-php, which mirrors these tests; keep both backends' scenarios in step. A scenario whose invariant does not hold yet is a `test.todo` whose name says what is wrong. When the product fix lands, turn it into a plain `test` in the same PR. To add a scenario, inject the fault with `t.mock.method(fs, ...)` (restore with `t.mock.restoreAll()` before checking the server still serves), give it the next free id, and add the same id to the PHP suite.
 
 ## MCP and deployment profiles
+
 - MCP policy defaults are controlled via `_config/config.json`.
 - New installs include:
   - `deploymentProfile`: `single-site`, `self-hosted-multi-site`, or `haxiam-managed`
@@ -178,16 +196,19 @@ Each scenario has an id (`FI-OUT-*`, `FI-PAY-*`, `FI-NODE-*`, `FI-SITE-*`, `FI-U
   - Once enabled, MCP stays read-only unless `mcp.readOnly` is explicitly `false`.
 
 # Get Help / Issues / Support
+
 - Discord Channel - https://discord.gg/aCGxmRHEJP
 - Unified issue queue - https://github.com/haxtheweb/issues/issues
 - Using Merlin directly in any HAX spaces and type "Issue" to jump start a report!
 
 ## Watch and Learn more about HAX here:
+
 - Try Hax: https://hax.cloud
 - HAXCellence https://haxtheweb.org/what-is-hax
 - Youtube channel - https://www.youtube.com/@haxtheweb
 
 # Related links and tech
+
 - [NPM Package list](https://www.npmjs.com/org/haxtheweb)
 - [HAXcms (NodeJS)](https://github.com/haxtheweb/haxcms-nodejs)
 - [HAXcms (PHP)](https://github.com/haxtheweb/haxcms-php)
@@ -195,6 +216,5 @@ Each scenario has an id (`FI-OUT-*`, `FI-PAY-*`, `FI-NODE-*`, `FI-SITE-*`, `FI-U
 - [HAX [dot] PSU](https://hax.psu.edu)
 - [HAX doc site](https://haxtheweb.org/)
 - [HAX + 11ty](https://github.com/haxtheweb/hax11ty)
-
 
 ![HAX Future Traveler](https://raw.githubusercontent.com/haxtheweb/art/refs/heads/main/haxtheweb/hax-future-traveler.jpg)

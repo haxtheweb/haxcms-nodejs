@@ -3,6 +3,7 @@ const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
 const filter_var = require("../../../lib/filter_var.js");
 const { sanitizeURLValue } = require("../../../lib/sanitizeContent.js");
 const { isUnsafeRelativePath } = require("../../../lib/pathConfinement.js");
+const { normalizeSameAsList } = require("../../../lib/sameAs.js");
 const {
   platformAllows,
   featureDisabledResponse,
@@ -310,6 +311,22 @@ async function saveSeoSettings(req, res) {
         site.manifest.metadata.site.domain,
         "",
       );
+    }
+
+    // the site's profiles elsewhere, published as Organization sameAs
+    let sameAsValue;
+    if (hasOwn(bodySeo, "sameAs")) {
+      sameAsValue = bodySeo.sameAs;
+    } else if (hasOwn(manifestSeo, "manifest.metadata.site.sameAs")) {
+      sameAsValue = manifestSeo["manifest.metadata.site.sameAs"];
+    }
+    if (typeof sameAsValue !== "undefined") {
+      const sameAs = normalizeSameAsList(sameAsValue);
+      if (sameAs.length > 0) {
+        site.manifest.metadata.site.sameAs = sameAs;
+      } else {
+        delete site.manifest.metadata.site.sameAs;
+      }
     }
 
     let langValue;

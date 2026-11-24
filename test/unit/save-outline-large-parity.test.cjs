@@ -279,7 +279,7 @@ function snapshot(siteName) {
     replacements.push([item.id, "ID{" + item.title + "}"]);
     // the search index stores a shortened form of the id
     replacements.push([
-      item.id.replace("-", "").replace("item-", "").substring(0, 29),
+      item.id.split("item-").join("").split("-").join("").substring(0, 29),
       "LUNR{" + item.title + "}",
     ]);
   });

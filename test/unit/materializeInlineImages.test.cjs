@@ -160,6 +160,28 @@ describe("materializeInlineImages — #2945", () => {
     );
   });
 
+  test("stages each inline image readable by the server user only", async () => {
+    const originalSave = HAXCMSFile.prototype.save;
+    const modes = [];
+    HAXCMSFile.prototype.save = async function (upload) {
+      modes.push(fs.statSync(upload.path).mode & 0o777);
+      return { status: 500 };
+    };
+    try {
+      await materializeInlineImages(
+        '<p><img alt="x" src="' + PNG_DATA_URI + '"></p>',
+        site,
+        { pageTitle: "Staging" },
+      );
+    } finally {
+      HAXCMSFile.prototype.save = originalSave;
+    }
+    assert.equal(modes.length, 1);
+    if (process.platform !== "win32") {
+      assert.equal(modes[0], 0o600);
+    }
+  });
+
   test("records the saved file as a file entity", async () => {
     const { uuids } = await materializeInlineImages(
       '<p><img src="' + PNG_DATA_URI + '"></p>',

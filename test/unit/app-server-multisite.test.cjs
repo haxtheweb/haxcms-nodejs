@@ -318,14 +318,37 @@ test("dashboard index also serves /home, /index.html, and createSite steps", asy
   assert.ok(indexHtml.bodyText.indexOf("<") !== -1);
 });
 
-test("unknown non-API paths fall through to the dashboard catch-all", async () => {
+test("unknown non-API paths get the dashboard shell as an HTML 404", async () => {
   const result = await request(
     "GET",
     runtime.baseUrl + "/totally-random-page",
     {},
   );
-  assert.equal(result.status, 200);
+  // the shell renders the dashboard's own not-found view, but the status
+  // says the page does not exist (haxcms-php index.php does the same)
+  assert.equal(result.status, 404);
   assert.ok(result.bodyText.indexOf("<") !== -1);
+  assert.equal(
+    String(result.headers["content-type"]).split(";")[0],
+    "text/html",
+  );
+});
+
+test("dashboard pages answer 200 as HTML, including search and index.php", async () => {
+  for (const entry of [
+    "/search",
+    "/index.php",
+    "/home/",
+    "/createSite-step-2",
+  ]) {
+    const result = await request("GET", runtime.baseUrl + entry, {});
+    assert.equal(result.status, 200, entry);
+    assert.equal(
+      String(result.headers["content-type"]).split(";")[0],
+      "text/html",
+      entry,
+    );
+  }
 });
 
 test("OPTIONS preflight answers 200 for any path", async () => {
@@ -398,9 +421,41 @@ test("CSP carries base-uri and form-action self", async () => {
 });
 
 test("CSP sends no frame-ancestors by default so LMS tools can iframe sites", async () => {
-  const result = await request("GET", runtime.baseUrl + "/", {});
+  const result = await request(
+    "GET",
+    runtime.baseUrl + "/_sites/" + SITE_NAME + "/",
+    { headers: { accept: "text/html" } },
+  );
   const csp = String(result.headers["content-security-policy"] || "");
   assert.ok(!/frame-ancestors/.test(csp), csp);
+});
+
+test("site pages send no X-Frame-Options; the dashboard only by its own origin", async () => {
+  const sitePage = await request(
+    "GET",
+    runtime.baseUrl + "/_sites/" + SITE_NAME + "/",
+    { headers: { accept: "text/html" } },
+  );
+  assert.equal(sitePage.headers["x-frame-options"], undefined);
+  assert.ok(
+    !/frame-ancestors/.test(
+      String(sitePage.headers["content-security-policy"] || ""),
+    ),
+  );
+  for (const dashboardPath of ["/", "/home", "/some-unknown-dashboard-path"]) {
+    const dashboard = await request("GET", runtime.baseUrl + dashboardPath, {
+      headers: { accept: "text/html" },
+    });
+    assert.equal(
+      dashboard.headers["x-frame-options"],
+      "SAMEORIGIN",
+      dashboardPath,
+    );
+    const csp = String(dashboard.headers["content-security-policy"] || "");
+    assert.ok(/(^|;\s*)frame-ancestors 'self'(;|$)/.test(csp), csp);
+    assert.equal(csp.match(/frame-ancestors/g).length, 1, csp);
+    assert.ok(/script-src [^;]*'nonce-/.test(csp), csp);
+  }
 });
 
 test("config.security.frameAncestors is sanitized into a CSP source list", () => {
@@ -837,6 +892,69 @@ test("a missing page without an extension renders the page-miss shell at 404", a
   assert.ok(result.bodyText.indexOf("The page miss, it burns!") !== -1);
 });
 
+test("an unpublished page gives nothing about itself in the shell or its variants", async () => {
+  const site = await HAXCMS.loadSite(SITE_NAME);
+  const item = site.manifest.items.find(function (i) {
+    return i.slug === "home";
+  });
+  const marker = "unpublished-shell-marker-3391";
+  const pageFile = path.join(site.siteDirectory, item.location);
+  const savedBody = fs.readFileSync(pageFile, "utf8");
+  const savedTitle = item.title;
+  fs.writeFileSync(pageFile, "<p>" + marker + "</p>");
+  item.title = "Title " + marker;
+  item.description = "Description " + marker;
+  item.metadata = Object.assign({}, item.metadata || {}, { published: false });
+  await site.manifest.save(false);
+  const base = runtime.baseUrl + "/_sites/" + SITE_NAME + "/home";
+  try {
+    // the shell still answers 200 (an editor reloading the page gets the app)
+    // but carries no body, title or description of the page, and is noindex
+    const shell = await request("GET", base, {
+      headers: { accept: "text/html" },
+    });
+    assert.equal(shell.status, 200);
+    assert.ok(shell.bodyText.indexOf("<haxcms-site-builder") !== -1);
+    assert.equal(shell.bodyText.indexOf(marker), -1);
+    assert.ok(
+      shell.bodyText.indexOf('<meta name="robots" content="noindex') !== -1,
+    );
+    assert.equal(String(shell.headers.link || "").indexOf("home."), -1);
+    // explicit and negotiated variants do not serve it either
+    for (const ext of [".md", ".json", ".yaml", ".xml"]) {
+      const variant = await request("GET", base + ext, {});
+      assert.equal(variant.status, 404, ext);
+      assert.equal(variant.bodyText, "Not found");
+    }
+    const negotiated = await request("GET", base, {
+      headers: { accept: "text/markdown" },
+    });
+    assert.equal(negotiated.bodyText.indexOf(marker), -1);
+    assert.ok(
+      String(negotiated.headers["content-type"] || "").indexOf("text/html") !==
+        -1,
+    );
+  } finally {
+    fs.writeFileSync(pageFile, savedBody);
+    const restored = await HAXCMS.loadSite(SITE_NAME);
+    const restoredItem = restored.manifest.items.find(function (i) {
+      return i.slug === "home";
+    });
+    restoredItem.title = savedTitle;
+    delete restoredItem.description;
+    restoredItem.metadata = Object.assign({}, restoredItem.metadata || {}, {
+      published: true,
+    });
+    await restored.manifest.save(false);
+  }
+  // published again: the shell inlines the page as before
+  const again = await request("GET", base, {
+    headers: { accept: "text/html" },
+  });
+  assert.equal(again.status, 200);
+  assert.ok(again.bodyText.indexOf('content="index, follow') !== -1);
+});
+
 // ---------------------------------------------------------------------------
 // site API auth matrix (validateSiteApiRouteAccess)
 // ---------------------------------------------------------------------------
@@ -894,6 +1012,83 @@ test("site API files route enforces the full auth matrix", async () => {
     },
   });
   assert.equal(allowed.status, 200, allowed.bodyText);
+});
+
+// A page's id is its folder, so a second page under the same id would share
+// the first page's file and replace its content.
+test("creating a page under an id the site already has is refused and writes nothing", async () => {
+  const itemsUrl = runtime.baseUrl + "/_sites/" + SITE_NAME + "/x/api/v1/items";
+  const headers = {
+    authorization: "Bearer " + runtime.jwt,
+    "X-HAXCMS-Site-Token": runtime.siteToken,
+  };
+  const create = function (body) {
+    return request("POST", itemsUrl, {
+      headers: headers,
+      data: Object.assign({ site: { name: SITE_NAME } }, body),
+    });
+  };
+  const idsNamed = async function (id) {
+    const site = await HAXCMS.loadSite(SITE_NAME);
+    return site.manifest.items.filter(function (item) {
+      return item.id === id;
+    });
+  };
+  const first = await create({
+    node: { id: "dup-check", title: "First", contents: "<p>first-body</p>" },
+  });
+  assert.equal(first.status, 200, first.bodyText);
+  const pageFile = path.join(
+    runtimeRoot,
+    "_sites",
+    SITE_NAME,
+    "pages",
+    "dup-check",
+    "index.html",
+  );
+  const firstBody = fs.readFileSync(pageFile, "utf8");
+  // the same id again, as a single page
+  const second = await create({
+    node: { id: "dup-check", title: "Second", contents: "<p>second-body</p>" },
+  });
+  assert.equal(second.status, 400, second.bodyText);
+  assert.equal(JSON.parse(second.bodyText).data.code, "OUTLINE_INVALID");
+  // another spelling of the same stored id
+  const respelled = await create({
+    node: { id: "../dup-check", title: "Third", contents: "<p>third</p>" },
+  });
+  assert.equal(respelled.status, 400, respelled.bodyText);
+  // the same id again inside a bulk request: no page of that request is made
+  const bulkExisting = await create({
+    items: [
+      { id: "dup-bulk-new", title: "Bulk new", contents: "<p>x</p>" },
+      { id: "dup-check", title: "Bulk clash", contents: "<p>bulk-body</p>" },
+    ],
+  });
+  assert.equal(bulkExisting.status, 400, bulkExisting.bodyText);
+  // one id twice within a single bulk request
+  const bulkTwice = await create({
+    items: [
+      { id: "dup-twice", title: "One", contents: "<p>one</p>" },
+      { id: "dup-twice", title: "Two", contents: "<p>two</p>" },
+    ],
+  });
+  assert.equal(bulkTwice.status, 400, bulkTwice.bodyText);
+  assert.equal((await idsNamed("dup-check")).length, 1);
+  assert.equal((await idsNamed("dup-check"))[0].title, "First");
+  assert.equal((await idsNamed("dup-bulk-new")).length, 0);
+  assert.equal((await idsNamed("dup-twice")).length, 0);
+  assert.equal(fs.readFileSync(pageFile, "utf8"), firstBody);
+  // ids that are free, and requests that name no id, still create pages
+  const bulkOk = await create({
+    items: [
+      { id: "dup-free-a", title: "A", contents: "<p>a</p>" },
+      { title: "No id one", contents: "<p>b</p>" },
+      { title: "No id two", contents: "<p>c</p>" },
+    ],
+  });
+  assert.equal(bulkOk.status, 200, bulkOk.bodyText);
+  assert.equal((await idsNamed("dup-free-a")).length, 1);
 });
 
 // haxtheweb/issues#3211: search declares optional auth. Anonymous callers

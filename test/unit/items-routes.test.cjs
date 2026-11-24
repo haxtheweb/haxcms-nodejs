@@ -644,7 +644,7 @@ describe("items routes — createItem", () => {
     );
   });
 
-  test("a new page takes the order it asks for and the pages after it move down", async (t) => {
+  test("a new page takes the position it asks for and the pages after it move down", async (t) => {
     const site = makeCreateSite(t);
     const fromParams = site.itemFromParams;
     site.itemFromParams = (params) =>
@@ -664,11 +664,14 @@ describe("items routes — createItem", () => {
       () => {},
     );
     assert.equal(res.sent.status, 200);
+    // item-1's children sat at orders 1 and 2 (a gap at 0). The front end
+    // counts orders as positions, so order 1 is the second spot: after
+    // item-2, before item-3. Orders come out 0..n-1 with no gap.
     assert.equal(res.sent.data.order, 1);
     // a child of item-1, so its indent is its depth
     assert.equal(res.sent.data.indent, 1);
-    assert.equal(site.loadNode("item-2").order, 2);
-    assert.equal(site.loadNode("item-3").order, 3);
+    assert.equal(site.loadNode("item-2").order, 0);
+    assert.equal(site.loadNode("item-3").order, 2);
   });
 
   test("a new page sent without an order goes to the end of its siblings", async (t) => {
@@ -690,9 +693,10 @@ describe("items routes — createItem", () => {
       () => {},
     );
     assert.equal(res.sent.status, 200);
-    assert.equal(res.sent.data.order, 3);
-    assert.equal(site.loadNode("item-2").order, 1);
-    assert.equal(site.loadNode("item-3").order, 2);
+    // last of three siblings, numbered 0..n-1
+    assert.equal(res.sent.data.order, 2);
+    assert.equal(site.loadNode("item-2").order, 0);
+    assert.equal(site.loadNode("item-3").order, 1);
   });
 
   function withAddPage(site) {
@@ -923,7 +927,40 @@ describe("items routes — deleteItem", () => {
       ["second-page", "third-page", "third-page/fourth-page"],
     );
     assert.deepEqual([two.indent, three.indent, four.indent], [0, 0, 1]);
-    assert.notEqual(two.order, three.order);
-    assert.ok(two.order < three.order);
+    // the rescued pages are numbered 0..n-1 with nothing between them
+    assert.deepEqual([two.order, three.order], [0, 1]);
+  });
+
+  test("deleting a page leaves no gap in its siblings' orders", async (t) => {
+    const site = makeFakeSite();
+    // a fourth top level page after item-1, then delete item-1
+    site.manifest.items.push({
+      id: "item-4",
+      title: "Fourth Page",
+      slug: "fourth-page",
+      parent: null,
+      indent: 0,
+      order: 1,
+      location: "pages/item-4/index.html",
+      metadata: {},
+    });
+    site.loadNode("item-2").parent = null;
+    site.loadNode("item-2").order = 2;
+    site.loadNode("item-3").parent = null;
+    site.loadNode("item-3").order = 3;
+    mockSite(t, site);
+    const res = stubRes();
+    await deleteItem(
+      makeReq({ params: { idOrSlug: "first-page" } }),
+      res,
+      () => {},
+    );
+    assert.equal(res.sent.status, 200);
+    assert.deepEqual(
+      ["item-4", "item-2", "item-3"].map((id) => site.loadNode(id).order),
+      [0, 1, 2],
+    );
+    // the renumbered outline was written
+    assert.ok(site.calls.saveCalls.length > 0);
   });
 });

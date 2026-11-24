@@ -1,7 +1,7 @@
 "use strict";
 
-// First-paint behavior of the site shells (index.html, ghpages.html,
-// index.php and the CDN shells):
+// First-paint behavior of the site shells (index.html, ghpages.html and
+// index.php):
 // - an inline script right after <haxcms-site-builder> preloads the exact
 //   URL in the builder's `file` attribute, so the site.json download is not
 //   queued behind the boot JavaScript
@@ -18,14 +18,7 @@ const path = require("path");
 const vm = require("vm");
 
 const BOILERPLATE = path.join(__dirname, "..", "..", "src", "boilerplate");
-const SHELLS = [
-  "site/index.html",
-  "site/ghpages.html",
-  "site/index.php",
-  "cdns/cdn.hax.cloud.html",
-  "cdns/cdn.webcomponents.psu.edu.html",
-  "cdns/custom.html",
-];
+const SHELLS = ["site/index.html", "site/ghpages.html", "site/index.php"];
 
 function read(file) {
   return fs.readFileSync(path.join(BOILERPLATE, file), "utf8");

@@ -2143,3 +2143,29 @@ describe('resolveSiteForRequest (HAXCMS.loadSite stubbed)', () => {
     assert.equal(out, null)
   })
 })
+
+describe('yieldEveryFewPages', () => {
+  test('lets a waiting request run during a loop over many pages', async () => {
+    // a timer due now stands in for another request waiting on the event loop
+    let ranDuringLoop = false
+    let loopDone = false
+    setImmediate(() => { ranDuringLoop = !loopDone })
+    const usage = await siteRouteUtils.collectCustomElementUsage(
+      {
+        loadNode: (id) => ({ id, location: 'pages/' + id + '/index.html' }),
+        getPageContent: async () => '<video-player></video-player>',
+      },
+      Array.from({ length: 60 }, (_, i) => ({ id: 'item-' + i })),
+    )
+    loopDone = true
+    assert.equal(ranDuringLoop, true)
+    // the result is the same as before: every page was counted once
+    assert.equal(usage['video-player'], 60)
+  })
+
+  test('only yields between batches of pages', () => {
+    assert.equal(siteRouteUtils.yieldEveryFewPages(0), null)
+    assert.equal(siteRouteUtils.yieldEveryFewPages(24), null)
+    assert.ok(siteRouteUtils.yieldEveryFewPages(25) instanceof Promise)
+  })
+})

@@ -65,6 +65,10 @@ const HAXCMS_AGENT_SKILLS_HTACCESS = `# HAXcms Agent Skills discovery (agentskil
  * no leading slash or backslash, no parent-directory segments, no query.
  * Mirrors HAXCMSSite::getPreloadablePageLocation in haxcms-php.
  */
+// DDD's Latin Roboto face, under build/es6/node_modules; preloaded by
+// getSiteMetadata for sites that render on DDD's fonts
+const DDD_FONT_PRELOAD =
+  "@haxtheweb/d-d-d/lib/fonts/roboto/roboto-latin-wght-normal.woff2";
 function getPreloadablePageLocation(page) {
   if (!page || typeof page.location !== "string") {
     return "";
@@ -186,7 +190,10 @@ function loadConfigJson(configDirectory) {
   }
 }
 // HAXCMSSite which overlaps heavily and is referenced here often
-const utf8 = require("utf8");
+// a short search word that is kept: it has a digit, or it is written in a
+// script that does not put spaces between words
+const SEARCH_WORD_KEPT_SHORT =
+  /[\p{N}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u;
 const {
   rebuildAlternateFormatsLogged,
 } = require("./rebuildAlternateFormatsLogged.js");
@@ -219,12 +226,13 @@ const {
 const { materializeInlineImages } = require("./materializeInlineImages.js");
 const {
   applyPageMetadata,
+  pageTimestamps,
   toPlainText,
   isBlankPageTitle,
   DEFAULT_PAGE_TITLE,
 } = require("./sanitizePageMetadata.js");
 const { readDefaultStarterItems } = require("./skeletonSettings.js");
-const exec = util.promisify(child_process.exec);
+const { normalizeSameAsList } = require("./sameAs.js");
 // Security (SEC-EXEC): argument-array git calls (no shell string)
 const execFile = util.promisify(child_process.execFile);
 // scrypt parameters for stored password hashes (hashPassword / verify*)
@@ -354,7 +362,7 @@ async function gitVersionCached() {
     return cachedGitVersion;
   }
   try {
-    const { stdout } = await exec("git --version");
+    const { stdout } = await execFile("git", ["--version"]);
     cachedGitVersion = stdout;
     return stdout;
   } catch {
@@ -417,6 +425,19 @@ const MANAGED_HTML_TEMPLATE_KEYS = [
   "metaDescription",
   "socialImage",
 ];
+// Security (SEC-SANITIZE): managed templates that are not HTML pages. Every
+// other string value they print (short name, theme color, icon paths, lang,
+// domain, base path) is HTML-escaped, the output PHP Twig's autoescape gives
+// those same values, so a quote or angle bracket in site settings cannot
+// close the JSON string or XML node it is printed in.
+const MANAGED_ESCAPE_ALL_TEMPLATES = [
+  "manifest.json",
+  "package.json",
+  "imsmanifest.xml",
+  "browserconfig.xml",
+  "robots.txt",
+  "llms.txt",
+];
 /**
  * Security (SEC-SANITIZE): parity contract with PHP: before rendering managed
  * JSON/XML, title/description have CR, LF and TAB replaced by a space and every
@@ -462,13 +483,25 @@ function managedTemplateVarsFor(fileName, templateVars) {
   )
     ? MANAGED_TEMPLATE_TEXT_FORMATS[fileName]
     : null;
-  if (!format) {
+  const escapeAll = MANAGED_ESCAPE_ALL_TEMPLATES.indexOf(fileName) !== -1;
+  if (!format && !escapeAll) {
     return templateVars;
   }
-  const vars = Object.assign({}, templateVars, {
-    title: escapeManagedTemplateText(templateVars.title, format),
-    description: escapeManagedTemplateText(templateVars.description, format),
-  });
+  const vars = Object.assign({}, templateVars);
+  if (escapeAll) {
+    Object.keys(vars).forEach((key) => {
+      if (typeof vars[key] === "string") {
+        vars[key] = escapeHTMLAttribute(vars[key]);
+      }
+    });
+  }
+  if (format) {
+    vars.title = escapeManagedTemplateText(templateVars.title, format);
+    vars.description = escapeManagedTemplateText(
+      templateVars.description,
+      format,
+    );
+  }
   if (format === "html") {
     MANAGED_HTML_TEMPLATE_KEYS.forEach((key) => {
       vars[key] = escapeManagedTemplateText(templateVars[key], format);
@@ -1291,7 +1324,8 @@ class HAXCMSSite {
           let template = Twig.twig({ data: output, async: false });
           // Security (SEC-SANITIZE): title/description pre-escaped per format
           // (JSON string / XML / plain text) for the managed files that
-          // embed them; see MANAGED_TEMPLATE_TEXT_FORMATS.
+          // embed them, and every other value escaped in the non-HTML ones;
+          // see MANAGED_TEMPLATE_TEXT_FORMATS and MANAGED_ESCAPE_ALL_TEMPLATES.
           output = template.render(
             managedTemplateVarsFor(templates[key], templateVars),
           );
@@ -1745,8 +1779,10 @@ class HAXCMSSite {
     if (metadata) {
       applyPageMetadata(page, metadata, { themes: HAXCMS.getThemes() });
     }
-    page.metadata.created = Math.floor(Date.now() / 1000);
-    page.metadata.updated = Math.floor(Date.now() / 1000);
+    // an imported page keeps its own created / updated times
+    const times = pageTimestamps(metadata, Math.floor(Date.now() / 1000));
+    page.metadata.created = times.created;
+    page.metadata.updated = times.updated;
     let location = path.join(this.siteDirectory, "pages", page.id);
     const folderExisted = fs.existsSync(location);
     // copy the page we use for simplicity (or later complexity if we want)
@@ -2324,69 +2360,107 @@ class HAXCMSSite {
     return text.replace(/[\\[\]]/g, "\\$&");
   }
   /**
-   * Create Lunr.js style search index
+   * Create Lunr.js style search index: one entry per published page, the
+   * same entries haxcms-php writes (HAXCMSSite::lunrSearchIndex).
    */
   async lunrSearchIndex(items) {
+    // lazy require: siteRouteUtils requires this module
+    const { isItemPublished } = require("../siteRoutes/v1/siteRouteUtils.js");
     let data = [];
-    let textData;
     for (var key in items) {
       let item = items[key];
+      if (!item || typeof item !== "object") {
+        continue;
+      }
+      // Security: this file is served without a login, so it follows the
+      // anonymous rule of the shell and page variants: an unpublished page
+      // gives nothing about itself here.
+      if (!isItemPublished(item)) {
+        continue;
+      }
       let created = Math.floor(Date.now() / 1000);
       if (item.metadata && item.metadata.created) {
         created = item.metadata.created;
       }
-      textData = "";
+      // slug is the URL canonical; older items only have a location
+      let slug = String(item.location || "")
+        .split("/index.html")
+        .join("")
+        .split("pages/")
+        .join("");
+      if (typeof item.slug !== "undefined" && item.slug !== null) {
+        slug = item.slug;
+      }
+      // may seem silly but IDs in lunr have a size limit for some reason in our context..
+      const entry = {
+        id: String(item.id || "")
+          .split("item-")
+          .join("")
+          .split("-")
+          .join("")
+          .substring(0, 29),
+        title: typeof item.title !== "undefined" ? item.title : null,
+        created: created,
+        location: slug,
+        description: stripAngleTags(
+          typeof item.description === "string" ? item.description : "",
+          "",
+        ),
+        text: "",
+      };
       try {
         // Security (SEC-PATH), PHP parity: read via containment-checked resolver
         const resolvedLocation = this.resolvePageLocationRealPath(
           item.location,
         );
-        if (resolvedLocation === false) {
-          throw new Error("invalid page location");
+        if (resolvedLocation !== false) {
+          entry.text = this.cleanSearchData(
+            fs.readFileSync(resolvedLocation, {
+              encoding: "utf8",
+              flag: "r",
+            }),
+          );
         }
-        textData = await fs.readFileSync(resolvedLocation, {
-          encoding: "utf8",
-          flag: "r",
-        });
-        textData = this.cleanSearchData(textData);
-        // may seem silly but IDs in lunr have a size limit for some reason in our context..
-        data.push({
-          id: item.id.replace("-", "").replace("item-", "").substring(0, 29),
-          title: item.title,
-          created: created,
-          location: item.slug,
-          description: item.description,
-          text: textData,
-        });
       } catch {
-        // intentionally ignored
+        // a page whose file cannot be read is still found by its title
       }
+      data.push(entry);
     }
     return data;
   }
   /**
-   * Clean up data from a file and make it easy for us to index on the front end
+   * Turn a page's HTML into the words the front end search indexes: tags
+   * out, lower case, punctuation out, each word once in first-seen order.
+   * Words of one or two letters are dropped (nobody searches for "am" or
+   * "of"); numbers and words in scripts written without spaces are kept
+   * whatever their length. Works on any language's letters.
+   * Same output as haxcms-php HAXCMSSite::cleanSearchData; both are held to
+   * test/fixtures/search-index-vectors.json.
    */
   cleanSearchData(text) {
-    if (text == "" || text == null || !text) {
+    if (typeof text !== "string" || text === "") {
       return "";
     }
-    // clean up initial, small, trim, replace end lines, utf8 no tags
-    text = utf8.encode(
-      stripAngleTags(text, "").replace(/\n/g, " ").toLowerCase().trim(),
-    );
-    // all weird chars
-    text = text.replace("/[^a-z0-9']/", " ");
-    text = text.replace(/'/g, "");
-    // all words 1 to 4 letters long
-    text = text.replace("~\b[a-z]{1,4}\bs*~", "");
-    // all excess white space
-    text = text.replace("/s+/", " ");
-    // crush string to array and back to make an unique index. A Set keeps
-    // first occurrences in order, which is exactly what locutus
-    // array_unique + implode produced, but in O(n) instead of O(n^2).
-    text = Array.from(new Set(explode(" ", text))).join(" ");
-    return text;
+    // a tag becomes a space so the words either side of it stay two words
+    text = stripAngleTags(text, " ").toLowerCase();
+    // apostrophes close up (aren't -> arent), anything else that is not a
+    // letter or a number separates words
+    text = text.replace(/'/g, "").replace(/[^\p{L}\p{N}]+/gu, " ");
+    const seen = new Set();
+    const words = [];
+    const parts = text.split(" ");
+    for (let i = 0; i < parts.length; i++) {
+      const word = parts[i];
+      if (word === "" || seen.has(word)) {
+        continue;
+      }
+      if (Array.from(word).length < 3 && !SEARCH_WORD_KEPT_SHORT.test(word)) {
+        continue;
+      }
+      seen.add(word);
+      words.push(word);
+    }
+    return words.join(" ");
   }
   /**
    * Sort items by a certain key value. Must be in the included list for safety of the sort
@@ -3081,6 +3155,86 @@ class HAXCMSSite {
     return item;
   }
   /**
+   * Absolute path of a file in the local build (build/es6/node_modules),
+   * looked up for the site first, then the HAXcms root; null when absent.
+   * Read from disk whatever the site's base is: the CDN serves the same
+   * release. Mirrors the PHP HAXCMSSite::localBuildFile.
+   * @param {String} rel path under build/es6/node_modules
+   */
+  localBuildFile(rel) {
+    const buildRel = path.join("build/es6/node_modules", rel);
+    const candidates = [];
+    if (this.siteDirectory) {
+      candidates.push(path.join(this.siteDirectory, buildRel));
+    }
+    candidates.push(path.join(HAXCMS_ROOT, buildRel));
+    candidates.push(path.join(HAXCMS_ROOT, "src/public", buildRel));
+    candidates.push(path.join(__dirname, "../public", buildRel));
+    for (const candidatePath of candidates) {
+      if (fs.existsSync(candidatePath)) {
+        return candidatePath;
+      }
+    }
+    return null;
+  }
+  /**
+   * designSystems.json (the design system bridge registry shipped in
+   * @haxtheweb/haxcms-elements/lib) from the local build; {} when the build
+   * has none (older builds).
+   */
+  getDesignSystemsJson() {
+    const registryPath = this.localBuildFile(
+      "@haxtheweb/haxcms-elements/lib/designSystems.json",
+    );
+    if (registryPath) {
+      try {
+        const data = readJsonFileCached(registryPath);
+        return data && typeof data === "object" ? data : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  }
+  /**
+   * Whether this site renders on DDD's own fonts (Roboto), so its pages can
+   * preload DDD's Latin Roboto. False when the site picked another design
+   * system or its theme is a bridged one (the bridge brings its own fonts),
+   * and when the local build has no design system registry to check against
+   * or doesn't ship the font (builds before d-d-d vendored its fonts).
+   */
+  usesDDDFonts() {
+    const theme =
+      this.manifest && this.manifest.metadata
+        ? this.manifest.metadata.theme
+        : null;
+    if (!theme) {
+      return false;
+    }
+    if (
+      typeof theme.designSystem === "string" &&
+      theme.designSystem !== "" &&
+      theme.designSystem !== "ddd"
+    ) {
+      return false;
+    }
+    if (!this.localBuildFile(DDD_FONT_PRELOAD)) {
+      return false;
+    }
+    const systems = this.getDesignSystemsJson();
+    const names = Object.keys(systems);
+    if (names.length === 0) {
+      return false;
+    }
+    const element = String(theme.element || "");
+    return !names.some(
+      (name) =>
+        systems[name] &&
+        typeof systems[name] === "object" &&
+        systems[name].theme === element,
+    );
+  }
+  /**
    * Return accurate, rendered site metadata
    * @var JSONOutlineSchemaItem page - a loaded page object, most likely whats active
    * @return string an html chunk of tags for the head section
@@ -3389,6 +3543,20 @@ class HAXCMSSite {
         String(this.manifest.author.socialLink).trim(),
       );
     }
+    let authorSocialLink2 = "";
+    if (manifestAuthor && manifestAuthor.socialLink2) {
+      authorSocialLink2 = sanitizeUrl(
+        String(manifestAuthor.socialLink2).trim(),
+      );
+    } else if (
+      this.manifest &&
+      this.manifest.author &&
+      this.manifest.author.socialLink2
+    ) {
+      authorSocialLink2 = sanitizeUrl(
+        String(this.manifest.author.socialLink2).trim(),
+      );
+    }
     let authorImageForStructuredData = "";
     if (manifestAuthor && manifestAuthor.image) {
       authorImageForStructuredData = toAbsoluteStructuredDataUrl(
@@ -3585,16 +3753,27 @@ class HAXCMSSite {
         escapeHtml(pageLocation) +
         '" as="fetch" crossorigin="anonymous" fetchpriority="high" />';
     }
+    // DDD sets body text in Roboto, which @haxtheweb/d-d-d ships under
+    // lib/fonts; preload its Latin face so text doesn't wait on the boot
+    // JavaScript to discover it. Fonts are always fetched in CORS mode, so
+    // crossorigin is required for the preload to be reused.
+    let fontPreload = "";
+    if (this.usesDDDFonts()) {
+      fontPreload =
+        '\n  <link rel="preload" href="' +
+        base +
+        "build/es6/node_modules/" +
+        DDD_FONT_PRELOAD +
+        '" as="font" type="font/woff2" crossorigin="anonymous" />';
+    }
     let metadata = `<meta charset="utf-8" />
   ${preconnect}
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" crossorigin href="https://fonts.gstatic.com">
   <link rel="preload" href="${base}build.js" as="script" />
   <link rel="preload" href="${base}build-haxcms.js" as="script" />
   <link rel="preload" href="${base}wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
 ${shellModulepreload}
 ${themePreload}${contentPreload}${pageDataPreload}
-  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />
+  <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />${fontPreload}
   <link rel="llms" href="llms.txt" title="LLM Content Map" />
   <link rel="alternate" type="text/markdown" href="llms.txt" title="Markdown Summary" />
   <link rel="alternate" type="text/markdown" href="llms-full.txt" title="Full Site as Markdown" />
@@ -3669,6 +3848,7 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
     if (
       authorName != "" ||
       authorSocialLink != "" ||
+      authorSocialLink2 != "" ||
       authorImageForStructuredData != ""
     ) {
       authorNode = {
@@ -3678,8 +3858,13 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       if (authorName != "") {
         authorNode.name = authorName;
       }
-      if (authorSocialLink != "") {
-        authorNode.sameAs = [authorSocialLink];
+      // both social links the SEO form collects; https only
+      const authorSameAs = normalizeSameAsList([
+        authorSocialLink,
+        authorSocialLink2,
+      ]);
+      if (authorSameAs.length > 0) {
+        authorNode.sameAs = authorSameAs;
       }
       if (authorImageForStructuredData != "") {
         authorNode.image = {
@@ -3704,6 +3889,15 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
           "@type": "ImageObject",
           url: siteLogoForStructuredData,
         };
+      }
+      // the site's profiles elsewhere (metadata.site.sameAs)
+      const siteSameAs = normalizeSameAsList(
+        this.manifest && this.manifest.metadata && this.manifest.metadata.site
+          ? this.manifest.metadata.site.sameAs
+          : null,
+      );
+      if (siteSameAs.length > 0) {
+        publisherNode.sameAs = siteSameAs;
       }
       if (authorNode && authorNode["@id"]) {
         publisherNode.founder = {
@@ -6055,11 +6249,6 @@ class HAXCMSClass {
           "Only use this if you want to automate SSH key setup. This is not stored",
         value: "",
       },
-      cdn: {
-        name: "CDN",
-        description: "A CDN address that supports HAXCMS",
-        value: "cdn.webcomponents.psu.edu",
-      },
     };
     // publishing
     for (var key in publishing) {
@@ -7750,4 +7939,5 @@ module.exports = {
   managedTemplateVarsFor,
   MANAGED_TEMPLATE_TEXT_FORMATS,
   getPreloadablePageLocation,
+  DDD_FONT_PRELOAD,
 };

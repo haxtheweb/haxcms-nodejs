@@ -4,7 +4,15 @@ const { HAXCMS } = require("../../../lib/HAXCMS.js");
 const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
 const { reserveSlugRoutes } = require("../../../lib/slugRules.js");
 const { sanitizeHTMLForStorage } = require("../../../lib/sanitizeContent.js");
-const { isPathautoEnabled } = require("../../../lib/nodeDetailOperations.js");
+const {
+  isPathautoEnabled,
+  reslugPageAndBranch,
+} = require("../../../lib/nodeDetailOperations.js");
+const {
+  adoptChildren,
+  isLocked,
+  syncIndentToDepth,
+} = require("../../../lib/outlineUpkeep.js");
 const {
   getRequestHeaderValue,
   assertSiteFeature,
@@ -168,6 +176,10 @@ async function saveOutline(req, res) {
     let items = [...req.body["items"]];
     // client id -> server id; no prototype, so any client id is a plain key
     let itemMap = Object.create(null);
+    // pages this save deletes, as they were: { id, parent, order }
+    const deleted = [];
+    // ids of the pages that were locked and stay locked through this save
+    const keptLocked = new Set();
     let pageAlternateContentMap = {};
     var page, bytes, cleanTitle;
     // Security (SEC-SANITIZE): incoming theme metadata is validated against this
@@ -179,6 +191,16 @@ async function saveOutline(req, res) {
       for (var key in items) {
         let item = items[key];
         page = site.loadNode(item.id);
+        // a page that was locked and stays locked keeps its title and
+        // content; it can still move (and get a new slug) like any page.
+        // A save that locks or unlocks a page applies the rest of its
+        // changes to it, as the outline designer showed them.
+        const keepTitle = page
+          ? isLocked(page) && lockedAfterSave(page, item)
+          : false;
+        if (keepTitle) {
+          keptLocked.add(String(page.id));
+        }
         // get a fake item of the existing
         if (!page) {
           page = HAXCMS.outlineSchema.newItem();
@@ -186,7 +208,7 @@ async function saveOutline(req, res) {
           itemMap[item.id] = page.id;
         }
         // set a title if we have one
-        if (item.title != "" && item.title) {
+        if (item.title != "" && item.title && !keepTitle) {
           // Security (SEC-SANITIZE): titles are plain text, same as saveNode
           const plainTitle = toPlainText(item.title);
           if (plainTitle !== "") {
@@ -323,6 +345,47 @@ async function saveOutline(req, res) {
           feedItems = savedItems;
         }
       }
+      // a page's address is built from its ancestors' as they were when the
+      // page was processed. A save that lists a page before an ancestor it
+      // renames or moves leaves that page under the ancestor's old address:
+      // re-slug those, top-down. outline-designer sends parents first, so
+      // its saves have nothing stale here and are written as before.
+      if (isPathautoEnabled(site)) {
+        const sentIds = new Set(
+          req.body["items"].map((sent) =>
+            String(
+              typeof itemMap[sent.id] !== "undefined"
+                ? itemMap[sent.id]
+                : sent.id,
+            ),
+          ),
+        );
+        const live = site.manifest.items;
+        const depthOf = (item) => {
+          let depth = 0;
+          const seen = new Set([String(item.id)]);
+          let up = item;
+          while (
+            up.parent != null &&
+            up.parent !== "" &&
+            (up = site.loadNode(up.parent)) &&
+            !seen.has(String(up.id))
+          ) {
+            seen.add(String(up.id));
+            depth++;
+          }
+          return depth;
+        };
+        live
+          .filter((item) => item && sentIds.has(String(item.id)))
+          .map((item, position) => ({ item, position, depth: depthOf(item) }))
+          .sort((x, y) => x.depth - y.depth || x.position - y.position)
+          .forEach((entry) => {
+            if (hasStaleAncestorSlug(site, entry.item)) {
+              reslugPageAndBranch(site, entry.item, live);
+            }
+          });
+      }
       // siblings that share an order are told apart by their position in
       // the manifest; keep the order the request sent them in (the order the
       // outline showed), so a tie never depends on how the save ran. Only
@@ -401,12 +464,15 @@ async function saveOutline(req, res) {
           return saveOutlineError(res, 400, "invalid write target");
         }
         page.location = expectedLocation;
+        // a page that was locked before this save and is still locked after
+        // it keeps its content
+        const keepContent = keptLocked.has(String(page.id));
         let alternateContent = "";
         let shouldWriteAlternate = false;
         if (typeof pageAlternateContentMap[page.id] !== "undefined") {
           shouldWriteAlternate = true;
         }
-        if (typeof item.duplicate !== "undefined") {
+        if (typeof item.duplicate !== "undefined" && !keepContent) {
           let nodeToDuplicate = site.loadNode(item.duplicate);
           // load the node we are duplicating with support for the same map needed for page loading
           if (!nodeToDuplicate) {
@@ -435,6 +501,7 @@ async function saveOutline(req, res) {
         }
         // contents that were shipped across, and not null, take priority over a dup request
         if (
+          !keepContent &&
           typeof item.contents !== "undefined" &&
           item.contents &&
           item.contents != ""
@@ -478,6 +545,7 @@ async function saveOutline(req, res) {
       }
       items = [...req.body["items"]];
       // now, we can finally delete as content operations have finished
+      // (each deleted page as it was, for its children: see below)
       for (let delKey in items) {
         let item = items[delKey];
         // verify if we were told to delete this item via flag not in the real spec
@@ -488,6 +556,7 @@ async function saveOutline(req, res) {
           if (!page) {
             page = site.loadNode(itemMap[item.id]);
           }
+          deleted.push({ id: page.id, parent: page.parent, order: page.order });
           await site.deleteNode(page);
           await site.gitCommit(
             "Page deleted: " + page.title + " (" + page.id + ")",
@@ -508,6 +577,55 @@ async function saveOutline(req, res) {
       throw e;
     }
     await site.manifest.save();
+    // a deleted page's children that this save keeps move up one level,
+    // into its place, with addresses and depths to match. outline-designer
+    // deletes a page's whole branch, so its saves leave no such children
+    // and are written exactly as before. A deleted page inside another
+    // deleted page hands its children on, so they end up under the nearest
+    // page that is kept.
+    // innermost first: a deleted page's children reach its deleted parent
+    // before that parent hands all of its children on, once
+    const deletedIds = new Set(deleted.map((d) => String(d.id)));
+    const deletedById = new Map(deleted.map((d) => [String(d.id), d]));
+    const nesting = (d) => {
+      let depth = 0;
+      const seen = new Set([String(d.id)]);
+      let p = d.parent;
+      while (
+        p !== null &&
+        p !== undefined &&
+        deletedIds.has(String(p)) &&
+        !seen.has(String(p))
+      ) {
+        seen.add(String(p));
+        depth++;
+        p = deletedById.get(String(p)).parent;
+      }
+      return depth;
+    };
+    let adopted = [];
+    deleted
+      .map((d, position) => ({ d, position, depth: nesting(d) }))
+      .sort((x, y) => y.depth - x.depth || x.position - y.position)
+      .forEach((entry) => {
+        adopted = adopted.concat(adoptChildren(site.manifest.items, entry.d));
+      });
+    if (adopted.length > 0) {
+      const live = site.manifest.items;
+      const seenAdopted = new Set();
+      for (let a = 0; a < adopted.length; a++) {
+        if (seenAdopted.has(adopted[a].id)) {
+          continue;
+        }
+        seenAdopted.add(adopted[a].id);
+        reslugPageAndBranch(site, adopted[a], live);
+      }
+      syncIndentToDepth(live);
+      await site.manifest.save();
+      // the feeds follow, as the orphan rescue below does, so a failure in
+      // the managed files rebuild leaves feeds that match site.json
+      await site.updateAlternateFormats();
+    }
     // now, we need to look for orphans if we deleted anything
     let orphanCheck = [...site.manifest.items];
     // per-item saving rebuilt (and so sorted) after every rescued orphan
@@ -631,6 +749,53 @@ function removeUnlistedPageFolders(site, createdFolders, listedItems) {
  * A parent that does not exist is allowed; the save rescues that page to
  * the top level.
  */
+// whether an existing page is still locked once this save's metadata for it
+// is applied: the metadata it sends wins, otherwise what site.json has
+function lockedAfterSave(page, item) {
+  if (
+    item &&
+    item.metadata &&
+    typeof item.metadata === "object" &&
+    Object.prototype.hasOwnProperty.call(item.metadata, "locked")
+  ) {
+    return isLocked({ metadata: { locked: item.metadata.locked } });
+  }
+  return isLocked(page);
+}
+// whether the ancestor part of a page's address no longer matches its
+// ancestors: every segment before the last is an ancestor's last segment,
+// nearest last (how getUniqueSlugName builds a pathauto address)
+function hasStaleAncestorSlug(site, page) {
+  if (page.parent == null || page.parent === "") {
+    return false;
+  }
+  if (page.metadata && page.metadata.overridePathauto === true) {
+    return false;
+  }
+  if (typeof page.slug !== "string" || page.slug === "") {
+    return false;
+  }
+  const expected = [];
+  const seen = new Set([String(page.id)]);
+  let up = page;
+  while ((up = site.loadNode(up.parent))) {
+    if (seen.has(String(up.id))) {
+      break;
+    }
+    seen.add(String(up.id));
+    const segment = String(up.slug == null ? "" : up.slug)
+      .split("/")
+      .pop();
+    if (segment !== "") {
+      expected.unshift(segment);
+    }
+    if (up.parent == null || up.parent === "") {
+      break;
+    }
+  }
+  const actual = page.slug.split("/").slice(0, -1);
+  return actual.join("/") !== expected.join("/");
+}
 function validateOutlineItems(site, items) {
   if (!Array.isArray(items)) {
     return "Outline payload requires an items array";

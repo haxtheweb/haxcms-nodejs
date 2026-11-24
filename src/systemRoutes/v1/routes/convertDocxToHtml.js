@@ -1,4 +1,5 @@
 const { convertToHtml } = require("mammoth");
+const { boundZipBuffer } = require("../../../lib/boundedZip.js");
 const {
   stripMSWord,
   processDocxHtml,
@@ -86,7 +87,10 @@ async function convertDocxToHtml(req, res) {
 
     let html = "";
     try {
-      const result = await convertToHtml({ buffer: buffer }, mammothOptions);
+      const result = await convertToHtml(
+        { buffer: await boundZipBuffer(buffer, "docx") },
+        mammothOptions,
+      );
       html = result.value;
       html = processDocxHtml(html);
       html = stripMSWord(html);
