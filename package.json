@@ -157,7 +157,10 @@
     "**/test-exclude/glob": "^14.0.2",
     "@stryker-mutator/tap-runner/glob": "^14.0.2",
     "**/typed-rest-client/qs": "^6.16.1",
-    "**/readdir-glob/minimatch": "^11.0.1"
+    "**/readdir-glob/minimatch": "^11.0.1",
+    "fast-uri": "^3.1.9",
+    "fast-xml-parser": "^5.12.0",
+    "body-parser": "^1.20.9"
   },
   "overrides": {
     "image-size": "^2.0.4",
@@ -190,7 +193,10 @@
     },
     "readdir-glob": {
       "minimatch": "^11.0.1"
-    }
+    },
+    "fast-uri": "^3.1.9",
+    "fast-xml-parser": "^5.12.0",
+    "body-parser": "^1.20.9"
   },
   "lint-staged": {
     "*.{js,cjs}": [
