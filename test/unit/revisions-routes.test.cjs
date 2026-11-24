@@ -459,6 +459,46 @@ describe('revisions routes — restoreItemRevision', () => {
     )
     assert.equal(res.statusCode, 500)
     assert.equal(res.body.data.message, 'Failed writing restored revision')
+    // a restore that did not happen saves and commits nothing
+    assert.deepEqual(site.calls.saveCalls, [])
+    assert.deepEqual(site.calls.gitCommits, [])
+    assert.deepEqual(site.calls.writePageAlternateFormats, [])
+  })
+
+  // the plugin platform fires the page hooks around a restore; one that
+  // cannot happen must leave the page and the history exactly as they were
+  test('a revision the page has no content in answers 404 and changes nothing', async (t) => {
+    const site = await makeGitSite(t)
+    mockSite(t, site)
+    const htmlPath = path.join(site.siteDirectory, site.page.location)
+    const before = fs.readFileSync(htmlPath, 'utf8')
+    // a real commit of the site where the page did not exist yet
+    const initialHash = git(site.siteDirectory, 'rev-list', '--max-parents=0', 'HEAD')
+    const res = stubRes()
+    await restoreItemRevision(
+      makeReq({ params: { idOrSlug: 'first-page', revisionId: initialHash } }),
+      res,
+    )
+    assert.equal(res.statusCode, 404)
+    assert.equal(res.body.data.message, 'Revision content for this page was not found')
+    assert.equal(fs.readFileSync(htmlPath, 'utf8'), before)
+    assert.deepEqual(site.page.writes, [])
+    assert.deepEqual(site.calls.saveCalls, [])
+    assert.deepEqual(site.calls.gitCommits, [])
+  })
+
+  test('an unknown page answers 404 and writes nothing', async (t) => {
+    const site = await makeGitSite(t)
+    mockSite(t, site)
+    const res = stubRes()
+    await restoreItemRevision(
+      makeReq({ params: { idOrSlug: 'no-such-page', revisionId: site.hashes.created } }),
+      res,
+    )
+    assert.equal(res.statusCode, 404)
+    assert.equal(res.body.data.message, 'Item not found for idOrSlug "no-such-page"')
+    assert.deepEqual(site.page.writes, [])
+    assert.deepEqual(site.calls.gitCommits, [])
   })
 
   test('a page without metadata bootstraps it during restore', async (t) => {

@@ -341,8 +341,13 @@ const multer = require("multer");
 const MAX_UPLOAD_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
 const MAX_UPLOAD_FILE_COUNT = 10;
 const UPLOAD_TEMP_DIRECTORY = path.join(HAXCMS.configDirectory, "tmp/");
+// Browsers send a multipart filename as raw UTF-8 with no charset; busboy
+// reads such a parameter as latin1 unless told otherwise, which turned
+// "café.png" into "cafÃ©.png" (haxcms-php keeps the name as sent).
+const MULTIPART_PARAM_CHARSET = "utf8";
 const upload = multer({
   dest: UPLOAD_TEMP_DIRECTORY,
+  defParamCharset: MULTIPART_PARAM_CHARSET,
   limits: {
     fileSize: MAX_UPLOAD_FILE_SIZE_BYTES,
     files: MAX_UPLOAD_FILE_COUNT,
@@ -364,6 +369,7 @@ function getConversionUploadAnyParser() {
   if (!conversionUploadAnyParser) {
     conversionUploadAnyParser = multer({
       dest: UPLOAD_TEMP_DIRECTORY,
+      defParamCharset: MULTIPART_PARAM_CHARSET,
       limits: {
         fileSize: uploadSecurity.getConversionUploadMaxBytes(HAXCMS.config),
         files: MAX_UPLOAD_FILE_COUNT,
