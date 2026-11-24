@@ -662,7 +662,7 @@ describe('files routes — updateFile', () => {
     const res = stubRes()
     await updateFile(makeReq({ body: { operation: 'compress' } }), res)
     assert.equal(res.statusCode, 400)
-    assert.equal(res.body.data.message, 'File uuid is required')
+    assert.equal(res.body.data.message, 'File uuid is required and must be a valid UUID')
   })
 
   test('an unknown uuid answers 404', async (t) => {
@@ -1061,7 +1061,7 @@ describe('files routes — deleteFile', () => {
     const res2 = stubRes()
     await deleteFile(makeReq(), res2)
     assert.equal(res2.statusCode, 400)
-    assert.equal(res2.body.data.message, 'File uuid is required')
+    assert.equal(res2.body.data.message, 'File uuid is required and must be a valid UUID')
   })
 
   test('an unknown uuid answers 404', async (t) => {

@@ -1817,7 +1817,7 @@ async function updateFile(req, res) {
     if (!requestedPath) {
       return res.status(400).json({
         status: 400,
-        data: { message: "File uuid is required" },
+        data: { message: "File uuid is required and must be a valid UUID" },
       });
     }
     const result = await performFileOperation(
@@ -1897,7 +1897,7 @@ async function replaceFileContent(req, res) {
     if (!requestedPath) {
       return res.status(400).json({
         status: 400,
-        data: { message: "File uuid is required" },
+        data: { message: "File uuid is required and must be a valid UUID" },
       });
     }
     const fileInfo = resolveSiteFilePath(site, requestedPath);
@@ -1995,7 +1995,7 @@ async function deleteFile(req, res) {
     if (!requestedPath) {
       return res.status(400).json({
         status: 400,
-        data: { message: "File uuid is required" },
+        data: { message: "File uuid is required and must be a valid UUID" },
       });
     }
     const result = await performFileOperation(

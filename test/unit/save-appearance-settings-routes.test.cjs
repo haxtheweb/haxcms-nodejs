@@ -122,7 +122,7 @@ describe("saveAppearanceSettings — auth and payload validation", () => {
       resNoToken,
     );
     assert.equal(resNoToken.statusCode, 403);
-    assert.equal(resNoToken.body.data.message, "Authentication required");
+    assert.equal(resNoToken.body.data.message, "invalid site token");
     const resNoName = stubRes();
     await saveAppearanceSettings(
       {
@@ -152,22 +152,22 @@ describe("saveAppearanceSettings — auth and payload validation", () => {
       },
       {
         body: { site: { name: "demo", extra: true }, manifest: { theme: {} } },
-        message: "Invalid request",
+        message: "invalid site payload",
       },
       {
         body: { site: { name: 42 }, manifest: { theme: {} } },
-        message: "Invalid request",
+        message: "invalid site payload",
       },
       {
         body: { site: { name: "demo" }, manifest: { theme: {}, extra: true } },
-        message: "Invalid request",
+        message: "invalid manifest payload",
       },
       {
         body: {
           site: { name: "demo" },
           manifest: { theme: { "manifest-metadata-bogus": 1 } },
         },
-        message: "Invalid request",
+        message: "invalid appearance payload",
       },
     ];
     for (let i = 0; i < cases.length; i++) {
@@ -204,7 +204,7 @@ describe("saveAppearanceSettings — auth and payload validation", () => {
     );
   });
 
-  test("an unloadable site answers 400 Invalid request", async (t) => {
+  test("an unloadable site answers 400 invalid site", async (t) => {
     t.mock.method(
       HAXCMS,
       "validateRequestToken",
@@ -215,7 +215,7 @@ describe("saveAppearanceSettings — auth and payload validation", () => {
     const res = stubRes();
     await saveAppearanceSettings(appearanceReq({}), res);
     assert.equal(res.statusCode, 400);
-    assert.equal(res.body.data.message, "Invalid request");
+    assert.equal(res.body.data.message, "invalid site");
   });
 
   test("metadata containers are bootstrapped when missing", async (t) => {
@@ -310,7 +310,7 @@ describe("saveAppearanceSettings — theme fields", () => {
       resUnknown,
     );
     assert.equal(resUnknown.statusCode, 400);
-    assert.equal(resUnknown.body.data.message, "Invalid request");
+    assert.equal(resUnknown.body.data.message, "invalid theme element");
     const resNonString = stubRes();
     await saveAppearanceSettings(
       appearanceReq({ "manifest-metadata-theme-element": 42 }),
@@ -400,7 +400,7 @@ describe("saveAppearanceSettings — theme fields", () => {
       resInvalid,
     );
     assert.equal(resInvalid.statusCode, 400);
-    assert.equal(resInvalid.body.data.message, "Invalid request");
+    assert.equal(resInvalid.body.data.message, "invalid cssVariable value");
     const resValid = stubRes();
     await saveAppearanceSettings(
       appearanceReq({ "manifest-metadata-theme-variables-cssVariable": "red" }),
@@ -550,7 +550,7 @@ describe("saveAppearanceSettings — theme fields", () => {
         res,
       );
       assert.equal(res.statusCode, 400, "case " + i);
-      assert.equal(res.body.data.message, "Invalid request", "case " + i);
+      assert.equal(res.body.data.message, "invalid region value", "case " + i);
     }
     assert.deepEqual(site.manifest.saveCalls, []);
   });

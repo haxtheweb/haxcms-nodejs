@@ -509,6 +509,39 @@ function parseBooleanFromInput(value, fallback = null) {
   return fallback;
 }
 
+/**
+ * Coerce a boolean-like setting value the way haxcms-php does with
+ * filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE), so
+ * both backends accept and refuse the same values.
+ * true: true, 1, "1", "true", "on", "yes"; false: false, 0, "0", "false",
+ * "off", "no", "", null (strings are trimmed and case-insensitive).
+ * Anything else (other numbers, other strings, arrays, objects) is null.
+ */
+function coerceBooleanLike(value) {
+  if (value === null || typeof value === 'boolean') {
+    return value === true;
+  }
+  if (typeof value === 'number') {
+    if (value === 1) {
+      return true;
+    }
+    if (value === 0) {
+      return false;
+    }
+    return null;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'on', 'yes'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'off', 'no', ''].includes(normalized)) {
+      return false;
+    }
+  }
+  return null;
+}
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -1434,6 +1467,7 @@ module.exports = {
   hasOwn,
   normalizeString,
   ensureSiteMetadataContainers,
+  coerceBooleanLike,
   assertSiteFeature,
   normalizeSortTokens,
   sortRecords,

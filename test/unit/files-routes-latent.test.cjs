@@ -503,7 +503,7 @@ describe('files routes — latent behaviors', () => {
     const res1 = stubRes()
     await deleteFile(makeReq({ haxcmsSiteApiAuth: auth }), res1)
     assert.equal(res1.statusCode, 400)
-    assert.equal(res1.body.data.message, 'File uuid is required')
+    assert.equal(res1.body.data.message, 'File uuid is required and must be a valid UUID')
     const res2 = stubRes()
     await deleteFile(makeReq({ haxcmsSiteApiAuth: auth }), res2)
     assert.equal(res2.statusCode, 429)

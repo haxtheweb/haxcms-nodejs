@@ -205,7 +205,7 @@ describe("saveManifest", () => {
     const res = stubRes();
     await saveManifest(siteReq({}), res);
     assert.equal(res.statusCode, 403);
-    assert.equal(res.body.data.message, "Authentication required");
+    assert.equal(res.body.data.message, "invalid site token");
   });
 
   test("missing site token answers 403", async (t) => {
@@ -216,7 +216,7 @@ describe("saveManifest", () => {
       res,
     );
     assert.equal(res.statusCode, 403);
-    assert.equal(res.body.data.message, "Authentication required");
+    assert.equal(res.body.data.message, "invalid site token");
   });
 
   test("a payload without a valid form token answers 403", async (t) => {
@@ -233,7 +233,7 @@ describe("saveManifest", () => {
       res,
     );
     assert.equal(res.statusCode, 403);
-    assert.equal(res.body.data.message, "Authentication required");
+    assert.equal(res.body.data.message, "invalid request token");
     assert.equal(site.calls.gitCommits.length, 0);
   });
 
@@ -658,7 +658,7 @@ describe("saveSeoSettings", () => {
       res,
     );
     assert.equal(res.statusCode, 403);
-    assert.equal(res.body.data.message, "Authentication required");
+    assert.equal(res.body.data.message, "invalid site token");
   });
 
   test("unresolvable site answers 400 Invalid request", async (t) => {
@@ -849,7 +849,7 @@ describe("saveNode", () => {
       res,
     );
     assert.equal(res.statusCode, 403);
-    assert.equal(res.body.data.message, "Authentication required");
+    assert.equal(res.body.data.message, "invalid site token");
   });
 
   test("unknown node id answers 500 Server error", async (t) => {
@@ -1132,7 +1132,7 @@ describe("savePlatformSettings", () => {
       res,
     );
     assert.equal(res.statusCode, 403);
-    assert.equal(res.body.data.message, "Authentication required");
+    assert.equal(res.body.data.message, "invalid site token");
   });
 
   test("platform settings disabled for the site answers 403", async (t) => {
@@ -1157,7 +1157,7 @@ describe("savePlatformSettings", () => {
     const res = stubRes();
     await savePlatformSettings(siteReq({ site: { name: "demo" } }), res);
     assert.equal(res.statusCode, 400);
-    assert.equal(res.body.data.message, "Invalid request");
+    assert.equal(res.body.data.message, "missing platform settings");
   });
 
   test("platform without any feature source answers 400", async (t) => {
@@ -1169,23 +1169,63 @@ describe("savePlatformSettings", () => {
       res,
     );
     assert.equal(res.statusCode, 400);
-    assert.equal(res.body.data.message, "Invalid request");
+    assert.equal(res.body.data.message, "invalid features");
   });
 
-  test("non-boolean feature value answers 400", async (t) => {
+  test("a feature value that is not boolean-like answers 400", async (t) => {
     const site = makeFakeSite();
     mockSiteAuth(t, site);
+    // haxtheweb/issues#3394: refused by both backends (PHP's
+    // FILTER_VALIDATE_BOOLEAN with FILTER_NULL_ON_FAILURE)
+    for (const value of ["maybe", 2, [], { on: true }]) {
+      const res = stubRes();
+      await savePlatformSettings(
+        siteReq({
+          site: { name: "demo" },
+          platform: { features: { addPage: value } },
+        }),
+        res,
+      );
+      assert.equal(res.statusCode, 400, JSON.stringify(value));
+      assert.equal(
+        res.body.data.message,
+        "invalid feature value for addPage",
+        JSON.stringify(value),
+      );
+    }
+    assert.equal(site.manifest.saveCalls.length, 0);
+  });
+
+  test("boolean-like feature values are stored as booleans", async (t) => {
+    const site = makeFakeSite();
+    mockSiteAuth(t, site);
+    // haxtheweb/issues#3394: the values haxcms-php accepts, stored the same
     const res = stubRes();
     await savePlatformSettings(
       siteReq({
         site: { name: "demo" },
-        platform: { features: { addPage: "yes" } },
+        platform: {
+          features: {
+            addPage: "yes",
+            deletePage: 0,
+            insights: "on",
+            viewSource: " FALSE ",
+            community: 1,
+            addBlock: "",
+          },
+        },
       }),
       res,
     );
-    assert.equal(res.statusCode, 400);
-    assert.equal(res.body.data.message, "Invalid request");
-    assert.equal(site.manifest.saveCalls.length, 0);
+    assert.equal(res.body.status, 200);
+    assert.deepEqual(site.manifest.metadata.platform.features, {
+      addPage: true,
+      deletePage: false,
+      insights: true,
+      addBlock: false,
+      viewSource: false,
+      community: true,
+    });
   });
 
   test("unknown feature key answers 400", async (t) => {
@@ -1200,7 +1240,7 @@ describe("savePlatformSettings", () => {
       res,
     );
     assert.equal(res.statusCode, 400);
-    assert.equal(res.body.data.message, "Invalid request");
+    assert.equal(res.body.data.message, "invalid feature key");
   });
 
   test("a valid payload writes only supported feature keys and saves", async (t) => {
@@ -1286,7 +1326,7 @@ describe("saveAllowedBlocks", () => {
       res,
     );
     assert.equal(res.statusCode, 403);
-    assert.equal(res.body.data.message, "Authentication required");
+    assert.equal(res.body.data.message, "invalid site token");
   });
 
   test("allowed blocks editing disabled for the site answers 403", async (t) => {
@@ -1311,7 +1351,7 @@ describe("saveAllowedBlocks", () => {
     const res = stubRes();
     await saveAllowedBlocks(siteReq({ site: { name: "demo" } }), res);
     assert.equal(res.statusCode, 400);
-    assert.equal(res.body.data.message, "Invalid request");
+    assert.equal(res.body.data.message, "missing platform settings");
   });
 
   test("non-array, non-null allowedBlocks answers 400", async (t) => {
@@ -1323,25 +1363,36 @@ describe("saveAllowedBlocks", () => {
       res,
     );
     assert.equal(res.statusCode, 400);
-    assert.equal(res.body.data.message, "Invalid request");
+    assert.equal(res.body.data.message, "invalid allowedBlocks");
   });
 
   test("invalid tag entries answer 400", async (t) => {
     const site = makeFakeSite();
     t.mock.method(HAXCMS, "getWCRegistryJson", () => ({}));
     mockSiteAuth(t, site);
-    const cases = [[42], [""], ["not-a-wc-tag"]];
+    // the same messages as haxcms-php saveAllowedBlocks
+    const cases = [
+      { blocks: [42], message: "invalid allowedBlocks entry at index 0" },
+      {
+        blocks: ["p", ""],
+        message: "invalid tag name in allowedBlocks at index 1 (empty value)",
+      },
+      {
+        blocks: ["not-a-wc-tag"],
+        message: "invalid tag name in allowedBlocks at index 0: not-a-wc-tag",
+      },
+    ];
     for (let i = 0; i < cases.length; i++) {
       const res = stubRes();
       await saveAllowedBlocks(
         siteReq({
           site: { name: "demo" },
-          platform: { allowedBlocks: cases[i] },
+          platform: { allowedBlocks: cases[i].blocks },
         }),
         res,
       );
-      assert.equal(res.statusCode, 400, "case " + JSON.stringify(cases[i]));
-      assert.equal(res.body.data.message, "Invalid request");
+      assert.equal(res.statusCode, 400, "case " + i);
+      assert.equal(res.body.data.message, cases[i].message, "case " + i);
     }
     assert.equal(site.manifest.saveCalls.length, 0);
   });

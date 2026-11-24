@@ -3,6 +3,7 @@ const {
   getRequestHeaderValue,
   assertSiteFeature,
   ensureSiteMetadataContainers,
+  coerceBooleanLike,
 } = require("../siteRouteUtils.js");
 
 /**
@@ -52,14 +53,15 @@ async function savePlatformSettings(req, res) {
       return;
     }
 
+    // Same messages as haxcms-php savePlatformSettings
     if (
       !req.body ||
-      typeof req.body.platform !== "object" ||
-      !req.body.platform
+      req.body.platform === undefined ||
+      req.body.platform === null
     ) {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "missing platform settings" } });
       return;
     }
 
@@ -99,54 +101,50 @@ async function savePlatformSettings(req, res) {
       onlineSearch: ["onlineMedia"],
       delete: ["deletePage"],
     };
+    // objects and arrays both count as a feature list, as in haxcms-php
     const featureSources = [];
-    if (
-      platform.features &&
-      typeof platform.features === "object" &&
-      !Array.isArray(platform.features)
-    ) {
+    if (platform.features && typeof platform.features === "object") {
       featureSources.push(platform.features);
     }
-    if (
-      platform.cmsFeatures &&
-      typeof platform.cmsFeatures === "object" &&
-      !Array.isArray(platform.cmsFeatures)
-    ) {
+    if (platform.cmsFeatures && typeof platform.cmsFeatures === "object") {
       featureSources.push(platform.cmsFeatures);
     }
     if (
       platform.editorFeatures &&
-      typeof platform.editorFeatures === "object" &&
-      !Array.isArray(platform.editorFeatures)
+      typeof platform.editorFeatures === "object"
     ) {
       featureSources.push(platform.editorFeatures);
     }
     if (featureSources.length === 0) {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid features" } });
       return;
     }
 
     const normalizedFeatures = {};
     for (const source of featureSources) {
       for (const key of Object.keys(source)) {
-        if (typeof source[key] !== "boolean") {
-          res
-            .status(400)
-            .json({ status: 400, data: { message: "Invalid request" } });
+        // boolean-like values ("true", 1, "on") are stored as booleans,
+        // as haxcms-php does
+        const coerced = coerceBooleanLike(source[key]);
+        if (coerced === null) {
+          res.status(400).json({
+            status: 400,
+            data: { message: "invalid feature value for " + key },
+          });
           return;
         }
         if (validFeatureKeys.includes(key)) {
-          normalizedFeatures[key] = source[key];
+          normalizedFeatures[key] = coerced;
         } else if (legacyFeatureKeyMap[key]) {
           for (const mappedKey of legacyFeatureKeyMap[key]) {
-            normalizedFeatures[mappedKey] = source[key];
+            normalizedFeatures[mappedKey] = coerced;
           }
         } else {
           res
             .status(400)
-            .json({ status: 400, data: { message: "Invalid request" } });
+            .json({ status: 400, data: { message: "invalid feature key" } });
           return;
         }
       }
@@ -181,7 +179,7 @@ async function savePlatformSettings(req, res) {
   } else {
     res
       .status(403)
-      .json({ status: 403, data: { message: "Authentication required" } });
+      .json({ status: 403, data: { message: "invalid site token" } });
   }
 }
 

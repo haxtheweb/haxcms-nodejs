@@ -53,18 +53,21 @@ async function saveEditorSettings(req, res) {
       );
     }
 
+    // Same messages as haxcms-php saveEditorSettings
     if (
       !req.body ||
-      typeof req.body.platform !== "object" ||
-      !req.body.platform
+      req.body.platform === undefined ||
+      req.body.platform === null
     ) {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "missing platform settings" } });
       return;
     }
 
     const audienceRaw =
+      req.body.platform &&
+      typeof req.body.platform === "object" &&
       typeof req.body.platform.audience === "string"
         ? req.body.platform.audience.trim().toLowerCase()
         : "";
@@ -72,7 +75,7 @@ async function saveEditorSettings(req, res) {
     if (!allowedAudiences.includes(audienceRaw)) {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid audience" } });
       return;
     }
 
@@ -95,7 +98,7 @@ async function saveEditorSettings(req, res) {
   } else {
     res
       .status(403)
-      .json({ status: 403, data: { message: "Authentication required" } });
+      .json({ status: 403, data: { message: "invalid site token" } });
   }
 }
 
