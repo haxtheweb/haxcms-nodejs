@@ -31,6 +31,7 @@ const saveSeoSettings = require("../../src/siteRoutes/v1/routes/saveSeoSettings.
 const saveNode = require("../../src/siteRoutes/v1/routes/saveNode.js");
 const savePlatformSettings = require("../../src/siteRoutes/v1/routes/savePlatformSettings.js");
 const saveAllowedBlocks = require("../../src/siteRoutes/v1/routes/saveAllowedBlocks.js");
+const saveEditorSettings = require("../../src/siteRoutes/v1/routes/saveEditorSettings.js");
 const saveEnabledBlocks = require("../../src/systemRoutes/v1/routes/saveEnabledBlocks.js");
 const saveEnabledThemes = require("../../src/systemRoutes/v1/routes/saveEnabledThemes.js");
 const saveLocalizationSettings = require("../../src/systemRoutes/v1/routes/saveLocalizationSettings.js");
@@ -1854,4 +1855,95 @@ test("stripPublicVersion removes HAXcms versions older saves wrote to site.json"
   // tolerates manifests without those blocks
   saveManifest.stripPublicVersion({ metadata: {} });
   saveManifest.stripPublicVersion(null);
+});
+
+// ---------------------------------------------------------------------------
+// refused site settings saves write nothing
+// ---------------------------------------------------------------------------
+// The plugin platform wraps these saves in manifest hooks; a refused save
+// answers its status and saves, commits and rebuilds nothing, so after-save
+// hooks have nothing to report. Same statuses in haxcms-php
+// (OperationsSettingsTest::testRefusedSettingsSaveAnswersItsStatusAndWritesNothing).
+describe("refused site settings saves write nothing", () => {
+  const routes = {
+    editor: saveEditorSettings,
+    platform: savePlatformSettings,
+    blocks: saveAllowedBlocks,
+  };
+  const refused = [
+    ["editor", "no platform", undefined, 400],
+    ["editor", "audience missing", {}, 400],
+    ["editor", "audience not a string", { audience: 7 }, 400],
+    ["editor", "unknown audience", { audience: "wizard" }, 400],
+    ["platform", "no platform", undefined, 400],
+    ["platform", "no features", { audience: "expert" }, 400],
+    [
+      "platform",
+      "non-boolean value",
+      { features: { insights: "sometimes" } },
+      400,
+    ],
+    ["platform", "unknown feature", { features: { teleport: true } }, 400],
+    ["blocks", "no platform", undefined, 400],
+    ["blocks", "allowedBlocks missing", { audience: "expert" }, 400],
+    ["blocks", "allowedBlocks not a list", { allowedBlocks: "p" }, 400],
+    ["blocks", "entry not a string", { allowedBlocks: ["p", 3] }, 400],
+    ["blocks", "empty tag", { allowedBlocks: ["  "] }, 400],
+    [
+      "blocks",
+      "unknown element",
+      { allowedBlocks: ["not-a-real-element"] },
+      400,
+    ],
+  ];
+  for (const [route, label, platform, status] of refused) {
+    test(route + ": " + label + " is " + status, async (t) => {
+      const site = makeFakeSite();
+      const before = JSON.stringify(site.manifest);
+      mockSiteAuth(t, site);
+      const body = { site: { name: "demo" } };
+      if (platform !== undefined) body.platform = platform;
+      const res = stubRes();
+      await routes[route](siteReq(body), res);
+      assert.equal(res.statusCode, status, JSON.stringify(res.body));
+      assert.deepEqual(site.manifest.saveCalls, []);
+      assert.deepEqual(site.calls.gitCommits, []);
+      assert.equal(JSON.stringify(site.manifest), before, "manifest untouched");
+    });
+  }
+
+  const gated = [
+    ["editor", { audience: "expert" }],
+    ["platform", { features: { insights: false } }],
+    ["blocks", { allowedBlocks: ["p"] }],
+  ];
+  for (const [route, platform] of gated) {
+    test(
+      route + ": refused with 403 when the site's siteManifest is off",
+      async (t) => {
+        const site = makeFakeSite();
+        site.manifest.metadata.platform = { features: { siteManifest: false } };
+        const before = JSON.stringify(site.manifest);
+        mockSiteAuth(t, site);
+        const res = stubRes();
+        await routes[route](siteReq({ site: { name: "demo" }, platform }), res);
+        assert.equal(res.statusCode, 403, JSON.stringify(res.body));
+        assert.deepEqual(site.manifest.saveCalls, []);
+        assert.deepEqual(site.calls.gitCommits, []);
+        assert.equal(JSON.stringify(site.manifest), before);
+      },
+    );
+  }
+
+  test("editor: a request without a valid site token is 403 and writes nothing", async (t) => {
+    const site = makeFakeSite();
+    mockSiteAuth(t, site, "other-site");
+    const res = stubRes();
+    await saveEditorSettings(
+      siteReq({ site: { name: "demo" }, platform: { audience: "expert" } }),
+      res,
+    );
+    assert.equal(res.statusCode, 403);
+    assert.deepEqual(site.manifest.saveCalls, []);
+  });
 });

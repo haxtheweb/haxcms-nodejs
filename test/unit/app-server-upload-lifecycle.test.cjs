@@ -472,6 +472,30 @@ test("an authenticated site file upload is saved into the site and leaves no tem
   assert.deepEqual(await waitForNoUploadTempFiles(), []);
 });
 
+test("a UTF-8 filename with no charset keeps its letters; spaces become dashes (same as haxcms-php)", async () => {
+  // browsers send the filename parameter as raw UTF-8 bytes, no filename*=;
+  // read as latin1 it was saved as "cafÃ©-Ã±andÃº.txt"
+  const url = runtime.baseUrl + "/_sites/" + SITE_NAME + "/x/api/v1/files";
+  const result = await postMultipart(
+    url,
+    buildUploadForm("file-upload", "café ñandú.txt", "unicode", "text/plain"),
+    {
+      authorization: "Bearer " + runtime.jwt,
+      "X-HAXCMS-Site-Token": runtime.siteToken,
+    },
+  );
+  assert.ok(result.status === 200 || result.status === 201, result.bodyText);
+  const filesDir = path.join(sitesRoot, SITE_NAME, "files");
+  assert.equal(
+    fs.readFileSync(path.join(filesDir, "café-ñandú.txt"), "utf8"),
+    "unicode",
+  );
+  assert.equal(
+    fs.readdirSync(filesDir).some((f) => f.indexOf("Ã") !== -1),
+    false,
+  );
+});
+
 // ---------------------------------------------------------------------------
 // what an upload may be, and how a refused one is answered (same in haxcms-php)
 // ---------------------------------------------------------------------------

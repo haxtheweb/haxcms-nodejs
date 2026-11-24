@@ -1082,17 +1082,11 @@ async function restoreItemRevision(req, res) {
       },
     );
   } catch (e) {
-    const message = clientSafeErrorDetail(e, "");
-    if (message.indexOf("does not exist") !== -1) {
-      return res.status(404).json({
-        status: 404,
-        data: { message: "Revision content for this page was not found" },
-      });
-    }
-    return res.status(500).json({
-      status: 500,
-      data: { message: message || "Unable to restore item revision" },
-    });
+    // the same rule as the other revision routes and haxcms-php: a revision
+    // the page has no content in is 404. git's reason is on the second line
+    // of the error ("Command failed: git ..." is the first), so the first
+    // line alone never matched and this answered 500 with the git command
+    return sendRevisionFailure(res, e, "Unable to restore item revision");
   }
 }
 
