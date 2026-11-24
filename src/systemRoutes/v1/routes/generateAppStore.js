@@ -217,7 +217,8 @@ function rewriteConnectionToBroker(connection, provider, req) {
     typeof connection.operations.browse === "object"
       ? connection.operations.browse
       : {};
-  const normalizedDomain = String(HAXCMS.domain || "").replace(/\/+$/, "");
+  const origin = HAXCMS.getRequestOrigin(req);
+  const normalizedDomain = String(origin.domain || "").replace(/\/+$/, "");
   const normalizedBasePath = String(HAXCMS.basePath || "")
     .replace(/^\/+/, "")
     .replace(/\/+$/, "");
@@ -226,7 +227,7 @@ function rewriteConnectionToBroker(connection, provider, req) {
     : normalizedDomain;
   return {
     ...connection,
-    protocol: HAXCMS.protocol,
+    protocol: origin.protocol,
     url: rewrittenUrl,
     headers: rewrittenHeaders,
     data: mergedData,
@@ -312,7 +313,7 @@ async function generateAppStore(req, res) {
     }
     appStore = rewrittenApps;
     // pull in the core one we supply, though only upload works currently
-    let tmp = HAXCMS.siteConnectionJSON(siteToken, siteName);
+    let tmp = HAXCMS.siteConnectionJSON(siteToken, siteName, req);
     appStore.push(tmp);
     let staxList, autoloaderList;
     if (HAXCMS.config.appStore && HAXCMS.config.appStore.stax) {

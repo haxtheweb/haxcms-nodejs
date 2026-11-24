@@ -6395,7 +6395,8 @@ class HAXCMSClass {
   /**
    * Generate a valid HAX App store specification schema for connecting to this site via JSON.
    */
-  siteConnectionJSON(siteToken = "", siteName = "") {
+  siteConnectionJSON(siteToken = "", siteName = "", req = currentRequest()) {
+    const origin = this.getRequestOrigin(req);
     const isMultisite =
       this.operatingContext === "multisite" ||
       (typeof this.getDeploymentProfile === "function" &&
@@ -6419,8 +6420,8 @@ class HAXCMSClass {
         tags: ["media", "hax"],
       },
       connection: {
-        protocol: this.protocol,
-        url: this.domain + this.basePath,
+        protocol: origin.protocol,
+        url: origin.domain + this.basePath,
         headers: {
           "X-HAXCMS-Site-Token": siteToken,
         },
@@ -6509,6 +6510,24 @@ class HAXCMSClass {
    * managed files and feeds of a site without metadata.site.domain. Same
    * host as haxcms-php HAXCMS::getDomain (haxtheweb/issues#3394).
    */
+  /**
+   * Protocol and host (port included) a request reached this server on,
+   * from resolveTrustedProtocol / resolveTrustedHost, for absolute URLs the
+   * browser calls back on (the app store upload connection, OpenAPI
+   * servers). Defaults to the current request. Falls back to this.protocol /
+   * this.domain outside a request (CLI) or when no host resolves. Same as
+   * haxcms-php, whose domain is each request's Host, so a site served on a
+   * port other than 80 uploads to that port.
+   */
+  getRequestOrigin(req = currentRequest()) {
+    if (req) {
+      const host = this.resolveTrustedHost(req);
+      if (host !== "") {
+        return { protocol: this.resolveTrustedProtocol(req), domain: host };
+      }
+    }
+    return { protocol: this.protocol, domain: this.domain };
+  }
   getDomain() {
     const req = currentRequest();
     if (!req) {
