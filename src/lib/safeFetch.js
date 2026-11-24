@@ -375,6 +375,11 @@ function pinnedFetchSingle(parsed, fetchOptions, pinnedIp, family, timeoutMs, ma
  *   timeoutMs    per-hop timeout when no signal is given (default 15000)
  *   maxRedirects redirect hops to follow (default and ceiling 5; 0 = never
  *                follow, any 3xx then rejects with SSRF_REDIRECTS)
+ *   redirect     "manual": return a 3xx response instead of following it, so
+ *                a caller can apply its own policy to the next hop (the
+ *                plugin engine re-checks a plugin's egress list per hop);
+ *                the hop that answered was still resolved, validated and
+ *                pinned like every other
  *   discardBody  true = resolve on the status line and headers and never
  *                read the body (link checks); .text() is then ""
  *
@@ -417,6 +422,9 @@ async function safeFetchInternal(urlString, options, sinkPath) {
     response.redirected = hop > 0;
     // not a redirect (or 304 Not Modified) -> final response
     if (response.status < 300 || response.status >= 400 || response.status === 304) {
+      return response;
+    }
+    if (fetchOptions.redirect === 'manual') {
       return response;
     }
     if (hop === maxRedirects) {

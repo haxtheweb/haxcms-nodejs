@@ -6,6 +6,13 @@ const {
   syncIndentToDepth,
 } = require("../../../lib/outlineUpkeep.js");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
+// DRAFT plugin platform: page.before.save / page.after.save (entity create on page) around new pages
+const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
+const pluginsOn = () => process.env.HAXCMS_PLUGINS !== "off";
+const pluginUser = (name) =>
+  name
+    ? { id: name, name, displayName: name, roles: ["admin"], avatar: null }
+    : null;
 const JSONOutlineSchema = require("../../../lib/JSONOutlineSchema.js");
 const path = require("path");
 const fs = require("fs-extra");
@@ -197,6 +204,23 @@ async function createNode(req, res) {
     if (hasItems) {
       // create pages; site.json is written and the generated files rebuilt
       // once for the whole request, not once per page (haxtheweb/issues#3248)
+      // DRAFT plugin platform: every page about to be added goes to the before hooks first, as one bulk
+      // transaction; a veto refuses the whole request before a folder is made
+      const pluginChanges = pluginsOn()
+        ? pluginSystem.outlineChanges([], nodeParams["items"])
+        : [];
+      if (pluginChanges.length) {
+        const pre = await pluginSystem.beforeMany(site, "page", pluginChanges, {
+          origin: "createNode",
+          user: pluginUser(activeUserName),
+        });
+        if (pre.veto) {
+          return res.status(pre.veto.status || 409).json({
+            status: pre.veto.status || 409,
+            data: { message: pre.veto.message, plugin: pre.veto.plugin },
+          });
+        }
+      }
       const bulk = { createdFolders: [] };
       let added = 0;
       try {
@@ -249,11 +273,33 @@ async function createNode(req, res) {
         });
       }
       await site.gitCommit(nodeParams["items"].length + " pages added");
+      if (pluginChanges.length) {
+        await pluginSystem.afterMany(site, "page", pluginChanges, {
+          origin: "createNode",
+          user: pluginUser(activeUserName),
+        });
+      }
     } else {
       // generate a new item based on the site
       item = site.itemFromParams(nodeParams);
       item.metadata.images = [];
       item.metadata.videos = [];
+      // DRAFT plugin page.before.save for the new page: a veto refuses it before anything is copied
+      if (pluginsOn()) {
+        const pre = await pluginSystem.before(
+          site,
+          "page",
+          JSON.parse(JSON.stringify(item)),
+          null,
+          { user: pluginUser(activeUserName) },
+        );
+        if (pre.veto) {
+          return res.status(pre.veto.status || 409).json({
+            status: pre.veto.status || 409,
+            data: { message: pre.veto.message, plugin: pre.veto.plugin },
+          });
+        }
+      }
       // generate the boilerplate to fill this page
       // Security (SEC-PATH), PHP parity: the copy must land inside this site's
       // directory; refuse rather than writing anywhere else.
@@ -372,6 +418,15 @@ async function createNode(req, res) {
       await site.gitCommit("Page added:" + item.title + " (" + item.id + ")");
       // update the alternate formats as a new page exists
       await site.updateAlternateFormats();
+      if (pluginsOn()) {
+        await pluginSystem.after(
+          site,
+          "page",
+          JSON.parse(JSON.stringify(site.loadNode(item.id) || item)),
+          null,
+          { user: pluginUser(activeUserName) },
+        );
+      }
     }
     res.send({
       status: 200,

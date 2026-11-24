@@ -31,9 +31,13 @@ jobs:
         # Lifecycle scripts are skipped: we only need the resolved tree.
         run: yarn install --frozen-lockfile --production --ignore-scripts
       - name: Generate CycloneDX SBOM
+        # --ignore-npm-errors: the tree is installed by yarn from yarn.lock, and npm ls calls a git or tarball
+        # dependency installed that way "invalid" (it lacks npm's own install metadata) even though yarn.lock pins
+        # it; the dependency is still listed in the SBOM with its version and license.
         run: >
           npx --yes @cyclonedx/cyclonedx-npm@6.0.1
           --omit dev
+          --ignore-npm-errors
           --spec-version 1.6
           --output-format JSON
           --output-file sbom.cdx.json

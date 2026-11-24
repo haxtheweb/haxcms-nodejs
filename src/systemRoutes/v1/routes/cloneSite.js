@@ -1,4 +1,6 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
+// DRAFT plugin platform: site.before.duplicate / site.after.duplicate (spec/06)
+const pluginSystem = require('../../../lib/plugins/pluginSystem.js');
 const path = require('path');
 const fs = require('fs-extra');
 
@@ -86,6 +88,23 @@ function replaceWithKnownPrefix(value, sourcePrefixes = [], targetPrefix = '') {
       const originalSiteName = site.manifest.metadata.site.name;
 
       let cloneName = HAXCMS.getUniqueName(site.name);
+      const pluginOpts = {
+        user: pluginSystem.userRecord(HAXCMS.getActiveUserName()),
+        extra: { target: { name: cloneName } },
+      };
+      const pre = await pluginSystem.event(
+        site,
+        'site.before.duplicate',
+        pluginSystem.siteSummary(site),
+        pluginOpts,
+      );
+      if (pre.veto) {
+        const status = pre.veto.status || 409;
+        return res.status(status).json({
+          status: status,
+          data: { message: pre.veto.message, plugin: pre.veto.plugin },
+        });
+      }
       // ensure the path to the new folder is valid
       // recurseCopy preserves theme/ and custom/ directories automatically,
       // so user-customized files such as theme.css, theme.html, and custom.es6.js are retained
@@ -142,6 +161,12 @@ function replaceWithKnownPrefix(value, sourcePrefixes = [], targetPrefix = '') {
       });
 
       await newSite.save();
+      await pluginSystem.event(
+        newSite,
+        'site.after.duplicate',
+        pluginSystem.siteSummary(newSite, { source: originalSiteName }),
+        pluginOpts,
+      );
       res.send({
         status: 200,
         data: {

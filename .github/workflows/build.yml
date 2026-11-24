@@ -48,7 +48,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ matrix.node-version }}-yarn-
       - name: Install
-        run: yarn install --frozen-lockfile
+        # Yarn 1 caches a git dependency by name and version only
+        # (npm-@haxtheweb-haxcms-plugin-spec-0.1.0), not by the commit yarn.lock
+        # pins, so a restored cache would install an older plugin spec. Drop it
+        # from the cache first; yarn then fetches the pinned commit.
+        run: |
+          yarn cache clean @haxtheweb/haxcms-plugin-spec
+          yarn install --frozen-lockfile
       - name: Format check (changed files)
         # Prettier is not clean repo-wide (about 300 legacy files fail it), so
         # this checks only the files a PR changes. A changed file that was
@@ -135,7 +141,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ matrix.node-version }}-yarn-
       - name: Install
-        run: yarn install --frozen-lockfile
+        # Yarn 1 caches a git dependency by name and version only
+        # (npm-@haxtheweb-haxcms-plugin-spec-0.1.0), not by the commit yarn.lock
+        # pins, so a restored cache would install an older plugin spec. Drop it
+        # from the cache first; yarn then fetches the pinned commit.
+        run: |
+          yarn cache clean @haxtheweb/haxcms-plugin-spec
+          yarn install --frozen-lockfile
       - name: Build
         run: yarn run build
       - name: E2E UI tests

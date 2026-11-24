@@ -1,5 +1,7 @@
 const { HAXCMS } = require('../../../lib/HAXCMS.js');
 function logoutRoute(req, res)  {
+    // DRAFT plugin platform: who is signing out, for user.after.logout below
+    let pluginUserName = '';
     // Security (SEC-SESSION): revoke the refresh-token family server-side
     // so a refresh token exfiltrated before logout can't mint new access tokens
     // after this user logs out. Best-effort.
@@ -11,6 +13,7 @@ function logoutRoute(req, res)  {
           // legacy no-family token, every legacy token issued so far) so the
           // revoked token can never be re-seeded.
           HAXCMS.revokeRefreshSession(decoded.user, decoded.family || null);
+          pluginUserName = String(decoded.user);
         }
       }
     }
@@ -25,6 +28,14 @@ function logoutRoute(req, res)  {
         "status" : 200,
         "data" : 'loggedout',
     })
+    // DRAFT plugin platform: user.after.logout (spec/06), once the session has ended and the answer is sent.
+    // Sign-out is never held up or stopped by a plugin, so there is no before hook here.
+    if (pluginUserName) {
+      const pluginSystem = require('../../../lib/plugins/pluginSystem.js');
+      pluginSystem
+        .event(null, 'user.after.logout', pluginSystem.userRecord(pluginUserName), { user: null })
+        .catch(() => {});
+    }
 }
 
 module.exports = logoutRoute;

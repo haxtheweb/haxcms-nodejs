@@ -1,0 +1,908 @@
+// DRAFT (plugin platform, contingent on https://github.com/haxtheweb/haxcms-plugins/pull/15).
+//
+// Finds plugins, keeps one engine (HaxcmsPluginHost) per site, keeps the plugin registry, and gives core code:
+//   before(site, type, record, previous) / after(...)  fire the entity hooks (and their page.* / manifest.* aliases)
+//                                                       around core's own saves and deletes
+//   rebuild(site, reason)                              rebuild.before / rebuild.after after core rewrote managed files
+//   host(site, { user })                               the engine as one request sees it, for routes and anything else
+//   systemHost({ user })                               the system engine (no site), for system routes
+//   registry(site, opts) / enable(...) / disable(...)  what is installed and what is on (spec/03, The plugin registry)
+// Core never names a plugin here: everything comes from the plugin folders and the registry files.
+//
+// Where plugins come from (spec/03 tiers, spec/13 section 1):
+//   - core plugins shipped with HAXcms: the spec package's core-plugins/ folder (none in its base today)
+//   - system contrib: <HAXCMS_ROOT>/_plugins/<id>/
+//   - site:           <site>/_plugins/<id>/
+//   - development and tests: HAXCMS_PLUGIN_DIRS (path list); these are on without being listed
+// What is on: <HAXCMS_ROOT>/_config/plugins/plugins.yaml for the system and <site>/_config/plugins/plugins.yaml for
+// one site, each { version: 1, enabled: [ids], plugins: {...} }; the system file also carries locked and blocked.
+// A plugin that is installed and not enabled is "available": the engine reads its manifest and loads none of its code.
+//
+// One engine serves every request for its site, so nothing about a request lives on it: host() returns a view made
+// by forUser(user) that shares the engine's state and has its own user and transaction (spec/13 section 8c).
+const path = require("path");
+const fs = require("fs");
+const YAML = require("yaml");
+
+const state = { hosts: new Map(), engine: null, version: null };
+const TARGETS = ["server", "desktop", "cli", "browser"];
+const ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+
+function readJson(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+/** Where this backend runs (spec/14). haxcms-desktop and haxcms-browser set HAXCMS_TARGET; anything else is a server. */
+function target() {
+  const t = String(process.env.HAXCMS_TARGET || "server");
+  return TARGETS.includes(t) ? t : "server";
+}
+
+function listPluginDirs(dir) {
+  if (!dir || !fs.existsSync(dir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(dir)
+    .sort()
+    .map((n) => path.join(dir, n))
+    .filter((d) => fs.existsSync(path.join(d, "plugin.yaml")));
+}
+
+function specRoot() {
+  try {
+    return path.dirname(
+      require.resolve("@haxtheweb/haxcms-plugin-spec/package.json"),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function haxRootOf(root) {
+  return root || process.env.HAXCMS_ROOT || process.cwd();
+}
+
+// ---- the registry files (spec/03) ----
+function registryFile(scopeRoot) {
+  return path.join(scopeRoot, "_config", "plugins", "plugins.yaml");
+}
+
+const idList = (v) =>
+  Array.isArray(v) ? v.filter((x) => typeof x === "string" && ID.test(x)) : [];
+
+/** One scope's registry file, with every list present. A missing or unreadable file is an empty registry. */
+function readRegistryFile(scopeRoot) {
+  let doc = null;
+  try {
+    doc = YAML.parse(fs.readFileSync(registryFile(scopeRoot), "utf8"));
+  } catch {
+    doc = null;
+  }
+  const d = doc && typeof doc === "object" ? doc : {};
+  return {
+    version: 1,
+    enabled: idList(d.enabled),
+    locked: idList(d.locked),
+    blocked: idList(d.blocked),
+    plugins:
+      d.plugins && typeof d.plugins === "object" && !Array.isArray(d.plugins)
+        ? d.plugins
+        : {},
+  };
+}
+
+/** Written whole to a temp file and renamed, so a reader never sees half a registry. */
+function writeRegistryFile(scopeRoot, reg) {
+  const file = registryFile(scopeRoot);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const out = { version: 1, enabled: reg.enabled.slice().sort() };
+  if (reg.locked.length) {
+    out.locked = reg.locked;
+  }
+  if (reg.blocked.length) {
+    out.blocked = reg.blocked;
+  }
+  out.plugins = reg.plugins;
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, YAML.stringify(out));
+  fs.renameSync(tmp, file);
+}
+
+/** What the deployment decided for every site: the system registry (enabled, locked, blocked). */
+function deploymentConfig(root) {
+  return readRegistryFile(haxRootOf(root));
+}
+
+/**
+ * The plugin folders for a site, highest tier last (site copies override system copies, which override core),
+ * and the ids that are on without being listed: plugins from HAXCMS_PLUGIN_DIRS.
+ */
+function pluginDirsFor(site, root) {
+  const out = [];
+  const dev = [];
+  const spec = specRoot();
+  if (spec) {
+    for (const d of listPluginDirs(path.join(spec, "core-plugins"))) {
+      out.push({ path: d, tier: "system-core" });
+    }
+  }
+  for (const d of listPluginDirs(path.join(root, "_plugins"))) {
+    out.push({ path: d, tier: "system-contrib" });
+  }
+  for (const d of String(process.env.HAXCMS_PLUGIN_DIRS || "")
+    .split(path.delimiter)
+    .filter(Boolean)) {
+    const found = fs.existsSync(path.join(d, "plugin.yaml"))
+      ? [d]
+      : listPluginDirs(d);
+    for (const x of found) {
+      out.push({ path: x, tier: "system-contrib" });
+      dev.push(path.basename(x));
+    }
+  }
+  if (site && site.siteDirectory) {
+    for (const d of listPluginDirs(path.join(site.siteDirectory, "_plugins"))) {
+      out.push({ path: d, tier: "site" });
+    }
+  }
+  return { dirs: out, dev };
+}
+
+/** The ids enabled for a scope: the system's list, that site's own list, locked ones and development folders. */
+function enabledFor(site, root, dev) {
+  const system = readRegistryFile(root);
+  const own =
+    site && site.siteDirectory
+      ? readRegistryFile(site.siteDirectory).enabled
+      : [];
+  const ids = new Set([...system.enabled, ...system.locked, ...own, ...dev]);
+  return {
+    enabled: [...ids].filter((id) => !system.blocked.includes(id)),
+    locked: system.locked,
+    blocked: system.blocked,
+    system: system.enabled,
+    own,
+  };
+}
+
+async function engine() {
+  if (!state.engine) {
+    state.engine = await (state.loadEngine
+      ? state.loadEngine()
+      : import("./HaxcmsPluginHost.mjs"));
+  }
+  return state.engine;
+}
+
+/**
+ * Whether the plugin engine can be loaded here at all. Where it cannot (a build of haxcms-nodejs that leaves the
+ * engine out, such as a browser bundle that does not carry it yet), the plugin system is off: core's save points
+ * go on as if no plugin were installed instead of failing every save. Said once in the log.
+ */
+async function engineAvailable() {
+  if (state.engineMissing === undefined) {
+    try {
+      await engine();
+      state.engineMissing = false;
+    } catch (e) {
+      state.engineMissing = true;
+      console.error(
+        "HAXcms plugins: the plugin engine could not be loaded, so plugins are off: " +
+          (e && e.message ? e.message : String(e)),
+      );
+    }
+  }
+  return !state.engineMissing;
+}
+
+function haxcmsVersion() {
+  if (!state.version) {
+    state.version =
+      readJson(path.join(__dirname, "..", "..", "..", "package.json"), {})
+        .version || "0.0.0";
+  }
+  return state.version;
+}
+
+/**
+ * Saved plugin settings (spec/13 section 7): schema defaults (the engine adds those), then
+ * <HAXCMS_ROOT>/_config/plugins/config/<id>.json, then <site>/_config/plugins/config/<id>.json (site wins), then
+ * the secret fields from <HAXCMS_ROOT>/_config/plugins/secrets/<id>.json and, for a site,
+ * <HAXCMS_ROOT>/_config/siteData/<site uuid>/plugins/<id>.secrets.json. Secrets never sit in a site folder.
+ */
+function pluginSettings(dirs, site, root) {
+  const out = {};
+  for (const d of dirs) {
+    const id = path.basename(d.path);
+    if (!ID.test(id)) {
+      continue;
+    }
+    const system = readJson(
+      path.join(root, "_config", "plugins", "config", `${id}.json`),
+      {},
+    );
+    const local =
+      site && site.siteDirectory
+        ? readJson(
+            path.join(
+              site.siteDirectory,
+              "_config",
+              "plugins",
+              "config",
+              `${id}.json`,
+            ),
+            {},
+          )
+        : {};
+    const secrets = readJson(
+      path.join(root, "_config", "plugins", "secrets", `${id}.json`),
+      {},
+    );
+    const siteSecrets =
+      site && site.manifest && site.manifest.id
+        ? readJson(
+            path.join(
+              root,
+              "_config",
+              "siteData",
+              String(site.manifest.id),
+              "plugins",
+              `${id}.secrets.json`,
+            ),
+            {},
+          )
+        : {};
+    const all = { ...system, ...local, ...secrets, ...siteSecrets };
+    if (Object.keys(all).length) {
+      out[id] = all;
+    }
+  }
+  return out;
+}
+
+/** The engine itself for a site or (site null) the system, cached. Requests never work on this directly. */
+async function rootHost(site, root) {
+  const haxRoot = haxRootOf(root);
+  const key = site ? site.siteDirectory : `\0system:${haxRoot}`;
+  let h = state.hosts.get(key);
+  if (!h) {
+    const { HaxcmsPluginHost } = await engine();
+    h = new HaxcmsPluginHost({
+      site: site || null,
+      root: haxRoot,
+      version: haxcmsVersion(),
+      liveNetwork: true,
+      liveExec: true,
+      target: target(),
+      hydrate: false,
+    });
+    const { dirs, dev } = pluginDirsFor(site, haxRoot);
+    const on = enabledFor(site, haxRoot, dev);
+    await h.load(dirs, {
+      enabled: on.enabled,
+      blocked: on.blocked,
+      required: on.locked,
+      settings: pluginSettings(dirs, site, haxRoot),
+    });
+    state.hosts.set(key, h);
+  }
+  return h;
+}
+
+/**
+ * The plugin engine for a site as one request sees it. `user` is the caller (null for a visitor). The site's records
+ * are read only when a plugin is active: with none, nothing listens and nothing is read.
+ */
+async function host(site, { root, user = null } = {}) {
+  if (!site || !site.manifest) {
+    return null;
+  }
+  const h = await rootHost(site, root);
+  // core reloads the site per request; keep the engine's view of site.json and pages current
+  h.haxSite = site;
+  if (h.hasActive()) {
+    h.hydrate();
+  }
+  return h.forUser(user);
+}
+
+/**
+ * The system engine as one request sees it: HAXcms-wide plugins with no site, for system-scope operations, the
+ * registry and dashboard contributions (spec/13 section 8b). Site-tier plugins are not part of it.
+ */
+async function systemHost({ root, user = null } = {}) {
+  const h = await rootHost(null, root);
+  return h.forUser(user);
+}
+
+/** Forget cached engines (after plugins are installed, enabled or disabled). */
+function reset() {
+  state.hosts.clear();
+}
+
+/** Whether any plugin is active for the site, without reading a page. */
+async function listening(site, opts = {}) {
+  if (!site || !site.manifest || !(await engineAvailable())) {
+    return false;
+  }
+  return (await rootHost(site, opts.root)).hasActive();
+}
+
+// how many log entries an engine keeps in memory; older ones have already gone to the log sinks
+const LOG_KEEP = 1000;
+
+/**
+ * After core has fired hooks or run an operation: hand what was logged since last time to the plugins that
+ * implement log.sink (spec/13), and keep the engine's in-memory log bounded, since an engine lives as long as the
+ * process. Never fails the operation.
+ */
+async function settle(h) {
+  if (!h) {
+    return;
+  }
+  try {
+    await h.flushLog();
+  } catch {
+    // a log sink failing never fails what was logged about
+  }
+  if (h.log.length > LOG_KEEP) {
+    const drop = h.log.length - LOG_KEEP;
+    h.log.splice(0, drop);
+    h.flushed = Math.max(0, (h.flushed || 0) - drop);
+  }
+}
+
+/**
+ * Write an entry to the log from core: a failure path, a sign-in, anything worth keeping. It reaches whichever
+ * plugin implements log.sink, when one is on; with none, nothing happens and nothing is kept. `site` null writes
+ * to the system log. Returns whether a plugin was there to receive it.
+ */
+async function log(site, level, message, extra = {}) {
+  if (process.env.HAXCMS_PLUGINS === "off" || !(await engineAvailable())) {
+    return false;
+  }
+  try {
+    const root = await rootHost(
+      site && site.manifest ? site : null,
+      extra.root,
+    );
+    if (!root.hasActive()) {
+      return false;
+    }
+    const entry = {
+      level: String(level || "info"),
+      plugin: "core",
+      message: String(message),
+    };
+    if (extra.scope) {
+      entry.scope = extra.scope;
+    }
+    root.log.push(entry);
+    await settle(root);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Fire the before hooks for a save core is about to make. Returns { record, veto, warnings }: when `veto` is set,
+ * core must not write; otherwise it writes `record` (plugins may have changed it).
+ */
+async function before(site, type, record, previous, opts = {}) {
+  if (!(await listening(site, opts))) {
+    return { record, veto: null, warnings: [] };
+  }
+  const h = await host(site, opts);
+  const op = opts.delete ? "delete" : previous ? "update" : "create";
+  const r = await h.fire(`entity.before.${op}`, record, {
+    entity: type,
+    previous,
+  });
+  // fields under metadata.plugins.<id> must be declared by that plugin (spec/04); others are dropped with a warning
+  const warnings = [
+    ...(r.warnings || []),
+    ...(!r.veto && !opts.delete ? h.checkPluginMetadata(type, r.subject) : []),
+  ];
+  await settle(h);
+  return {
+    record: opts.delete ? record : r.subject,
+    veto: r.veto || null,
+    warnings,
+  };
+}
+
+/** Fire the after hooks once core has written (or deleted) the record. */
+async function after(site, type, record, previous, opts = {}) {
+  if (!(await listening(site, opts))) {
+    return { warnings: [] };
+  }
+  const h = await host(site, opts);
+  const op = opts.delete ? "delete" : previous ? "update" : "create";
+  const r = await h.fire(`entity.after.${op}`, record, {
+    entity: type,
+    previous,
+  });
+  await settle(h);
+  return { warnings: r.warnings || [] };
+}
+
+/**
+ * An event that is not a record save (spec/06): a site about to be created, duplicated, archived or exported, a
+ * sign-in or sign-out, a git commit. With `site` the site's engine answers (system plugins and that site's own);
+ * with null the system engine does. Returns { veto, warnings }: when `veto` is set on a before hook, core must not
+ * go on. What a hook returns is not applied. With no active plugin nothing runs, and a failure in the engine never
+ * fails the operation.
+ */
+async function event(site, hook, subject, opts = {}) {
+  const none = { veto: null, warnings: [] };
+  if (process.env.HAXCMS_PLUGINS === "off") {
+    return none;
+  }
+  try {
+    if (!(await engineAvailable())) {
+      return none;
+    }
+    const root = await rootHost(site && site.manifest ? site : null, opts.root);
+    if (!root.hasActive()) {
+      return none;
+    }
+    const h =
+      site && site.manifest ? await host(site, opts) : await systemHost(opts);
+    const r = await h.fire(hook, subject, opts.extra || {});
+    await settle(h);
+    return { veto: r.veto || null, warnings: r.warnings || [] };
+  } catch {
+    return none;
+  }
+}
+
+/** The signed-in user as plugins see it (limited fields; spec/08), or null for a visitor. */
+function userRecord(name) {
+  return name
+    ? { id: name, name, displayName: name, roles: ["admin"], avatar: null }
+    : null;
+}
+
+/** The site summary the site lifecycle hooks carry: { id, name, title, path, theme, owner }. */
+function siteSummary(site, extra = {}) {
+  const m = (site && site.manifest) || {};
+  const meta = m.metadata || {};
+  return {
+    id: m.id || null,
+    name: (meta.site && meta.site.name) || (site && site.name) || null,
+    title: m.title || null,
+    path: (site && site.siteDirectory) || null,
+    theme: (meta.theme && meta.theme.element) || null,
+    owner: (meta.author && meta.author.name) || m.author || null,
+    ...extra,
+  };
+}
+
+/**
+ * For a core operation other than the page save that is about to write one page (a block edit, a restored
+ * revision, a change to a page's details): the page before hooks. Returns { veto, after }: on a veto core must not
+ * write; otherwise it writes and then awaits after(stored). What the hooks return is not applied.
+ */
+async function pageSave(site, record, previous, opts = {}) {
+  const idle = { veto: null, after: async () => {} };
+  if (process.env.HAXCMS_PLUGINS === "off" || !(await listening(site, opts))) {
+    return idle;
+  }
+  const plain = (v) => (v ? JSON.parse(JSON.stringify(v)) : v);
+  const was = plain(previous);
+  const pre = await before(site, "page", plain(record), was, opts);
+  if (pre.veto) {
+    return { veto: pre.veto, after: idle.after };
+  }
+  return {
+    veto: null,
+    after: async (stored) => {
+      try {
+        await after(site, "page", plain(stored || record), was, opts);
+      } catch {
+        // the page is written; a plugin failing afterwards never undoes it
+      }
+    },
+  };
+}
+
+/** Answer a request that a plugin refused. */
+function refuse(res, veto) {
+  const status = veto.status || 409;
+  return res
+    .status(status)
+    .json({ status, data: { message: veto.message, plugin: veto.plugin } });
+}
+
+/** The site record the manifest hooks carry: what site.json says about the site itself, without its pages. */
+function siteRecord(site) {
+  const m = (site && site.manifest) || {};
+  return {
+    id: m.id,
+    title: m.title,
+    description: m.description,
+    metadata: JSON.parse(JSON.stringify(m.metadata || {})),
+  };
+}
+
+/**
+ * For a core operation that has changed site.manifest in memory and is about to write site.json (a settings
+ * screen, a slug clean-up): the manifest before hooks, with the stored site as ctx.previous, so a theme change
+ * made anywhere fires theme.before.change. `opts.stored` is a function that loads the site as it is on disk; it is
+ * called only when a plugin is listening. Returns { veto, after }: on a veto core must not write; otherwise it
+ * writes and then awaits after(). As in saveManifest, the only thing taken from what the hooks return is the
+ * plugins' own metadata.plugins fields.
+ */
+async function siteSave(site, opts = {}) {
+  const idle = { veto: null, after: async () => {} };
+  if (process.env.HAXCMS_PLUGINS === "off" || !(await listening(site, opts))) {
+    return idle;
+  }
+  const stored = typeof opts.stored === "function" ? await opts.stored() : null;
+  const previous = stored && stored.manifest ? siteRecord(stored) : null;
+  const pre = await before(site, "site", siteRecord(site), previous, opts);
+  if (pre.veto) {
+    return { veto: pre.veto, after: idle.after };
+  }
+  if (pre.record && pre.record.metadata && pre.record.metadata.plugins) {
+    site.manifest.metadata.plugins = pre.record.metadata.plugins;
+  }
+  return {
+    veto: null,
+    after: async () => {
+      try {
+        await after(site, "site", pre.record, previous, opts);
+      } catch {
+        // site.json is written; a plugin failing afterwards never undoes it
+      }
+    },
+  };
+}
+
+/**
+ * Several records changed by one core operation (the outline save, a bulk page create): the before hooks for all of
+ * them, in one bulk transaction whose origin names the operation, so a plugin sees one transaction and can tell
+ * which operation it is (transaction.before.start, ctx.transaction.origin). `changes` is a list of
+ * { op: "create" | "update" | "delete", record, previous }. Returns { veto, warnings }: the first veto stops the
+ * rest, and core must then write nothing. What the hooks return is not applied: these operations change structure,
+ * and a plugin that changes a page does it on that page's own save.
+ */
+async function beforeMany(site, type, changes, opts = {}) {
+  if (!changes.length || !(await listening(site, opts))) {
+    return { veto: null, warnings: [] };
+  }
+  const h = await host(site, opts);
+  let veto = null;
+  const warnings = [];
+  await h.transaction(
+    async () => {
+      for (const c of changes) {
+        const r = await h.fire(`entity.before.${c.op}`, c.record, {
+          entity: type,
+          previous: c.previous || undefined,
+        });
+        warnings.push(...(r.warnings || []));
+        if (r.veto) {
+          veto = r.veto;
+          return;
+        }
+      }
+    },
+    { bulk: true, origin: opts.origin || "core" },
+  );
+  await settle(h);
+  return { veto, warnings };
+}
+
+/** The after hooks for the same changes, once core has written all of them, again as one bulk transaction. */
+async function afterMany(site, type, changes, opts = {}) {
+  if (!changes.length || !(await listening(site, opts))) {
+    return { warnings: [] };
+  }
+  const h = await host(site, opts);
+  const warnings = [];
+  await h.transaction(
+    async () => {
+      for (const c of changes) {
+        const r = await h.fire(`entity.after.${c.op}`, c.record, {
+          entity: type,
+          previous: c.previous || undefined,
+        });
+        warnings.push(...(r.warnings || []));
+      }
+    },
+    { bulk: true, origin: opts.origin || "core" },
+  );
+  await settle(h);
+  return { warnings };
+}
+
+/**
+ * What an outline save is about to do to each page, from the stored items and the submitted ones: a submitted item
+ * marked delete whose page exists is a delete, one whose id is stored is an update, any other is a create.
+ */
+function outlineChanges(stored, submitted) {
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const byId = new Map();
+  for (const it of stored || []) {
+    if (it && it.id !== undefined && it.id !== null) {
+      byId.set(String(it.id), it);
+    }
+  }
+  const out = [];
+  for (const raw of submitted || []) {
+    if (!raw || typeof raw !== "object") {
+      continue;
+    }
+    const before = byId.get(String(raw.id));
+    const gone = raw.delete === true || raw.delete === "true";
+    if (gone) {
+      if (before) {
+        out.push({ op: "delete", record: plain(before), previous: null });
+      }
+      continue;
+    }
+    const record = plain(raw);
+    delete record.delete;
+    delete record.content;
+    delete record.contents;
+    out.push(
+      before
+        ? {
+            op: "update",
+            record: { ...plain(before), ...record },
+            previous: plain(before),
+          }
+        : { op: "create", record, previous: null },
+    );
+  }
+  return out;
+}
+
+/** rebuild.before / rebuild.after around core's managed-file rewrite (updateAlternateFormats). */
+async function rebuild(site, reason = "save", opts = {}) {
+  if (!(await listening(site, opts))) {
+    return null;
+  }
+  const h = await host(site, opts);
+  const result = await h.rebuild(reason);
+  await settle(h);
+  return result;
+}
+
+// ---- the registry (spec/03) ----
+/** Sites that enabled a plugin themselves: { pluginId: [site folder names] }, from each site's registry file. */
+function sitesUsing(root, sitesDirectory) {
+  const out = {};
+  const base = path.join(root, sitesDirectory || "_sites");
+  if (!fs.existsSync(base)) {
+    return out;
+  }
+  for (const name of fs.readdirSync(base).sort()) {
+    const dir = path.join(base, name);
+    if (!fs.existsSync(registryFile(dir))) {
+      continue;
+    }
+    for (const id of readRegistryFile(dir).enabled) {
+      out[id] = out[id] || [];
+      out[id].push(name);
+    }
+  }
+  return out;
+}
+
+/**
+ * The registry for the system (site null) or for one site: one entry per installed plugin with its status, what it
+ * needs from a backend, how it fits each target and what is limited here (spec/03, spec/14).
+ */
+async function registry(site, opts = {}) {
+  const root = haxRootOf(opts.root);
+  const h = site ? await host(site, opts) : await systemHost(opts);
+  if (!h) {
+    return [];
+  }
+  const system = readRegistryFile(root);
+  const own =
+    site && site.siteDirectory
+      ? readRegistryFile(site.siteDirectory).enabled
+      : [];
+  const using = site ? {} : sitesUsing(root, opts.sitesDirectory);
+  return h.registry().map((e) => {
+    const entry = {
+      ...e,
+      locked: system.locked.includes(e.id),
+      blocked: system.blocked.includes(e.id),
+      scope: system.enabled.includes(e.id)
+        ? "system"
+        : own.includes(e.id)
+          ? "site"
+          : null,
+    };
+    if (!site) {
+      entry.sites = using[e.id] || [];
+    }
+    return entry;
+  });
+}
+
+async function entryOf(site, id, opts) {
+  return (await registry(site, opts)).find((e) => e.id === id) || null;
+}
+
+/**
+ * Enable a plugin for the system (site null) or for one site. Runs the engine's enable (install hooks on a first
+ * enable, plugin.before.enable, requirements) and writes the registry file only when that succeeded.
+ * Returns { status, body }.
+ */
+async function enable(site, id, opts = {}) {
+  const root = haxRootOf(opts.root);
+  const refusals = (await engine()).REGISTRY_REFUSALS;
+  if (!ID.test(String(id))) {
+    return { status: 404, body: { error: refusals.notInstalled } };
+  }
+  const system = readRegistryFile(root);
+  if (system.blocked.includes(id)) {
+    return { status: 409, body: { error: refusals.blocked } };
+  }
+  const h = site ? await host(site, opts) : await systemHost(opts);
+  const p = h && h.get(id);
+  if (!p) {
+    return { status: 404, body: { error: refusals.notInstalled } };
+  }
+  if (site) {
+    // install and enable hooks may read the site's records, which are not read while nothing is active
+    h.hydrate();
+  }
+  if (site && p.tier !== "site" && system.enabled.includes(id)) {
+    // already on for every site: nothing to record for this one
+    return { status: 200, body: await entryOf(site, id, opts) };
+  }
+  const r =
+    p.status === "active" || p.status === "inactive"
+      ? { status: 200 }
+      : await h.enable(id);
+  if (r.status !== 200) {
+    return r;
+  }
+  const scopeRoot = site ? site.siteDirectory : root;
+  const reg = readRegistryFile(scopeRoot);
+  if (!reg.enabled.includes(id)) {
+    reg.enabled.push(id);
+  }
+  reg.plugins[id] = {
+    version: String(p.manifest.version || ""),
+    enabledAt: new Date().toISOString(),
+    by: opts.user && opts.user.name ? String(opts.user.name) : "",
+  };
+  writeRegistryFile(scopeRoot, reg);
+  if (!site) {
+    // every site's engine has to see the new system list
+    reset();
+  }
+  return { status: 200, body: await entryOf(site, id, opts) };
+}
+
+/** Disable a plugin for the system or for one site. Refusals come from the engine (required, dependents). */
+async function disable(site, id, opts = {}) {
+  const root = haxRootOf(opts.root);
+  const refusals = (await engine()).REGISTRY_REFUSALS;
+  if (!ID.test(String(id))) {
+    return { status: 404, body: { error: refusals.notInstalled } };
+  }
+  const system = readRegistryFile(root);
+  const h = site ? await host(site, opts) : await systemHost(opts);
+  const p = h && h.get(id);
+  if (!p) {
+    return { status: 404, body: { error: refusals.notInstalled } };
+  }
+  if (system.locked.includes(id)) {
+    return { status: 409, body: { error: refusals.locked } };
+  }
+  if (site && system.enabled.includes(id)) {
+    return { status: 409, body: { error: refusals.systemEnabled } };
+  }
+  const r = await h.disable(id);
+  if (r.status !== 200) {
+    return r;
+  }
+  const scopeRoot = site ? site.siteDirectory : root;
+  const reg = readRegistryFile(scopeRoot);
+  reg.enabled = reg.enabled.filter((x) => x !== id);
+  delete reg.plugins[id];
+  writeRegistryFile(scopeRoot, reg);
+  reset();
+  const entry = await entryOf(site, id, opts);
+  return {
+    status: 200,
+    body: r.body && r.body.inUse ? { ...entry, inUse: r.body.inUse } : entry,
+  };
+}
+
+// ---- settings (spec/13 section 7) ----
+/** A plugin's settings form and values for the system (site null) or one site; secrets come back as set or not. */
+async function settings(site, id, opts = {}) {
+  const refusals = (await engine()).REGISTRY_REFUSALS;
+  const h = site ? await host(site, opts) : await systemHost(opts);
+  const view = h && ID.test(String(id)) ? h.settingsView(id) : null;
+  return view
+    ? { status: 200, body: view }
+    : { status: 404, body: { error: refusals.notInstalled } };
+}
+
+/**
+ * Save a plugin's settings. The system saves system-scope settings; a site saves its own only for a plugin whose
+ * settingsScope is site or both. Validation and the config hooks run in the engine; a secret left out or sent
+ * empty keeps its stored value.
+ */
+async function saveSettings(site, id, values, opts = {}) {
+  const refusals = (await engine()).REGISTRY_REFUSALS;
+  const h = site ? await host(site, opts) : await systemHost(opts);
+  const p = h && ID.test(String(id)) ? h.get(id) : null;
+  if (!p || p.status === "available" || p.status === "refused") {
+    return { status: 404, body: { error: refusals.notInstalled } };
+  }
+  const scope = p.manifest.settingsScope || "system";
+  if (site ? scope === "system" : scope === "site") {
+    return { status: 409, body: { error: refusals.settingsScope } };
+  }
+  if (site) {
+    h.hydrate();
+  }
+  const secret = h.secretFields(p);
+  const clean = {};
+  const input =
+    values && typeof values === "object" && !Array.isArray(values)
+      ? values
+      : {};
+  for (const [k, v] of Object.entries(input)) {
+    if (secret.has(k) && (v === "" || v === null || v === undefined)) {
+      continue;
+    }
+    clean[k] = v;
+  }
+  const r = await h.saveConfig(id, clean);
+  if (r.status !== 200) {
+    return r;
+  }
+  return { status: 200, body: h.settingsView(id) };
+}
+
+module.exports = {
+  pageSave,
+  refuse,
+  siteRecord,
+  siteSave,
+  log,
+  settle,
+  engineAvailable,
+  // for tests: `loadEngine` replaces how the engine is loaded, `engine` and `engineMissing` are what was found
+  _state: state,
+  event,
+  userRecord,
+  siteSummary,
+  beforeMany,
+  afterMany,
+  outlineChanges,
+  listening,
+  settings,
+  saveSettings,
+  host,
+  systemHost,
+  reset,
+  before,
+  after,
+  rebuild,
+  registry,
+  enable,
+  disable,
+  target,
+  pluginDirsFor,
+  deploymentConfig,
+  readRegistryFile,
+};

@@ -461,6 +461,50 @@ test('safeFetch throws SSRF_REDIRECT for an invalid Location header', async (t) 
   await rejectsCode(safeFetch('http://target.test/', {}), 'SSRF_REDIRECT')
 })
 
+test('safeFetch with redirect: manual returns the 3xx and follows nothing', async (t) => {
+  useLookup(t, lookupRecords([{ address: '93.184.216.34', family: 4 }]))
+  var calls = useHttpSequence(t, [
+    { status: 302, statusText: 'Found', headers: { location: 'http://other.test/dest' } },
+    { status: 200, statusText: 'OK', body: 'done' },
+  ])
+  var res = await safeFetch('http://target.test/', { maxRedirects: 0, redirect: 'manual' })
+  assert.equal(res.status, 302)
+  assert.equal(res.headers.get('location'), 'http://other.test/dest')
+  assert.equal(calls.length, 1)
+})
+
+// the plugin engine (haxtheweb/issues#3356) re-checks a plugin's egress list on every hop: a redirect to a host the
+// plugin did not declare is refused before it is requested, the same as in haxcms-php
+test('plugin ctx.fetch refuses a redirect to a host outside the egress list', async (t) => {
+  useLookup(t, lookupRecords([{ address: '93.184.216.34', family: 4 }]))
+  var calls = useHttpSequence(t, [
+    { status: 302, statusText: 'Found', headers: { location: 'http://other.test/dest' } },
+    { status: 200, statusText: 'OK', body: 'done' },
+  ])
+  var { HaxcmsPluginHost } = await import('../../src/lib/plugins/HaxcmsPluginHost.mjs')
+  var dir = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'hop-'))
+  var host = new HaxcmsPluginHost({
+    site: { siteDirectory: dir, manifest: { id: 'site-1', title: 'x', metadata: { site: { name: 'x' } }, items: [] } },
+    root: dir,
+    version: '0.0.0',
+    liveNetwork: true,
+  })
+  var plugin = { id: 'fx', manifest: { capabilities: ['network:egress'], egress: ['target.test'] }, settings: {}, explicit: new Set(), form: [] }
+  await assert.rejects(host.fetchFor(plugin, 'http://target.test/'), /fetch to other\.test not allowed \(redirected\)/)
+  assert.equal(calls.length, 1)
+  // a redirect within the list is followed, each hop pinned and validated by safeFetch
+  plugin.manifest.egress = ['target.test', 'other.test']
+  var again = useHttpSequence(t, [
+    { status: 302, statusText: 'Found', headers: { location: 'http://other.test/dest' } },
+    { status: 200, statusText: 'OK', body: 'done' },
+  ])
+  var res = await host.fetchFor(plugin, 'http://target.test/')
+  assert.equal(res.status, 200)
+  assert.equal(res.url, 'http://other.test/dest')
+  assert.equal(await res.text(), 'done')
+  assert.equal(again.length, 2)
+})
+
 test('safeFetch returns a 3xx response as-is when it has no Location header', async (t) => {
   useLookup(t, lookupRecords([{ address: '93.184.216.34', family: 4 }]))
   useHttpSequence(t, [

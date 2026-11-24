@@ -1,5 +1,7 @@
 const fs = require("fs-extra");
 const { HAXCMS } = require("../../../lib/HAXCMS.js");
+// DRAFT plugin platform: site.before.archive / site.after.archive (spec/06)
+const pluginSystem = require("../../../lib/plugins/pluginSystem.js");
 
 /**
  * @OA\Post(
@@ -38,6 +40,23 @@ const { HAXCMS } = require("../../../lib/HAXCMS.js");
 async function archiveSite(req, res) {
   let site = await HAXCMS.loadSite(req.body["site"]["name"]);
   if (site.name) {
+    const pluginOpts = {
+      user: pluginSystem.userRecord(HAXCMS.getActiveUserName()),
+    };
+    const pluginSubject = pluginSystem.siteSummary(site);
+    const pre = await pluginSystem.event(
+      site,
+      "site.before.archive",
+      pluginSubject,
+      pluginOpts,
+    );
+    if (pre.veto) {
+      const status = pre.veto.status || 409;
+      return res.status(status).json({
+        status: status,
+        data: { message: pre.veto.message, plugin: pre.veto.plugin },
+      });
+    }
     // create archived directory in this tree if it doesn't exist already
     if (!fs.existsSync(HAXCMS.HAXCMS_ROOT + HAXCMS.archivedDirectory)) {
       fs.mkdirSync(HAXCMS.HAXCMS_ROOT + HAXCMS.archivedDirectory);
@@ -59,6 +78,13 @@ async function archiveSite(req, res) {
     await fs.rename(
       HAXCMS.HAXCMS_ROOT + HAXCMS.sitesDirectory + "/" + baseArchiveName,
       HAXCMS.HAXCMS_ROOT + HAXCMS.archivedDirectory + "/" + archivedName,
+    );
+    // the site's folder has moved: the system engine hears that it is archived
+    await pluginSystem.event(
+      null,
+      "site.after.archive",
+      Object.assign({}, pluginSubject, { archivedName: archivedName }),
+      pluginOpts,
     );
     // PHP parity: say so when the archive had to be renamed
     const detail =
