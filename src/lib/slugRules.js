@@ -2,10 +2,13 @@
 // HAXCMS.generateSlugName. Mirrors HAXCMS::cleanTitle / generateSlugName in
 // haxcms-php so both backends write the same slug for the same input.
 
-// anything that is not a Unicode letter, Unicode digit, underscore, hyphen
-// or forward slash. Spelled out instead of \w: in JS \w is ASCII-only even
-// with the u flag, and PCRE's \w under /u differs between PCRE2 versions.
-const SLUG_DISALLOWED_RUN = /[^\p{L}\p{N}_/-]+/gu;
+const { notLetterOrNumberRun, lowerCase } = require("./unicodeTables.js");
+
+// anything that is not a letter, digit, underscore, hyphen or forward slash.
+// Letters and digits come from the fixed Unicode tables, not \p{L}/\p{N}:
+// those follow the runtime's Unicode version, which differs between Node.js
+// and PHP's PCRE2 (haxtheweb/issues#3394).
+const SLUG_DISALLOWED_RUN = notLetterOrNumberRun("_/\\-");
 // whitespace PHP's trim() removes by default
 const PHP_TRIM_CHARS = " \t\n\r\0\x0B";
 // characters trimmed from both ends of a finished slug / clean title
@@ -70,7 +73,7 @@ function phpUrlDecode(value) {
 
 /**
  * Shared tail of both rules: disallowed runs become "-", repeated hyphens
- * collapse, Unicode-aware lowercase, "-./" trimmed from both ends, and an
+ * collapse, lowercase from the fixed Unicode table, "-./" trimmed from both ends, and an
  * empty result becomes "blank".
  */
 function finishSlug(value, collapseSlashes) {
@@ -79,7 +82,7 @@ function finishSlug(value, collapseSlashes) {
   if (collapseSlashes) {
     slug = slug.replace(/\/{2,}/g, "/");
   }
-  slug = trimChars(slug.toLowerCase(), SLUG_EDGE_CHARS);
+  slug = trimChars(lowerCase(slug), SLUG_EDGE_CHARS);
   if (slug === "") {
     slug = "blank";
   }

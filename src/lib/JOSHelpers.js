@@ -64,15 +64,20 @@ function dateToISOTime(value) {
   return new Date(parsed * 1000).toISOString();
 }
 
+// JavaScript's \s spelled out, so haxcms-php ReportHelpers splits words on
+// exactly the same characters
+const WORD_SEPARATORS =
+  /[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+/;
 function countWords(value) {
   if (typeof value !== "string") {
     return 0;
   }
+  // String#trim removes exactly the characters \s matches
   const text = value.trim();
   if (text === "") {
     return 0;
   }
-  return text.split(/\s+/).length;
+  return text.split(WORD_SEPARATORS).length;
 }
 
 function toSitePath(siteLocation) {
@@ -537,8 +542,34 @@ async function courseStatsFromOutline(
   } else {
     items = getOrderedItems(site).filter(isItemPublished);
   }
-  const html = await siteHTMLContent(site, null, ancestor);
+  // One definition of every overview statistic, shared with haxcms-php
+  // ReportHelpers (haxtheweb/issues#3394): each is counted in the content of
+  // each published page in scope (the site, or the branch under ancestor),
+  // page titles not included, and summed.
+  const pageContents = [];
+  for (let i = 0; i < items.length; i++) {
+    pageContents.push(await getItemHTML(site, items[i]));
+  }
+  let html = "";
+  for (let i = 0; i < items.length; i++) {
+    html += `<div data-jos-item-id="${items[i].id}">${pageContents[i]}</div>`;
+  }
   const doc = parse(`<div id="wrapper">${html}</div>`);
+  let parsedPages = null;
+  const pageDocs = () => {
+    if (parsedPages === null) {
+      parsedPages = pageContents.map((content) =>
+        parse(`<div id="wrapper">${content}</div>`),
+      );
+    }
+    return parsedPages;
+  };
+  // sum of one selector's matches over every page
+  const sumPages = (selector) =>
+    pageDocs().reduce(
+      (total, pageDoc) => total + pageDoc.querySelectorAll(selector).length,
+      0,
+    );
   const data = {};
   if (dataInclude === null) {
     dataInclude = [
@@ -564,61 +595,67 @@ async function courseStatsFromOutline(
     const inc = dataInclude[i];
     switch (inc) {
       case "pages":
-      case "pageType":
         data[inc] = items.length;
         break;
+      case "pageType":
+        // pages that have a page type set
+        data[inc] = items.filter(
+          (item) =>
+            item.metadata &&
+            typeof item.metadata.pageType === "string" &&
+            item.metadata.pageType !== "",
+        ).length;
+        break;
       case "audio":
-        data[inc] = doc.querySelectorAll("audio,audio-player").length;
+        data[inc] = sumPages("audio,audio-player");
         break;
       case "selfChecks":
-        data[inc] = doc.querySelectorAll(
+        data[inc] = sumPages(
           "iframe.entity_iframe:not(.elmsmedia_h5p_content),self-check,multiple-choice",
-        ).length;
+        );
         break;
       case "h5p":
-        data[inc] = doc.querySelectorAll(
+        data[inc] = sumPages(
           'iframe.elmsmedia_h5p_content,iframe[src*="h5p/embed"]',
-        ).length;
+        );
         break;
       case "objectives":
-        data[inc] = doc.querySelectorAll(
-          'instruction-card[type="objectives"] li',
-        ).length;
+        data[inc] = sumPages('instruction-card[type="objectives"] li');
         break;
       case "authorNotes":
-        data[inc] = doc.querySelectorAll("page-flag").length;
+        data[inc] = sumPages("page-flag");
         break;
       case "images":
-        data[inc] = doc.querySelectorAll("media-image,img,simple-img").length;
+        data[inc] = sumPages("media-image,img,simple-img");
         break;
       case "headings":
-        data[inc] = doc.querySelectorAll(
-          "h1,h2,h3,h4,h5,h6,relative-heading",
-        ).length;
+        data[inc] = sumPages("h1,h2,h3,h4,h5,h6,relative-heading");
         break;
       case "dataTables":
-        data[inc] = doc.querySelectorAll("table").length;
+        data[inc] = sumPages("table");
         break;
       case "specialTags":
-        data[inc] = doc.querySelectorAll(
+        // the page wrapper div is one of the plain tags, so it never counts
+        data[inc] = sumPages(
           "*:not(p,div,h1,h2,h3,h4,h5,h6,table,bold,li,ul,ol,span,a,em,b,i,strike,u,code,pre,img,hr,tr,td,th)",
-        ).length;
+        );
         break;
       case "links":
-        data[inc] = doc.querySelectorAll(
-          'a[href^="http://"],a[href^="https://"]',
-        ).length;
+        data[inc] = sumPages('a[href^="http://"],a[href^="https://"]');
         break;
       case "placeholders":
-        data[inc] = doc.querySelectorAll("place-holder").length;
+        data[inc] = sumPages("place-holder");
         break;
       case "siteremotecontent":
-        data[inc] = doc.querySelectorAll("site-remote-content").length;
+        data[inc] = sumPages("site-remote-content");
         break;
       case "readTime": {
-        const wrapper = doc.querySelector("#wrapper");
-        const text = wrapper ? wrapper.innerText : doc.innerText;
-        data[inc] = Math.ceil(countWords(text) / WORDSPERMIN);
+        // words of every page's text, whitespace separated
+        const words = pageDocs().reduce(
+          (total, pageDoc) => total + countWords(pageDoc.textContent),
+          0,
+        );
+        data[inc] = Math.ceil(words / WORDSPERMIN);
         break;
       }
       case "video": {

@@ -1598,8 +1598,22 @@ test("siteConnectionJSON keeps the flat browse endpoint when neither context is 
   }
 });
 
-test("getURI and getDomain read the request url and domain off the singleton", () => {
-  assert.equal(HAXCMS.getDomain(), "localhost");
+test("getDomain is the current request's resolved host, none outside a request", () => {
+  const { runWithRequest } = require("../../src/lib/requestContext.js");
+  // the constant "localhost" was never the right host (haxtheweb/issues#3394)
+  assert.equal(HAXCMS.getDomain(), "");
+  const req = { headers: { host: "cms.example.com:8443" } };
+  assert.equal(
+    runWithRequest(req, () => HAXCMS.getDomain()),
+    "https://cms.example.com:8443",
+  );
+  assert.equal(
+    runWithRequest({ headers: {} }, () => HAXCMS.getDomain()),
+    "",
+  );
+});
+
+test("getURI reads the request url off the singleton", () => {
   const savedRequestUrl = HAXCMS.request_url;
   HAXCMS.request_url = { href: "http://unit.example/path" };
   assert.equal(HAXCMS.getURI(), "http://unit.example/path");
