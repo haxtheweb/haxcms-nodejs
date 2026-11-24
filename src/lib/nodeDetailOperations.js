@@ -187,8 +187,10 @@ function applyMetadataMutation(
       if (imageValue !== null) {
         // a value that is blank once cleaned removes the image instead of
         // saving "" (haxcms-php does the same, haxtheweb/issues#3394)
+        // only a string is an image: String() of a list would save its
+        // items as a URL (haxcms-php refuses the same way)
         const cleanImage =
-          imageValue !== "" && imageValue !== undefined
+          typeof imageValue === "string" && imageValue !== ""
             ? sanitizeURLValue(imageValue, "")
             : "";
         if (typeof cleanImage === "string" && cleanImage.trim() !== "") {

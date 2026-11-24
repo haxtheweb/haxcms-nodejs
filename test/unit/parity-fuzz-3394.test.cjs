@@ -550,4 +550,61 @@ test("haxtheweb/issues#3394: the parity fuzz findings answer the same on both ba
       { name: "ꝗ" },
     );
   });
+  await t.test(
+    "31. updateItem and deleteItem act on the page the URL names",
+    async () => {
+      const a = await site("POST", "/v1/items", {
+        site: { name: SITE_NAME },
+        node: { title: "Keep me" },
+      });
+      const b = await site("POST", "/v1/items", {
+        site: { name: SITE_NAME },
+        node: { title: "Delete me" },
+      });
+      assert.equal(a.status, 200);
+      assert.equal(b.status, 200);
+      const patched = await site(
+        "PATCH",
+        "/v1/items/" + encodeURIComponent(b.data.data.id),
+        {
+          site: { name: SITE_NAME },
+          node: { id: a.data.data.id },
+          operation: "setTitle",
+          title: "Renamed",
+        },
+      );
+      assert.equal(patched.status, 200, JSON.stringify(patched.data));
+      assert.equal(patched.data.data.id, b.data.data.id);
+      const deleted = await site(
+        "DELETE",
+        "/v1/items/" + encodeURIComponent(b.data.data.id),
+        { site: { name: SITE_NAME }, node: { id: a.data.data.id } },
+      );
+      assert.equal(deleted.status, 200, JSON.stringify(deleted.data));
+      const kept = await site(
+        "GET",
+        "/v1/items/" + encodeURIComponent(a.data.data.id),
+      );
+      assert.equal(kept.status, 200, "the page in the body is not deleted");
+      assert.equal(kept.data.data.title, "Keep me");
+    },
+  );
+
+  await t.test(
+    "32. setMedia: an image that is not a string is no image",
+    async () => {
+      const list = await site("GET", "/v1/items");
+      const id = encodeURIComponent(list.data.data.items[0].id);
+      for (const image of [[], ["https://example.com/a.png"], { u: 1 }]) {
+        const res = await site("PATCH", "/v1/items/" + id, {
+          site: { name: SITE_NAME },
+          operation: "setMedia",
+          media: "  ",
+          image,
+        });
+        assert.equal(res.status, 200, JSON.stringify(res.data));
+        assert.equal("image" in res.data.data.metadata, false);
+      }
+    },
+  );
 });
