@@ -116,16 +116,20 @@ describe('site OpenAPI agent profile', () => {
   })
 
   test('the server URL is the base of the requesting site', async (t) => {
-    const originalProtocol = HAXCMS.protocol
-    const originalDomain = HAXCMS.domain
-    HAXCMS.protocol = 'https'
-    HAXCMS.domain = 'example.org'
-    t.after(() => {
-      HAXCMS.protocol = originalProtocol
-      HAXCMS.domain = originalDomain
-    })
-    const spec = await fetchSpec(t)
+    const spec = await fetchSpec(t, { protocol: 'https' })
     assert.equal(spec.servers[0].url, 'https://example.org/_sites/biology/')
+  })
+
+  // A site served on a port other than 80 (hax serve on 127.0.0.1:3000)
+  // advertises that host and port, not the configured http://localhost/.
+  test('the server URL keeps the host and port the request came in on', async (t) => {
+    const spec = await fetchSpec(t, {
+      protocol: 'http',
+      headers: { host: '127.0.0.1:3000', accept: 'application/json' },
+      originalUrl: '/x/api/openapi.json',
+      url: '/x/api/openapi.json',
+    })
+    assert.equal(spec.servers[0].url, 'http://127.0.0.1:3000/')
   })
 
   // haxtheweb/issues#3211: login is optional for search; the editor's

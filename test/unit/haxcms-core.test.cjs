@@ -1598,6 +1598,42 @@ test("siteConnectionJSON keeps the flat browse endpoint when neither context is 
   }
 });
 
+test("siteConnectionJSON points uploads at the host and port the request came in on", () => {
+  const { runWithRequest } = require("../../src/lib/requestContext.js");
+  // a site served on 127.0.0.1:3000 must not upload to http://localhost/
+  const req = { protocol: "http", headers: { host: "127.0.0.1:3000" } };
+  const viaContext = runWithRequest(req, () =>
+    HAXCMS.siteConnectionJSON("site-token", ""),
+  );
+  assert.equal(viaContext.connection.protocol, "http");
+  assert.equal(viaContext.connection.url, "127.0.0.1:3000" + HAXCMS.basePath);
+  const explicit = HAXCMS.siteConnectionJSON("site-token", "", req);
+  assert.equal(explicit.connection.url, "127.0.0.1:3000" + HAXCMS.basePath);
+  // outside a request (CLI) the configured protocol and domain are kept
+  const cli = HAXCMS.siteConnectionJSON("site-token", "");
+  assert.equal(cli.connection.protocol, HAXCMS.protocol);
+  assert.equal(cli.connection.url, HAXCMS.domain + HAXCMS.basePath);
+});
+
+test("getRequestOrigin keeps the allowedHosts guard", () => {
+  const previous = HAXCMS.config.security;
+  HAXCMS.config.security = { allowedHosts: ["cms.example.com"] };
+  try {
+    const origin = HAXCMS.getRequestOrigin({
+      protocol: "https",
+      headers: { host: "evil.example.net" },
+    });
+    assert.equal(origin.domain, "cms.example.com");
+    assert.equal(origin.protocol, "https");
+  } finally {
+    if (previous === undefined) {
+      delete HAXCMS.config.security;
+    } else {
+      HAXCMS.config.security = previous;
+    }
+  }
+});
+
 test("getDomain is the current request's resolved host, none outside a request", () => {
   const { runWithRequest } = require("../../src/lib/requestContext.js");
   // the constant "localhost" was never the right host (haxtheweb/issues#3394)

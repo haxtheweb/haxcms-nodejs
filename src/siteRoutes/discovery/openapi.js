@@ -168,10 +168,13 @@ function trimTrailingSlashes(value) {
 }
 
 function getServerBaseUrl(req) {
+  // the host (port included) this request came in on, so a site served on
+  // 127.0.0.1:3000 does not advertise http://localhost/
+  const origin = HAXCMS.getRequestOrigin(req || null);
   const apiBasePath = req ? getApiBasePath(req) : '';
   const sitePrefix = apiBasePath.replace(/\/x\/api$/, '');
   if (req && sitePrefix !== apiBasePath) {
-    return `${HAXCMS.protocol}://${HAXCMS.domain}${trimTrailingSlashes(sitePrefix)}/`;
+    return `${origin.protocol}://${origin.domain}${trimTrailingSlashes(sitePrefix)}/`;
   }
   let basePath = HAXCMS.basePath || '/';
   if (basePath.charAt(0) !== '/') {
@@ -180,7 +183,7 @@ function getServerBaseUrl(req) {
   if (basePath.charAt(basePath.length - 1) !== '/') {
     basePath += '/';
   }
-  return `${HAXCMS.protocol}://${HAXCMS.domain}${basePath}`;
+  return `${origin.protocol}://${origin.domain}${basePath}`;
 }
 
 async function siteOpenapi(req, res) {
