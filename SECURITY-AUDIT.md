@@ -40,6 +40,7 @@ The rules the code keeps. Each bullet is one inline tag; a comment may carry mor
 - **SEC-DEPLOY:** `_config/`, `_archived/`, dotfiles and `.git` are never served (Express only serves the app and site directories, with explicit denies for config files and dot-segments; the shipped `.htaccess` files deny them under Apache); the Docker image installs runtime dependencies only and keeps secrets and local working notes out of the build context; the no-login bypass is loopback-only, never in production, answers only loopback `Host` headers (DNS rebinding) and hands its superuser JWT only to loopback same-origin clients
 - **SEC-STATIC-DOTFILES (Node only):** static dotfile and `..` decisions are made on the decoded path segments (`src/lib/staticRequestGuards.js`); only `/.well-known/` is served
 - **SEC-LOCAL-ORIGIN (Node only):** with the no-login bypass, only `1`/`true` enable it, and non-safe cross-site requests (foreign Origin or `Sec-Fetch-Site: cross-site`) are refused
+- **Version:** the running HAXcms version never reaches unauthenticated users: `site.json` carries none (`stripPublicVersion` on save), and the static folder the server serves (`src/public`) holds no file that states it (`manifest.json` carries no version; `package.json` and `CHANGELOG.md` stay outside it). `haxcms-php` keeps the same rule for its install root at `.htaccess` and nginx level
 - **Parity:** every shared rule holds identically in `haxcms-php`, and both `src/openapi/system-spec.yaml` / `site-spec.yaml` stay byte-identical with it
 
 ## Commands

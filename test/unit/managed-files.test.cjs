@@ -10,6 +10,7 @@ const path = require("path");
 
 const {
   MANAGED_BLOCK_MARKERS,
+  LEGACY_JSON_KEYS,
   getManagedFilePolicy,
   isKnownLegacyAgentsMd,
   findManagedBlock,
@@ -238,4 +239,25 @@ test("site boilerplate files/.htaccess forces markup downloads and sandboxes the
   assert.match(block, /Header always set Content-Disposition "attachment"/);
   assert.match(block, /Header always set X-Content-Type-Options nosniff/);
   assert.match(block, /Header always append Content-Security-Policy "sandbox"/);
+});
+
+test("site boilerplate package.json names no author; the legacy one is dropped on rebuild", () => {
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(BOILERPLATE, "package.json"), "utf8"),
+  );
+  assert.equal("author" in pkg, false);
+  assert.deepEqual(LEGACY_JSON_KEYS.author, ['{"name":"btopro"}']);
+});
+
+test("the static folder states no HAXcms version", () => {
+  // SECURITY-AUDIT.md, Version: nothing served without a login names it
+  const publicDir = path.join(REPO_ROOT, "src", "public");
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(publicDir, "manifest.json"), "utf8"),
+  );
+  assert.equal("version" in manifest, false);
+  ["package.json", "package-lock.json", "CHANGELOG.md", ".version"].forEach(
+    (name) =>
+      assert.equal(fs.existsSync(path.join(publicDir, name)), false, name),
+  );
 });
