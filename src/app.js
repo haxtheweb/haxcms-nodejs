@@ -89,6 +89,7 @@ const {
   runWithCommitContext,
   getOperationId,
 } = require("./lib/commitContext.js");
+const { requestContextMiddleware } = require("./lib/requestContext.js");
 const loginRateLimiter = require("./lib/loginRateLimiter.js");
 const { createRequestRateLimiter } = require("./lib/requestRateLimiter.js");
 const { haxcmsErrorHandler } = require("./lib/requestErrorHandler.js");
@@ -1171,6 +1172,8 @@ if (process.env.NODE_ENV === "development" && server) {
 // 414 before any static/asset/route handling (cap documented in
 // src/lib/requestUrlGuards.js).
 app.use(requestUrlGuard);
+// the request being handled, for HAXCMS.getDomain (src/lib/requestContext.js)
+app.use(requestContextMiddleware);
 // Security (SEC-DEPLOY): the no-login bypass binds loopback,
 // but a hostile web page can still reach it via DNS rebinding. Reject any
 // request whose Host header is not a loopback name in that mode. Runs first so

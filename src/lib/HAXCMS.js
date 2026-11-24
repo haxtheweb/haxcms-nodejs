@@ -192,8 +192,12 @@ function loadConfigJson(configDirectory) {
 // HAXCMSSite which overlaps heavily and is referenced here often
 // a short search word that is kept: it has a digit, or it is written in a
 // script that does not put spaces between words
-const SEARCH_WORD_KEPT_SHORT =
-  /[\p{N}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/u;
+// (from the fixed Unicode tables, so it does not depend on the runtime's
+// Unicode version; haxtheweb/issues#3394)
+const unicodeTables = require("./unicodeTables.js");
+const { currentRequest } = require("./requestContext.js");
+const SEARCH_WORD_KEPT_SHORT = unicodeTables.searchKeepShort;
+const SEARCH_WORD_BREAK = unicodeTables.notLetterOrNumberRun();
 const {
   rebuildAlternateFormatsLogged,
 } = require("./rebuildAlternateFormatsLogged.js");
@@ -2415,10 +2419,10 @@ class HAXCMSSite {
       return "";
     }
     // a tag becomes a space so the words either side of it stay two words
-    text = stripAngleTags(text, " ").toLowerCase();
+    text = unicodeTables.lowerCase(stripAngleTags(text, " "));
     // apostrophes close up (aren't -> arent), anything else that is not a
     // letter or a number separates words
-    text = text.replace(/'/g, "").replace(/[^\p{L}\p{N}]+/gu, " ");
+    text = text.replace(/'/g, "").replace(SEARCH_WORD_BREAK, " ");
     const seen = new Set();
     const words = [];
     const parts = text.split(" ");
@@ -6500,10 +6504,18 @@ class HAXCMSClass {
     return "";
   }
   /**
-   * Return the active domain if it exists
+   * The current request's host as https://host (port included), resolved by
+   * resolveTrustedHost; "" outside a request. Used for the absolute URLs in
+   * managed files and feeds of a site without metadata.site.domain. Same
+   * host as haxcms-php HAXCMS::getDomain (haxtheweb/issues#3394).
    */
   getDomain() {
-    return this.domain;
+    const req = currentRequest();
+    if (!req) {
+      return "";
+    }
+    const host = this.resolveTrustedHost(req);
+    return host ? "https://" + host : "";
   }
   /**
    * Load wc-registry.json relative to the site in question
