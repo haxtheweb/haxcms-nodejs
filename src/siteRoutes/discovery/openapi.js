@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const canonicalFormat = require('../../lib/canonicalFormat.js');
 const YAML = require('yaml');
 const { HAXCMS } = require('../../lib/HAXCMS.js');
 const { getApiBasePath } = require('../v1/siteRouteUtils.js');
@@ -236,11 +237,11 @@ async function siteOpenapi(req, res) {
 
   if (format === 'yaml') {
     res.setHeader('Content-Type', 'application/yaml; charset=utf-8');
-    return res.send(YAML.stringify(openapi));
+    return res.send(canonicalFormat.yaml(openapi));
   }
 
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  return res.send(JSON.stringify(openapi, null, 2));
+  return res.send(canonicalFormat.json(openapi));
 }
 
 module.exports = siteOpenapi;

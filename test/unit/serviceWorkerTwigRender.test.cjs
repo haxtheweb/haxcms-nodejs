@@ -17,6 +17,7 @@
 // stale-while-revalidate, and caches left by older workers are deleted.
 //
 // Constraints honored: CommonJS (.cjs), require(), globalThis (not window),
+const canonicalFormat = require("../../src/lib/canonicalFormat.js");
 // NO optional chaining (explicit && guards), node:test + node:assert/strict.
 
 const { test, describe } = require("node:test");
@@ -42,7 +43,12 @@ const SCOPE = "https://example.org/sites/demo/";
 function renderSw(templateVars) {
   const fileData = fs.readFileSync(BOILERPLATE_SW, "utf8");
   const template = Twig.twig({ data: fileData, async: false });
-  return template.render(templateVars);
+  // rebuildManagedFiles passes the shell list as canonical pretty JSON too
+  const vars = Object.assign({}, templateVars);
+  if (vars.swhashJson === undefined) {
+    vars.swhashJson = canonicalFormat.prettyJson(vars.swhash || []);
+  }
+  return template.render(vars);
 }
 
 function hasTwigSyntax(str) {

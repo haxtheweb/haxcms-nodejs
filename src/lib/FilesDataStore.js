@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const canonicalFormat = require('./canonicalFormat.js');
 const crypto = require('crypto');
 const fs = require('fs-extra');
 const mime = require('mime');
@@ -110,7 +111,8 @@ class FilesDataStore {
       fs.ensureDirSync(dir);
     }
     this.envelope.generated = Math.floor(Date.now() / 1000);
-    const json = JSON.stringify(this.envelope, null, 2);
+    // canonical pretty JSON, the same file haxcms-php writes
+    const json = canonicalFormat.prettyJson(this.envelope);
     if (!json) {
       return false;
     }

@@ -1515,23 +1515,23 @@ describe('setRepresentationHeaders', () => {
 // ---------------------------------------------------------------------------
 
 describe('serializePayload', () => {
-  test('json: pretty-stringifies', () => {
+  test('json: the canonical compact JSON both backends write', () => {
     const out = siteRouteUtils.serializePayload({ a: 1 }, 'json')
-    assert.equal(out, '{\n  "a": 1\n}')
+    assert.equal(out, '{"a":1}')
   })
 
-  test('md: stringifies non-string payloads as JSON', () => {
+  test('md: stringifies non-string payloads as canonical pretty JSON', () => {
     const out = siteRouteUtils.serializePayload({ a: 1 }, 'md')
-    assert.equal(out, '{\n  "a": 1\n}')
+    assert.equal(out, '{\n    "a": 1\n}')
   })
 
   test('md: passes through string payloads', () => {
     assert.equal(siteRouteUtils.serializePayload('# hi', 'md'), '# hi')
   })
 
-  test('yaml: stringifies via YAML.stringify', () => {
-    const out = siteRouteUtils.serializePayload({ a: 1 }, 'yaml')
-    assert.ok(out.indexOf('a: 1') !== -1)
+  test('yaml: the canonical YAML both backends write', () => {
+    const out = siteRouteUtils.serializePayload({ a: 1, b: [] }, 'yaml')
+    assert.equal(out, 'a: 1\nb: []\n')
   })
 
   test('xml: wraps with xml declaration and response root', () => {
@@ -1553,7 +1553,7 @@ describe('serializePayload', () => {
 
   test('unknown format defaults to json', () => {
     const out = siteRouteUtils.serializePayload({ a: 1 }, 'totally-unknown')
-    assert.equal(out, '{\n  "a": 1\n}')
+    assert.equal(out, '{"a":1}')
   })
 })
 
@@ -1631,8 +1631,8 @@ describe('sendFormattedResponse', () => {
       allowedFormats: ['json', 'md'],
       rawByFormat: { md: { b: 2 } },
     })
-    // md serializer stringifies objects as JSON
-    assert.equal(res.body, '{\n  "b": 2\n}')
+    // md serializer stringifies objects as canonical pretty JSON
+    assert.equal(res.body, '{\n    "b": 2\n}')
   })
 })
 
