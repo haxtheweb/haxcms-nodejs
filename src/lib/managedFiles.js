@@ -65,6 +65,21 @@ const LEGACY_AGENTS_MD_HASHES = [
 // package.json objects merged one level deep (HAXcms entries win, owner
 // entries the boilerplate does not define are kept)
 const JSON_MERGE_NESTED_KEYS = ["scripts", "dependencies", "devDependencies"];
+// json-merge keys an earlier boilerplate rendered and HAXcms no longer owns,
+// with the exact values (JSON-encoded) it wrote into every site. An existing
+// file still holding one of those values has the key removed, since the site
+// owner never set it; any other value is the owner's and is kept. package.json
+// shipped a hard-coded "author" naming a HAX maintainer in every site.
+const LEGACY_JSON_KEYS = {
+  author: ['{"name":"btopro"}'],
+};
+
+function isLegacyJsonValue(key, value) {
+  return (
+    Object.prototype.hasOwnProperty.call(LEGACY_JSON_KEYS, key) &&
+    LEGACY_JSON_KEYS[key].indexOf(JSON.stringify(value)) !== -1
+  );
+}
 
 // security.txt Expires: keep the existing value while more than this many
 // days remain, so the file does not change on every save
@@ -184,8 +199,9 @@ function isPlainObject(value) {
 
 /**
  * HAXcms owns the keys it renders; any other keys in the existing file are
- * kept. When the existing file adds nothing, the rendered text is returned
- * verbatim so formatting stays exactly as the boilerplate defines it.
+ * kept, except a LEGACY_JSON_KEYS value HAXcms itself once wrote. When the
+ * existing file adds nothing, the rendered text is returned verbatim so
+ * formatting stays exactly as the boilerplate defines it.
  */
 function mergeManagedJson(existing, rendered) {
   if (existing === null || existing === undefined) {
@@ -223,7 +239,10 @@ function mergeManagedJson(existing, rendered) {
     }
   });
   Object.keys(current).forEach((key) => {
-    if (!Object.prototype.hasOwnProperty.call(next, key)) {
+    if (
+      !Object.prototype.hasOwnProperty.call(next, key) &&
+      !isLegacyJsonValue(key, current[key])
+    ) {
       merged[key] = current[key];
       hasOwnerKeys = true;
     }
@@ -287,6 +306,7 @@ module.exports = {
   MANAGED_BLOCK_MARKERS,
   MANAGED_FILE_POLICIES,
   LEGACY_AGENTS_MD_HASHES,
+  LEGACY_JSON_KEYS,
   getManagedFilePolicy,
   isKnownLegacyAgentsMd,
   findManagedBlock,
