@@ -3076,19 +3076,22 @@ class HAXCMSSite {
     if (params["order"] && params["order"] != "" && params["order"] != null) {
       item.order = params["order"];
     }
+    // a parent is a page id: a non-blank string. Anything else (an object,
+    // a list, a number) is no parent, so it can never be written to
+    // site.json; the same rule as haxcms-php (haxtheweb/issues#3394)
     if (
-      params["parent"] &&
-      params["parent"] != "" &&
-      params["parent"] != null
+      typeof params["parent"] === "string" &&
+      params["parent"].trim() !== ""
     ) {
       item.parent = params["parent"];
     } else {
       item.parent = null;
     }
     if (
-      params["description"] &&
-      params["description"] != "" &&
-      params["description"] != null
+      // a string, or it is ignored (an object here was a 500), as in
+      // haxcms-php (haxtheweb/issues#3394)
+      typeof params["description"] === "string" &&
+      params["description"] != ""
     ) {
       item.description = params["description"].replace("\n", "");
     }

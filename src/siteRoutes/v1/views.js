@@ -259,7 +259,9 @@ async function viewDetail(req, res) {
     });
   }
   const viewId =
-    req && req.params && req.params.viewId ? String(req.params.viewId) : '';
+    req && req.params && req.params.viewId
+      ? String(req.params.viewId).trim()
+      : '';
   if (viewId.trim() === '') {
     return res.status(404).json({
       status: 404,
@@ -298,7 +300,9 @@ async function viewResults(req, res) {
     });
   }
   const viewId =
-    req && req.params && req.params.viewId ? String(req.params.viewId) : '';
+    req && req.params && req.params.viewId
+      ? String(req.params.viewId).trim()
+      : '';
   if (viewId.trim() === '') {
     return res.status(404).json({
       status: 404,

@@ -163,7 +163,7 @@ async function themeDetail(req, res) {
   }
   const themeName =
     req && req.params && req.params.themeName
-      ? String(req.params.themeName)
+      ? String(req.params.themeName).trim()
       : "";
   if (themeName.trim() === "") {
     return res.status(404).json({
@@ -177,7 +177,10 @@ async function themeDetail(req, res) {
   const fields = getCsvQuery(req, "fields");
   const records = await getThemeRecords(site, req, apiBasePath);
   const target = records.find(
-    (record) => String(record.machineName || "") === themeName,
+    // trimmed and case-insensitive, as haxcms-php matches theme names
+    (record) =>
+      String(record.machineName || "").toLowerCase() ===
+      themeName.toLowerCase(),
   );
   if (!target) {
     return res.status(404).json({

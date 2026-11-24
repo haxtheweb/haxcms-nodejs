@@ -758,11 +758,25 @@ function projectCollection(records = [], fields = []) {
   return records.map((record) => projectRecord(record, fields));
 }
 
+/**
+ * decodeURIComponent, but a value that is not a valid encoding (a lone %,
+ * bytes that are not UTF-8) is kept as it is instead of throwing. haxcms-php
+ * SiteRouteUtils::decodeUriComponentOrKeep follows the same rule.
+ */
+function decodeUriComponentOrKeep(value) {
+  const text = String(value);
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
 function findItemByIdOrSlug(site, idOrSlug) {
   if (!site || !site.manifest || !idOrSlug) {
     return null;
   }
-  const value = decodeURIComponent(String(idOrSlug || '').trim());
+  const value = decodeUriComponentOrKeep(String(idOrSlug || '').trim());
   if (value === '') {
     return null;
   }
@@ -1080,7 +1094,9 @@ function escapeHtmlValue(value = '') {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    // &#039;, the entity PHP's htmlspecialchars(ENT_QUOTES) writes, so both
+    // backends give the same bytes
+    .replace(/'/g, '&#039;');
 }
 
 function escapeXmlValue(value = '') {
@@ -1138,7 +1154,9 @@ function serializePayload(payload, format) {
       if (typeof payload === 'string') {
         return payload;
       }
-      return `<pre>${escapeHtmlValue(JSON.stringify(payload, null, 2))}</pre>`;
+      // 4 spaces: the indent of PHP's JSON_PRETTY_PRINT, so the html form
+      // is the same on both backends (haxtheweb/issues#3394)
+      return `<pre>${escapeHtmlValue(JSON.stringify(payload, null, 4))}</pre>`;
     case 'json':
     default:
       return JSON.stringify(payload, null, 2);

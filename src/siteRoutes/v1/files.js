@@ -1223,7 +1223,10 @@ function readOperationPayload(req, operationOverride = "") {
   const body = ensureRequestBodyObject(req);
   const operation = operationOverride
     ? normalizeOperationName(operationOverride)
-    : normalizeOperationName(body.operation || "");
+    : // an operation is a string; any other type counts as none
+      normalizeOperationName(
+        typeof body.operation === "string" ? body.operation : "",
+      );
   return {
     operation,
     size:
@@ -1787,12 +1790,6 @@ async function updateFile(req, res) {
     );
   }
   const payload = readOperationPayload(req);
-  if (!payload.operation) {
-    return res.status(400).json({
-      status: 400,
-      data: { message: "Operation is required" },
-    });
-  }
   if (payload.operation === "delete") {
     return res.status(400).json({
       status: 400,
@@ -1818,6 +1815,14 @@ async function updateFile(req, res) {
       return res.status(400).json({
         status: 400,
         data: { message: "File uuid is required and must be a valid UUID" },
+      });
+    }
+    // the file first, then the operation on it: the same order as haxcms-php
+    // (haxtheweb/issues#3394)
+    if (!payload.operation) {
+      return res.status(400).json({
+        status: 400,
+        data: { message: "Operation is required" },
       });
     }
     const result = await performFileOperation(
