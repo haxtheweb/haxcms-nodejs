@@ -161,7 +161,7 @@ async function customElementDetail(req, res) {
   }
   const webcomponentName =
     req && req.params && req.params.webcomponentName
-      ? String(req.params.webcomponentName)
+      ? String(req.params.webcomponentName).trim()
       : '';
   if (webcomponentName.trim() === '') {
     return res.status(404).json({

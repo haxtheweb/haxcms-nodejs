@@ -2034,7 +2034,7 @@ describe('escapeHtmlValue', () => {
   test('escapes & < > " \'', () => {
     assert.equal(
       siteRouteUtils.escapeHtmlValue('<a href="x">"\'&</a>'),
-      '&lt;a href=&quot;x&quot;&gt;&quot;&#39;&amp;&lt;/a&gt;',
+      '&lt;a href=&quot;x&quot;&gt;&quot;&#039;&amp;&lt;/a&gt;',
     )
   })
 
@@ -2059,7 +2059,7 @@ describe('escapeXmlValue', () => {
     )
   })
 
-  test('uses &apos; for single quote (vs &#39; in html)', () => {
+  test('uses &apos; for single quote (vs &#039; in html)', () => {
     assert.equal(siteRouteUtils.escapeXmlValue("'"), '&apos;')
   })
 

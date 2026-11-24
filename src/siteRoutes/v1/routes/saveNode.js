@@ -552,7 +552,7 @@ async function saveNode(req, res) {
   } else {
     res
       .status(403)
-      .json({ status: 403, data: { message: "Authentication required" } });
+      .json({ status: 403, data: { message: "invalid site token" } });
   }
 }
 function countWords(str) {

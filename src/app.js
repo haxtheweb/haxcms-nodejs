@@ -2301,6 +2301,20 @@ const appReady = systemStructureContext().then((site) => {
         ) {
           return sendMethodNotAllowedResponse(res, siteSuffix, allowedMethods);
         }
+        // Every site API route is registered above and none passes a
+        // request on, so a site API request that gets here matched none
+        // (an unknown path, or an empty segment such as /blocks//usage).
+        // Answer the JSON 404 haxcms-php's SiteApiRouter gives, not the
+        // HTML "Cannot GET" page (haxtheweb/issues#3394).
+        if (upperReqMethod !== "OPTIONS") {
+          return res.status(404).json({
+            status: 404,
+            data: {
+              message: "Unknown site API route",
+              route: trimRouteSuffix(siteSuffix),
+            },
+          });
+        }
       }
     }
     next();
@@ -3991,6 +4005,10 @@ function extractSystemApiRouteSuffixFromPath(requestPath) {
   }
   return null;
 }
+// the route as haxcms-php reports it: no leading or trailing slash
+function trimRouteSuffix(routeSuffix) {
+  return String(routeSuffix || "").replace(/^\/+|\/+$/g, "");
+}
 function sendMethodNotAllowedResponse(res, routeSuffix, allowedMethods) {
   const sortedMethods = allowedMethods.slice().sort();
   res.set("Allow", sortedMethods.join(", "));
@@ -3998,7 +4016,7 @@ function sendMethodNotAllowedResponse(res, routeSuffix, allowedMethods) {
     status: 405,
     data: {
       message: "Method not allowed",
-      route: routeSuffix,
+      route: trimRouteSuffix(routeSuffix),
       methods: sortedMethods,
     },
   });

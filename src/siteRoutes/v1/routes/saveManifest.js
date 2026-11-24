@@ -536,14 +536,16 @@ async function saveManifest(req, res) {
       await site.gitCommit("Managed files updated");
       res.json({ status: 200, data: site.manifest });
     } else {
+      // a valid site token, but neither a scoped details payload nor a valid
+      // form token: the same message as haxcms-php saveManifest
       res
         .status(403)
-        .json({ status: 403, data: { message: "Authentication required" } });
+        .json({ status: 403, data: { message: "invalid request token" } });
     }
   } else {
     res
       .status(403)
-      .json({ status: 403, data: { message: "Authentication required" } });
+      .json({ status: 403, data: { message: "invalid site token" } });
   }
 }
 function isScopedDetailsManifestPayload(body) {

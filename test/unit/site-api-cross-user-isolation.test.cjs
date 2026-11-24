@@ -138,7 +138,7 @@ test('deleteNode: a token minted for "alice" is rejected when the authenticated 
   await deleteNode(req, res);
 
   assert.equal(res.statusCode, 403);
-  assert.equal(res.body.data.message, "Authentication required");
+  assert.equal(res.body.data.message, "invalid site token");
 });
 
 test("deleteNode: the same token succeeds when the authenticated request identity legitimately matches it", async (t) => {

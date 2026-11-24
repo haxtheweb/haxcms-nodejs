@@ -19,6 +19,9 @@ const {
   sendFormattedResponse,
 } = require("./siteRouteUtils.js");
 
+// a block name is an HTML tag name: the same rule as haxcms-php blocks.php
+const BLOCK_TAG_PATTERN = /^[a-z][a-z0-9-]*$/;
+
 function normalizeEnabledBlocks(input = []) {
   if (!Array.isArray(input)) {
     return null;
@@ -435,6 +438,16 @@ async function blockDetail(req, res) {
       },
     });
   }
+  // a name that cannot be a tag is no block: answered before it reaches a
+  // selector (querySelectorAll("!") throws), as haxcms-php does
+  if (!BLOCK_TAG_PATTERN.test(webcomponentName)) {
+    return res.status(404).json({
+      status: 404,
+      data: {
+        message: `Block "${webcomponentName}" not found`,
+      },
+    });
+  }
   const apiBasePath = getApiBasePath(req);
   const include = getCsvQuery(req, "include");
   const fields = getCsvQuery(req, "fields");
@@ -509,6 +522,16 @@ async function blockUsage(req, res) {
       status: 404,
       data: {
         message: "Block not found",
+      },
+    });
+  }
+  // a name that cannot be a tag is no block: answered before it reaches a
+  // selector (querySelectorAll("!") throws), as haxcms-php does
+  if (!BLOCK_TAG_PATTERN.test(webcomponentName)) {
+    return res.status(404).json({
+      status: 404,
+      data: {
+        message: `Block "${webcomponentName}" not found`,
       },
     });
   }

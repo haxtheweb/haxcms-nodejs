@@ -51,24 +51,30 @@ async function saveAllowedBlocks(req, res) {
       );
     }
 
+    // Same messages as haxcms-php saveAllowedBlocks
     if (
       !req.body ||
-      typeof req.body.platform !== "object" ||
-      !req.body.platform
+      req.body.platform === undefined ||
+      req.body.platform === null
     ) {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "missing platform settings" } });
       return;
     }
 
     if (
-      req.body.platform.allowedBlocks !== null &&
-      !Array.isArray(req.body.platform.allowedBlocks)
+      typeof req.body.platform !== "object" ||
+      !Object.prototype.hasOwnProperty.call(
+        req.body.platform,
+        "allowedBlocks",
+      ) ||
+      (req.body.platform.allowedBlocks !== null &&
+        !Array.isArray(req.body.platform.allowedBlocks))
     ) {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid allowedBlocks" } });
       return;
     }
 
@@ -77,19 +83,26 @@ async function saveAllowedBlocks(req, res) {
       const wcMap = HAXCMS.getWCRegistryJson(site);
 
       const cleanAllowedBlocks = [];
-      for (const tag of req.body.platform.allowedBlocks) {
+      for (const [index, tag] of req.body.platform.allowedBlocks.entries()) {
         if (typeof tag !== "string") {
-          res
-            .status(400)
-            .json({ status: 400, data: { message: "Invalid request" } });
+          res.status(400).json({
+            status: 400,
+            data: { message: "invalid allowedBlocks entry at index " + index },
+          });
           return;
         }
 
         const cleanTag = tag.trim();
         if (!cleanTag) {
-          res
-            .status(400)
-            .json({ status: 400, data: { message: "Invalid request" } });
+          res.status(400).json({
+            status: 400,
+            data: {
+              message:
+                "invalid tag name in allowedBlocks at index " +
+                index +
+                " (empty value)",
+            },
+          });
           return;
         }
 
@@ -100,9 +113,16 @@ async function saveAllowedBlocks(req, res) {
           !isHtmlTag && wcMap && typeof wcMap[cleanTag] !== "undefined";
 
         if (!isHtmlTag && !isRegisteredWc) {
-          res
-            .status(400)
-            .json({ status: 400, data: { message: "Invalid request" } });
+          res.status(400).json({
+            status: 400,
+            data: {
+              message:
+                "invalid tag name in allowedBlocks at index " +
+                index +
+                ": " +
+                cleanTag,
+            },
+          });
           return;
         }
 
@@ -135,7 +155,7 @@ async function saveAllowedBlocks(req, res) {
   } else {
     res
       .status(403)
-      .json({ status: 403, data: { message: "Authentication required" } });
+      .json({ status: 403, data: { message: "invalid site token" } });
   }
 }
 

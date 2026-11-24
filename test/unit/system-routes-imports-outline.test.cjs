@@ -752,7 +752,7 @@ describe("saveOutline route", () => {
     const res = stubRes();
     await saveOutline(outlineReq({ site: { name: "demo" }, items: [] }), res);
     assert.equal(res.statusCode, 403);
-    assert.equal(res.body.data.message, "Authentication required");
+    assert.equal(res.body.data.message, "invalid site token");
   });
 
   test("saves an outline mixing updates, creation, contents, and deletes", async (t) => {

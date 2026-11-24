@@ -467,7 +467,8 @@ async function siteSearch(req, res) {
       data: { message: "Search query is required" },
     });
   }
-  if (searchTerm.length > SITE_SEARCH_MAX_QUERY_LENGTH) {
+  // lengths in characters (code points), as haxcms-php counts with mb_strlen
+  if (Array.from(searchTerm).length > SITE_SEARCH_MAX_QUERY_LENGTH) {
     return res.status(400).json({
       status: 400,
       data: {
@@ -475,7 +476,10 @@ async function siteSearch(req, res) {
       },
     });
   }
-  if (operation === SITE_SEARCH_OPERATION_REPLACE && searchTerm.length <= 1) {
+  if (
+    operation === SITE_SEARCH_OPERATION_REPLACE &&
+    Array.from(searchTerm).length <= 1
+  ) {
     return res.status(400).json({
       status: 400,
       data: {
@@ -519,7 +523,7 @@ async function siteSearch(req, res) {
   if (operation === SITE_SEARCH_OPERATION_REPLACE) {
     replacement =
       typeof requestBody.replace === "string" ? requestBody.replace.trim() : "";
-    if (replacement.length === 1) {
+    if (Array.from(replacement).length === 1) {
       return res.status(400).json({
         status: 400,
         data: {

@@ -509,6 +509,39 @@ function parseBooleanFromInput(value, fallback = null) {
   return fallback;
 }
 
+/**
+ * Coerce a boolean-like setting value the way haxcms-php does with
+ * filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE), so
+ * both backends accept and refuse the same values.
+ * true: true, 1, "1", "true", "on", "yes"; false: false, 0, "0", "false",
+ * "off", "no", "", null (strings are trimmed and case-insensitive).
+ * Anything else (other numbers, other strings, arrays, objects) is null.
+ */
+function coerceBooleanLike(value) {
+  if (value === null || typeof value === 'boolean') {
+    return value === true;
+  }
+  if (typeof value === 'number') {
+    if (value === 1) {
+      return true;
+    }
+    if (value === 0) {
+      return false;
+    }
+    return null;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'on', 'yes'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'off', 'no', ''].includes(normalized)) {
+      return false;
+    }
+  }
+  return null;
+}
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -725,11 +758,25 @@ function projectCollection(records = [], fields = []) {
   return records.map((record) => projectRecord(record, fields));
 }
 
+/**
+ * decodeURIComponent, but a value that is not a valid encoding (a lone %,
+ * bytes that are not UTF-8) is kept as it is instead of throwing. haxcms-php
+ * SiteRouteUtils::decodeUriComponentOrKeep follows the same rule.
+ */
+function decodeUriComponentOrKeep(value) {
+  const text = String(value);
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
 function findItemByIdOrSlug(site, idOrSlug) {
   if (!site || !site.manifest || !idOrSlug) {
     return null;
   }
-  const value = decodeURIComponent(String(idOrSlug || '').trim());
+  const value = decodeUriComponentOrKeep(String(idOrSlug || '').trim());
   if (value === '') {
     return null;
   }
@@ -1047,7 +1094,9 @@ function escapeHtmlValue(value = '') {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    // &#039;, the entity PHP's htmlspecialchars(ENT_QUOTES) writes, so both
+    // backends give the same bytes
+    .replace(/'/g, '&#039;');
 }
 
 function escapeXmlValue(value = '') {
@@ -1105,7 +1154,9 @@ function serializePayload(payload, format) {
       if (typeof payload === 'string') {
         return payload;
       }
-      return `<pre>${escapeHtmlValue(JSON.stringify(payload, null, 2))}</pre>`;
+      // 4 spaces: the indent of PHP's JSON_PRETTY_PRINT, so the html form
+      // is the same on both backends (haxtheweb/issues#3394)
+      return `<pre>${escapeHtmlValue(JSON.stringify(payload, null, 4))}</pre>`;
     case 'json':
     default:
       return JSON.stringify(payload, null, 2);
@@ -1434,6 +1485,7 @@ module.exports = {
   hasOwn,
   normalizeString,
   ensureSiteMetadataContainers,
+  coerceBooleanLike,
   assertSiteFeature,
   normalizeSortTokens,
   sortRecords,

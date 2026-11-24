@@ -604,13 +604,29 @@ describe('files routes — updateFile', () => {
     assert.equal(res.body.data.message, 'File operations are disabled for this site')
   })
 
-  test('missing operation answers 400 Operation is required', async (t) => {
+  test('missing operation on a file answers 400 Operation is required', async (t) => {
     const site = await makeTempSite(t)
+    const record = await indexSiteFile(site, 'a.jpg', 'a')
     mockSite(t, site)
     const res = stubRes()
-    await updateFile(makeReq(), res)
+    await updateFile(makeReq({ params: { fileUuid: record.uuid } }), res)
     assert.equal(res.statusCode, 400)
     assert.equal(res.body.data.message, 'Operation is required')
+  })
+
+  test('the file is looked up before the operation (haxcms-php order)', async (t) => {
+    const site = await makeTempSite(t)
+    mockSite(t, site)
+    const noUuid = stubRes()
+    await updateFile(makeReq(), noUuid)
+    assert.equal(noUuid.statusCode, 400)
+    assert.equal(noUuid.body.data.message, 'File uuid is required and must be a valid UUID')
+    const noFile = stubRes()
+    await updateFile(
+      makeReq({ params: { fileUuid: '11111111-2222-3333-4444-555555555555' }, body: { operation: '' } }),
+      noFile,
+    )
+    assert.equal(noFile.statusCode, 404)
   })
 
   test('a delete operation via update answers 400 directing to DELETE', async (t) => {
@@ -662,7 +678,7 @@ describe('files routes — updateFile', () => {
     const res = stubRes()
     await updateFile(makeReq({ body: { operation: 'compress' } }), res)
     assert.equal(res.statusCode, 400)
-    assert.equal(res.body.data.message, 'File uuid is required')
+    assert.equal(res.body.data.message, 'File uuid is required and must be a valid UUID')
   })
 
   test('an unknown uuid answers 404', async (t) => {
@@ -1061,7 +1077,7 @@ describe('files routes — deleteFile', () => {
     const res2 = stubRes()
     await deleteFile(makeReq(), res2)
     assert.equal(res2.statusCode, 400)
-    assert.equal(res2.body.data.message, 'File uuid is required')
+    assert.equal(res2.body.data.message, 'File uuid is required and must be a valid UUID')
   })
 
   test('an unknown uuid answers 404', async (t) => {

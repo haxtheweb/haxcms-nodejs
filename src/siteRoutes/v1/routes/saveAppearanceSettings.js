@@ -134,7 +134,7 @@ async function saveAppearanceSettings(req, res) {
   ) {
     res
       .status(403)
-      .json({ status: 403, data: { message: "Authentication required" } });
+      .json({ status: 403, data: { message: "invalid site token" } });
     return;
   }
 
@@ -142,35 +142,49 @@ async function saveAppearanceSettings(req, res) {
     res.status(400).json({ status: 400, data: { message: "Invalid request" } });
     return;
   }
+  // Same order and messages as haxcms-php saveAppearanceSettings: the site,
+  // then whether theme settings are allowed, then the payload.
   if (
-    !hasOnlyAllowedKeys(req.body.site, ALLOWED_SITE_KEYS) ||
+    !req.body.site ||
     typeof req.body.site.name !== "string" ||
     req.body.site.name.trim() === ""
   ) {
-    res.status(400).json({ status: 400, data: { message: "Invalid request" } });
+    res
+      .status(400)
+      .json({ status: 400, data: { message: "invalid site payload" } });
     return;
   }
-  if (!hasOnlyAllowedKeys(req.body.manifest, ALLOWED_MANIFEST_KEYS)) {
-    res.status(400).json({ status: 400, data: { message: "Invalid request" } });
-    return;
-  }
-  if (!hasOnlyAllowedKeys(req.body.manifest.theme, ALLOWED_THEME_KEYS)) {
-    res.status(400).json({ status: 400, data: { message: "Invalid request" } });
-    return;
-  }
-
-  const themePayload = req.body.manifest.theme;
   const site = await HAXCMS.loadSite(req.body.site.name);
+  if (!site || !site.manifest) {
+    res.status(400).json({ status: 400, data: { message: "invalid site" } });
+    return;
+  }
   if (!platformAllows(site, "themeManifest")) {
     return featureDisabledResponse(
       res,
       "Theme settings are disabled for this site",
     );
   }
-  if (!site || !site.manifest) {
-    res.status(400).json({ status: 400, data: { message: "Invalid request" } });
+  if (!hasOnlyAllowedKeys(req.body.site, ALLOWED_SITE_KEYS)) {
+    res
+      .status(400)
+      .json({ status: 400, data: { message: "invalid site payload" } });
     return;
   }
+  if (!hasOnlyAllowedKeys(req.body.manifest, ALLOWED_MANIFEST_KEYS)) {
+    res
+      .status(400)
+      .json({ status: 400, data: { message: "invalid manifest payload" } });
+    return;
+  }
+  if (!hasOnlyAllowedKeys(req.body.manifest.theme, ALLOWED_THEME_KEYS)) {
+    res
+      .status(400)
+      .json({ status: 400, data: { message: "invalid appearance payload" } });
+    return;
+  }
+
+  const themePayload = req.body.manifest.theme;
   if (!site.manifest.metadata || !isPlainObject(site.manifest.metadata)) {
     site.manifest.metadata = {};
   }
@@ -197,7 +211,7 @@ async function saveAppearanceSettings(req, res) {
     if (typeof themeElementValue !== "string") {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid theme element" } });
       return;
     }
     const themeElement = filter_var(
@@ -212,7 +226,7 @@ async function saveAppearanceSettings(req, res) {
     ) {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid theme element" } });
       return;
     }
     // the design system is the site's choice, not the theme's: keep it
@@ -224,6 +238,29 @@ async function saveAppearanceSettings(req, res) {
       JSON.stringify(themes[themeElement]),
     );
     if (typeof designSystem === "string" && designSystem !== "") {
+      site.manifest.metadata.theme.designSystem = designSystem;
+    }
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(
+      themePayload,
+      "manifest-metadata-theme-designSystem",
+    )
+  ) {
+    const designSystem = normalizeDesignSystem(
+      themePayload["manifest-metadata-theme-designSystem"],
+    );
+    if (designSystem === null) {
+      res.status(400).json({
+        status: 400,
+        data: { message: "invalid design system value" },
+      });
+      return;
+    }
+    if (designSystem === "") {
+      delete site.manifest.metadata.theme.designSystem;
+    } else {
       site.manifest.metadata.theme.designSystem = designSystem;
     }
   }
@@ -251,7 +288,7 @@ async function saveAppearanceSettings(req, res) {
     if (imageValue !== null && typeof imageValue !== "string") {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid image value" } });
       return;
     }
     site.manifest.metadata.theme.variables.image = sanitizeURLValue(
@@ -270,7 +307,7 @@ async function saveAppearanceSettings(req, res) {
     if (imageAltValue !== null && typeof imageAltValue !== "string") {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid imageAlt value" } });
       return;
     }
     site.manifest.metadata.theme.variables.imageAlt = filter_var(
@@ -289,7 +326,7 @@ async function saveAppearanceSettings(req, res) {
     if (imageLinkValue !== null && typeof imageLinkValue !== "string") {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid imageLink value" } });
       return;
     }
     site.manifest.metadata.theme.variables.imageLink = sanitizeURLValue(
@@ -305,14 +342,18 @@ async function saveAppearanceSettings(req, res) {
   ) {
     const cssVariableValue =
       themePayload["manifest-metadata-theme-variables-cssVariable"];
-    if (cssVariableValue === null || cssVariableValue === "") {
+    if (
+      cssVariableValue === null ||
+      (typeof cssVariableValue === "string" && cssVariableValue.trim() === "")
+    ) {
       delete site.manifest.metadata.theme.variables.cssVariable;
     } else {
       const cssVariable = normalizeCssVariable(cssVariableValue);
       if (!cssVariable) {
-        res
-          .status(400)
-          .json({ status: 400, data: { message: "Invalid request" } });
+        res.status(400).json({
+          status: 400,
+          data: { message: "invalid cssVariable value" },
+        });
         return;
       }
       site.manifest.metadata.theme.variables.cssVariable =
@@ -330,7 +371,7 @@ async function saveAppearanceSettings(req, res) {
     if (paletteValue !== null && typeof paletteValue !== "string") {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid palette value" } });
       return;
     }
     let palette = filter_var(paletteValue, "FILTER_SANITIZE_STRING");
@@ -343,7 +384,7 @@ async function saveAppearanceSettings(req, res) {
       } else {
         res
           .status(400)
-          .json({ status: 400, data: { message: "Invalid request" } });
+          .json({ status: 400, data: { message: "invalid palette value" } });
         return;
       }
     } else if (palette === null) {
@@ -351,7 +392,7 @@ async function saveAppearanceSettings(req, res) {
     } else {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid palette value" } });
       return;
     }
   }
@@ -365,7 +406,7 @@ async function saveAppearanceSettings(req, res) {
     if (iconValue !== null && typeof iconValue !== "string") {
       res
         .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
+        .json({ status: 400, data: { message: "invalid icon value" } });
       return;
     }
     site.manifest.metadata.theme.variables.icon = filter_var(
@@ -374,35 +415,13 @@ async function saveAppearanceSettings(req, res) {
     );
   }
 
-  if (
-    Object.prototype.hasOwnProperty.call(
-      themePayload,
-      "manifest-metadata-theme-designSystem",
-    )
-  ) {
-    const designSystem = normalizeDesignSystem(
-      themePayload["manifest-metadata-theme-designSystem"],
-    );
-    if (designSystem === null) {
-      res
-        .status(400)
-        .json({ status: 400, data: { message: "Invalid request" } });
-      return;
-    }
-    if (designSystem === "") {
-      delete site.manifest.metadata.theme.designSystem;
-    } else {
-      site.manifest.metadata.theme.designSystem = designSystem;
-    }
-  }
-
   for (const regionField of Object.keys(REGION_FIELD_MAP)) {
     if (Object.prototype.hasOwnProperty.call(themePayload, regionField)) {
       const cleanRegionIds = sanitizeRegionIds(themePayload[regionField]);
       if (cleanRegionIds === null) {
         res
           .status(400)
-          .json({ status: 400, data: { message: "Invalid request" } });
+          .json({ status: 400, data: { message: "invalid region value" } });
         return;
       }
       site.manifest.metadata.theme.regions[REGION_FIELD_MAP[regionField]] =

@@ -629,9 +629,16 @@ async function updateSiteAlternativeFormats(req, res) {
     !Array.isArray(req.body) &&
     Object.prototype.hasOwnProperty.call(req.body, "format")
   ) {
-    const requestedFormat = String(req.body.format || "").trim();
-    if (requestedFormat !== "") {
-      format = requestedFormat;
+    // format is a string or null: blank or null means every format; any
+    // other type is refused below, as haxcms-php does (haxtheweb/issues#3394)
+    const rawFormat = req.body.format;
+    if (rawFormat !== null && typeof rawFormat !== "string") {
+      format = false;
+    } else {
+      const requestedFormat = String(rawFormat || "").trim();
+      if (requestedFormat !== "") {
+        format = requestedFormat;
+      }
     }
   }
   if (format !== null) {

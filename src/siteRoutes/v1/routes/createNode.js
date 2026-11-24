@@ -213,7 +213,11 @@ async function createNode(req, res) {
               nodeParams["items"][i]["parent"],
               nodeParams["items"][i]["title"],
               "html",
-              nodeParams["items"][i]["slug"],
+              // no slug: "" so addPage makes it from the title, as
+              // haxcms-php does (undefined would take its "welcome" default)
+              typeof nodeParams["items"][i]["slug"] === "string"
+                ? nodeParams["items"][i]["slug"]
+                : "",
               nodeParams["items"][i]["id"],
               nodeParams["items"][i]["indent"],
               nodeParams["items"][i]["content"] ||
@@ -380,7 +384,7 @@ async function createNode(req, res) {
   } else {
     res
       .status(403)
-      .json({ status: 403, data: { message: "Authentication required" } });
+      .json({ status: 403, data: { message: "invalid site token" } });
   }
 }
 module.exports = createNode;

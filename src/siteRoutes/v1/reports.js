@@ -143,7 +143,18 @@ async function reportDetail(req, res) {
     });
   }
   const reportName =
-    req && req.params && req.params.report ? String(req.params.report) : '';
+    req && req.params && req.params.report
+      ? String(req.params.report).trim()
+      : '';
+  // a blank name asks for a report, not the list (haxtheweb/issues#3394)
+  if (reportName === '') {
+    return res.status(404).json({
+      status: 404,
+      data: {
+        message: 'Unknown report',
+      },
+    });
+  }
   if (!Object.prototype.hasOwnProperty.call(REPORT_DEFINITIONS, reportName)) {
     return res.status(404).json({
       status: 404,

@@ -185,8 +185,16 @@ function applyMetadataMutation(
         imageValue = details.media;
       }
       if (imageValue !== null) {
-        if (imageValue !== "" && imageValue !== undefined) {
-          page.metadata.image = sanitizeURLValue(imageValue, "");
+        // a value that is blank once cleaned removes the image instead of
+        // saving "" (haxcms-php does the same, haxtheweb/issues#3394)
+        // only a string is an image: String() of a list would save its
+        // items as a URL (haxcms-php refuses the same way)
+        const cleanImage =
+          typeof imageValue === "string" && imageValue !== ""
+            ? sanitizeURLValue(imageValue, "")
+            : "";
+        if (typeof cleanImage === "string" && cleanImage.trim() !== "") {
+          page.metadata.image = cleanImage;
         } else {
           delete page.metadata.image;
         }

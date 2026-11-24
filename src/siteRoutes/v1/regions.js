@@ -84,7 +84,9 @@ async function regionDetail(req, res) {
     });
   }
   const regionName =
-    req && req.params && req.params.regionName ? String(req.params.regionName) : '';
+    req && req.params && req.params.regionName
+      ? String(req.params.regionName).trim()
+      : '';
   if (regionName.trim() === '') {
     return res.status(404).json({
       status: 404,

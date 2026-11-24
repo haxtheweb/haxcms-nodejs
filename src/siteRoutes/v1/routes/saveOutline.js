@@ -636,7 +636,7 @@ async function saveOutline(req, res) {
   } else {
     res
       .status(403)
-      .json({ status: 403, data: { message: "Authentication required" } });
+      .json({ status: 403, data: { message: "invalid site token" } });
   }
 }
 // copy the boilerplate page into a new page's folder, recording the folder

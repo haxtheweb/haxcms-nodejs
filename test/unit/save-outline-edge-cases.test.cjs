@@ -163,7 +163,7 @@ test("auth gates: no token, a bad token, or no user is a 403 that writes nothing
   const items = [sent(ctx.item("A"), { title: "Hijacked" })];
   const expected = {
     status: 403,
-    data: { message: "Authentication required" },
+    data: { message: "invalid site token" },
   };
 
   const noToken = stubRes();
