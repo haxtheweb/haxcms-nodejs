@@ -579,6 +579,92 @@ describe('createSite route handler', () => {
     assert.equal(fs.pathExistsSync(onStaged), false)
     assert.equal(fs.pathExistsSync(path.join(siteDirectoryFor('zip-on-site'), 'custom', 'build', 'other.js')), false)
   })
+  test('a theme in the site custom build is selected when that build is written (handoff)', async (t) => {
+    useTempConfigDirectory(t)
+    const { stageFileBuffer, getBulkImportStagingRoot } = require('../../src/lib/stageRemoteFile.js')
+    const before = process.env.HAXCMS_SITE_ZIP_IMPORT
+    t.after(() => {
+      if (typeof before === 'undefined') {
+        delete process.env.HAXCMS_SITE_ZIP_IMPORT
+      } else {
+        process.env.HAXCMS_SITE_ZIP_IMPORT = before
+      }
+    })
+    process.env.HAXCMS_SITE_ZIP_IMPORT = 'true'
+    const staged = stageFileBuffer(
+      Buffer.from('export class GeoTheme {}'),
+      getBulkImportStagingRoot(),
+      0,
+      'custom.es6.js',
+    )
+    const res = stubRes()
+    await createSiteRoute(
+      makeReq({
+        site: { name: 'Geo Custom Theme', theme: 'custom-geocities-theme' },
+        build: { siteFiles: { 'custom/build/custom.es6.js': staged } },
+      }),
+      res,
+    )
+    assert.equal(res.sent.status, 200)
+    const theme = readSiteJson('geo-custom-theme').metadata.theme
+    // what `hax site --theme custom-geocities-theme` writes
+    assert.equal(theme.element, 'custom-geocities-theme')
+    assert.equal(theme.path, './custom/build/custom.es6.js')
+    assert.equal(theme.name, 'CustomGeocitiesTheme')
+    assert.equal(typeof theme.variables.hexCode, 'string')
+    assert.equal(res.sent.data.metadata.theme.element, 'custom-geocities-theme')
+  })
+
+  test('a custom theme whose build is not written falls back to the default theme', async (t) => {
+    useTempConfigDirectory(t)
+    const { stageFileBuffer, getBulkImportStagingRoot } = require('../../src/lib/stageRemoteFile.js')
+    const before = process.env.HAXCMS_SITE_ZIP_IMPORT
+    t.after(() => {
+      if (typeof before === 'undefined') {
+        delete process.env.HAXCMS_SITE_ZIP_IMPORT
+      } else {
+        process.env.HAXCMS_SITE_ZIP_IMPORT = before
+      }
+    })
+    // site zip import off: the staged build is never written
+    delete process.env.HAXCMS_SITE_ZIP_IMPORT
+    const staged = stageFileBuffer(
+      Buffer.from('export class GeoTheme {}'),
+      getBulkImportStagingRoot(),
+      0,
+      'custom.es6.js',
+    )
+    const res = stubRes()
+    await createSiteRoute(
+      makeReq({
+        site: { name: 'Geo Not Written', theme: 'custom-geocities-theme' },
+        build: { siteFiles: { 'custom/build/custom.es6.js': staged } },
+      }),
+      res,
+    )
+    assert.equal(res.sent.status, 200)
+    const theme = readSiteJson('geo-not-written').metadata.theme
+    assert.equal(theme.element, HAXCMS.HAXCMS_DEFAULT_THEME)
+    assert.notEqual(theme.path, './custom/build/custom.es6.js')
+    assert.equal(res.sent.data.metadata.theme.element, HAXCMS.HAXCMS_DEFAULT_THEME)
+  })
+
+  test('an unknown theme without a custom build, or not a custom element name, still answers 400', async (t) => {
+    useTempConfigDirectory(t)
+    for (const body of [
+      // a custom build, but the theme is not a custom element name
+      { site: { name: 'Bad Element A', theme: 'notadash' }, build: { siteFiles: { 'custom/build/custom.es6.js': 'https://example.com/c.js' } } },
+      { site: { name: 'Bad Element B', theme: '"><script>' }, build: { siteFiles: { 'custom/build/custom.es6.js': 'https://example.com/c.js' } } },
+      // other custom files are not the custom build
+      { site: { name: 'Bad Element C', theme: 'geo-theme' }, build: { siteFiles: { 'custom/build/other.js': 'https://example.com/c.js' } } },
+    ]) {
+      const res = stubRes()
+      await createSiteRoute(makeReq(body), res)
+      assert.equal(res.statusCode, 400, body.site.name)
+      assert.equal(res.body.data.message, 'Invalid theme supplied for site creation')
+    }
+  })
+
   test('normalizeSiteFilePath allows only non-markup custom/ assets', () => {
     const normalize = createSiteRoute.normalizeSiteFilePath
     assert.equal(normalize('custom/build/custom.es6.js'), 'custom/build/custom.es6.js')
