@@ -35,6 +35,14 @@
 //   ship as they are; callers take those out of what they publish before
 //   writing these entries, which include a static replacement where there
 //   is one (llms.txt)
+// - every rendered page declares the public WebMCP tools as plain forms
+//   (toolname/tooldescription, the declarative WebMCP API): search_site, and
+//   remix_site when the site's license allows derivatives and its address is
+//   known. Nothing runs; they work without JavaScript and are what an agent
+//   or scanner reading the HTML finds. The front end removes them when it
+//   boots and registers the same tools itself (HAXCMSWebMCP.js).
+// - the search page the search form opens (x/displays/search) is published
+//   as a page too, so it answers 200 on a static host
 
 const fs = require("fs-extra");
 const path = require("path");
@@ -44,6 +52,7 @@ const {
 } = require("./indexMarkup.js");
 const { trimLeadingSlashes, trimTrailingSlashes } = require("./linearText.js");
 const { resolveContainedPath } = require("./pathConfinement.js");
+const { getLicense } = require("./licenses.js");
 
 const STATIC_TEMPLATE = "ghpages.html";
 const MAX_SLUG_LENGTH = 1024;
@@ -56,6 +65,18 @@ const PAGE_VARIANT_FORMATS = ["html", "md", "json", "yaml", "xml"];
 const STATIC_HOST_LIVE_ONLY = Object.freeze([
   "llms.txt",
   ".well-known/api-catalog",
+]);
+// the front end's search route; the search_site form opens it
+const SEARCH_ROUTE = "x/displays/search";
+// where remix_site opens a copy of the site: HAXcms in the browser, which
+// imports a published HAX site from its address (haxcms-browser ?remix=)
+const REMIX_APP = "https://browser.hax.cloud/";
+// licenses that keep others from making a derivative; any other license on
+// HAX's list allows a remix (the same rule as HAXCMSWebMCP.js remixTerms)
+const NO_DERIVATIVES = Object.freeze([
+  "by-nd",
+  "by-nc-nd",
+  "all-rights-reserved",
 ]);
 
 function escapeHtml(value = "") {
@@ -196,6 +217,75 @@ function staticPageBody(item, content) {
   return "<main>\n" + heading + body + "\n</main>";
 }
 
+/**
+ * Whether and on what terms a site's content may be remixed, from its
+ * license code: { allowed, license: { code, name, link } | null,
+ * conditions: [...] }. An unset or unknown license allows nothing.
+ */
+function remixTerms(code) {
+  const license = getLicense(typeof code === "string" ? code.trim() : "");
+  if (!license) {
+    return { allowed: false, license: null, conditions: [] };
+  }
+  const conditions = [];
+  if (/^by(-|$)/.test(license.code)) {
+    conditions.push("attribution");
+  }
+  if (/(^|-)sa$/.test(license.code)) {
+    conditions.push("share-alike");
+  }
+  if (/(^|-)nc(-|$)/.test(license.code)) {
+    conditions.push("non-commercial");
+  }
+  return {
+    allowed: !NO_DERIVATIVES.includes(license.code),
+    license: { code: license.code, name: license.name, link: license.link },
+    conditions,
+  };
+}
+
+/**
+ * The public WebMCP tools as declarative forms (toolname/tooldescription on
+ * a <form>), placed after a page's content. search_site opens the site's
+ * search page; remix_site opens browser.hax.cloud to import a copy, which
+ * waits for the person to confirm. remix_site is left out without an
+ * absolute site address or a license that allows derivatives.
+ */
+function agentToolForms(searchAction, siteUrl, terms) {
+  let markup =
+    '\n<aside aria-label="Site tools" data-haxcms-agent-tools>\n' +
+    '<form role="search" method="get" action="' +
+    escapeHtml(searchAction) +
+    '" toolname="search_site" tooldescription="Search this site\'s pages by keyword and show the pages that match." toolautosubmit data-haxcms-agent-tool>\n' +
+    '<label for="haxcms-tool-search">Search this site</label>\n' +
+    '<input id="haxcms-tool-search" type="search" name="search" required toolparamdescription="Words to search for.">\n' +
+    '<button type="submit">Search</button>\n' +
+    "</form>\n";
+  if (siteUrl !== "" && terms.allowed) {
+    const conditions =
+      terms.conditions.length > 0
+        ? " (" + terms.conditions.join(", ") + ")"
+        : "";
+    markup +=
+      '<form method="get" action="' +
+      REMIX_APP +
+      '" target="_blank" rel="noopener" toolname="remix_site" tooldescription="Open a copy of this site in HAX (browser.hax.cloud) to remix it. Nothing is made until the person confirms there; the copy is theirs, under this site\'s license." data-haxcms-agent-tool>\n' +
+      '<input type="hidden" name="remix" value="' +
+      escapeHtml(siteUrl) +
+      '">\n' +
+      '<button type="submit">Remix this site in HAX</button>\n' +
+      '<p>Licensed <a href="' +
+      escapeHtml(terms.license.link) +
+      '" rel="license">' +
+      escapeHtml(terms.license.name) +
+      "</a>" +
+      escapeHtml(conditions) +
+      ".</p>\n" +
+      "</form>\n";
+  }
+  return markup + "</aside>";
+}
+
 function readTemplate(site) {
   const candidates = [];
   if (site && site.siteDirectory) {
@@ -267,8 +357,15 @@ async function renderStaticPages(site, options = {}) {
       : new Set();
   const isRendered = (item) =>
     item && isItemPublished(item) && !regionIds.has(String(item.id));
+  // the site's own address with a trailing "/", or "" when it is not known
+  const siteUrl = domain === "" ? "" : trimTrailingSlashes(domain) + "/";
+  const tools = agentToolForms(
+    basePath + "/" + SEARCH_ROUTE,
+    siteUrl,
+    remixTerms(site.manifest.license),
+  );
 
-  async function renderPage(item, canonicalPath, pagePath) {
+  async function renderPage(item, canonicalPath, pagePath, bodyContent) {
     let metadata = await site.getSiteMetadata(
       item || null,
       domain,
@@ -279,7 +376,7 @@ async function renderStaticPages(site, options = {}) {
       metadata = dropRelativeAddresses(metadata);
     }
     let html = replaceManagedHeadMarkup(template, metadata, "");
-    let content = "";
+    let content = typeof bodyContent === "string" ? bodyContent : "";
     if (item) {
       try {
         content = (await site.getPageContent(item)) || "";
@@ -287,7 +384,10 @@ async function renderStaticPages(site, options = {}) {
         content = "";
       }
     }
-    html = replaceSiteBuilderContent(html, staticPageBody(item, content));
+    html = replaceSiteBuilderContent(
+      html,
+      staticPageBody(item, content) + tools,
+    );
     if (pagePath !== "") {
       html = insertBeforeShellScripts(html, staticRouteScript(pagePath));
     }
@@ -338,6 +438,22 @@ async function renderStaticPages(site, options = {}) {
         pages.push(variants[v]);
       }
     }
+  }
+  // the search page the search_site form opens: a page at the front end's
+  // search route, so the address answers 200 and the front end shows results
+  const searchPath = SEARCH_ROUTE + "/index.html";
+  const searchTop = path.join(site.siteDirectory, SEARCH_ROUTE.split("/")[0]);
+  if (!taken.has(searchPath) && !fs.existsSync(searchTop)) {
+    taken.add(searchPath);
+    pages.push({
+      path: searchPath,
+      html: await renderPage(
+        null,
+        basePath + "/" + SEARCH_ROUTE,
+        SEARCH_ROUTE,
+        "<h1>Search</h1>",
+      ),
+    });
   }
   if (typeof site.getLLMSTxt === "function") {
     pages.push({
@@ -391,7 +507,10 @@ function pageVariantFiles(site, item, pagePath) {
 }
 
 module.exports = {
+  REMIX_APP,
+  SEARCH_ROUTE,
   STATIC_HOST_LIVE_ONLY,
+  remixTerms,
   renderStaticPages,
   staticPagePath,
   staticPageBody,
