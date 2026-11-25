@@ -38,7 +38,19 @@ async function stageRemoteFile(url, stagingRoot, idx, relPath) {
       return null;
     }
     const buf = Buffer.from(await response.arrayBuffer());
-    if (!buf || buf.length === 0) {
+    return stageFileBuffer(buf, stagingRoot, idx, relPath);
+  } catch {
+    return null;
+  }
+}
+
+// Stage bytes that are already in hand (a file read out of an uploaded site
+// zip) the same way: same root, same naming, same exclusive 0600 create.
+// Returns the absolute staged path, or null for an empty buffer or a failed
+// write.
+function stageFileBuffer(buf, stagingRoot, idx, relPath) {
+  try {
+    if (!Buffer.isBuffer(buf) || buf.length === 0) {
       return null;
     }
     const ext = path.extname(relPath || "");
@@ -55,4 +67,4 @@ async function stageRemoteFile(url, stagingRoot, idx, relPath) {
   }
 }
 
-module.exports = { getBulkImportStagingRoot, stageRemoteFile };
+module.exports = { getBulkImportStagingRoot, stageRemoteFile, stageFileBuffer };

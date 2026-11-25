@@ -525,6 +525,60 @@ describe('createSite route handler', () => {
     // unsafe paths, theme/, markup and non-string URLs are skipped before any fetch
     assert.equal(fetchCount, 4)
   })
+  test('a staged custom build from a site zip is written only while site zip import is on', async (t) => {
+    const configDir = useTempConfigDirectory(t)
+    const { stageFileBuffer, getBulkImportStagingRoot } = require('../../src/lib/stageRemoteFile.js')
+    const before = process.env.HAXCMS_SITE_ZIP_IMPORT
+    t.after(() => {
+      if (typeof before === 'undefined') {
+        delete process.env.HAXCMS_SITE_ZIP_IMPORT
+      } else {
+        process.env.HAXCMS_SITE_ZIP_IMPORT = before
+      }
+    })
+    const stage = () =>
+      stageFileBuffer(Buffer.from('export class GeoTheme {}'), getBulkImportStagingRoot(), 0, 'custom.es6.js')
+    // off: the staged file is not written
+    delete process.env.HAXCMS_SITE_ZIP_IMPORT
+    const offStaged = stage()
+    let res = stubRes()
+    await createSiteRoute(
+      makeReq({
+        site: { name: 'Zip Off Site' },
+        build: { siteFiles: { 'custom/build/custom.es6.js': offStaged } },
+      }),
+      res,
+    )
+    assert.equal(res.sent.status, 200)
+    assert.equal(
+      fs.readFileSync(path.join(siteDirectoryFor('zip-off-site'), 'custom', 'build', 'custom.es6.js'), 'utf8').trim(),
+      '// custom comment script here',
+    )
+    // on: written, and the staged copy is removed
+    process.env.HAXCMS_SITE_ZIP_IMPORT = 'true'
+    const onStaged = stage()
+    res = stubRes()
+    await createSiteRoute(
+      makeReq({
+        site: { name: 'Zip On Site' },
+        build: {
+          siteFiles: {
+            'custom/build/custom.es6.js': onStaged,
+            // a path outside the staging root is never read
+            'custom/build/other.js': path.join(configDir, '..', 'not-staged.js'),
+          },
+        },
+      }),
+      res,
+    )
+    assert.equal(res.sent.status, 200)
+    assert.equal(
+      fs.readFileSync(path.join(siteDirectoryFor('zip-on-site'), 'custom', 'build', 'custom.es6.js'), 'utf8'),
+      'export class GeoTheme {}',
+    )
+    assert.equal(fs.pathExistsSync(onStaged), false)
+    assert.equal(fs.pathExistsSync(path.join(siteDirectoryFor('zip-on-site'), 'custom', 'build', 'other.js')), false)
+  })
   test('normalizeSiteFilePath allows only non-markup custom/ assets', () => {
     const normalize = createSiteRoute.normalizeSiteFilePath
     assert.equal(normalize('custom/build/custom.es6.js'), 'custom/build/custom.es6.js')
