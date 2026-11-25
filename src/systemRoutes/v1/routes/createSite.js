@@ -6,6 +6,7 @@ const HAXCMSFile = require("../../../lib/HAXCMSFile.js");
 const fs = require("fs-extra");
 const path = require("path");
 const { safeFetch } = require("../../../lib/safeFetch.js");
+const { siteZipImportEnabled } = require("../../../lib/siteZip.js");
 const {
   getBulkImportStagingRoot,
   stageRemoteFile,
@@ -969,6 +970,26 @@ async function createSite(req, res) {
         }
         const downloadUrl = siteFiles[relativePath];
         if (typeof downloadUrl !== "string" || downloadUrl === "") {
+          continue;
+        }
+        // a file staged by a site zip import (haxtheweb/issues#3405): written
+        // only while site zip import is on, only from the bulk-import staging
+        // root, and removed from there once used
+        if (!/^https?:\/\//i.test(downloadUrl)) {
+          if (
+            siteZipImportEnabled() &&
+            HAXCMSFile.isValidBulkImportStagedPath(downloadUrl)
+          ) {
+            try {
+              const content = await fs.readFile(downloadUrl, "utf8");
+              const targetPath = path.join(site.siteDirectory, normalizedPath);
+              await fs.ensureDir(path.dirname(targetPath));
+              await fs.writeFile(targetPath, content);
+            } catch {
+              // intentionally ignored, like a remote siteFile that fails
+            }
+            await fs.remove(downloadUrl).catch(() => {});
+          }
           continue;
         }
         try {

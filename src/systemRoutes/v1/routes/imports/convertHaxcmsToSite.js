@@ -13,7 +13,14 @@ const {
   clientSafeErrorDetail,
 } = require("../../../../lib/clientErrorMessage.js");
 const fs = require("fs-extra");
-const { readSiteZip } = require("../../../../lib/siteZip.js");
+const {
+  readSiteZip,
+  siteZipImportEnabled,
+} = require("../../../../lib/siteZip.js");
+const {
+  getConversionUploadMaxBytes,
+} = require("../../../../lib/uploadSecurity.js");
+const { HAXCMS } = require("../../../../lib/HAXCMS.js");
 
 /**
  * POST /system/api/v1/site/import/:platform
@@ -192,11 +199,37 @@ async function convertHaxcmsToSite(req, res) {
 /**
  * The same import from an uploaded HAXcms site zip (multipart, one file).
  * Returns the URL import's shape plus `site` ({ title, description, theme })
- * so a caller can keep the site's look. The custom build
- * (custom/build/custom.es6.js) is not carried: createSite only takes it from
- * an address (siteFiles).
+ * so a caller can keep the site's look. The site's custom build
+ * (custom/build/custom.es6.js) comes back in siteFiles as a staged file,
+ * which createSite writes only while site zip import is on.
  */
 async function convertHaxcmsZipToSite(file, res) {
+  // off unless the operator turns it on (see siteZipImportEnabled)
+  if (!siteZipImportEnabled()) {
+    return res.status(403).json({
+      status: 403,
+      data: {
+        error: "site-zip-import is disabled",
+        reason: "DISABLED",
+        items: [],
+        filename: null,
+      },
+    });
+  }
+  // Security (SEC-DOS): the conversion upload cap, not the general one; the
+  // zip is read into memory
+  const maxBytes = getConversionUploadMaxBytes(HAXCMS.config);
+  if (typeof file.size === "number" && file.size > maxBytes) {
+    return res.status(400).json({
+      status: 400,
+      data: {
+        error: `File exceeds the maximum upload size of ${Math.round(maxBytes / (1024 * 1024))} MB`,
+        reason: "ZIP_BUDGET",
+        items: [],
+        filename: null,
+      },
+    });
+  }
   let buffer;
   try {
     buffer = fs.readFileSync(file.path);
@@ -218,7 +251,7 @@ async function convertHaxcmsZipToSite(file, res) {
         items: read.items,
         filename: read.filename,
         files: read.files,
-        siteFiles: {},
+        siteFiles: read.siteFiles,
         site: read.site,
       },
     });

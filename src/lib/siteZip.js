@@ -19,6 +19,97 @@ const { stageFileBuffer } = require("./stageRemoteFile.js");
 // scheme). Nothing is written but the staged copies, which createSite takes
 // through its own checks.
 
+// A site zip can carry custom/build/custom.es6.js: the site's own
+// JavaScript, which runs for everyone who opens the site and for its editors
+// on this origin. So importing a site from a zip is off unless the operator
+// turns it on: config security.siteZipImport = true, or the environment
+// variable HAXCMS_SITE_ZIP_IMPORT=true. haxcms-browser turns it on, because
+// there HAXcms runs in the person's own tab and serves only them.
+function siteZipImportEnabled() {
+  if (process.env.HAXCMS_SITE_ZIP_IMPORT === "true") {
+    return true;
+  }
+  const { HAXCMS } = require("./HAXCMS.js");
+  return !!(
+    HAXCMS &&
+    HAXCMS.config &&
+    HAXCMS.config.security &&
+    HAXCMS.config.security.siteZipImport === true
+  );
+}
+
+const MAX_SITE_ITEMS = 5000;
+const ITEM_ID = /^[A-Za-z0-9_.:-]{1,255}$/;
+const CUSTOM_BUILD = "custom/build/custom.es6.js";
+const BOILERPLATE_CUSTOM_ES6 = "// custom comment script here";
+
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function optional(value, type) {
+  return (
+    typeof value === "undefined" || value === null || typeof value === type
+  );
+}
+
+// True when site.json is a HAXcms site outline (JSON Outline Schema as
+// HAXcms writes it): a list of pages, each with a safe unique id, its HTML
+// under pages/, and any files it names under files/. Anything else is not a
+// site and is refused whole, before a page or file is read.
+function isSiteOutline(site) {
+  if (
+    !isPlainObject(site) ||
+    !Array.isArray(site.items) ||
+    site.items.length === 0 ||
+    site.items.length > MAX_SITE_ITEMS ||
+    !optional(site.title, "string") ||
+    !optional(site.description, "string") ||
+    !(typeof site.metadata === "undefined" || isPlainObject(site.metadata))
+  ) {
+    return false;
+  }
+  const ids = new Set();
+  for (const item of site.items) {
+    if (!isPlainObject(item) || typeof item.id !== "string") {
+      return false;
+    }
+    if (!ITEM_ID.test(item.id) || ids.has(item.id)) {
+      return false;
+    }
+    ids.add(item.id);
+    const location = siteRelativePath(item.location);
+    if (!/^pages\/.+\.html$/.test(location)) {
+      return false;
+    }
+    if (
+      !optional(item.title, "string") ||
+      !optional(item.slug, "string") ||
+      !optional(item.parent, "string") ||
+      !optional(item.indent, "number") ||
+      !optional(item.order, "number") ||
+      !(typeof item.metadata === "undefined" || isPlainObject(item.metadata))
+    ) {
+      return false;
+    }
+    const files = item.metadata ? item.metadata.files : undefined;
+    if (typeof files !== "undefined") {
+      if (!Array.isArray(files)) {
+        return false;
+      }
+      for (const file of files) {
+        if (
+          !isPlainObject(file) ||
+          !/^files\/./.test(siteRelativePath(file.url))
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 function siteZipError(message, code) {
   const err = new Error(message);
   err.status = 400;
@@ -71,7 +162,7 @@ function siteRoot(zip) {
  * Read an uploaded HAXcms site zip.
  * @param {Buffer} buffer the upload
  * @param {string} stagingRoot bulk-import staging root
- * @returns {Promise<{items: Array, files: Object, site: Object, filename: string}>}
+ * @returns {Promise<{items: Array, files: Object, siteFiles: Object, site: Object, filename: string}>}
  */
 async function readSiteZip(buffer, stagingRoot) {
   if (!hasZipSignature(buffer)) {
@@ -97,7 +188,7 @@ async function readSiteZip(buffer, stagingRoot) {
   } catch {
     throw siteZipError("Invalid site.json structure", "INVALID_SITE");
   }
-  if (!siteJson || !Array.isArray(siteJson.items)) {
+  if (!isSiteOutline(siteJson)) {
     throw siteZipError("Invalid site.json structure", "INVALID_SITE");
   }
 
@@ -111,6 +202,7 @@ async function readSiteZip(buffer, stagingRoot) {
   };
 
   const files = {};
+  const siteFiles = {};
   let stagingIdx = 0;
   try {
     for (let i = 0; i < siteJson.items.length; i++) {
@@ -148,8 +240,27 @@ async function readSiteZip(buffer, stagingRoot) {
         }
       }
     }
+    // the site's own code (a custom theme): carried as a staged file that
+    // createSite writes to custom/build/custom.es6.js
+    const custom = zip.file(root + CUSTOM_BUILD);
+    if (custom && !custom.dir) {
+      const code = await custom.async("nodebuffer");
+      const text = code.toString("utf8").trim();
+      if (text !== "" && text !== BOILERPLATE_CUSTOM_ES6) {
+        const staged = stageFileBuffer(
+          code,
+          stagingRoot,
+          stagingIdx++,
+          "custom.es6.js",
+        );
+        if (staged) {
+          siteFiles[CUSTOM_BUILD] = staged;
+        }
+      }
+    }
   } catch (e) {
     unlinkStaged(files);
+    unlinkStaged(siteFiles);
     throw e;
   }
 
@@ -175,6 +286,7 @@ async function readSiteZip(buffer, stagingRoot) {
   return {
     items: siteJson.items,
     files,
+    siteFiles,
     filename,
     site: {
       title,
@@ -195,4 +307,11 @@ function unlinkStaged(files) {
   }
 }
 
-module.exports = { readSiteZip, siteRelativePath, unlinkStaged };
+module.exports = {
+  readSiteZip,
+  siteRelativePath,
+  isSiteOutline,
+  siteZipImportEnabled,
+  unlinkStaged,
+  CUSTOM_BUILD,
+};
