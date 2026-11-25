@@ -273,10 +273,20 @@ test("each page's alternate formats are copied to <slug>.<format>", async () => 
     const pages = await renderStaticPages(site);
     assert.equal(byPath(pages, "about.md").html, "## Who\n\nWe publish.\n");
     assert.equal(byPath(pages, "about.json").html, '{"id":"item-about"}');
+    // <slug>.html is the rendered page, not the raw content: static hosts
+    // answer /about with about.html
     assert.equal(
       byPath(pages, "about.html").html,
-      "<h2>Who</h2><p>We publish things.</p>",
+      byPath(pages, "about/index.html").html,
     );
+    assert.match(byPath(pages, "about.html").html, /<haxcms-site-builder/);
+    for (const page of pages.filter((p) => p.path.endsWith(".html"))) {
+      assert.doesNotMatch(
+        page.html,
+        /<link rel="alternate" type="text\/html"/,
+        page.path + " links no raw html alternate",
+      );
+    }
     // no sidecar, no file
     assert.equal(byPath(pages, "about.yaml"), undefined);
     // unpublished pages and pages that land on site folders get none
@@ -382,6 +392,8 @@ test("the search page is published at the search route", async () => {
   assert.match(searchPage.html, /<h1>Search<\/h1>/);
   assert.match(searchPage.html, /data-haxcms-static-route/);
   assert.match(searchPage.html, /var route = "\/x\/displays\/search";/);
+  // the form's own address (no "/") is answered with the same page
+  assert.equal(byPath(pages, SEARCH_ROUTE + ".html").html, searchPage.html);
 });
 
 test("a site whose own x/ folder exists keeps it; no search page is returned", async () => {
