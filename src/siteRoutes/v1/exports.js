@@ -194,6 +194,33 @@ function buildSiteExportDocumentTitle(site) {
   return "Site export";
 }
 
+/**
+ * The data-item-parent attribute an exported page carries, so an import can
+ * rebuild the outline: the parent's id when the parent is in the same
+ * export, empty for a top-level page of the export (a branch's root, or a
+ * page whose parent was left out as not visible).
+ * @param {object} item - the exported item
+ * @param {Set<string>} exportedIds - ids of every item in the export
+ * @returns {string}
+ */
+function exportItemParentAttribute(item, exportedIds) {
+  const parent =
+    item && item.parent && exportedIds.has(String(item.parent))
+      ? String(item.parent)
+      : "";
+  return ` data-item-parent="${escapeHtmlValue(parent)}"`;
+}
+
+function exportedItemIds(items) {
+  const ids = new Set();
+  for (let i = 0; i < items.length; i++) {
+    if (items[i] && items[i].id) {
+      ids.add(String(items[i].id));
+    }
+  }
+  return ids;
+}
+
 function buildItemExportDocumentTitle(item) {
   if (item && item.title) {
     return String(item.title);
@@ -600,13 +627,20 @@ async function buildSiteExportHtmlContent(site, ancestor, visibleOnly = false) {
     itemsToExport = filterItemsVisibleToAnonymous(itemsToExport);
   }
 
+  const exportedIds = exportedItemIds(itemsToExport);
   for (let i = 0; i < itemsToExport.length; i++) {
     const item = itemsToExport[i];
     if (!item) {
       continue;
     }
     const itemContent = await getItemContent(site, item);
-    sections.push(`<div data-jos-item-id="${escapeHtmlValue(item.id || "")}">`);
+    // each page's title before its content, as in the document export
+    sections.push(
+      `<h2>${escapeHtmlValue(buildItemExportDocumentTitle(item))}</h2>`,
+    );
+    sections.push(
+      `<div data-jos-item-id="${escapeHtmlValue(item.id || "")}"${exportItemParentAttribute(item, exportedIds)}>`,
+    );
     sections.push(String(itemContent || ""));
     sections.push("</div>");
   }
@@ -735,6 +769,7 @@ async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
     `<main data-haxcms-export="site" data-title="${escapeHtmlValue(siteTitle)}">`,
   );
   sections.push(`<h1>${escapeHtmlValue(siteTitle)}</h1>`);
+  const exportedIds = exportedItemIds(itemsToExport);
   for (let i = 0; i < itemsToExport.length; i++) {
     const item = itemsToExport[i];
     if (!item) {
@@ -743,7 +778,7 @@ async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
     const itemTitle = buildItemExportDocumentTitle(item);
     const itemContent = await getItemContent(site, item);
     sections.push(
-      `<article data-item-id="${escapeHtmlValue(item.id || "")}" data-item-slug="${escapeHtmlValue(item.slug || "")}">`,
+      `<article data-item-id="${escapeHtmlValue(item.id || "")}" data-item-slug="${escapeHtmlValue(item.slug || "")}"${exportItemParentAttribute(item, exportedIds)}>`,
     );
     sections.push(`<h2>${escapeHtmlValue(itemTitle)}</h2>`);
     sections.push(String(itemContent || ""));

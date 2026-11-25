@@ -74,6 +74,127 @@ function getFallbackContent(type) {
   }
 }
 
+const HEADING_TAGS = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'];
+
+/**
+ * Pages of a HAXcms site export, or null when the HTML isn't one.
+ *
+ * Two export shapes carry their pages as blocks: the document export
+ * (main[data-haxcms-export="site"] > article[data-item-id], each article's
+ * first heading its title) and the wrapped export (a heading followed by
+ * div[data-jos-item-id]). Exports made since data-item-parent was added say
+ * each page's parent, so the outline comes back as it was; older document
+ * exports import flat in order. A div[data-jos-item-id] list without
+ * data-item-parent (older wrapped exports, hand-made files) is left to the
+ * heading-based import. haxcms-php haxcmsImportSiteExportBlocks keeps the
+ * same rules.
+ */
+function readSiteExportBlocks(doc) {
+  const blocks = [];
+  const articles = doc.querySelectorAll('main[data-haxcms-export="site"] > article[data-item-id]');
+  if (articles.length > 0) {
+    for (const article of articles) {
+      let title = '';
+      let contents = '';
+      for (const child of article.childNodes) {
+        if (!child || !child.tagName) {
+          continue;
+        }
+        if (title === '' && HEADING_TAGS.includes(child.tagName)) {
+          title = child.text.trim();
+        } else {
+          contents += htmlFromEl(child);
+        }
+      }
+      blocks.push({
+        id: article.getAttribute('data-item-id') || '',
+        parent: article.getAttribute('data-item-parent') || '',
+        title: title,
+        contents: contents,
+      });
+    }
+    return blocks;
+  }
+  const divs = doc.querySelectorAll('div[data-jos-item-id]');
+  if (divs.length === 0) {
+    return null;
+  }
+  for (const div of divs) {
+    const heading = div.previousElementSibling;
+    if (!div.hasAttribute('data-item-parent') || !heading || !HEADING_TAGS.includes(heading.tagName)) {
+      return null;
+    }
+    let contents = '';
+    for (const child of div.childNodes) {
+      if (child && child.tagName) {
+        contents += htmlFromEl(child);
+      }
+    }
+    blocks.push({
+      id: div.getAttribute('data-jos-item-id') || '',
+      parent: div.getAttribute('data-item-parent') || '',
+      title: heading.text.trim(),
+      contents: contents,
+    });
+  }
+  return blocks;
+}
+
+function importSiteExportBlocks(blocks, parentId, type) {
+  // an export lists pages in outline order, which can put a page before its
+  // parent, so make every page first and link parents second
+  const items = [];
+  const byExportId = {};
+  for (const block of blocks) {
+    const item = new JSONOutlineSchemaItem();
+    item.title = block.title.replace(/\s+/g, ' ') || 'Untitled';
+    item.contents = block.contents;
+    if (block.id && !byExportId[block.id]) {
+      byExportId[block.id] = item;
+    }
+    items.push(item);
+  }
+  const parentOf = new Map();
+  blocks.forEach((block, i) => {
+    const parentItem = block.parent ? byExportId[block.parent] : null;
+    parentOf.set(items[i], parentItem && parentItem !== items[i] ? parentItem : null);
+  });
+  // in a parent chain that loops back on itself the first page found becomes
+  // top level (haxcms-php haxcmsImportSiteExportItems keeps the same rule)
+  const depthOf = (item) => {
+    let depth = 0;
+    let at = parentOf.get(item);
+    while (at && depth <= items.length) {
+      depth++;
+      at = parentOf.get(at);
+    }
+    return at ? -1 : depth;
+  };
+  const slugOf = (item) => {
+    const parentItem = parentOf.get(item);
+    return (parentItem ? slugOf(parentItem) + '/' : '') + HAXCMS.cleanTitle(item.title);
+  };
+  const order = {};
+  for (const item of items) {
+    if (depthOf(item) < 0) {
+      parentOf.set(item, null);
+    }
+  }
+  for (const item of items) {
+    const parentItem = parentOf.get(item);
+    item.parent = parentItem ? parentItem.id : parentId;
+    item.indent = depthOf(item);
+    item.slug = slugOf(item);
+    const key = item.parent || '';
+    item.order = order[key] || 0;
+    order[key] = item.order + 1;
+    if (item.contents === '') {
+      item.contents = parentItem ? '<p></p>' : getFallbackContent(type);
+    }
+  }
+  return items;
+}
+
 /**
  * Parse HTML from an import wrapper into a JSON Outline Schema items array.
  *
@@ -95,6 +216,11 @@ async function importHtmlToItems(html, options) {
 
   switch (method) {
     case 'site': {
+      const exportBlocks = readSiteExportBlocks(doc);
+      if (exportBlocks && exportBlocks.length > 0) {
+        items = importSiteExportBlocks(exportBlocks, parentId, type);
+        break;
+      }
       const highestLevel = getHighestHeadingLevel(doc);
       const rootTag = highestLevel ? `h${highestLevel}` : null;
       const childTag = highestLevel && highestLevel < 4 ? `h${highestLevel + 1}` : null;

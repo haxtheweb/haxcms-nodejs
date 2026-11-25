@@ -166,3 +166,48 @@ test('a lone list without headings stays one whole page', async () => {
   assert.equal(items[0].title, 'List')
   assert.ok(items[0].contents.startsWith('<ul>'))
 })
+
+// Site exports (parity with haxcms-php ImportUtilsTest and ExportConvertersFsTest)
+test('a document export rebuilds its outline even when a child comes first', async () => {
+  const items = await importHtmlToItems(
+    '<main data-haxcms-export="site" data-title="S"><h1>S</h1>' +
+      '<article data-item-id="c" data-item-slug="p/c" data-item-parent="p"><h2>Child</h2><p>c</p></article>' +
+      '<article data-item-id="p" data-item-slug="p" data-item-parent=""><h2>Parent</h2><p>p</p></article>' +
+      '</main>',
+    SITE_OPTS,
+  )
+  assert.deepEqual(items.map((i) => i.title), ['Child', 'Parent'])
+  assert.equal(items[0].parent, items[1].id)
+  assert.equal(items[0].slug, 'parent/child')
+  assert.equal(items[0].indent, 1)
+  assert.equal(items[1].parent, null)
+  assert.equal(items[0].contents, '<p>c</p>')
+})
+
+test('an older document export imports flat, in order', async () => {
+  const items = await importHtmlToItems(
+    '<main data-haxcms-export="site" data-title="S"><h1>S</h1>' +
+      '<article data-item-id="a" data-item-slug="a"><h2>A</h2><p>a</p></article>' +
+      '<article data-item-id="b" data-item-slug="a/b"><h2>B</h2><p>b</p></article>' +
+      '</main>',
+    { ...SITE_OPTS, parentId: 'under' },
+  )
+  assert.deepEqual(items.map((i) => i.title), ['A', 'B'])
+  assert.deepEqual(items.map((i) => i.parent), ['under', 'under'])
+  assert.deepEqual(items.map((i) => i.order), [0, 1])
+})
+
+test('a parent loop in an export is broken at the first page found', async () => {
+  const items = await importHtmlToItems(
+    '<main data-haxcms-export="site"><h1>S</h1>' +
+      '<article data-item-id="a" data-item-parent="b"><h2>A</h2></article>' +
+      '<article data-item-id="b" data-item-parent="a"><h2>B</h2></article>' +
+      '</main>',
+    SITE_OPTS,
+  )
+  assert.equal(items.length, 2)
+  assert.equal(items[0].parent, null)
+  assert.equal(items[0].indent, 0)
+  assert.equal(items[1].parent, items[0].id)
+  assert.equal(items[1].indent, 1)
+})
