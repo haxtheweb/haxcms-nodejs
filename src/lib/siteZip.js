@@ -260,7 +260,6 @@ async function readSiteZip(buffer, stagingRoot) {
     }
   } catch (e) {
     unlinkStaged(files);
-    unlinkStaged(siteFiles);
     throw e;
   }
 
