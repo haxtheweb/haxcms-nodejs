@@ -749,6 +749,24 @@ test("getPageAlternatePayload, getPageAlternateLocation, and link tags build var
   // no canonicalPath: the base path is derived from the slug instead
   const slugDerived = site.getPageAlternateLinkTags(page, "");
   assert.ok(slugDerived.indexOf("/skeleton-root.md") !== -1);
+  // shown at the site's root (the home page), the links still name the
+  // page's slug under the site's base, as PHP does: never "<base>.md"
+  for (const [rootPath, expected] of [
+    ["/", 'href="/skeleton-root.md"'],
+    ["/sites/unit-import/", 'href="/sites/unit-import/skeleton-root.md"'],
+    ["/sites/unit-import", 'href="/sites/unit-import/skeleton-root.md"'],
+    [
+      "/sites/unit-import/skeleton-root",
+      'href="/sites/unit-import/skeleton-root.md"',
+    ],
+  ]) {
+    const tags = site.getPageAlternateLinkTags(page, rootPath);
+    assert.ok(tags.indexOf(expected) !== -1, rootPath + " -> " + tags);
+  }
+  assert.equal(
+    site.getPageAlternateLinkTags(page, "/").indexOf('href="/.md"'),
+    -1,
+  );
 });
 
 test("getPageAlternateXML serializes payloads with escaped values and cdata content", () => {
@@ -802,6 +820,32 @@ test("a site that reserves all rights tells AI agents so", async () => {
   } finally {
     site.manifest.license = original;
   }
+});
+
+// same as PHP testGetLLMSTxtStaticHostCopyListsNoApiRoutes
+test("llms.txt static-host copy lists no x/api routes", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const live = site.getLLMSTxt("https://unit.example");
+  assert.ok(
+    live.indexOf("https://unit.example/x/api/v1/site/export/html") !== -1,
+  );
+  const staticCopy = site.getLLMSTxt("https://unit.example", {
+    staticHost: true,
+  });
+  assert.equal(staticCopy.indexOf("x/api"), -1);
+  assert.ok(staticCopy.indexOf("(https://unit.example/llms-full.txt)") !== -1);
+  assert.equal(
+    staticCopy,
+    live.replace(
+      "- [Whole site as HTML](https://unit.example/x/api/v1/site/export/html): Every page in one HTML document.\n",
+      "",
+    ),
+  );
+  // only a real true turns it on
+  assert.equal(
+    site.getLLMSTxt("https://unit.example", { staticHost: "yes" }),
+    live,
+  );
 });
 
 test("llms.txt helpers normalize titles, links, and URLs", async () => {

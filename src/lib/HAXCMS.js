@@ -1960,8 +1960,11 @@ class HAXCMSSite {
   }
   /**
    * Generate llms.txt content based on site structure and generated markdown pages.
+   * options.staticHost: the copy a static host serves, which lists only
+   * files that exist there (no x/api routes). Same as PHP getLLMSTxt.
    */
-  getLLMSTxt(domain = "") {
+  getLLMSTxt(domain = "", options = {}) {
+    const staticHost = !!(options && options.staticHost === true);
     let title = this.getLLMSSafeText(this.manifest.title);
     if (title == "") {
       title = this.getLLMSSafeText(this.name);
@@ -2011,11 +2014,13 @@ class HAXCMSSite {
         this.getLLMSResourceURL(domain, "llms-full.txt") +
         "): The whole site as one markdown document, in outline order.",
     );
-    lines.push(
-      "- [Whole site as HTML](" +
-        this.getLLMSResourceURL(domain, "x/api/v1/site/export/html") +
-        "): Every page in one HTML document.",
-    );
+    if (!staticHost) {
+      lines.push(
+        "- [Whole site as HTML](" +
+          this.getLLMSResourceURL(domain, "x/api/v1/site/export/html") +
+          "): Every page in one HTML document.",
+      );
+    }
     // haxtheweb/issues#3116: point agents at AGENTS.md (older sites may not have one)
     if (
       this.siteDirectory &&
@@ -2919,6 +2924,10 @@ class HAXCMSSite {
   }
   /**
    * Build HTML <link rel="alternate"> tags for available page sidecar formats.
+   * The links are always "<site base>/<page slug>.<format>", the address the
+   * page route answers the format at, as in PHP getPageAlternateLinkTags. A
+   * page shown at the site's root (the home page at "/") still links its
+   * slug, never "<site base>.<format>", which is outside the site.
    */
   getPageAlternateLinkTags(page = null, canonicalPath = "") {
     if (
@@ -2930,14 +2939,28 @@ class HAXCMSSite {
     ) {
       return "";
     }
-    let basePath = canonicalPath;
-    if (typeof basePath !== "string" || basePath == "") {
-      basePath =
-        "/" + trimTrailingSlashes(String(page.slug).replace(/^\/+/, ""));
-    }
-    basePath = trimTrailingSlashes(String(basePath));
-    if (basePath == "") {
+    const slugPath = trimTrailingSlashes(String(page.slug).replace(/^\/+/, ""));
+    if (slugPath == "") {
       return "";
+    }
+    const encodedSlug = slugPath
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    let basePath = "/" + slugPath;
+    if (typeof canonicalPath === "string" && canonicalPath != "") {
+      const routePath = trimTrailingSlashes(canonicalPath);
+      if (
+        routePath == "/" + encodedSlug ||
+        routePath.endsWith("/" + encodedSlug) ||
+        routePath == "/" + slugPath ||
+        routePath.endsWith("/" + slugPath)
+      ) {
+        basePath = routePath;
+      } else {
+        // the page is shown at the site's root: link its slug under it
+        basePath = routePath + "/" + encodedSlug;
+      }
     }
     const formatMimeMap = {
       html: "text/html",
