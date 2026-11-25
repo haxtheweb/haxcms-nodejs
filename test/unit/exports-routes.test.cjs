@@ -290,6 +290,71 @@ describe("exports routes — siteExport", () => {
     assert.ok(html.indexOf('data-item-slug="first-page"') !== -1);
     assert.ok(html.indexOf("First page <strong>bold</strong> content") !== -1);
     assert.ok(html.indexOf("<h2>Second Page</h2>") !== -1);
+    // the export says each page's parent, so an import can rebuild the
+    // outline; the <article> markup Insights splits on stays as it was
+    assert.ok(
+      html.indexOf(
+        '<main data-haxcms-export="site" data-title="Demo Site" data-item-parents="{&quot;item-2&quot;:&quot;item-1&quot;}">',
+      ) !== -1,
+    );
+    assert.ok(
+      html.indexOf(
+        '<article data-item-id="item-1" data-item-slug="first-page">\n<h2>First Page</h2>',
+      ) !== -1,
+    );
+  });
+
+  test("a wrapped html export puts each page title before its content", async (t) => {
+    mockSite(t, makeFakeSite());
+    const res = stubRes();
+    await siteExport(
+      makeReq({
+        params: { format: "html" },
+        query: { magic: "https://cdn.example.com/" },
+      }),
+      res,
+    );
+    const html = res.sent.toString();
+    assert.ok(
+      html.indexOf(
+        '<haxcms-print-theme data-item-parents="{&quot;item-2&quot;:&quot;item-1&quot;}">',
+      ) !== -1,
+    );
+    assert.ok(
+      html.indexOf('<h2>First Page</h2>\n<div data-jos-item-id="item-1">') !==
+        -1,
+    );
+    assert.ok(
+      html.indexOf('<h2>Second Page</h2>\n<div data-jos-item-id="item-2">') !==
+        -1,
+    );
+  });
+
+  test("both html exports import back with their outline", async (t) => {
+    const {
+      importHtmlToItems,
+    } = require("../../src/siteRoutes/v1/importUtils.js");
+    for (const query of [{}, { magic: "https://cdn.example.com/" }]) {
+      mockSite(t, makeFakeSite());
+      const res = stubRes();
+      await siteExport(makeReq({ params: { format: "html" }, query }), res);
+      const items = await importHtmlToItems(res.sent.toString(), {
+        method: "site",
+        titleValue: "t",
+      });
+      assert.deepEqual(
+        items.map((i) => i.title),
+        ["First Page", "Second Page"],
+      );
+      assert.equal(items[0].parent, null);
+      assert.equal(items[1].parent, items[0].id);
+      assert.equal(items[1].indent, 1);
+      assert.ok(
+        items[0].contents.indexOf(
+          "First page <strong>bold</strong> content",
+        ) !== -1,
+      );
+    }
   });
 
   test("an anonymous html export excludes unpublished and hidden pages", async (t) => {
@@ -456,7 +521,7 @@ describe("exports routes — siteExport", () => {
     const html = res.sent.toString();
     assert.ok(html.indexOf("<!DOCTYPE html>") === 0);
     assert.ok(html.indexOf('href="https://cdn.example.com/"') !== -1);
-    assert.ok(html.indexOf("<haxcms-print-theme>") !== -1);
+    assert.ok(html.indexOf("<haxcms-print-theme data-item-parents=") !== -1);
     assert.ok(
       html.indexOf('window.__appCDN="https://cdn.example.com/"') !== -1,
     );
@@ -478,7 +543,7 @@ describe("exports routes — siteExport", () => {
     assert.equal(res.statusCode, 200);
     const html = res.sent.toString();
     assert.equal(html.indexOf("evil.example.com"), -1);
-    assert.equal(html.indexOf("<haxcms-print-theme>"), -1);
+    assert.equal(html.indexOf("<haxcms-print-theme"), -1);
   });
 
   test("a magic CDN must be a plain absolute http(s) base URL", () => {
