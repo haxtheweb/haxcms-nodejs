@@ -80,6 +80,55 @@ function normalizeSiteFilePath(relativePath) {
   return normalized;
 }
 
+// A site's own theme lives in its custom build. A theme the registry does not
+// have is accepted only when the request carries that build in
+// build.siteFiles, and it stays selected only if the build is written; it is
+// stored the way `hax site --theme <custom-theme>` stores it. Same rule as
+// the PHP Operations::createSite.
+const CUSTOM_THEME_BUILD_PATH = "custom/build/custom.es6.js";
+// a valid custom element name: lowercase, starts with a letter, has a dash
+const CUSTOM_THEME_ELEMENT_REGEX = /^[a-z][a-z0-9_.]*-[a-z0-9_.-]*$/;
+
+/**
+ * The build.siteFiles key that carries the site's custom build, or null.
+ */
+function findCustomThemeBuildKey(siteFiles) {
+  if (!siteFiles || typeof siteFiles !== "object") {
+    return null;
+  }
+  for (const relativePath in siteFiles) {
+    if (
+      normalizeSiteFilePath(relativePath) === CUSTOM_THEME_BUILD_PATH &&
+      typeof siteFiles[relativePath] === "string" &&
+      siteFiles[relativePath] !== ""
+    ) {
+      return relativePath;
+    }
+  }
+  return null;
+}
+
+/**
+ * The theme entry for a custom theme (element in the site's custom build),
+ * or null when the element is not a valid custom element name.
+ */
+function customThemeEntry(element) {
+  if (
+    typeof element !== "string" ||
+    element.length > 100 ||
+    !CUSTOM_THEME_ELEMENT_REGEX.test(element)
+  ) {
+    return null;
+  }
+  // name: the CLI's dashToCamel (custom-geo-theme -> CustomGeoTheme)
+  const camel = element.replace(/-([a-z0-9])/g, (m, c) => c.toUpperCase());
+  return {
+    element: element,
+    path: "./" + CUSTOM_THEME_BUILD_PATH,
+    name: camel.charAt(0).toUpperCase() + camel.slice(1),
+  };
+}
+
 // Verify a fetched siteFile response is consistent with its target extension
 // (CWE-434 defense): reject when a server returns a Content-Type that does not
 // match the extension's expected MIME. Absent headers are allowed because the
@@ -778,16 +827,30 @@ async function createSite(req, res) {
         schema.metadata.theme = trustedTheme;
       }
     }
+    // set when the theme is the site's own (custom build in build.siteFiles)
+    let customThemeBuildKey = null;
     // look for a match so we can set the correct data
     if (
       !isObjectLike(schema.metadata.theme) ||
       Object.keys(schema.metadata.theme).length === 0
     ) {
+      const requestSiteFiles =
+        req.body["build"] && req.body["build"]["siteFiles"]
+          ? req.body["build"]["siteFiles"]
+          : null;
+      const requestedCustomTheme =
+        !useTrustedSkeleton && findCustomThemeBuildKey(requestSiteFiles)
+          ? customThemeEntry(theme)
+          : null;
       if (isObjectLike(themesAry) && isObjectLike(themesAry[theme])) {
         schema.metadata.theme = cloneJsonValue(
           themesAry[theme],
           themesAry[theme],
         );
+      } else if (requestedCustomTheme) {
+        // checked again once siteFiles are written (below)
+        schema.metadata.theme = requestedCustomTheme;
+        customThemeBuildKey = findCustomThemeBuildKey(requestSiteFiles);
       } else {
         return res.status(400).json({
           status: 400,
@@ -962,6 +1025,8 @@ async function createSite(req, res) {
       req.body["build"] && req.body["build"]["siteFiles"]
         ? req.body["build"]["siteFiles"]
         : null;
+    // the custom theme stays selected only if its build was written
+    let customThemeBuildWritten = false;
     if (siteFiles && typeof siteFiles === "object") {
       for (const relativePath in siteFiles) {
         const normalizedPath = normalizeSiteFilePath(relativePath);
@@ -985,6 +1050,9 @@ async function createSite(req, res) {
               const targetPath = path.join(site.siteDirectory, normalizedPath);
               await fs.ensureDir(path.dirname(targetPath));
               await fs.writeFile(targetPath, content);
+              if (relativePath === customThemeBuildKey) {
+                customThemeBuildWritten = true;
+              }
             } catch {
               // intentionally ignored, like a remote siteFile that fails
             }
@@ -1004,11 +1072,35 @@ async function createSite(req, res) {
             const targetPath = path.join(site.siteDirectory, normalizedPath);
             await fs.ensureDir(path.dirname(targetPath));
             await fs.writeFile(targetPath, content);
+            if (relativePath === customThemeBuildKey) {
+              customThemeBuildWritten = true;
+            }
           }
         } catch {
           // intentionally ignored
         }
       }
+    }
+    if (customThemeBuildKey && !customThemeBuildWritten) {
+      // the build did not land (refused, unreachable, or site zip import
+      // off): the site gets the default theme instead of one that can't load
+      const defaultTheme =
+        isObjectLike(themesAry) &&
+        isObjectLike(themesAry[HAXCMS.HAXCMS_DEFAULT_THEME])
+          ? cloneJsonValue(
+              themesAry[HAXCMS.HAXCMS_DEFAULT_THEME],
+              themesAry[HAXCMS.HAXCMS_DEFAULT_THEME],
+            )
+          : {};
+      // the theme's own variables, the create defaults filling any gaps
+      defaultTheme.variables = Object.assign(
+        {},
+        schema.metadata.theme.variables,
+        isObjectLike(defaultTheme.variables) ? defaultTheme.variables : {},
+      );
+      schema.metadata.theme = defaultTheme;
+      site.manifest.metadata.theme = defaultTheme;
+      await site.manifest.save(false);
     }
     // main site schema doesn't care about publishing settings. NOTE:
     // site.manifest.metadata.site is the SAME object as schema.metadata.site
