@@ -67,6 +67,7 @@ process.env.GIT_COMMITTER_EMAIL = "static@local.invalid";
 
 const { HAXCMS } = require("../../src/lib/HAXCMS.js");
 const {
+  STATIC_HOST_LIVE_ONLY,
   renderStaticPages,
   staticPagePath,
   staticPageBody,
@@ -161,7 +162,9 @@ test.before(async () => {
 test("renders index.html and one folder page per published page", async () => {
   const pages = await renderStaticPages(site);
   assert.deepEqual(
-    pages.map((page) => page.path),
+    pages
+      .map((page) => page.path)
+      .filter((filePath) => /(^|\/)index\.html$/.test(filePath)),
     [
       "index.html",
       "home/index.html",
@@ -254,6 +257,77 @@ test("private sites render nothing and the site is not changed", async () => {
     site.manifest.metadata.site.settings.private = false;
   }
   assert.deepEqual(await renderStaticPages(null), []);
+});
+
+// every <link rel="alternate"> a rendered page carries is a file in the output
+test("each page's alternate formats are copied to <slug>.<format>", async () => {
+  const pageDir = path.join(site.siteDirectory, "pages", "item-about");
+  fs.writeFileSync(path.join(pageDir, "index.md"), "## Who\n\nWe publish.\n");
+  fs.writeFileSync(path.join(pageDir, "index.json"), '{"id":"item-about"}');
+  try {
+    const pages = await renderStaticPages(site);
+    assert.equal(byPath(pages, "about.md").html, "## Who\n\nWe publish.\n");
+    assert.equal(byPath(pages, "about.json").html, '{"id":"item-about"}');
+    assert.equal(
+      byPath(pages, "about.html").html,
+      "<h2>Who</h2><p>We publish things.</p>",
+    );
+    // no sidecar, no file
+    assert.equal(byPath(pages, "about.yaml"), undefined);
+    // unpublished pages and pages that land on site folders get none
+    assert.equal(byPath(pages, "draft.html"), undefined);
+    assert.equal(byPath(pages, "files.html"), undefined);
+    const outputPaths = new Set(pages.map((page) => page.path));
+    for (const page of pages) {
+      if (!page.path.endsWith("index.html")) {
+        continue;
+      }
+      const hrefs = [
+        ...page.html.matchAll(
+          /<link rel="alternate" type="(?!text\/markdown" href="llms)[^"]*" href="([^"]+)"/g,
+        ),
+      ].map((match) => match[1]);
+      for (const href of hrefs) {
+        const relative = href.replace(/^\/static-site\//, "");
+        assert.ok(
+          outputPaths.has(relative),
+          `${page.path} links ${href}, which is in the output`,
+        );
+      }
+    }
+  } finally {
+    fs.removeSync(path.join(pageDir, "index.md"));
+    fs.removeSync(path.join(pageDir, "index.json"));
+  }
+});
+
+test("an alternate path the site already has is never replaced", async () => {
+  const own = path.join(site.siteDirectory, "about.html");
+  fs.writeFileSync(own, "the site's own file");
+  try {
+    const pages = await renderStaticPages(site);
+    assert.equal(byPath(pages, "about.html"), undefined);
+    assert.ok(byPath(pages, "about/index.html"));
+  } finally {
+    fs.removeSync(own);
+  }
+});
+
+test("llms.txt is the static-host copy: no x/api routes", async () => {
+  const pages = await renderStaticPages(site);
+  const llms = byPath(pages, "llms.txt");
+  assert.ok(llms, "llms.txt is returned");
+  assert.equal(pages[pages.length - 1], llms);
+  assert.equal(llms.html.indexOf("x/api"), -1);
+  assert.ok(
+    llms.html.indexOf("https://org.github.io/static-site/llms-full.txt") !== -1,
+  );
+  // the live copy keeps the export route
+  assert.ok(site.getLLMSTxt("").indexOf("x/api/v1/site/export/html") !== -1);
+  assert.deepEqual(
+    [...STATIC_HOST_LIVE_ONLY],
+    ["llms.txt", ".well-known/api-catalog"],
+  );
 });
 
 test("staticPagePath only accepts plain relative folder paths", () => {

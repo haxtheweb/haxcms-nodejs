@@ -27,6 +27,14 @@
 // - the shell's own scripts are kept; a page in a folder adds one script
 //   that sets the site's base before the shell's base script runs, so the
 //   page finds the site's files at any depth and on any host
+// - every address the output links is a file in the output: each rendered
+//   page's alternate formats (<slug>.md, .json, ...) are copied from the
+//   page's own sidecar files, the way the live route answers them, and
+//   llms.txt is the static-host copy (no x/api routes)
+// - STATIC_HOST_LIVE_ONLY names the live-server files a static host must not
+//   ship as they are; callers take those out of what they publish before
+//   writing these entries, which include a static replacement where there
+//   is one (llms.txt)
 
 const fs = require("fs-extra");
 const path = require("path");
@@ -35,9 +43,20 @@ const {
   replaceSiteBuilderContent,
 } = require("./indexMarkup.js");
 const { trimLeadingSlashes, trimTrailingSlashes } = require("./linearText.js");
+const { resolveContainedPath } = require("./pathConfinement.js");
 
 const STATIC_TEMPLATE = "ghpages.html";
 const MAX_SLUG_LENGTH = 1024;
+// the formats getPageAlternateLinkTags links from a page's head
+const PAGE_VARIANT_FORMATS = ["html", "md", "json", "yaml", "xml"];
+// Files the live server answers that describe routes a static host does not
+// have: llms.txt links x/api/v1/site/export/html (renderStaticPages returns
+// a static llms.txt), and .well-known/api-catalog advertises the x/api
+// OpenAPI documents (a static host has no API, so it ships none).
+const STATIC_HOST_LIVE_ONLY = Object.freeze([
+  "llms.txt",
+  ".well-known/api-catalog",
+]);
 
 function escapeHtml(value = "") {
   return String(value)
@@ -207,7 +226,9 @@ function readTemplate(site) {
  * no canonical link or og:url.
  *
  * Returns [{ path, html }] (paths relative to the site folder, "/"
- * separated): "index.html" first, then one "<slug>/index.html" per page.
+ * separated): "index.html" first, then one "<slug>/index.html" per page,
+ * each followed by that page's "<slug>.<format>" alternate files, then
+ * "llms.txt". `html` is the text to write for every entry.
  */
 async function renderStaticPages(site, options = {}) {
   if (!site || !site.manifest || !Array.isArray(site.manifest.items)) {
@@ -309,11 +330,68 @@ async function renderStaticPages(site, options = {}) {
       path: filePath,
       html: await renderPage(item, basePath + "/" + pagePath, pagePath),
     });
+    // the <slug>.<format> files this page's head links as alternates
+    const variants = pageVariantFiles(site, item, pagePath);
+    for (let v = 0; v < variants.length; v++) {
+      if (!taken.has(variants[v].path)) {
+        taken.add(variants[v].path);
+        pages.push(variants[v]);
+      }
+    }
+  }
+  if (typeof site.getLLMSTxt === "function") {
+    pages.push({
+      path: "llms.txt",
+      html: site.getLLMSTxt(domain, { staticHost: true }),
+    });
   }
   return pages;
 }
 
+/**
+ * The alternate formats a rendered page's head links (<link rel="alternate">
+ * from getPageAlternateLinkTags, href "<slug>.<format>"), read from the page's
+ * own sidecar files: [{ path: "<pagePath>.<format>", html }]. A sidecar that
+ * is missing or outside the site is left out, and so is one whose path the
+ * site already has a file or folder at.
+ */
+function pageVariantFiles(site, item, pagePath) {
+  const files = [];
+  if (
+    !site ||
+    !site.siteDirectory ||
+    !item ||
+    typeof item.location !== "string" ||
+    typeof site.getPageAlternateLocation !== "function"
+  ) {
+    return files;
+  }
+  for (let i = 0; i < PAGE_VARIANT_FORMATS.length; i++) {
+    const format = PAGE_VARIANT_FORMATS[i];
+    const location = site.getPageAlternateLocation(item.location, format);
+    if (!location) {
+      continue;
+    }
+    const source = resolveContainedPath(site.siteDirectory, location);
+    const filePath = pagePath + "." + format;
+    try {
+      if (
+        source === false ||
+        !fs.lstatSync(source).isFile() ||
+        fs.existsSync(path.join(site.siteDirectory, filePath))
+      ) {
+        continue;
+      }
+      files.push({ path: filePath, html: fs.readFileSync(source, "utf8") });
+    } catch {
+      // no sidecar in this format
+    }
+  }
+  return files;
+}
+
 module.exports = {
+  STATIC_HOST_LIVE_ONLY,
   renderStaticPages,
   staticPagePath,
   staticPageBody,
