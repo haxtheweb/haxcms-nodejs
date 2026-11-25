@@ -1,38 +1,44 @@
-const sessionRoutes = require('../systemRoutes/v1/session.js');
-const lifecycleRoutes = require('../systemRoutes/v1/lifecycle.js');
-const discoveryApiRoute = require('../systemRoutes/discovery/api.js');
-const discoveryOpenapiRoute = require('../systemRoutes/discovery/openapi.js');
-const settingsRoutes = require('../systemRoutes/v1/settings.js');
-const convertDocxToHtmlRoute = require('../systemRoutes/v1/routes/convertDocxToHtml.js');
-const convertHtmlToDocxRoute = require('../systemRoutes/v1/routes/convertHtmlToDocx.js');
-const importDocxRoute = require('../systemRoutes/v1/routes/importDocx.js');
-const importPptxRoute = require('../systemRoutes/v1/routes/importPptx.js');
-const importHtmlRoute = require('../systemRoutes/v1/routes/importHtml.js');
-const importXlsxRoute = require('../systemRoutes/v1/routes/importXlsx.js');
-const importPdfRoute = require('../systemRoutes/v1/routes/importPdf.js');
-const importMdRoute = require('../systemRoutes/v1/routes/importMd.js');
-const importOdtRoute = require('../systemRoutes/v1/routes/importOdt.js');
-const convertOdtToHtmlRoute = require('../systemRoutes/v1/routes/convertOdtToHtml.js');
-const importOdpRoute = require('../systemRoutes/v1/routes/importOdp.js');
-const convertOdpToHtmlRoute = require('../systemRoutes/v1/routes/convertOdpToHtml.js');
-const convertMdToHtmlRoute = require('../systemRoutes/v1/routes/convertMdToHtml.js');
-const convertHtmlToMdRoute = require('../systemRoutes/v1/routes/convertHtmlToMd.js');
-const convertPrettyHtmlRoute = require('../systemRoutes/v1/routes/convertPrettyHtml.js');
-const convertJsonToYamlRoute = require('../systemRoutes/v1/routes/convertJsonToYaml.js');
-const convertYamlToJsonRoute = require('../systemRoutes/v1/routes/convertYamlToJson.js');
-const convertHtmlToPdfRoute = require('../systemRoutes/v1/routes/convertHtmlToPdf.js');
-const convertXlsxToCsvRoute = require('../systemRoutes/v1/routes/convertXlsxToCsv.js');
-const convertPdfToHtmlRoute = require('../systemRoutes/v1/routes/convertPdfToHtml.js');
-const convertPptxToHtmlRoute = require('../systemRoutes/v1/routes/convertPptxToHtml.js');
-const convertDocxToPdfRoute = require('../systemRoutes/v1/routes/convertDocxToPdf.js');
-const siteImportRoute = require('../systemRoutes/v1/routes/siteImport.js');
-const v1IntegrationRoutes = require('../systemRoutes/v1/integrations.js');
+const sessionRoutes = require("../systemRoutes/v1/session.js");
+const lifecycleRoutes = require("../systemRoutes/v1/lifecycle.js");
+const discoveryApiRoute = require("../systemRoutes/discovery/api.js");
+const discoveryOpenapiRoute = require("../systemRoutes/discovery/openapi.js");
+const settingsRoutes = require("../systemRoutes/v1/settings.js");
+const convertDocxToHtmlRoute = require("../systemRoutes/v1/routes/convertDocxToHtml.js");
+const convertHtmlToDocxRoute = require("../systemRoutes/v1/routes/convertHtmlToDocx.js");
+const importDocxRoute = require("../systemRoutes/v1/routes/importDocx.js");
+const importPptxRoute = require("../systemRoutes/v1/routes/importPptx.js");
+const importHtmlRoute = require("../systemRoutes/v1/routes/importHtml.js");
+const importXlsxRoute = require("../systemRoutes/v1/routes/importXlsx.js");
+const importPdfRoute = require("../systemRoutes/v1/routes/importPdf.js");
+const importMdRoute = require("../systemRoutes/v1/routes/importMd.js");
+const importOdtRoute = require("../systemRoutes/v1/routes/importOdt.js");
+const convertOdtToHtmlRoute = require("../systemRoutes/v1/routes/convertOdtToHtml.js");
+const importOdpRoute = require("../systemRoutes/v1/routes/importOdp.js");
+const convertOdpToHtmlRoute = require("../systemRoutes/v1/routes/convertOdpToHtml.js");
+const convertMdToHtmlRoute = require("../systemRoutes/v1/routes/convertMdToHtml.js");
+const websiteMetadataRoute = require("../systemRoutes/v1/routes/websiteMetadata.js");
+const convertHtmlToMdRoute = require("../systemRoutes/v1/routes/convertHtmlToMd.js");
+const convertPrettyHtmlRoute = require("../systemRoutes/v1/routes/convertPrettyHtml.js");
+const convertJsonToYamlRoute = require("../systemRoutes/v1/routes/convertJsonToYaml.js");
+const convertYamlToJsonRoute = require("../systemRoutes/v1/routes/convertYamlToJson.js");
+const convertHtmlToPdfRoute = require("../systemRoutes/v1/routes/convertHtmlToPdf.js");
+const convertXlsxToCsvRoute = require("../systemRoutes/v1/routes/convertXlsxToCsv.js");
+const convertPdfToHtmlRoute = require("../systemRoutes/v1/routes/convertPdfToHtml.js");
+const convertPptxToHtmlRoute = require("../systemRoutes/v1/routes/convertPptxToHtml.js");
+const convertDocxToPdfRoute = require("../systemRoutes/v1/routes/convertDocxToPdf.js");
+const siteImportRoute = require("../systemRoutes/v1/routes/siteImport.js");
+const v1IntegrationRoutes = require("../systemRoutes/v1/integrations.js");
 
-function addRouteHandler(routesMap, method = 'get', route = '', handler = null) {
-  if (typeof handler !== 'function') {
+function addRouteHandler(
+  routesMap,
+  method = "get",
+  route = "",
+  handler = null,
+) {
+  if (typeof handler !== "function") {
     return;
   }
-  const normalizedMethod = String(method || 'get').toLowerCase();
+  const normalizedMethod = String(method || "get").toLowerCase();
   if (!routesMap[normalizedMethod]) {
     routesMap[normalizedMethod] = {};
   }
@@ -47,333 +53,519 @@ const SystemRoutesMap = {
   delete: {},
 };
 
-addRouteHandler(SystemRoutesMap, 'get', 'sites', lifecycleRoutes.listSites);
-addRouteHandler(SystemRoutesMap, 'post', 'sites', lifecycleRoutes.createSite);
-addRouteHandler(SystemRoutesMap, 'get', 'sites/:siteName', lifecycleRoutes.siteInfo);
-addRouteHandler(SystemRoutesMap, 'post', 'sites/:siteName', lifecycleRoutes.siteInfo);
+addRouteHandler(SystemRoutesMap, "get", "sites", lifecycleRoutes.listSites);
+addRouteHandler(SystemRoutesMap, "post", "sites", lifecycleRoutes.createSite);
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'sites/:siteName/clone',
+  "get",
+  "sites/:siteName",
+  lifecycleRoutes.siteInfo,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "sites/:siteName",
+  lifecycleRoutes.siteInfo,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "sites/:siteName/clone",
   lifecycleRoutes.cloneSite,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'sites/:siteName/archive',
+  "post",
+  "sites/:siteName/archive",
   lifecycleRoutes.archiveSite,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'sites/:siteName/download',
+  "post",
+  "sites/:siteName/download",
   lifecycleRoutes.downloadSite,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'sites/:siteName/download-skeleton',
+  "post",
+  "sites/:siteName/download-skeleton",
   lifecycleRoutes.downloadSiteSkeleton,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'sites/:siteName/save-as-template',
+  "post",
+  "sites/:siteName/save-as-template",
   lifecycleRoutes.saveSiteAsTemplate,
 );
 
-addRouteHandler(SystemRoutesMap, 'post', 'session/login', sessionRoutes.login);
-addRouteHandler(SystemRoutesMap, 'post', 'session/logout', sessionRoutes.logout);
+addRouteHandler(SystemRoutesMap, "post", "session/login", sessionRoutes.login);
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'session/magic-link',
+  "post",
+  "session/logout",
+  sessionRoutes.logout,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "get",
+  "session/magic-link",
   sessionRoutes.magicLinkConfirm,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'session/magic-link',
+  "post",
+  "session/magic-link",
   sessionRoutes.magicLinkConsume,
 );
-addRouteHandler(SystemRoutesMap, 'get', 'session', sessionRoutes.session);
-addRouteHandler(SystemRoutesMap, 'post', 'session', sessionRoutes.session);
+addRouteHandler(SystemRoutesMap, "get", "session", sessionRoutes.session);
+addRouteHandler(SystemRoutesMap, "post", "session", sessionRoutes.session);
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'session/refresh',
+  "get",
+  "session/refresh",
   sessionRoutes.refreshAccessToken,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'session/refresh',
+  "post",
+  "session/refresh",
   sessionRoutes.refreshAccessToken,
 );
-addRouteHandler(SystemRoutesMap, 'get', 'session/user', sessionRoutes.getUserData);
-addRouteHandler(SystemRoutesMap, 'post', 'session/user', sessionRoutes.getUserData);
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'session/connection-settings',
+  "get",
+  "session/user",
+  sessionRoutes.getUserData,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "session/user",
+  sessionRoutes.getUserData,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "get",
+  "session/connection-settings",
   sessionRoutes.connectionSettings,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'session/connection-settings',
+  "post",
+  "session/connection-settings",
   sessionRoutes.connectionSettings,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'session/connection-test',
+  "get",
+  "session/connection-test",
   sessionRoutes.connectionTest,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'session/connection-test',
+  "post",
+  "session/connection-test",
   sessionRoutes.connectionTest,
 );
 
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'integrations/app-store',
+  "get",
+  "integrations/app-store",
   settingsRoutes.generateAppStore,
 );
 // D38: provider search lives in the system API (parity with PHP SystemRoutesMap).
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'integrations/app-store/providers/:provider/search',
+  "get",
+  "integrations/app-store/providers/:provider/search",
   v1IntegrationRoutes.appStoreProviderSearch,
 );
-addRouteHandler(SystemRoutesMap, 'get', 'status', settingsRoutes.systemStatus);
-addRouteHandler(SystemRoutesMap, 'post', 'status', settingsRoutes.systemStatus);
+addRouteHandler(SystemRoutesMap, "get", "status", settingsRoutes.systemStatus);
+addRouteHandler(SystemRoutesMap, "post", "status", settingsRoutes.systemStatus);
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'system/version',
+  "get",
+  "system/version",
   settingsRoutes.systemVersion,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'system/version',
+  "post",
+  "system/version",
   settingsRoutes.systemVersion,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'entities',
+  "get",
+  "entities",
   settingsRoutes.systemEntities,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'entities',
+  "post",
+  "entities",
   settingsRoutes.systemEntities,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'schemas',
+  "get",
+  "schemas",
   settingsRoutes.systemSchemas,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'schemas',
+  "post",
+  "schemas",
   settingsRoutes.systemSchemas,
 );
 
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'configuration/api-keys',
+  "get",
+  "configuration/api-keys",
   settingsRoutes.configurationApiKeys,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'configuration/api-keys',
+  "post",
+  "configuration/api-keys",
   settingsRoutes.configurationApiKeys,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'patch',
-  'configuration/api-keys',
+  "patch",
+  "configuration/api-keys",
   settingsRoutes.configurationApiKeys,
 );
 
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'configuration/media',
+  "get",
+  "configuration/media",
   settingsRoutes.configurationMedia,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'configuration/media',
+  "post",
+  "configuration/media",
   settingsRoutes.configurationMedia,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'patch',
-  'configuration/media',
+  "patch",
+  "configuration/media",
   settingsRoutes.configurationMedia,
 );
 
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'configuration/localization',
+  "get",
+  "configuration/localization",
   settingsRoutes.configurationLocalization,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'configuration/localization',
+  "post",
+  "configuration/localization",
   settingsRoutes.configurationLocalization,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'patch',
-  'configuration/localization',
+  "patch",
+  "configuration/localization",
   settingsRoutes.configurationLocalization,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'configuration/schema-files/operations',
+  "post",
+  "configuration/schema-files/operations",
   settingsRoutes.schemaFileOperation,
 );
-addRouteHandler(SystemRoutesMap, 'get', 'themes', settingsRoutes.configurationThemes);
-addRouteHandler(SystemRoutesMap, 'post', 'themes', settingsRoutes.configurationThemes);
-addRouteHandler(SystemRoutesMap, 'patch', 'themes', settingsRoutes.configurationThemes);
-addRouteHandler(SystemRoutesMap, 'get', 'languages', settingsRoutes.languagesList);
-addRouteHandler(SystemRoutesMap, 'get', 'languages/:code', settingsRoutes.getLanguage);
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'languages/:code/translations',
+  "get",
+  "themes",
+  settingsRoutes.configurationThemes,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "themes",
+  settingsRoutes.configurationThemes,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "patch",
+  "themes",
+  settingsRoutes.configurationThemes,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "get",
+  "languages",
+  settingsRoutes.languagesList,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "get",
+  "languages/:code",
+  settingsRoutes.getLanguage,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "get",
+  "languages/:code/translations",
   settingsRoutes.languageTranslations,
 );
-addRouteHandler(SystemRoutesMap, 'get', 'blocks', settingsRoutes.configurationBlocks);
-addRouteHandler(SystemRoutesMap, 'post', 'blocks', settingsRoutes.configurationBlocks);
-addRouteHandler(SystemRoutesMap, 'patch', 'blocks', settingsRoutes.configurationBlocks);
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'skeletons',
+  "get",
+  "blocks",
+  settingsRoutes.configurationBlocks,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "blocks",
+  settingsRoutes.configurationBlocks,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "patch",
+  "blocks",
+  settingsRoutes.configurationBlocks,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "get",
+  "skeletons",
   settingsRoutes.configurationSkeletons,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'post',
-  'skeletons',
+  "post",
+  "skeletons",
   settingsRoutes.configurationSkeletons,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'patch',
-  'skeletons',
+  "patch",
+  "skeletons",
   settingsRoutes.configurationSkeletons,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'get',
-  'skeletons/:skeletonName',
+  "get",
+  "skeletons/:skeletonName",
   settingsRoutes.getSkeleton,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'patch',
-  'skeletons/:skeletonName',
+  "patch",
+  "skeletons/:skeletonName",
   settingsRoutes.schemaFileOperation,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'put',
-  'skeletons/:skeletonName',
+  "put",
+  "skeletons/:skeletonName",
   settingsRoutes.schemaFileOperation,
 );
 addRouteHandler(
   SystemRoutesMap,
-  'delete',
-  'skeletons/:skeletonName',
+  "delete",
+  "skeletons/:skeletonName",
   settingsRoutes.schemaFileOperation,
 );
 
-addRouteHandler(SystemRoutesMap, 'post', 'actions/docx-to-html', convertDocxToHtmlRoute.convertDocxToHtml);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/html-to-docx', convertHtmlToDocxRoute.convertHtmlToDocx);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/import-docx', importDocxRoute.importDocx);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/md-to-html', convertMdToHtmlRoute.convertMdToHtml);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/html-to-md', convertHtmlToMdRoute.convertHtmlToMd);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/pretty-html', convertPrettyHtmlRoute.convertPrettyHtml);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/json-to-yaml', convertJsonToYamlRoute.convertJsonToYaml);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/yaml-to-json', convertYamlToJsonRoute.convertYamlToJson);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/html-to-pdf', convertHtmlToPdfRoute.convertHtmlToPdf);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/xlsx-to-csv', convertXlsxToCsvRoute.convertXlsxToCsv);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/pdf-to-html', convertPdfToHtmlRoute.convertPdfToHtml);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/pptx-to-html', convertPptxToHtmlRoute.convertPptxToHtml);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/docx-to-pdf', convertDocxToPdfRoute.convertDocxToPdf);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/import-pptx', importPptxRoute.importPptx);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/import-html', importHtmlRoute.importHtml);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/import-xlsx', importXlsxRoute.importXlsx);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/import-pdf', importPdfRoute.importPdf);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/import-md', importMdRoute.importMd);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/import-odt', importOdtRoute.importOdt);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/odt-to-html', convertOdtToHtmlRoute.convertOdtToHtml);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/import-odp', importOdpRoute.importOdp);
-addRouteHandler(SystemRoutesMap, 'post', 'actions/odp-to-html', convertOdpToHtmlRoute.convertOdpToHtml);
-addRouteHandler(SystemRoutesMap, 'post', 'site/import/:platform', siteImportRoute.siteImport);
-addRouteHandler(SystemRoutesMap, 'get', '', discoveryApiRoute);
-addRouteHandler(SystemRoutesMap, 'get', 'openapi', discoveryOpenapiRoute);
-addRouteHandler(SystemRoutesMap, 'get', 'openapi.json', discoveryOpenapiRoute);
-addRouteHandler(SystemRoutesMap, 'get', 'openapi.yaml', discoveryOpenapiRoute);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/docx-to-html",
+  convertDocxToHtmlRoute.convertDocxToHtml,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/html-to-docx",
+  convertHtmlToDocxRoute.convertHtmlToDocx,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/import-docx",
+  importDocxRoute.importDocx,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/md-to-html",
+  convertMdToHtmlRoute.convertMdToHtml,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/website-metadata",
+  websiteMetadataRoute.websiteMetadata,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/html-to-md",
+  convertHtmlToMdRoute.convertHtmlToMd,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/pretty-html",
+  convertPrettyHtmlRoute.convertPrettyHtml,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/json-to-yaml",
+  convertJsonToYamlRoute.convertJsonToYaml,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/yaml-to-json",
+  convertYamlToJsonRoute.convertYamlToJson,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/html-to-pdf",
+  convertHtmlToPdfRoute.convertHtmlToPdf,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/xlsx-to-csv",
+  convertXlsxToCsvRoute.convertXlsxToCsv,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/pdf-to-html",
+  convertPdfToHtmlRoute.convertPdfToHtml,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/pptx-to-html",
+  convertPptxToHtmlRoute.convertPptxToHtml,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/docx-to-pdf",
+  convertDocxToPdfRoute.convertDocxToPdf,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/import-pptx",
+  importPptxRoute.importPptx,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/import-html",
+  importHtmlRoute.importHtml,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/import-xlsx",
+  importXlsxRoute.importXlsx,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/import-pdf",
+  importPdfRoute.importPdf,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/import-md",
+  importMdRoute.importMd,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/import-odt",
+  importOdtRoute.importOdt,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/odt-to-html",
+  convertOdtToHtmlRoute.convertOdtToHtml,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/import-odp",
+  importOdpRoute.importOdp,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "actions/odp-to-html",
+  convertOdpToHtmlRoute.convertOdpToHtml,
+);
+addRouteHandler(
+  SystemRoutesMap,
+  "post",
+  "site/import/:platform",
+  siteImportRoute.siteImport,
+);
+addRouteHandler(SystemRoutesMap, "get", "", discoveryApiRoute);
+addRouteHandler(SystemRoutesMap, "get", "openapi", discoveryOpenapiRoute);
+addRouteHandler(SystemRoutesMap, "get", "openapi.json", discoveryOpenapiRoute);
+addRouteHandler(SystemRoutesMap, "get", "openapi.yaml", discoveryOpenapiRoute);
 
 const SystemV1OpenRoutes = [
-  'session/login',
-  'session/logout',
-  'session/magic-link',
-  'session',
-  'session/refresh',
-  'session/connection-settings',
-  'session/connection-test',
-  'integrations/app-store',
-  '',
-  'openapi',
-  'openapi.json',
-  'openapi.yaml',
+  "session/login",
+  "session/logout",
+  "session/magic-link",
+  "session",
+  "session/refresh",
+  "session/connection-settings",
+  "session/connection-test",
+  "integrations/app-store",
+  "",
+  "openapi",
+  "openapi.json",
+  "openapi.yaml",
 ];
 
 const SystemV1AdminRoutes = [
-  'sites',
-  'sites/:siteName',
-  'sites/:siteName/clone',
-  'sites/:siteName/archive',
-  'sites/:siteName/download',
-  'sites/:siteName/download-skeleton',
-  'sites/:siteName/save-as-template',
-  'status',
-  'system/version',
-  'entities',
-  'schemas',
-  'configuration/api-keys',
-  'configuration/media',
-  'configuration/localization',
-  'configuration/schema-files/operations',
-  'themes',
-  'languages',
-  'languages/:code',
-  'languages/:code/translations',
-  'blocks',
-  'skeletons',
-  'skeletons/:skeletonName',
+  "sites",
+  "sites/:siteName",
+  "sites/:siteName/clone",
+  "sites/:siteName/archive",
+  "sites/:siteName/download",
+  "sites/:siteName/download-skeleton",
+  "sites/:siteName/save-as-template",
+  "status",
+  "system/version",
+  "entities",
+  "schemas",
+  "configuration/api-keys",
+  "configuration/media",
+  "configuration/localization",
+  "configuration/schema-files/operations",
+  "themes",
+  "languages",
+  "languages/:code",
+  "languages/:code/translations",
+  "blocks",
+  "skeletons",
+  "skeletons/:skeletonName",
 ];
 
 module.exports = {

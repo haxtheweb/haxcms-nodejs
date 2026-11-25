@@ -25,6 +25,7 @@ const {
 } = require("../../../lib/nodeDetailOperations.js");
 const FileContentScanner = require("../../../lib/FileContentScanner.js");
 const { cutFramings } = require("../../../lib/imageFraming.js");
+const { cutSimpleImgVariants } = require("../../../lib/simpleImgVariants.js");
 /**
  * @OA\Post(
  *    path="/saveNode",
@@ -219,6 +220,13 @@ async function saveNode(req, res) {
               await cutFramings(site.siteDirectory, sanitizedContent);
             } catch {
               // never fail a save over a cut
+            }
+            // simple-img shows the sized copy of its photo made here; a photo
+            // that can't be copied shows as the original
+            try {
+              await cutSimpleImgVariants(site.siteDirectory, sanitizedContent);
+            } catch {
+              // never fail a save over a variant
             }
             // sanity check
             if (!page.metadata) {
