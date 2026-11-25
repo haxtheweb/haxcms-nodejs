@@ -67,7 +67,10 @@ process.env.GIT_COMMITTER_EMAIL = "static@local.invalid";
 
 const { HAXCMS } = require("../../src/lib/HAXCMS.js");
 const {
+  REMIX_APP,
+  SEARCH_ROUTE,
   STATIC_HOST_LIVE_ONLY,
+  remixTerms,
   renderStaticPages,
   staticPagePath,
   staticPageBody,
@@ -171,6 +174,8 @@ test("renders index.html and one folder page per published page", async () => {
       "about/index.html",
       "about/team/index.html",
       "hidden/index.html",
+      // the search route, so the search_site form opens a page
+      "x/displays/search/index.html",
     ],
   );
 });
@@ -328,6 +333,121 @@ test("llms.txt is the static-host copy: no x/api routes", async () => {
     [...STATIC_HOST_LIVE_ONLY],
     ["llms.txt", ".well-known/api-catalog"],
   );
+});
+
+// declarative WebMCP: what an agent or scanner reading the HTML finds
+function toolForm(html, name) {
+  const match = new RegExp(
+    `<form[^>]*toolname="${name}"[^>]*>([\\s\\S]*?)</form>`,
+  ).exec(html);
+  return match ? match : null;
+}
+
+test("every rendered page declares search_site and remix_site as forms", async () => {
+  const pages = await renderStaticPages(site);
+  const rendered = pages.filter((page) => page.path.endsWith("index.html"));
+  assert.ok(rendered.length > 2);
+  for (const page of rendered) {
+    const search = toolForm(page.html, "search_site");
+    assert.ok(search, page.path + " declares search_site");
+    assert.match(search[0], /action="\/static-site\/x\/displays\/search"/);
+    assert.match(search[0], /method="get"/);
+    assert.match(search[0], /tooldescription="[^"]+"/);
+    assert.match(search[0], /<input[^>]*name="search"[^>]*required/);
+    assert.match(search[0], /<label for="haxcms-tool-search">/);
+    const remix = toolForm(page.html, "remix_site");
+    assert.ok(remix, page.path + " declares remix_site");
+    assert.ok(remix[0].indexOf('action="' + REMIX_APP + '"') !== -1);
+    assert.match(
+      remix[0],
+      /<input type="hidden" name="remix" value="https:\/\/org\.github\.io\/static-site\/">/,
+    );
+    // remix only ever opens HAX in a new tab; the person confirms there
+    assert.doesNotMatch(remix[0], /toolautosubmit/);
+    assert.match(remix[0], /rel="license"/);
+    // inside the content the front end replaces when it boots
+    const builder =
+      /<haxcms-site-builder[^>]*>([\s\S]*)<\/haxcms-site-builder>/.exec(
+        page.html,
+      );
+    assert.ok(builder && builder[1].indexOf("data-haxcms-agent-tools") !== -1);
+  }
+});
+
+test("the search page is published at the search route", async () => {
+  const pages = await renderStaticPages(site);
+  const searchPage = byPath(pages, SEARCH_ROUTE + "/index.html");
+  assert.ok(searchPage, "search page returned");
+  assert.ok(toolForm(searchPage.html, "search_site"));
+  assert.match(searchPage.html, /<h1>Search<\/h1>/);
+  assert.match(searchPage.html, /data-haxcms-static-route/);
+  assert.match(searchPage.html, /var route = "\/x\/displays\/search";/);
+});
+
+test("a site whose own x/ folder exists keeps it; no search page is returned", async () => {
+  const own = path.join(site.siteDirectory, "x");
+  fs.ensureDirSync(own);
+  try {
+    const pages = await renderStaticPages(site);
+    assert.equal(byPath(pages, SEARCH_ROUTE + "/index.html"), undefined);
+  } finally {
+    fs.removeSync(own);
+  }
+});
+
+test("remix_site needs a license that allows derivatives and the site's address", async () => {
+  const savedLicense = site.manifest.license;
+  const savedDomain = site.manifest.metadata.site.domain;
+  try {
+    for (const code of [
+      "by-nd",
+      "by-nc-nd",
+      "all-rights-reserved",
+      "",
+      "made-up",
+    ]) {
+      site.manifest.license = code;
+      const pages = await renderStaticPages(site);
+      assert.equal(toolForm(pages[0].html, "remix_site"), null, code);
+      assert.ok(toolForm(pages[0].html, "search_site"), code);
+    }
+    site.manifest.license = "by-sa";
+    site.manifest.metadata.site.domain = "";
+    const pages = await renderStaticPages(site);
+    assert.equal(toolForm(pages[0].html, "remix_site"), null);
+    assert.match(
+      toolForm(pages[0].html, "search_site")[0],
+      /action="\/x\/displays\/search"/,
+    );
+  } finally {
+    site.manifest.license = savedLicense;
+    site.manifest.metadata.site.domain = savedDomain;
+  }
+});
+
+test("remixTerms follows the HAX license list", () => {
+  assert.deepEqual(remixTerms("by-sa").conditions, [
+    "attribution",
+    "share-alike",
+  ]);
+  assert.equal(remixTerms("by-sa").allowed, true);
+  assert.deepEqual(remixTerms("by-nc").conditions, [
+    "attribution",
+    "non-commercial",
+  ]);
+  assert.equal(remixTerms("cc0").allowed, true);
+  assert.deepEqual(remixTerms("cc0").conditions, []);
+  assert.equal(remixTerms("mit").allowed, true);
+  for (const code of [
+    "by-nd",
+    "by-nc-nd",
+    "all-rights-reserved",
+    "",
+    null,
+    "x",
+  ]) {
+    assert.equal(remixTerms(code).allowed, false, String(code));
+  }
 });
 
 test("staticPagePath only accepts plain relative folder paths", () => {
