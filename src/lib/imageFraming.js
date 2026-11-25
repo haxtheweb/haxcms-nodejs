@@ -207,7 +207,7 @@ function framingPlan(html, limited) {
   return plan;
 }
 
-/** the image type a file's first bytes say it is: "jpg", "png", "webp" or null */
+/** the image type a file's first bytes say it is: "jpg", "png", "webp", "gif" or null */
 function sniffImage(file) {
   let fd = null;
   try {
@@ -231,6 +231,11 @@ function sniffImage(file) {
       head.toString("latin1", 8, 12) === "WEBP"
     ) {
       return "webp";
+    }
+    // simple-img variants may be cut from a gif's first frame; framing never
+    // asks for one, since gif is not in FRAMING_FORMATS
+    if (read >= 6 && /^GIF8[79]a$/.test(head.toString("latin1", 0, 6))) {
+      return "gif";
     }
     return null;
   } catch {
@@ -449,6 +454,9 @@ module.exports = {
   FRAMING_MAX_SECONDS,
   parseFraming,
   fnv1a,
+  sniffImage,
+  framingPhoto,
+  framingPageFiles,
   framingKey,
   framingSource,
   framingFullUrl,
