@@ -129,3 +129,40 @@ test('item ids are unique UUIDs prefixed with item-', async () => {
   assert.ok(items[1].id && items[1].id.indexOf('item-') === 0)
   assert.notEqual(items[0].id, items[1].id)
 })
+
+// Parity with haxcms-php ImportUtilsTest: the same three cases there.
+test('each root keeps only its own child pages', async () => {
+  const items = await importHtmlToItems(
+    '<h1>Root A</h1><p>A</p><h2>A1</h2><p>a1</p><h1>Root B</h1><p>B</p><h2>B1</h2><p>b1</p><h2>B2</h2><p>b2</p>',
+    SITE_OPTS,
+  )
+  assert.deepEqual(items.map((i) => i.title), ['Root A', 'A1', 'Root B', 'B1', 'B2'])
+  assert.equal(items[1].parent, items[0].id)
+  assert.equal(items[3].parent, items[2].id)
+  assert.equal(items[4].parent, items[2].id)
+  assert.deepEqual([items[3].order, items[4].order], [0, 1])
+})
+
+test('a wrapped site export reads its headings as pages', async () => {
+  // one wrapper around the page headings, each page's content in a div after
+  // its heading (the shape of praw hax-imports/import-example.html)
+  const html =
+    '<!DOCTYPE html><html><head><title>x</title></head><body><haxcms-print-theme>' +
+    '<h1>Start</h1><div data-jos-item-id="a"><p>Start body</p><h3>Inside</h3></div>' +
+    '<h2>Child</h2><div data-jos-item-id="b"><p>Child body</p></div>' +
+    '<h1>Next</h1><div data-jos-item-id="c"><p>Next body</p></div>' +
+    '</haxcms-print-theme></body></html>'
+  const items = await importHtmlToItems(html, SITE_OPTS)
+  assert.deepEqual(items.map((i) => i.title), ['Start', 'Child', 'Next'])
+  assert.equal(items[1].parent, items[0].id)
+  assert.ok(items[0].contents.includes('Start body'))
+  assert.ok(items[0].contents.includes('<h3>Inside</h3>'))
+  assert.ok(items[1].contents.includes('Child body'))
+})
+
+test('a lone list without headings stays one whole page', async () => {
+  const items = await importHtmlToItems('<ul><li>One</li><li>Two</li></ul>', { ...SITE_OPTS, titleValue: 'List' })
+  assert.equal(items.length, 1)
+  assert.equal(items[0].title, 'List')
+  assert.ok(items[0].contents.startsWith('<ul>'))
+})
