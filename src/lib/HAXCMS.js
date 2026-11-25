@@ -3920,6 +3920,26 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
       if (siteSameAs.length > 0) {
         publisherNode.sameAs = siteSameAs;
       }
+      // what the site is, in its own words
+      const siteDescription =
+        this.manifest && this.manifest.description
+          ? String(this.manifest.description).trim()
+          : "";
+      if (siteDescription != "") {
+        publisherNode.description = siteDescription;
+      }
+      // how to reach the site: its published Contact page (slug "contact"),
+      // never the author's email
+      const contactUrl = this.getContactPageUrlForStructuredData(
+        toAbsoluteStructuredDataUrl,
+      );
+      if (contactUrl != "") {
+        publisherNode.contactPoint = {
+          "@type": "ContactPoint",
+          contactType: "customer support",
+          url: contactUrl,
+        };
+      }
       if (authorNode && authorNode["@id"]) {
         publisherNode.founder = {
           "@id": authorNode["@id"],
@@ -4081,6 +4101,30 @@ ${safeSocialShareImage ? `  <meta name="twitter:image" property="twitter:image" 
    * @var path the path to try loading based on or search for the active from address
    * @return new JSONOutlineSchemaItem() a blank JOS item
    */
+  /**
+   * The absolute URL of the site's Contact page for structured data: the
+   * published page whose slug is "contact", or "" when there is none.
+   * toAbsolute turns a site-relative slug into an absolute URL.
+   */
+  getContactPageUrlForStructuredData(toAbsolute) {
+    const { isItemPublished } = require("../siteRoutes/v1/siteRouteUtils.js");
+    const items =
+      this.manifest && Array.isArray(this.manifest.items)
+        ? this.manifest.items
+        : [];
+    for (const item of items) {
+      if (
+        item &&
+        typeof item.slug === "string" &&
+        item.slug.replace(/^\/+|\/+$/g, "").toLowerCase() === "contact" &&
+        isItemPublished(item)
+      ) {
+        return toAbsolute(item.slug.replace(/^\/+|\/+$/g, ""));
+      }
+    }
+    return "";
+  }
+
   loadNodeByLocation(path = null) {
     // load from the active address if we have one
     if (path == null) {

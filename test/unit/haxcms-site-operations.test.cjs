@@ -1162,6 +1162,51 @@ test("getSiteMetadata publishes site and author sameAs in JSON-LD (#3367)", asyn
   }
 });
 
+test("getSiteMetadata gives the Organization a description and a Contact page contactPoint", async () => {
+  const site = await HAXCMS.loadSite("unit-import");
+  const page = site.manifest.items[0];
+  const before = JSON.parse(JSON.stringify(site.manifest.items));
+  const beforeDescription = site.manifest.description;
+  const orgOf = async () => {
+    const metadata = await site.getSiteMetadata(page, "https://unit.example");
+    const graph = JSON.parse(
+      metadata.match(
+        /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+      )[1],
+    )["@graph"];
+    return graph.find((node) => node["@type"] === "Organization");
+  };
+  try {
+    site.manifest.description = "  A site about units.  ";
+    const contact = site.manifest.items[site.manifest.items.length - 1];
+    contact.slug = "/contact/";
+    contact.metadata = Object.assign({}, contact.metadata, { published: true });
+    let org = await orgOf();
+    assert.equal(org.description, "A site about units.");
+    assert.deepEqual(org.contactPoint, {
+      "@type": "ContactPoint",
+      contactType: "customer support",
+      url: "https://unit.example/contact",
+    });
+    // the author's email is never the contact point
+    assert.doesNotMatch(JSON.stringify(org), /mailto:|[\w.+-]+@[\w-]+\.[\w.]+/);
+    // an unpublished Contact page is not offered
+    contact.metadata.published = false;
+    org = await orgOf();
+    assert.equal("contactPoint" in org, false);
+    // no description and no Contact page: neither key
+    site.manifest.description = "";
+    contact.slug = "elsewhere";
+    contact.metadata.published = true;
+    org = await orgOf();
+    assert.equal("description" in org, false);
+    assert.equal("contactPoint" in org, false);
+  } finally {
+    site.manifest.items = before;
+    site.manifest.description = beforeDescription;
+  }
+});
+
 test("getSiteMetadata preloads the active page's HTML, site-relative", async () => {
   const site = await HAXCMS.loadSite("unit-import");
   const page = site.manifest.items[0];
