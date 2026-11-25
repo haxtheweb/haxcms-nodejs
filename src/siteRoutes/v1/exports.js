@@ -195,30 +195,31 @@ function buildSiteExportDocumentTitle(site) {
 }
 
 /**
- * The data-item-parent attribute an exported page carries, so an import can
- * rebuild the outline: the parent's id when the parent is in the same
- * export, empty for a top-level page of the export (a branch's root, or a
- * page whose parent was left out as not visible).
- * @param {object} item - the exported item
- * @param {Set<string>} exportedIds - ids of every item in the export
+ * The data-item-parents attribute a site export's container carries, so an
+ * import can rebuild the outline: a JSON object of item id to parent id for
+ * every exported page whose parent is in the same export (a branch's root,
+ * or a page whose parent was left out as not visible, is top level). On the
+ * container, not each page, because Insights splits the document export by
+ * its exact <article> markup. haxcms-php exportItemParentsAttribute writes
+ * the same JSON.
+ * @param {Array} items - the exported items, in export order
  * @returns {string}
  */
-function exportItemParentAttribute(item, exportedIds) {
-  const parent =
-    item && item.parent && exportedIds.has(String(item.parent))
-      ? String(item.parent)
-      : "";
-  return ` data-item-parent="${escapeHtmlValue(parent)}"`;
-}
-
-function exportedItemIds(items) {
+function exportItemParentsAttribute(items) {
   const ids = new Set();
   for (let i = 0; i < items.length; i++) {
     if (items[i] && items[i].id) {
       ids.add(String(items[i].id));
     }
   }
-  return ids;
+  const parents = {};
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item && item.id && item.parent && ids.has(String(item.parent))) {
+      parents[String(item.id)] = String(item.parent);
+    }
+  }
+  return ` data-item-parents="${escapeHtmlValue(JSON.stringify(parents))}"`;
 }
 
 function buildItemExportDocumentTitle(item) {
@@ -627,7 +628,6 @@ async function buildSiteExportHtmlContent(site, ancestor, visibleOnly = false) {
     itemsToExport = filterItemsVisibleToAnonymous(itemsToExport);
   }
 
-  const exportedIds = exportedItemIds(itemsToExport);
   for (let i = 0; i < itemsToExport.length; i++) {
     const item = itemsToExport[i];
     if (!item) {
@@ -638,9 +638,7 @@ async function buildSiteExportHtmlContent(site, ancestor, visibleOnly = false) {
     sections.push(
       `<h2>${escapeHtmlValue(buildItemExportDocumentTitle(item))}</h2>`,
     );
-    sections.push(
-      `<div data-jos-item-id="${escapeHtmlValue(item.id || "")}"${exportItemParentAttribute(item, exportedIds)}>`,
-    );
+    sections.push(`<div data-jos-item-id="${escapeHtmlValue(item.id || "")}">`);
     sections.push(String(itemContent || ""));
     sections.push("</div>");
   }
@@ -743,7 +741,9 @@ async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
     );
     sections.push("</head>");
     sections.push("<body>");
-    sections.push("<haxcms-print-theme>");
+    sections.push(
+      `<haxcms-print-theme${exportItemParentsAttribute(itemsToExport)}>`,
+    );
     sections.push(content);
     sections.push("</haxcms-print-theme>");
     sections.push("</body>");
@@ -766,10 +766,9 @@ async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
   sections.push("</head>");
   sections.push("<body>");
   sections.push(
-    `<main data-haxcms-export="site" data-title="${escapeHtmlValue(siteTitle)}">`,
+    `<main data-haxcms-export="site" data-title="${escapeHtmlValue(siteTitle)}"${exportItemParentsAttribute(itemsToExport)}>`,
   );
   sections.push(`<h1>${escapeHtmlValue(siteTitle)}</h1>`);
-  const exportedIds = exportedItemIds(itemsToExport);
   for (let i = 0; i < itemsToExport.length; i++) {
     const item = itemsToExport[i];
     if (!item) {
@@ -778,7 +777,7 @@ async function buildSiteExportHtml(site, ancestor, magic, visibleOnly = false) {
     const itemTitle = buildItemExportDocumentTitle(item);
     const itemContent = await getItemContent(site, item);
     sections.push(
-      `<article data-item-id="${escapeHtmlValue(item.id || "")}" data-item-slug="${escapeHtmlValue(item.slug || "")}"${exportItemParentAttribute(item, exportedIds)}>`,
+      `<article data-item-id="${escapeHtmlValue(item.id || "")}" data-item-slug="${escapeHtmlValue(item.slug || "")}">`,
     );
     sections.push(`<h2>${escapeHtmlValue(itemTitle)}</h2>`);
     sections.push(String(itemContent || ""));

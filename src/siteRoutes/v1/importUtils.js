@@ -77,22 +77,52 @@ function getFallbackContent(type) {
 const HEADING_TAGS = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'];
 
 /**
+ * The item id -> parent id map a site export carries in data-item-parents on
+ * its container, or {} when it's missing or not a JSON object of strings.
+ */
+function readItemParents(el) {
+  const raw = el ? el.getAttribute('data-item-parents') : null;
+  if (!raw) {
+    return {};
+  }
+  try {
+    const value = JSON.parse(raw);
+    const parents = {};
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      for (const key of Object.keys(value)) {
+        if (typeof value[key] === 'string') {
+          parents[key] = value[key];
+        }
+      }
+    }
+    return parents;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Pages of a HAXcms site export, or null when the HTML isn't one.
  *
  * Two export shapes carry their pages as blocks: the document export
  * (main[data-haxcms-export="site"] > article[data-item-id], each article's
- * first heading its title) and the wrapped export (a heading followed by
- * div[data-jos-item-id]). Exports made since data-item-parent was added say
- * each page's parent, so the outline comes back as it was; older document
- * exports import flat in order. A div[data-jos-item-id] list without
- * data-item-parent (older wrapped exports, hand-made files) is left to the
+ * first heading its title) and the wrapped export (a container with
+ * data-item-parents around a heading followed by div[data-jos-item-id] for
+ * each page). The container's data-item-parents (exports made since it was
+ * added) says each page's parent, so the outline comes back as it was; older
+ * document exports import flat in order. div[data-jos-item-id] blocks without
+ * that container (older wrapped exports, hand-made files) are left to the
  * heading-based import. haxcms-php haxcmsImportSiteExportBlocks keeps the
  * same rules.
  */
 function readSiteExportBlocks(doc) {
   const blocks = [];
-  const articles = doc.querySelectorAll('main[data-haxcms-export="site"] > article[data-item-id]');
+  const main = doc.querySelector('main[data-haxcms-export="site"]');
+  const articles = main
+    ? main.childNodes.filter((n) => n && n.tagName === 'ARTICLE' && n.hasAttribute('data-item-id'))
+    : [];
   if (articles.length > 0) {
+    const parents = readItemParents(main);
     for (const article of articles) {
       let title = '';
       let contents = '';
@@ -106,22 +136,20 @@ function readSiteExportBlocks(doc) {
           contents += htmlFromEl(child);
         }
       }
-      blocks.push({
-        id: article.getAttribute('data-item-id') || '',
-        parent: article.getAttribute('data-item-parent') || '',
-        title: title,
-        contents: contents,
-      });
+      const id = article.getAttribute('data-item-id') || '';
+      blocks.push({ id: id, parent: parents[id] || '', title: title, contents: contents });
     }
     return blocks;
   }
-  const divs = doc.querySelectorAll('div[data-jos-item-id]');
+  const container = doc.querySelector('[data-item-parents]');
+  const divs = container ? container.querySelectorAll('div[data-jos-item-id]') : [];
   if (divs.length === 0) {
     return null;
   }
+  const parents = readItemParents(container);
   for (const div of divs) {
     const heading = div.previousElementSibling;
-    if (!div.hasAttribute('data-item-parent') || !heading || !HEADING_TAGS.includes(heading.tagName)) {
+    if (!heading || !HEADING_TAGS.includes(heading.tagName)) {
       return null;
     }
     let contents = '';
@@ -130,12 +158,8 @@ function readSiteExportBlocks(doc) {
         contents += htmlFromEl(child);
       }
     }
-    blocks.push({
-      id: div.getAttribute('data-jos-item-id') || '',
-      parent: div.getAttribute('data-item-parent') || '',
-      title: heading.text.trim(),
-      contents: contents,
-    });
+    const id = div.getAttribute('data-jos-item-id') || '';
+    blocks.push({ id: id, parent: parents[id] || '', title: heading.text.trim(), contents: contents });
   }
   return blocks;
 }

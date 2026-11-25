@@ -170,9 +170,9 @@ test('a lone list without headings stays one whole page', async () => {
 // Site exports (parity with haxcms-php ImportUtilsTest and ExportConvertersFsTest)
 test('a document export rebuilds its outline even when a child comes first', async () => {
   const items = await importHtmlToItems(
-    '<main data-haxcms-export="site" data-title="S"><h1>S</h1>' +
-      '<article data-item-id="c" data-item-slug="p/c" data-item-parent="p"><h2>Child</h2><p>c</p></article>' +
-      '<article data-item-id="p" data-item-slug="p" data-item-parent=""><h2>Parent</h2><p>p</p></article>' +
+    '<main data-haxcms-export="site" data-title="S" data-item-parents="{&quot;c&quot;:&quot;p&quot;}"><h1>S</h1>' +
+      '<article data-item-id="c" data-item-slug="p/c"><h2>Child</h2><p>c</p></article>' +
+      '<article data-item-id="p" data-item-slug="p"><h2>Parent</h2><p>p</p></article>' +
       '</main>',
     SITE_OPTS,
   )
@@ -199,9 +199,9 @@ test('an older document export imports flat, in order', async () => {
 
 test('a parent loop in an export is broken at the first page found', async () => {
   const items = await importHtmlToItems(
-    '<main data-haxcms-export="site"><h1>S</h1>' +
-      '<article data-item-id="a" data-item-parent="b"><h2>A</h2></article>' +
-      '<article data-item-id="b" data-item-parent="a"><h2>B</h2></article>' +
+    '<main data-haxcms-export="site" data-item-parents="{&quot;a&quot;:&quot;b&quot;,&quot;b&quot;:&quot;a&quot;}"><h1>S</h1>' +
+      '<article data-item-id="a"><h2>A</h2></article>' +
+      '<article data-item-id="b"><h2>B</h2></article>' +
       '</main>',
     SITE_OPTS,
   )
@@ -210,4 +210,26 @@ test('a parent loop in an export is broken at the first page found', async () =>
   assert.equal(items[0].indent, 0)
   assert.equal(items[1].parent, items[0].id)
   assert.equal(items[1].indent, 1)
+})
+
+test('a wrapped export rebuilds its outline from the container', async () => {
+  const items = await importHtmlToItems(
+    '<haxcms-print-theme data-item-parents="{&quot;b&quot;:&quot;a&quot;}"><h1>S</h1>' +
+      '<h2>A</h2><div data-jos-item-id="a"><p>a</p></div>' +
+      '<h2>B</h2><div data-jos-item-id="b"><p>b</p><h2>Inside B</h2></div>' +
+      '</haxcms-print-theme>',
+    SITE_OPTS,
+  )
+  assert.deepEqual(items.map((i) => i.title), ['A', 'B'])
+  assert.equal(items[1].parent, items[0].id)
+  assert.ok(items[1].contents.includes('<h2>Inside B</h2>'))
+})
+
+test('a broken parent map imports the export flat', async () => {
+  const items = await importHtmlToItems(
+    '<main data-haxcms-export="site" data-item-parents="not json"><h1>S</h1>' +
+      '<article data-item-id="a"><h2>A</h2></article><article data-item-id="b"><h2>B</h2></article></main>',
+    SITE_OPTS,
+  )
+  assert.deepEqual(items.map((i) => i.parent), [null, null])
 })
