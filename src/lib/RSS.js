@@ -164,6 +164,11 @@ class FeedMe
             if (!item || typeof item !== 'object') {
                 continue
             }
+            // Security: feeds are served without a login, so an unpublished
+            // page gives nothing about itself here (its title or text)
+            if (!this.isPublished(item)) {
+                continue
+            }
             // beyond edge but don't want this to erorr on write
             if (!(item.metadata) || typeof item.metadata !== 'object') {
               item.metadata = {}
@@ -260,6 +265,11 @@ class FeedMe
             if (!item || typeof item !== 'object') {
                 continue
             }
+            // Security: feeds are served without a login, so an unpublished
+            // page gives nothing about itself here (its title or text)
+            if (!this.isPublished(item)) {
+                continue
+            }
             let tags = ''
             // beyond edge but don't want this to erorr on write
             if (!(item.metadata) || typeof item.metadata !== 'object') {
@@ -306,6 +316,16 @@ class FeedMe
         return output
     }
     /**
+     * Whether a page is published, by the same rule as the site API and the
+     * search index (no published flag counts as published).
+     */
+    isPublished(item)
+    {
+        // lazy require: siteRouteUtils requires HAXCMS, which requires this module
+        const { isItemPublished } = require('../siteRoutes/v1/siteRouteUtils.js')
+        return isItemPublished(item)
+    }
+    /**
      * Generate a sitemap.xml file.
      */
     getSitemap(site, domain = '')
@@ -327,6 +347,10 @@ class FeedMe
         for (var key in items) {
             let item = items[key]
             if (!item) {
+                continue
+            }
+            // only pages an anonymous visitor can open are listed
+            if (!this.isPublished(item)) {
                 continue
             }
             let priority = '0.5'

@@ -694,3 +694,78 @@ describe('FeedMe.getSitemapIndex', () => {
     )
   })
 })
+
+describe('FeedMe skips unpublished pages', () => {
+  // a draft (published: false) and a page with no published flag, which
+  // counts as published, the same rule as the site API and search index
+  function draftSite() {
+    return buildKnownSite({
+      items: [
+        {
+          id: 'item-live',
+          title: 'Live Page',
+          slug: 'live',
+          location: 'pages/live/index.html',
+          parent: null,
+          indent: 0,
+          metadata: { created: 1609459200, updated: 1609459200 },
+        },
+        {
+          id: 'item-draft',
+          title: 'Draft Page',
+          slug: 'draft',
+          location: 'pages/draft/index.html',
+          parent: null,
+          indent: 0,
+          __body: '<p>secret draft words</p>',
+          metadata: { created: 1704067200, updated: 1704067200, published: false },
+        },
+      ],
+    })
+  }
+
+  test('the sitemap lists only published pages', () => {
+    const { site, tmpRoot } = draftSite()
+    try {
+      const xml = new FeedMe().getSitemap(site, 'https://example.com')
+      assert.ok(xml.includes('<loc>https://example.com/live</loc>'))
+      assert.ok(!xml.includes('draft'))
+    } finally {
+      cleanupSite(tmpRoot)
+    }
+  })
+
+  test('the RSS feed gives nothing about an unpublished page', () => {
+    const { site, tmpRoot } = draftSite()
+    try {
+      const xml = new FeedMe().getRSSFeed(site, 'https://example.com')
+      assert.ok(xml.includes('<title>Live Page</title>'))
+      assert.ok(!xml.includes('Draft Page'))
+      assert.ok(!xml.includes('secret draft words'))
+    } finally {
+      cleanupSite(tmpRoot)
+    }
+  })
+
+  test('the Atom feed gives nothing about an unpublished page', () => {
+    const { site, tmpRoot } = draftSite()
+    try {
+      const xml = new FeedMe().getAtomFeed(site, 'https://example.com')
+      assert.ok(xml.includes('Live Page'))
+      assert.ok(!xml.includes('Draft Page'))
+      assert.ok(!xml.includes('secret draft words'))
+    } finally {
+      cleanupSite(tmpRoot)
+    }
+  })
+
+  test('a published: "false" string counts as unpublished too', () => {
+    const { site, tmpRoot } = draftSite()
+    site.manifest.items[1].metadata.published = 'false'
+    try {
+      assert.ok(!new FeedMe().getSitemap(site, 'https://example.com').includes('draft'))
+    } finally {
+      cleanupSite(tmpRoot)
+    }
+  })
+})
