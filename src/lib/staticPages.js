@@ -31,6 +31,11 @@
 //   page's alternate formats (<slug>.md, .json, ...) are copied from the
 //   page's own sidecar files, the way the live route answers them, and
 //   llms.txt is the static-host copy (no x/api routes)
+// - <slug>.html is the rendered page itself, never the raw content the live
+//   route answers at that address: static hosts (GitHub Pages, Vercel with
+//   clean URLs) answer /<slug> with <slug>.html, so the page's own address
+//   serves the page with a 200 instead of a redirect to /<slug>/. Static
+//   pages link no text/html alternate for the same reason.
 // - STATIC_HOST_LIVE_ONLY names the live-server files a static host must not
 //   ship as they are; callers take those out of what they publish before
 //   writing these entries, which include a static replacement where there
@@ -56,8 +61,12 @@ const { getLicense } = require("./licenses.js");
 
 const STATIC_TEMPLATE = "ghpages.html";
 const MAX_SLUG_LENGTH = 1024;
-// the formats getPageAlternateLinkTags links from a page's head
-const PAGE_VARIANT_FORMATS = ["html", "md", "json", "yaml", "xml"];
+// the formats getPageAlternateLinkTags links from a page's head that a
+// static publish copies; html is left out (<slug>.html is the page itself)
+const PAGE_VARIANT_FORMATS = ["md", "json", "yaml", "xml"];
+// the raw-content text/html alternate getPageAlternateLinkTags writes
+const HTML_ALTERNATE_LINK =
+  /[ \t]*<link rel="alternate" type="text\/html" href="[^"]*" \/>\n?/g;
 // Files the live server answers that describe routes a static host does not
 // have: llms.txt links x/api/v1/site/export/html (renderStaticPages returns
 // a static llms.txt), and .well-known/api-catalog advertises the x/api
@@ -375,7 +384,11 @@ async function renderStaticPages(site, options = {}) {
     if (domain === "") {
       metadata = dropRelativeAddresses(metadata);
     }
-    let html = replaceManagedHeadMarkup(template, metadata, "");
+    let html = replaceManagedHeadMarkup(
+      template,
+      String(metadata).replace(HTML_ALTERNATE_LINK, ""),
+      "",
+    );
     let content = typeof bodyContent === "string" ? bodyContent : "";
     if (item) {
       try {
@@ -426,10 +439,21 @@ async function renderStaticPages(site, options = {}) {
       }
     }
     taken.add(filePath);
-    pages.push({
-      path: filePath,
-      html: await renderPage(item, basePath + "/" + pagePath, pagePath),
-    });
+    const rendered = await renderPage(
+      item,
+      basePath + "/" + pagePath,
+      pagePath,
+    );
+    pages.push({ path: filePath, html: rendered });
+    // the page at its own address: /<slug> is answered with <slug>.html
+    const pageFile = pagePath + ".html";
+    if (
+      !taken.has(pageFile) &&
+      !fs.existsSync(path.join(site.siteDirectory, pageFile))
+    ) {
+      taken.add(pageFile);
+      pages.push({ path: pageFile, html: rendered });
+    }
     // the <slug>.<format> files this page's head links as alternates
     const variants = pageVariantFiles(site, item, pagePath);
     for (let v = 0; v < variants.length; v++) {
@@ -445,15 +469,16 @@ async function renderStaticPages(site, options = {}) {
   const searchTop = path.join(site.siteDirectory, SEARCH_ROUTE.split("/")[0]);
   if (!taken.has(searchPath) && !fs.existsSync(searchTop)) {
     taken.add(searchPath);
-    pages.push({
-      path: searchPath,
-      html: await renderPage(
-        null,
-        basePath + "/" + SEARCH_ROUTE,
-        SEARCH_ROUTE,
-        "<h1>Search</h1>",
-      ),
-    });
+    const searchPage = await renderPage(
+      null,
+      basePath + "/" + SEARCH_ROUTE,
+      SEARCH_ROUTE,
+      "<h1>Search</h1>",
+    );
+    pages.push({ path: searchPath, html: searchPage });
+    // the form opens the address without a "/": answered with the page too
+    taken.add(SEARCH_ROUTE + ".html");
+    pages.push({ path: SEARCH_ROUTE + ".html", html: searchPage });
   }
   if (typeof site.getLLMSTxt === "function") {
     pages.push({
