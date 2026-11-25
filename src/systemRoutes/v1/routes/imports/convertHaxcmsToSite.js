@@ -12,6 +12,8 @@ const {
 const {
   clientSafeErrorDetail,
 } = require("../../../../lib/clientErrorMessage.js");
+const fs = require("fs-extra");
+const { readSiteZip } = require("../../../../lib/siteZip.js");
 
 /**
  * POST /system/api/v1/site/import/:platform
@@ -29,6 +31,11 @@ async function convertHaxcmsToSite(req, res) {
     !Array.isArray(req.body)
   ) {
     body = req.body;
+  }
+
+  // an uploaded site zip (what Download site gives) instead of an address
+  if (req && Array.isArray(req.files) && req.files.length > 0) {
+    return convertHaxcmsZipToSite(req.files[0], res);
   }
 
   if (!body || !body.repoUrl) {
@@ -180,6 +187,52 @@ async function convertHaxcmsToSite(req, res) {
       siteFiles: siteFiles,
     },
   });
+}
+
+/**
+ * The same import from an uploaded HAXcms site zip (multipart, one file).
+ * Returns the URL import's shape plus `site` ({ title, description, theme })
+ * so a caller can keep the site's look. The custom build
+ * (custom/build/custom.es6.js) is not carried: createSite only takes it from
+ * an address (siteFiles).
+ */
+async function convertHaxcmsZipToSite(file, res) {
+  let buffer;
+  try {
+    buffer = fs.readFileSync(file.path);
+  } catch (e) {
+    return res.status(400).json({
+      status: 400,
+      data: {
+        error: `Unable to read uploaded file: ${clientSafeErrorDetail(e)}`,
+        items: [],
+        filename: null,
+      },
+    });
+  }
+  try {
+    const read = await readSiteZip(buffer, getBulkImportStagingRoot());
+    return res.json({
+      status: 200,
+      data: {
+        items: read.items,
+        filename: read.filename,
+        files: read.files,
+        siteFiles: {},
+        site: read.site,
+      },
+    });
+  } catch (e) {
+    return res.status(400).json({
+      status: 400,
+      data: {
+        error: clientSafeErrorDetail(e),
+        code: e && typeof e.code === "string" ? e.code : "INVALID_SITE",
+        items: [],
+        filename: null,
+      },
+    });
+  }
 }
 
 module.exports = { convertHaxcmsToSite };
