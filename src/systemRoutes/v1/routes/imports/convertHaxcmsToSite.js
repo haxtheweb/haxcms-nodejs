@@ -227,7 +227,7 @@ async function convertHaxcmsZipToSite(file, res) {
       status: 400,
       data: {
         error: clientSafeErrorDetail(e),
-        code: e && typeof e.code === "string" ? e.code : "INVALID_SITE",
+        reason: e && typeof e.reason === "string" ? e.reason : "INVALID_SITE",
         items: [],
         filename: null,
       },

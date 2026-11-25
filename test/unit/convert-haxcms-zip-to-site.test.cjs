@@ -122,7 +122,7 @@ for (const prefix of ["", "my-90s-page/"]) {
 test("a file that is not a zip is refused", async () => {
   const res = await run(Buffer.from("<html>not a zip</html>"));
   assert.equal(res.statusCode, 400);
-  assert.equal(res.body.data.code, "NOT_A_ZIP");
+  assert.equal(res.body.data.reason, "NOT_A_ZIP");
 });
 
 test("a zip without site.json is refused", async () => {
@@ -130,7 +130,7 @@ test("a zip without site.json is refused", async () => {
   zip.file("index.html", "<p>hi</p>");
   const res = await run(await zip.generateAsync({ type: "nodebuffer" }));
   assert.equal(res.statusCode, 400);
-  assert.equal(res.body.data.code, "INVALID_SITE");
+  assert.equal(res.body.data.reason, "INVALID_SITE");
 });
 
 test("site.json deeper than one folder is not a site zip", async () => {
@@ -138,13 +138,13 @@ test("site.json deeper than one folder is not a site zip", async () => {
   zip.file("a/b/site.json", JSON.stringify(SITE_JSON));
   const res = await run(await zip.generateAsync({ type: "nodebuffer" }));
   assert.equal(res.statusCode, 400);
-  assert.equal(res.body.data.code, "INVALID_SITE");
+  assert.equal(res.body.data.reason, "INVALID_SITE");
 });
 
 test("site.json without items is refused", async () => {
   const res = await run(await makeZip("", { title: "x" }));
   assert.equal(res.statusCode, 400);
-  assert.equal(res.body.data.code, "INVALID_SITE");
+  assert.equal(res.body.data.reason, "INVALID_SITE");
 });
 
 test("page content comes back as written; sanitizing is createSite's", async () => {

@@ -22,7 +22,7 @@ const { stageFileBuffer } = require("./stageRemoteFile.js");
 function siteZipError(message, code) {
   const err = new Error(message);
   err.status = 400;
-  err.code = code;
+  err.reason = code;
   return err;
 }
 
@@ -75,22 +75,27 @@ function siteRoot(zip) {
  */
 async function readSiteZip(buffer, stagingRoot) {
   if (!hasZipSignature(buffer)) {
-    throw siteZipError("Uploaded file is not a .zip file.", "NOT_A_ZIP");
+    throw siteZipError("Uploaded file is not a valid .zip file.", "NOT_A_ZIP");
   }
-  const bounded = await boundZipBuffer(buffer, "zip");
+  let bounded;
+  try {
+    bounded = await boundZipBuffer(buffer, "zip");
+  } catch (e) {
+    throw siteZipError(
+      e && e.message ? e.message : "Uploaded file is not a valid .zip file.",
+      e && e.code === "ZIP_BUDGET" ? "ZIP_BUDGET" : "NOT_A_ZIP",
+    );
+  }
   const zip = await JSZip.loadAsync(bounded, { createFolders: false });
   const root = siteRoot(zip);
   if (root === null) {
-    throw siteZipError(
-      "The .zip has no site.json at its top or one folder down.",
-      "INVALID_SITE",
-    );
+    throw siteZipError("Invalid site.json structure", "INVALID_SITE");
   }
   let siteJson;
   try {
     siteJson = JSON.parse(await zip.file(root + "site.json").async("string"));
   } catch {
-    throw siteZipError("site.json is not valid JSON.", "INVALID_SITE");
+    throw siteZipError("Invalid site.json structure", "INVALID_SITE");
   }
   if (!siteJson || !Array.isArray(siteJson.items)) {
     throw siteZipError("Invalid site.json structure", "INVALID_SITE");
