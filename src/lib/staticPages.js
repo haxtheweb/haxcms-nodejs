@@ -200,6 +200,44 @@ function insertBeforeShellScripts(html, markup) {
   return html.substring(0, at) + "\n  " + markup + html.substring(at);
 }
 
+// haxtheweb/issues#3428: a shell whose template has the
+// data-haxcms-cdn-preloads script gives each preload hint its address after
+// the head is read, from the place the shell chose for build/ (this site or
+// the CDN). The managed head's hints for build/ and wc-registry.json move
+// their path to data-haxcms-cdn-href so the browser doesn't fetch them from
+// ./ first, which 404s on a host that doesn't ship build/.
+const CDN_PRELOADS_MARKER = "data-haxcms-cdn-preloads";
+
+function deferShellPreloads(metadata) {
+  return String(metadata).replace(/<link [^>]*>/g, (tag) => {
+    if (
+      tag.indexOf(' rel="modulepreload"') === -1 &&
+      tag.indexOf(' rel="preload"') === -1
+    ) {
+      return tag;
+    }
+    const at = tag.indexOf(' href="./');
+    if (at === -1) {
+      return tag;
+    }
+    const end = tag.indexOf('"', at + 7);
+    if (end === -1) {
+      return tag;
+    }
+    const href = tag.substring(at + 7, end);
+    if (href.indexOf("./build/") !== 0 && href !== "./wc-registry.json") {
+      return tag;
+    }
+    return (
+      tag.substring(0, at) +
+      ' data-haxcms-cdn-href="' +
+      href +
+      '"' +
+      tag.substring(end + 1)
+    );
+  });
+}
+
 // a relative canonical or og:url points at the wrong page once the site sits
 // under a path, so without an absolute address the page carries neither
 function dropRelativeAddresses(metadata) {
@@ -384,6 +422,9 @@ async function renderStaticPages(site, options = {}) {
     if (domain === "") {
       metadata = dropRelativeAddresses(metadata);
     }
+    if (template.indexOf(CDN_PRELOADS_MARKER) !== -1) {
+      metadata = deferShellPreloads(metadata);
+    }
     let html = replaceManagedHeadMarkup(
       template,
       String(metadata).replace(HTML_ALTERNATE_LINK, ""),
@@ -532,6 +573,7 @@ function pageVariantFiles(site, item, pagePath) {
 }
 
 module.exports = {
+  deferShellPreloads,
   REMIX_APP,
   SEARCH_ROUTE,
   STATIC_HOST_LIVE_ONLY,
