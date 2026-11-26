@@ -254,6 +254,24 @@ test("shell preloads for build/ and wc-registry.json carry no href in the markup
   assert.ok(head.indexOf(' href="./build.js"') !== -1);
 });
 
+// haxtheweb/issues#3428: a browser only looks for <meta charset> in the
+// first 1024 bytes; the shell's scripts used to push it ~3 KB down
+test("<meta charset> stays the first thing in every page's <head>", async () => {
+  const pages = await renderStaticPages(site);
+  for (const page of pages) {
+    if (!/\.html$/.test(page.path)) {
+      continue;
+    }
+    const at = page.html.indexOf("<meta charset");
+    assert.ok(at !== -1, page.path);
+    assert.ok(at < 1024, page.path + ": <meta charset> at byte " + at);
+    const head = page.html.substring(0, page.html.indexOf("</head>"));
+    assert.ok(at < head.indexOf("<script"), page.path);
+    // and only once
+    assert.equal(head.split("<meta charset").length - 1, 1, page.path);
+  }
+});
+
 // haxtheweb/issues#3428: a fixed import map always sent custom/build/'s
 // @haxtheweb/* imports to the CDN, so a site that ships its own build/ ran
 // two copies of every element its custom theme imported.
