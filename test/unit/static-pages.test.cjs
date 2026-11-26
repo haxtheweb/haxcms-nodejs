@@ -70,6 +70,7 @@ const {
   REMIX_APP,
   SEARCH_ROUTE,
   deferShellPreloads,
+  validStaticCdn,
   STATIC_HOST_LIVE_ONLY,
   remixTerms,
   renderStaticPages,
@@ -254,6 +255,100 @@ test("shell preloads for build/ and wc-registry.json carry no href in the markup
   assert.ok(head.indexOf(' href="./build.js"') !== -1);
 });
 
+// haxtheweb/issues#3429: site:build-static knows where build/ comes from,
+// so the page carries the answer instead of a synchronous check
+test("a known CDN replaces the shell's check, its import map and the hint addresses", async () => {
+  const cdn = "https://cdn.hax.cloud/cdn/";
+  const pages = await renderStaticPages(site, { cdn });
+  for (const page of pages) {
+    if (!/\.html$/.test(page.path)) {
+      continue;
+    }
+    const head = page.html.substring(0, page.html.indexOf("</head>"));
+    assert.equal(head.indexOf("XMLHttpRequest"), -1, page.path);
+    assert.ok(
+      head.indexOf(
+        '<script data-haxcms-cdn-check>globalThis.__appCDN = "https://cdn.hax.cloud/cdn/";</script>',
+      ) !== -1,
+      page.path,
+    );
+    const map = /<script type="importmap">([^<]*)<\/script>/.exec(head);
+    assert.ok(map, page.path);
+    assert.deepEqual(JSON.parse(map[1]), {
+      scopes: {
+        "./custom/build/": {
+          "@haxtheweb/":
+            "https://cdn.hax.cloud/cdn/build/es6/node_modules/@haxtheweb/",
+        },
+      },
+    });
+    // hints go straight to the CDN; nothing is left for the shell to move
+    assert.equal(head.indexOf(' href="./build/'), -1, page.path);
+    assert.equal(head.indexOf("data-haxcms-cdn-href"), -1, page.path);
+    assert.equal(head.indexOf("data-haxcms-cdn-preloads"), -1, page.path);
+    assert.ok(
+      head.indexOf(
+        'rel="modulepreload" href="https://cdn.hax.cloud/cdn/build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js"',
+      ) !== -1,
+      page.path,
+    );
+    assert.ok(
+      head.indexOf('href="https://cdn.hax.cloud/cdn/wc-registry.json"') !== -1,
+      page.path,
+    );
+    // the site's own files stay its own
+    assert.ok(head.indexOf(' href="./build.js"') !== -1, page.path);
+    // <meta charset> still first
+    assert.ok(page.html.indexOf("<meta charset") < 1024, page.path);
+  }
+});
+
+test("a site that ships build/ gets ./ the same way", async () => {
+  const pages = await renderStaticPages(site, { cdn: "./" });
+  const head = byPath(pages, "about/index.html").html;
+  assert.ok(
+    head.indexOf(
+      '<script data-haxcms-cdn-check>globalThis.__appCDN = "./";</script>',
+    ) !== -1,
+  );
+  assert.ok(
+    head.indexOf('"@haxtheweb/":"./build/es6/node_modules/@haxtheweb/"') !== -1,
+  );
+  assert.ok(
+    head.indexOf(
+      'rel="modulepreload" href="./build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js"',
+    ) !== -1,
+  );
+  assert.equal(head.indexOf("XMLHttpRequest"), -1);
+});
+
+test("without a known CDN (or a bad one) the shell keeps its own check", async () => {
+  for (const cdn of [
+    undefined,
+    "",
+    "javascript:alert(1)//",
+    "http://cdn.example/",
+    "https://cdn.example/x",
+    'https://e.example/"/',
+  ]) {
+    const pages = await renderStaticPages(site, { cdn });
+    const head = byPath(pages, "about/index.html").html;
+    assert.ok(head.indexOf("xhr.open('HEAD'") !== -1, String(cdn));
+    assert.ok(head.indexOf("data-haxcms-cdn-preloads") !== -1, String(cdn));
+  }
+  assert.equal(validStaticCdn("./"), "./");
+  assert.equal(
+    validStaticCdn("https://cdn.hax.cloud/cdn/"),
+    "https://cdn.hax.cloud/cdn/",
+  );
+  assert.equal(
+    validStaticCdn("https://cdn.example:8443/"),
+    "https://cdn.example:8443/",
+  );
+  assert.equal(validStaticCdn("https://cdn.example/x"), null);
+  assert.equal(validStaticCdn("http://cdn.example/"), null);
+});
+
 // haxtheweb/issues#3428: a browser only looks for <meta charset> in the
 // first 1024 bytes; the shell's scripts used to push it ~3 KB down
 test("<meta charset> stays the first thing in every page's <head>", async () => {
@@ -283,12 +378,11 @@ test("the shell's import map follows the place it chose for build/", () => {
   // no fixed map in the markup any more
   assert.equal(template.indexOf('<script type="importmap">'), -1);
   const head = template.substring(0, template.indexOf("</head>"));
-  const probe =
-    /<script>\s*\(function\(\) \{\s*var cdn = "\.\/";[\s\S]*?<\/script>/.exec(
-      head,
-    );
+  const probe = /<script data-haxcms-cdn-check>[\s\S]*?<\/script>/.exec(head);
   assert.ok(probe);
-  const code = probe[0].replace(/^<script>/, "").replace(/<\/script>$/, "");
+  const code = probe[0]
+    .replace(/^<script data-haxcms-cdn-check>/, "")
+    .replace(/<\/script>$/, "");
   function run(status) {
     const inserted = [];
     const sandbox = {
