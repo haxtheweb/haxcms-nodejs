@@ -3,6 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const JWT = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
+const { bootImportsMarkup } = require("./bootImports.js");
 const GitPlus = require("./GitPlus.js");
 const { formatCommitMessage, getCommitContext } = require("./commitContext.js");
 const JSONOutlineSchema = require("./JSONOutlineSchema.js");
@@ -3794,6 +3795,7 @@ class HAXCMSSite {
   <link rel="preload" href="${base}wc-registry.json" as="fetch" crossorigin="anonymous" fetchpriority="high" />
 ${shellModulepreload}
 ${themePreload}${contentPreload}${pageDataPreload}
+${bootImportsMarkup(base, themePath)}
   <link rel="preload" href="${base}build/es6/node_modules/@haxtheweb/haxcms-elements/lib/base.css" as="style" />${fontPreload}
   <link rel="llms" href="llms.txt" title="LLM Content Map" />
   <link rel="alternate" type="text/markdown" href="llms.txt" title="Markdown Summary" />
