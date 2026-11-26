@@ -109,7 +109,16 @@ describe("site shell first-paint loading", () => {
       // child's margin can't collapse through it and move when content swaps
       const rules = html.match(/haxcms-site-builder \{[^}]*\}/g) || [];
       assert.ok(rules.length > 0, "haxcms-site-builder rule found");
-      for (const rule of rules) {
+      // rules that only toggle visibility (hidden under the loading screen,
+      // shown without JS, #3428) don't set display
+      const displayRules = rules.filter(
+        (rule) => rule.indexOf("display") !== -1,
+      );
+      assert.ok(
+        displayRules.length > 0,
+        "haxcms-site-builder display rule found",
+      );
+      for (const rule of displayRules) {
         assert.ok(rule.indexOf("display: flow-root") !== -1, rule);
         assert.equal(rule.indexOf("display: block"), -1, rule);
       }

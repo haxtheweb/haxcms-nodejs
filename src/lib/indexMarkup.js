@@ -67,9 +67,22 @@ function replaceManagedHeadMarkup(
     }
     const preservedScriptsMarkup =
       preservedScripts.length > 0 ? preservedScripts.join("\n  ") + "\n  " : "";
+    // haxtheweb/issues#3428: <meta charset> stays the first thing in <head>,
+    // ahead of the preserved scripts. A browser only looks for it in the
+    // first 1024 bytes; behind the base and CDN scripts it sat ~3 KB in, so
+    // a host that sends no charset header made the browser guess and
+    // re-parse the page. (PHP's template keeps it first already.)
+    let charsetMarkup = "";
+    let restMarkup = managedHeadMarkup;
+    const charsetTag = /^\s*(<meta charset[^>]*>)/i.exec(managedHeadMarkup);
+    if (charsetTag) {
+      charsetMarkup = charsetTag[1] + "\n  ";
+      restMarkup = managedHeadMarkup.substring(charsetTag[0].length);
+    }
+    // a function, so a "$" in the metadata is never read as a pattern
     output = output.replace(
       managedHeadPattern,
-      preservedScriptsMarkup + managedHeadMarkup + "\n",
+      () => charsetMarkup + preservedScriptsMarkup + restMarkup + "\n",
     );
     return output;
   }

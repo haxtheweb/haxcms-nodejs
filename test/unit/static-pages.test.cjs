@@ -225,7 +225,8 @@ test("the shell's scripts are kept and the route script runs first", async () =>
   const route = about.indexOf("data-haxcms-static-route");
   const shellBase = about.indexOf("attempt to correctly set the base");
   assert.ok(route !== -1 && shellBase !== -1 && route < shellBase);
-  assert.ok(about.indexOf('<script type="importmap">') !== -1);
+  // the import map is written by the shell's build/ check (#3428)
+  assert.ok(about.indexOf('importmap.type = "importmap"') !== -1);
   assert.ok(about.indexOf("<haxcms-site-builder") !== -1);
   assert.ok(about.indexOf("build-haxcms.js") !== -1);
 });
@@ -251,6 +252,111 @@ test("shell preloads for build/ and wc-registry.json carry no href in the markup
   assert.ok(apply !== -1 && lastHint !== -1 && lastHint < apply);
   // build.js and build-haxcms.js are site files, never from the CDN
   assert.ok(head.indexOf(' href="./build.js"') !== -1);
+});
+
+// haxtheweb/issues#3428: a browser only looks for <meta charset> in the
+// first 1024 bytes; the shell's scripts used to push it ~3 KB down
+test("<meta charset> stays the first thing in every page's <head>", async () => {
+  const pages = await renderStaticPages(site);
+  for (const page of pages) {
+    if (!/\.html$/.test(page.path)) {
+      continue;
+    }
+    const at = page.html.indexOf("<meta charset");
+    assert.ok(at !== -1, page.path);
+    assert.ok(at < 1024, page.path + ": <meta charset> at byte " + at);
+    const head = page.html.substring(0, page.html.indexOf("</head>"));
+    assert.ok(at < head.indexOf("<script"), page.path);
+    // and only once
+    assert.equal(head.split("<meta charset").length - 1, 1, page.path);
+  }
+});
+
+// haxtheweb/issues#3428: a fixed import map always sent custom/build/'s
+// @haxtheweb/* imports to the CDN, so a site that ships its own build/ ran
+// two copies of every element its custom theme imported.
+test("the shell's import map follows the place it chose for build/", () => {
+  const template = fs.readFileSync(
+    path.join(REPO_ROOT, "src", "boilerplate", "site", "ghpages.html"),
+    "utf8",
+  );
+  // no fixed map in the markup any more
+  assert.equal(template.indexOf('<script type="importmap">'), -1);
+  const head = template.substring(0, template.indexOf("</head>"));
+  const probe =
+    /<script>\s*\(function\(\) \{\s*var cdn = "\.\/";[\s\S]*?<\/script>/.exec(
+      head,
+    );
+  assert.ok(probe);
+  const code = probe[0].replace(/^<script>/, "").replace(/<\/script>$/, "");
+  function run(status) {
+    const inserted = [];
+    const sandbox = {
+      XMLHttpRequest: function () {
+        this.open = () => {};
+        this.send = () => {
+          this.status = status;
+        };
+      },
+      document: {
+        createElement: () => ({}),
+        currentScript: { after: (el) => inserted.push(el) },
+      },
+    };
+    sandbox.globalThis = sandbox;
+    vm.runInNewContext(code, sandbox);
+    assert.equal(inserted.length, 1);
+    assert.equal(inserted[0].type, "importmap");
+    return {
+      cdn: sandbox.__appCDN,
+      map: JSON.parse(inserted[0].textContent),
+    };
+  }
+  // no build/ on this host: core and custom/ both come from the CDN
+  const viaCdn = run(404);
+  assert.equal(viaCdn.cdn, "https://cdn.hax.cloud/cdn/");
+  assert.deepEqual(viaCdn.map, {
+    scopes: {
+      "./custom/build/": {
+        "@haxtheweb/":
+          "https://cdn.hax.cloud/cdn/build/es6/node_modules/@haxtheweb/",
+      },
+    },
+  });
+  // the site ships build/: custom/ uses that same copy
+  const local = run(200);
+  assert.equal(local.cdn, "./");
+  assert.deepEqual(local.map, {
+    scopes: {
+      "./custom/build/": {
+        "@haxtheweb/": "./build/es6/node_modules/@haxtheweb/",
+      },
+    },
+  });
+});
+
+// haxtheweb/issues#3428: the server-rendered page is hidden under the
+// loading screen (so the theme taking it over isn't a layout shift), and
+// without JavaScript the loading screen goes and that page shows
+test("the shell hides the rendered page only while loading, and shows it without JS", async () => {
+  const pages = await renderStaticPages(site);
+  const about = byPath(pages, "about/index.html").html;
+  const head = about.substring(0, about.indexOf("</head>"));
+  assert.ok(
+    head.indexOf(
+      'body:has(> #loading[aria-busy="true"]) haxcms-site-builder {',
+    ) !== -1,
+  );
+  const noscript = /<noscript>([\s\S]*?)<\/noscript>/.exec(head);
+  assert.ok(noscript);
+  assert.ok(noscript[1].indexOf("#loading") !== -1);
+  assert.ok(noscript[1].indexOf("display: none !important") !== -1);
+  assert.ok(noscript[1].indexOf("visibility: visible !important") !== -1);
+  // the loading screen starts out busy, so the rule applies from first paint
+  assert.ok(
+    about.indexOf('<section role="status" id="loading" aria-busy="true">') !==
+      -1,
+  );
 });
 
 test("the shell points each deferred hint at the place it chose for build/", async () => {
