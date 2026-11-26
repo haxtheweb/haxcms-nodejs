@@ -142,6 +142,39 @@ test("boundedZip: a normal zip comes back stored with the same entries", async (
   });
 });
 
+test("boundedZip: empty files (STORE and DEFLATE) come back as empty files", async () => {
+  // haxtheweb/issues#3426: JSZip keeps no compressed content for a
+  // zero-length entry, which used to make the whole zip "not a zip"
+  for (const compression of ["STORE", "DEFLATE"]) {
+    const zip = new JSZip();
+    zip.file("site.json", "{}");
+    zip.file("empty.txt", "");
+    zip.file(".nojekyll", "");
+    zip.folder("files");
+    const out = await boundZipBuffer(
+      await zip.generateAsync({ type: "nodebuffer", compression }),
+      "zip",
+    );
+    const back = await JSZip.loadAsync(out);
+    assert.equal(await back.file("site.json").async("string"), "{}");
+    assert.equal((await back.file("empty.txt").async("uint8array")).length, 0);
+    assert.equal((await back.file(".nojekyll").async("uint8array")).length, 0);
+  }
+});
+
+test("boundedZip: an entry that declares 0 bytes but carries data reads back empty, never inflated", async () => {
+  const zip = new JSZip();
+  zip.file("site.json", "{}");
+  zip.file("hidden.txt", " ".repeat(4096));
+  const buffer = patchDeclaredSize(
+    await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }),
+    "hidden.txt",
+    0,
+  );
+  const back = await JSZip.loadAsync(await boundZipBuffer(buffer, "zip"));
+  assert.equal((await back.file("hidden.txt").async("uint8array")).length, 0);
+});
+
 test("boundedZip: a lying header stops at its claim, not at the stream", async () => {
   const bomb = await buildBomb({}, "content.xml", { declare: 100 });
   const before = process.memoryUsage().rss;

@@ -170,6 +170,20 @@ test("an upload over the conversion cap is refused before it is read", async () 
   assert.equal(res.body.data.reason, "ZIP_BUDGET");
 });
 
+test("a site zip with empty files imports (haxtheweb/issues#3426)", async () => {
+  const res = await run(
+    await makeZip("", null, (zip) => {
+      zip.file(".nojekyll", "");
+      zip.file("files/placeholder.txt", "");
+    }),
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(
+    res.body.data.items[0].contents,
+    "<p>Welcome to my homepage</p>",
+  );
+});
+
 test("a file that is not a zip is refused", async () => {
   const res = await run(Buffer.from("<html>not a zip</html>"));
   assert.equal(res.statusCode, 400);

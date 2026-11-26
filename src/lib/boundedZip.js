@@ -54,6 +54,25 @@ function hasZipSignature(buffer) {
 }
 
 /**
+ * True for a zero-length file: JSZip keeps an entry that declares 0 bytes as
+ * an empty string (never its compressed data), so reading it costs nothing
+ * and inflates nothing. Any other entry is not empty.
+ * @param {Object} entry JSZip entry
+ */
+async function isEmptyFile(entry) {
+  const data = entry._data;
+  if (!data || typeof data.then !== "function") {
+    return false;
+  }
+  try {
+    const content = await entry.async("uint8array");
+    return content.length === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Inflate a zip upload under the limits above and return a stored copy of it.
  * @param {Buffer} buffer the uploaded file
  * @param {string} ext file type for messages ("docx", "odt", ...)
@@ -82,11 +101,19 @@ async function boundZipBuffer(buffer, ext = "zip") {
   if (entries.length > MAX_ZIP_ENTRIES) {
     throw zipBudgetError(ext);
   }
-  for (const { entry } of entries) {
+  const empty = new Set();
+  for (const { path, entry } of entries) {
     if (entry.dir) {
       continue;
     }
     const data = entry._data;
+    // a file whose directory entry declares 0 bytes (.nojekyll, a
+    // placeholder) is kept by JSZip as an empty string, not as compressed
+    // data, so nothing of it is ever inflated; it must read back empty
+    if (await isEmptyFile(entry)) {
+      empty.add(path);
+      continue;
+    }
     if (
       !data ||
       typeof data.uncompressedSize !== "number" ||
@@ -105,6 +132,14 @@ async function boundZipBuffer(buffer, ext = "zip") {
   for (const { path, entry } of entries) {
     if (entry.dir) {
       out.folder(path);
+      continue;
+    }
+    if (empty.has(path)) {
+      out.file(path, Buffer.alloc(0), {
+        compression: "STORE",
+        date: entry.date,
+        createFolders: false,
+      });
       continue;
     }
     const data = entry._data;
