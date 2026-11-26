@@ -238,6 +238,78 @@ function deferShellPreloads(metadata) {
   });
 }
 
+// haxtheweb/issues#3429: site:build-static knows where build/ comes from
+// (its output ships a real build/, or it relies on the CDN), so it can write
+// that answer in place of the shell's check, a synchronous HEAD request that
+// blocked every page load. Accepted: "./" or a plain https base ending in "/".
+const CDN_CHECK = /<script data-haxcms-cdn-check>[\s\S]*?<\/script>/;
+const CDN_PRELOADS_SCRIPT =
+  /\s*<script data-haxcms-cdn-preloads>[\s\S]*?<\/script>/;
+
+function validStaticCdn(cdn) {
+  if (cdn === "./") {
+    return cdn;
+  }
+  if (
+    typeof cdn === "string" &&
+    /^https:\/\/[a-z0-9.-]+(:[0-9]+)?\/([a-z0-9._~-]+\/)*$/i.test(cdn)
+  ) {
+    return cdn;
+  }
+  return null;
+}
+
+// the decided shell: where build/ comes from, and the import map that sends
+// custom/build/'s @haxtheweb/* imports to the same place
+function decidedCdnMarkup(cdn) {
+  const map = {
+    scopes: {
+      "./custom/build/": {
+        "@haxtheweb/": cdn + "build/es6/node_modules/@haxtheweb/",
+      },
+    },
+  };
+  return (
+    "<script data-haxcms-cdn-check>globalThis.__appCDN = " +
+    JSON.stringify(cdn) +
+    ';</script>\n  <script type="importmap">' +
+    JSON.stringify(map) +
+    "</script>"
+  );
+}
+
+// the managed head's hints for build/ and wc-registry.json, pointed straight
+// at the decided place (the shell no longer moves them after the check)
+function resolveShellPreloads(metadata, cdn) {
+  return String(metadata).replace(/<link [^>]*>/g, (tag) => {
+    if (
+      tag.indexOf(' rel="modulepreload"') === -1 &&
+      tag.indexOf(' rel="preload"') === -1
+    ) {
+      return tag;
+    }
+    const at = tag.indexOf(' href="./');
+    if (at === -1) {
+      return tag;
+    }
+    const end = tag.indexOf('"', at + 7);
+    if (end === -1) {
+      return tag;
+    }
+    const href = tag.substring(at + 7, end);
+    if (href.indexOf("./build/") !== 0 && href !== "./wc-registry.json") {
+      return tag;
+    }
+    return (
+      tag.substring(0, at) +
+      ' href="' +
+      escapeHtml(cdn + href.substring(2)) +
+      '"' +
+      tag.substring(end + 1)
+    );
+  });
+}
+
 // a relative canonical or og:url points at the wrong page once the site sits
 // under a path, so without an absolute address the page carries neither
 function dropRelativeAddresses(metadata) {
@@ -398,6 +470,10 @@ async function renderStaticPages(site, options = {}) {
     domain = options.domain;
   }
   const basePath = domainBasePath(domain);
+  // where build/ comes from, when the caller knows (#3429); only a shell
+  // that carries the marked check can take the answer
+  const cdn = validStaticCdn(options.cdn);
+  const decided = cdn !== null && CDN_CHECK.test(template);
   const regionIds =
     typeof site.getThemeRegionItemIds === "function"
       ? site.getThemeRegionItemIds()
@@ -422,7 +498,9 @@ async function renderStaticPages(site, options = {}) {
     if (domain === "") {
       metadata = dropRelativeAddresses(metadata);
     }
-    if (template.indexOf(CDN_PRELOADS_MARKER) !== -1) {
+    if (decided) {
+      metadata = resolveShellPreloads(metadata, cdn);
+    } else if (template.indexOf(CDN_PRELOADS_MARKER) !== -1) {
       metadata = deferShellPreloads(metadata);
     }
     let html = replaceManagedHeadMarkup(
@@ -430,6 +508,12 @@ async function renderStaticPages(site, options = {}) {
       String(metadata).replace(HTML_ALTERNATE_LINK, ""),
       "",
     );
+    if (decided) {
+      // the answer in place of the check, and nothing left to move
+      html = html
+        .replace(CDN_CHECK, () => decidedCdnMarkup(cdn))
+        .replace(CDN_PRELOADS_SCRIPT, "");
+    }
     let content = typeof bodyContent === "string" ? bodyContent : "";
     if (item) {
       try {
@@ -573,6 +657,7 @@ function pageVariantFiles(site, item, pagePath) {
 }
 
 module.exports = {
+  validStaticCdn,
   deferShellPreloads,
   REMIX_APP,
   SEARCH_ROUTE,
