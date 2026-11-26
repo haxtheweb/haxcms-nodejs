@@ -1,6 +1,5 @@
 "use strict";
 
-const path = require("path");
 const fs = require("fs-extra");
 const JSZip = require("jszip");
 const { boundZipBuffer, hasZipSignature } = require("./boundedZip.js");
@@ -38,77 +37,13 @@ function siteZipImportEnabled() {
   );
 }
 
-const MAX_SITE_ITEMS = 5000;
-const ITEM_ID = /^[A-Za-z0-9_.:-]{1,255}$/;
-const CUSTOM_BUILD = "custom/build/custom.es6.js";
+// What the importer accepts lives in one dependency-free file that
+// generators run too (haxtheweb/issues#3426), so they and this importer
+// cannot disagree: lib/shared/hax-site-check.js, served by browser.hax.cloud
+// as /hax-site-check.js.
+const siteCheck = require("./shared/hax-site-check.js");
+const { siteRelativePath, isSiteOutline, CUSTOM_BUILD } = siteCheck;
 const BOILERPLATE_CUSTOM_ES6 = "// custom comment script here";
-
-function isPlainObject(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function optional(value, type) {
-  return (
-    typeof value === "undefined" || value === null || typeof value === type
-  );
-}
-
-// True when site.json is a HAXcms site outline (JSON Outline Schema as
-// HAXcms writes it): a list of pages, each with a safe unique id, its HTML
-// under pages/, and any files it names under files/. Anything else is not a
-// site and is refused whole, before a page or file is read.
-function isSiteOutline(site) {
-  if (
-    !isPlainObject(site) ||
-    !Array.isArray(site.items) ||
-    site.items.length === 0 ||
-    site.items.length > MAX_SITE_ITEMS ||
-    !optional(site.title, "string") ||
-    !optional(site.description, "string") ||
-    !(typeof site.metadata === "undefined" || isPlainObject(site.metadata))
-  ) {
-    return false;
-  }
-  const ids = new Set();
-  for (const item of site.items) {
-    if (!isPlainObject(item) || typeof item.id !== "string") {
-      return false;
-    }
-    if (!ITEM_ID.test(item.id) || ids.has(item.id)) {
-      return false;
-    }
-    ids.add(item.id);
-    const location = siteRelativePath(item.location);
-    if (!/^pages\/.+\.html$/.test(location)) {
-      return false;
-    }
-    if (
-      !optional(item.title, "string") ||
-      !optional(item.slug, "string") ||
-      !optional(item.parent, "string") ||
-      !optional(item.indent, "number") ||
-      !optional(item.order, "number") ||
-      !(typeof item.metadata === "undefined" || isPlainObject(item.metadata))
-    ) {
-      return false;
-    }
-    const files = item.metadata ? item.metadata.files : undefined;
-    if (typeof files !== "undefined") {
-      if (!Array.isArray(files)) {
-        return false;
-      }
-      for (const file of files) {
-        if (
-          !isPlainObject(file) ||
-          !/^files\/./.test(siteRelativePath(file.url))
-        ) {
-          return false;
-        }
-      }
-    }
-  }
-  return true;
-}
 
 function siteZipError(message, code) {
   const err = new Error(message);
@@ -117,45 +52,16 @@ function siteZipError(message, code) {
   return err;
 }
 
-// a relative path from site.json that stays inside the site folder, or ""
-function siteRelativePath(value) {
-  if (typeof value !== "string" || value === "" || value.length > 1024) {
-    return "";
-  }
-  if (/^[a-z][a-z0-9+.-]*:/i.test(value) || value.indexOf("\\") !== -1) {
-    return "";
-  }
-  const cleaned = value.split("?")[0].split("#")[0];
-  const normalized = path.posix.normalize(cleaned.replace(/^\.\//, ""));
-  if (
-    normalized === "" ||
-    normalized === "." ||
-    normalized.startsWith("/") ||
-    normalized === ".." ||
-    normalized.startsWith("../")
-  ) {
-    return "";
-  }
-  return normalized;
-}
-
 // the folder in the zip that holds site.json: "" at the top, "name/" one
 // folder down; anything deeper is not a site zip
 function siteRoot(zip) {
-  if (zip.file("site.json")) {
-    return "";
-  }
-  let found = null;
+  const paths = [];
   zip.forEach((entryPath, entry) => {
-    if (found !== null || entry.dir) {
-      return;
-    }
-    const parts = entryPath.split("/");
-    if (parts.length === 2 && parts[1] === "site.json" && parts[0] !== "") {
-      found = parts[0] + "/";
+    if (!entry.dir) {
+      paths.push(entryPath);
     }
   });
-  return found;
+  return siteCheck.siteRoot(paths);
 }
 
 /**
