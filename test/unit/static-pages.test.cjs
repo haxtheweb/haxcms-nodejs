@@ -69,6 +69,7 @@ const { HAXCMS } = require("../../src/lib/HAXCMS.js");
 const {
   REMIX_APP,
   SEARCH_ROUTE,
+  deferShellPreloads,
   STATIC_HOST_LIVE_ONLY,
   remixTerms,
   renderStaticPages,
@@ -227,6 +228,122 @@ test("the shell's scripts are kept and the route script runs first", async () =>
   assert.ok(about.indexOf('<script type="importmap">') !== -1);
   assert.ok(about.indexOf("<haxcms-site-builder") !== -1);
   assert.ok(about.indexOf("build-haxcms.js") !== -1);
+});
+
+// haxtheweb/issues#3428: an href in the markup is fetched as soon as the
+// browser sees it, before the shell has chosen where build/ is served from,
+// so a host without build/ answered every hint with a 404.
+test("shell preloads for build/ and wc-registry.json carry no href in the markup", async () => {
+  const pages = await renderStaticPages(site);
+  const about = byPath(pages, "about/index.html").html;
+  const head = about.substring(0, about.indexOf("</head>"));
+  assert.equal(head.indexOf(' href="./build/'), -1);
+  assert.equal(head.indexOf(' href="./wc-registry.json"'), -1);
+  assert.ok(
+    head.indexOf(
+      '<link rel="modulepreload" data-haxcms-cdn-href="./build/es6/node_modules/@haxtheweb/wc-autoload/wc-autoload.js"',
+    ) !== -1,
+  );
+  assert.ok(head.indexOf('data-haxcms-cdn-href="./wc-registry.json"') !== -1);
+  // the script that gives them an address runs after every hint
+  const apply = head.indexOf("<script data-haxcms-cdn-preloads>");
+  const lastHint = head.lastIndexOf("data-haxcms-cdn-href=");
+  assert.ok(apply !== -1 && lastHint !== -1 && lastHint < apply);
+  // build.js and build-haxcms.js are site files, never from the CDN
+  assert.ok(head.indexOf(' href="./build.js"') !== -1);
+});
+
+test("the shell points each deferred hint at the place it chose for build/", async () => {
+  const template = fs.readFileSync(
+    path.join(REPO_ROOT, "src", "boilerplate", "site", "ghpages.html"),
+    "utf8",
+  );
+  const match = /<script data-haxcms-cdn-preloads>([\s\S]*?)<\/script>/.exec(
+    template,
+  );
+  assert.ok(match);
+  function run(cdn, paths) {
+    const links = (
+      paths || ["./build/es6/node_modules/lit/index.js", "./wc-registry.json"]
+    ).map((value) => {
+      const attrs = { "data-haxcms-cdn-href": value };
+      return {
+        attrs,
+        getAttribute: (name) => attrs[name],
+        setAttribute: (name, val) => {
+          attrs[name] = val;
+        },
+      };
+    });
+    const sandbox = {
+      document: { querySelectorAll: () => links },
+    };
+    sandbox.globalThis = sandbox;
+    if (cdn) {
+      sandbox.__appCDN = cdn;
+    }
+    vm.runInNewContext(match[1], sandbox);
+    return links.map((link) => link.attrs.href);
+  }
+  assert.deepEqual(run("https://cdn.hax.cloud/cdn/"), [
+    "https://cdn.hax.cloud/cdn/build/es6/node_modules/lit/index.js",
+    "https://cdn.hax.cloud/cdn/wc-registry.json",
+  ]);
+  assert.deepEqual(run("./"), [
+    "./build/es6/node_modules/lit/index.js",
+    "./wc-registry.json",
+  ]);
+  assert.deepEqual(run(null), [
+    "./build/es6/node_modules/lit/index.js",
+    "./wc-registry.json",
+  ]);
+  // only the shell's own files get an address: nothing with a scheme, no
+  // other host, no climbing out of build/
+  assert.deepEqual(
+    run("https://cdn.hax.cloud/cdn/", [
+      "javascript:alert(1)",
+      "//evil.example/build/x.js",
+      "./build/../../x.js",
+      "https://evil.example/build/x.js",
+      "./custom/build/custom.es6.js",
+    ]),
+    [undefined, undefined, undefined, undefined, undefined],
+  );
+});
+
+test("deferShellPreloads only moves build/ and wc-registry.json hints", () => {
+  const input = [
+    '<link rel="preload" href="./build.js" as="script" />',
+    '<link rel="modulepreload" href="./build/es6/node_modules/lit/index.js" crossorigin="anonymous" />',
+    '<link rel="preload" href="./wc-registry.json" as="fetch" crossorigin="anonymous" />',
+    '<link rel="preload" href="./pages/item-1/index.html" as="fetch" />',
+    '<link rel="modulepreload" href="./custom/build/custom.es6.js" />',
+    '<link rel="modulepreload" href="https://cdn.hax.cloud/cdn/build/es6/x.js" />',
+    '<link rel="icon" href="./build/es6/icon.png" />',
+  ].join("\n");
+  const out = deferShellPreloads(input).split("\n");
+  assert.equal(out[0], '<link rel="preload" href="./build.js" as="script" />');
+  assert.equal(
+    out[1],
+    '<link rel="modulepreload" data-haxcms-cdn-href="./build/es6/node_modules/lit/index.js" crossorigin="anonymous" />',
+  );
+  assert.equal(
+    out[2],
+    '<link rel="preload" data-haxcms-cdn-href="./wc-registry.json" as="fetch" crossorigin="anonymous" />',
+  );
+  assert.equal(
+    out[3],
+    '<link rel="preload" href="./pages/item-1/index.html" as="fetch" />',
+  );
+  assert.equal(
+    out[4],
+    '<link rel="modulepreload" href="./custom/build/custom.es6.js" />',
+  );
+  assert.equal(
+    out[5],
+    '<link rel="modulepreload" href="https://cdn.hax.cloud/cdn/build/es6/x.js" />',
+  );
+  assert.equal(out[6], '<link rel="icon" href="./build/es6/icon.png" />');
 });
 
 test("without an absolute address there is no canonical or og:url", async () => {
