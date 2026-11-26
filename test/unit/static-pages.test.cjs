@@ -262,11 +262,10 @@ test("the shell points each deferred hint at the place it chose for build/", asy
     template,
   );
   assert.ok(match);
-  function run(cdn) {
-    const links = [
-      "./build/es6/node_modules/lit/index.js",
-      "./wc-registry.json",
-    ].map((value) => {
+  function run(cdn, paths) {
+    const links = (
+      paths || ["./build/es6/node_modules/lit/index.js", "./wc-registry.json"]
+    ).map((value) => {
       const attrs = { "data-haxcms-cdn-href": value };
       return {
         attrs,
@@ -298,6 +297,18 @@ test("the shell points each deferred hint at the place it chose for build/", asy
     "./build/es6/node_modules/lit/index.js",
     "./wc-registry.json",
   ]);
+  // only the shell's own files get an address: nothing with a scheme, no
+  // other host, no climbing out of build/
+  assert.deepEqual(
+    run("https://cdn.hax.cloud/cdn/", [
+      "javascript:alert(1)",
+      "//evil.example/build/x.js",
+      "./build/../../x.js",
+      "https://evil.example/build/x.js",
+      "./custom/build/custom.es6.js",
+    ]),
+    [undefined, undefined, undefined, undefined, undefined],
+  );
 });
 
 test("deferShellPreloads only moves build/ and wc-registry.json hints", () => {
