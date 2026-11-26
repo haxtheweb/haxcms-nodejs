@@ -303,6 +303,38 @@ test("a known CDN replaces the shell's check, its import map and the hint addres
   }
 });
 
+// haxtheweb/issues#3431: the builder and the theme start loading while the
+// page parses, from the place the CDN check (above it) chose
+test("every page starts the builder and the theme after the CDN check", async () => {
+  const theme = String(
+    (site.manifest.metadata.theme && site.manifest.metadata.theme.path) || "",
+  );
+  const pages = await renderStaticPages(site, {
+    cdn: "https://cdn.hax.cloud/cdn/",
+  });
+  for (const page of pages) {
+    if (!/\.html$/.test(page.path)) {
+      continue;
+    }
+    const head = page.html.substring(0, page.html.indexOf("</head>"));
+    const boot = head.indexOf("<script data-haxcms-boot>");
+    assert.ok(boot !== -1, page.path);
+    assert.equal(head.indexOf("<script data-haxcms-boot>", boot + 1), -1);
+    assert.ok(head.indexOf("data-haxcms-cdn-check") < boot, page.path);
+    assert.ok(head.indexOf('<script type="importmap">') < boot, page.path);
+    assert.ok(
+      head.indexOf(
+        '"@haxtheweb/haxcms-elements/lib/core/haxcms-site-builder.js"',
+        boot,
+      ) !== -1,
+      page.path,
+    );
+    if (theme) {
+      assert.ok(head.indexOf(JSON.stringify(theme), boot) !== -1, page.path);
+    }
+  }
+});
+
 test("a site that ships build/ gets ./ the same way", async () => {
   const pages = await renderStaticPages(site, { cdn: "./" });
   const head = byPath(pages, "about/index.html").html;
@@ -436,9 +468,11 @@ test("the shell hides the rendered page only while loading, and shows it without
   const pages = await renderStaticPages(site);
   const about = byPath(pages, "about/index.html").html;
   const head = about.substring(0, about.indexOf("</head>"));
+  // the theme is named too: themes reveal themselves with their own :host
+  // visibility, which overrode the hidden they inherit (haxtheweb/issues#3431)
   assert.ok(
     head.indexOf(
-      'body:has(> #loading[aria-busy="true"]) haxcms-site-builder {',
+      'body:has(> #loading[aria-busy="true"]) haxcms-site-builder,\n    body:has(> #loading[aria-busy="true"]) haxcms-site-builder > .haxcms-theme-element {\n      visibility: hidden;',
     ) !== -1,
   );
   const noscript = /<noscript>([\s\S]*?)<\/noscript>/.exec(head);
