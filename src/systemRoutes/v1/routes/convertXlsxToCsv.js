@@ -2,9 +2,9 @@
 // replaces xlsx@0.18.5 (npm) which has prototype pollution + ReDoS with NO npm fix
 const XLSX = require("../../../lib/vendor/xlsx/xlsx.js");
 const {
-  boundZipBuffer,
-  hasZipSignature,
-} = require("../../../lib/boundedZip.js");
+  readSpreadsheet,
+  spreadsheetExtension,
+} = require("../../../lib/spreadsheetUpload.js");
 const fs = require("fs-extra");
 // Security (SEC-ROUTE): client-safe exception text (no paths / stack internals)
 const { clientSafeErrorDetail } = require("../../../lib/clientErrorMessage.js");
@@ -170,15 +170,14 @@ async function convertXlsxToCsv(req, res) {
       });
     }
 
-    // Security (SEC-DOS, SEC-UPLOAD): xlsx and ods are zips; inflate them
-    // under the shared byte limits before SheetJS reads them (.xls is not a zip)
-    const workbookInput = hasZipSignature(buffer)
-      ? await boundZipBuffer(
-          buffer,
-          (/\.([a-z]+)$/i.exec(originalname || "") || [])[1] || "xlsx",
-        )
-      : buffer;
-    const workbook = XLSX.read(workbookInput, { type: "buffer" });
+    // Security (SEC-UPLOAD, SEC-DOS): read only as the format the
+    // extension names, after the content is shown to be that format and
+    // (for the zip formats) inflated under boundedZip's limits
+    const workbook = await readSpreadsheet(
+      buffer,
+      spreadsheetExtension(originalname, ["xlsx"]),
+      {},
+    );
     const sheetNames = workbook.SheetNames;
     const sheetName = req.query && req.query.sheet ? req.query.sheet : null;
     let selectedSheetName = sheetName;
