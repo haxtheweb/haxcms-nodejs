@@ -228,3 +228,49 @@ test('a valid workbook converts rows into ordered items with parent resolution',
   assert.equal(items[2].parent, null)
   assert.equal(items[2].indent, 0)
 })
+
+// Security (SEC-UPLOAD): the format is the one the extension names, never
+// guessed from the bytes. SheetJS would otherwise read text, CSV or HTML
+// named .xlsx / .xls / .ods (same rule as haxcms-php HAXCMSSpreadsheetUpload).
+test('content that is not the named spreadsheet format is refused', async () => {
+  const cases = {
+    'csv.xlsx': 'Title,Slug,Parent,Content\nGuessed,guessed,,<p>x</p>\n',
+    'page.xls':
+      '<table><tr><td>Title</td><td>Slug</td></tr><tr><td>Guessed</td><td>guessed</td></tr></table>',
+    'sheet.ods': 'Title\tSlug\nGuessed\tguessed\n',
+  }
+  for (const name of Object.keys(cases)) {
+    const file = path.join(tmpDir, 'guess-' + name)
+    fs.writeFileSync(file, cases[name])
+    const res = stubRes()
+    await importXlsx(uploadReq({ originalname: name, path: file }), res)
+    const ext = name.slice(name.lastIndexOf('.') + 1)
+    assert.equal(res.statusCode, 400, name)
+    assert.equal(
+      res.body.data.error,
+      'Error processing Excel import: Uploaded file is not a valid .' +
+        ext +
+        ' file',
+      name,
+    )
+    assert.deepEqual(res.body.data.items, [], name)
+  }
+})
+
+test('a workbook is read only as the format its extension names', async () => {
+  const file = path.join(tmpDir, 'renamed.ods')
+  fs.writeFileSync(
+    file,
+    buildXlsxBuffer([
+      ['Title', 'Slug', 'Parent', 'Content'],
+      ['Solo', 'solo', '', '<p>one</p>'],
+    ]),
+  )
+  const res = stubRes()
+  await importXlsx(uploadReq({ originalname: 'book.ods', path: file }), res)
+  assert.equal(res.statusCode, 400)
+  assert.equal(
+    res.body.data.error,
+    'Error processing Excel import: Uploaded file is not a valid .ods file',
+  )
+})

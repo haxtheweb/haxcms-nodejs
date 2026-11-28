@@ -100,8 +100,14 @@ function getUsernameSettings(settings) {
 }
 
 // Combined view used by the login route and the basic-auth path: both the
-// ip::username entry and the username entry are consulted; a block on either
-// blocks the attempt, a failure is registered on both, success clears both.
+// ip::username entry and the username entry are consulted, a failure is
+// registered on both, success clears both.
+// Security (SEC-RATELIMIT): a blocked username only refuses clients that have
+// already failed against it in this window. A client with no failures for
+// the account (the owner on their own connection) can still sign in, so
+// failed guesses alone can never lock the owner out; while the account is
+// under attack every guessing client gets one attempt per block. Same rule
+// as haxcms-php HAXCMS::loginThrottleRetryAfter.
 function getLoginAttempt(req, username, now, settings) {
   const ipKey = getAttemptKey(req, username);
   const userKey = getUsernameAttemptKey(username);
@@ -110,6 +116,11 @@ function getLoginAttempt(req, username, now, settings) {
   const userEntry = userSettings.enabled
     ? getTrackerEntry(userKey, now, userSettings)
     : null;
+  const userBlocks = function () {
+    return (
+      !!userEntry && !!isBlocked(userEntry, now) && ipEntry.failedAttempts > 0
+    );
+  };
   return {
     ipKey: ipKey,
     userKey: userKey,
@@ -120,18 +131,14 @@ function getLoginAttempt(req, username, now, settings) {
       if (isBlocked(ipEntry, now)) {
         return true;
       }
-      return userEntry ? !!isBlocked(userEntry, now) : false;
+      return userBlocks();
     },
     blockedUntil: function () {
       var until = 0;
       if (isBlocked(ipEntry, now)) {
         until = ipEntry.blockedUntil;
       }
-      if (
-        userEntry &&
-        isBlocked(userEntry, now) &&
-        userEntry.blockedUntil > until
-      ) {
+      if (userBlocks() && userEntry.blockedUntil > until) {
         until = userEntry.blockedUntil;
       }
       return until;

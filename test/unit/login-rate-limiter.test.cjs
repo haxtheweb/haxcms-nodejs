@@ -335,22 +335,56 @@ test("rotating source addresses against one username is still blocked", () => {
   const fiftieth = getLoginAttempt({ ip: "10.0.1.1" }, user, now, settings);
   assert.equal(fiftieth.isBlocked(), false);
   fiftieth.registerFailure();
-  // the 50th failure trips the username counter for every address
-  const fresh = getLoginAttempt({ ip: "192.168.9.9" }, user, now, settings);
-  assert.equal(fresh.isBlocked(), true);
-  assert.ok(fresh.blockedUntil() > now);
+  // the 50th failure trips the username counter for every guessing address
+  for (let i = 0; i < 49; i++) {
+    const again = getLoginAttempt({ ip: "10.0.0." + i }, user, now, settings);
+    assert.equal(again.isBlocked(), true, "guessing address " + i);
+    assert.ok(again.blockedUntil() > now);
+  }
+  // a new guessing address gets exactly one attempt while the block lasts
+  const newcomer = getLoginAttempt({ ip: "10.0.2.2" }, user, now, settings);
+  assert.equal(newcomer.isBlocked(), false);
+  newcomer.registerFailure();
+  assert.equal(
+    getLoginAttempt({ ip: "10.0.2.2" }, user, now, settings).isBlocked(),
+    true,
+  );
   // a different username is unaffected
   const other = getLoginAttempt(
-    { ip: "192.168.9.9" },
+    { ip: "10.0.0.1" },
     user + "-other",
     now,
     settings,
   );
   assert.equal(other.isBlocked(), false);
+});
+
+test("a blocked username still lets a client with no failures sign in", () => {
+  const user = "owner-" + Date.now();
+  const settings = {
+    enabled: true,
+    windowMs: 60000,
+    maxAttempts: 5,
+    blockMs: 60000,
+  };
+  const now = Date.now();
+  for (let i = 0; i < 50; i++) {
+    getLoginAttempt(
+      { ip: "10.1.0." + i },
+      user,
+      now,
+      settings,
+    ).registerFailure();
+  }
+  // the owner, from an address with no failures for the account, is never
+  // locked out by someone else's guessing
+  const owner = getLoginAttempt({ ip: "192.168.9.9" }, user, now, settings);
+  assert.equal(owner.isBlocked(), false);
+  assert.equal(owner.blockedUntil(), 0);
   // success clears both counters
-  fresh.clear();
+  owner.clear();
   assert.equal(
-    getLoginAttempt({ ip: "192.168.9.9" }, user, now, settings).isBlocked(),
+    getLoginAttempt({ ip: "10.1.0.1" }, user, now, settings).isBlocked(),
     false,
   );
 });

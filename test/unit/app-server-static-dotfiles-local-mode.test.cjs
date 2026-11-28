@@ -213,6 +213,35 @@ test("site .git is not reachable directly or through .well-known traversal", asy
   }
 });
 
+test("a site's upload index files/files.json is never served as a static file", async () => {
+  const filesDir = path.join(sitesRoot, SITE_NAME, "files");
+  fs.ensureDirSync(filesDir);
+  fs.writeFileSync(
+    path.join(filesDir, "files.json"),
+    JSON.stringify({ data: { files: [{ name: "private-draft.pdf" }] } }),
+  );
+  fs.writeFileSync(path.join(filesDir, "notes.txt"), "public upload\n");
+  const attempts = [
+    "/_sites/" + SITE_NAME + "/files/files.json",
+    "/_sites/" + SITE_NAME + "/files/files.json?x=1",
+    "/_sites/" + SITE_NAME + "/files/files%2ejson",
+    "/_sites/" + SITE_NAME + "/%66iles/files.json",
+    "/_sites/" + SITE_NAME + "/FILES/FILES.JSON",
+  ];
+  for (let i = 0; i < attempts.length; i++) {
+    const res = await rawRequest("GET", attempts[i]);
+    assert.equal(res.status, 404, attempts[i]);
+    assert.doesNotMatch(res.body, /private-draft/, attempts[i]);
+  }
+  // uploads themselves still serve
+  const upload = await rawRequest(
+    "GET",
+    "/_sites/" + SITE_NAME + "/files/notes.txt",
+  );
+  assert.equal(upload.status, 200);
+  assert.match(upload.body, /public upload/);
+});
+
 test("local mode refuses cross-site writes", async () => {
   const res = await rawRequest(
     "POST",

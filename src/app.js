@@ -1313,6 +1313,12 @@ function isSensitiveStaticPath(url = "") {
     if (SENSITIVE_STATIC_BASENAMES.indexOf(segment) !== -1) {
       return true;
     }
+    // Security (SEC-DEPLOY): a site's upload index is backend data; editors
+    // read it through the site API (GET v1/files). Same rule as the
+    // haxcms-php files/.htaccess, root .htaccess and nginx config.
+    if (segment === "files.json" && i > 0 && segments[i - 1] === "files") {
+      return true;
+    }
   }
   return false;
 }

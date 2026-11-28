@@ -11,6 +11,18 @@ Options -ExecCGI
     Deny from all
   </FilesMatch>
 </IfModule>
+# Security (SEC-DEPLOY): files.json is the server's index of this site's
+# uploads, read and written by the backend only; the site API serves it to
+# signed-in editors (GET v1/files). It is never served as a static file.
+<Files "files.json">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</Files>
 # Security (SEC-UPLOAD): uploaded browser-renderable markup (html, htm, xhtml,
 # xml, svg; case-insensitive, same list as the HAXcms root .htaccess and
 # haxcms-nodejs) is always downloaded, never rendered inline in the site
